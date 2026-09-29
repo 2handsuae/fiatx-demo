@@ -191,7 +191,7 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 
 ### 一张 PAY 历史单（HexTrust，AED 2,500，新增码 87 一条分录）
 
-`payNo=PAY2601015456`：挂 `vendor-hextrust`（`vendorNo=VEN2601017083`），`payeeAccountRef='AE07 0331 2345 6789 0123 456 (HexTrust AED settlement)'`，`purposeNote='HexTrust 2026-08 custody fee'`，`prudentialPurpose='Discharge outsourced custody service fee obligation'`，`status=SUCCESS`。审批单 `APR2601011194`（`VENDOR_PAYMENT_APPROVAL`，CFO 单步 APPROVED）。资金单 `FDO2601011571`（direction OUT，终态 `CLEARED`，`referenceNo=ZB202608317AB0AB0088`，`fakeBankRef` 派生）。`effectiveDate` 取上月末（业务日，相对种子运行时刻——与 `purposeNote` 的叙事月份一致）。
+`payNo=PAY2601015456`：挂 `vendor-hextrust`（`vendorNo=VEN2601017083`），`payeeAccountRef='AE07 0331 2345 6789 0123 456 (HexTrust AED settlement)'`，`purposeNote='HexTrust 2026-08 custody fee'`，`prudentialPurpose='Discharge outsourced custody service fee obligation'`，`status=SUCCESS`。审批单 `APR2601011194`（`VENDOR_PAYMENT_APPROVAL`，CFO 单步 APPROVED）。资金单 `FDO2601011571`（direction OUT，终态 `CLEARED`，`referenceNo=ZB202608317AB0AB0088`，`fakeBankRef` 派生）。`effectiveDate`/`executedAt`/`settledAt` 钉死常量 `2026-08-31T08:00:00Z`（评审 Imp#1 修复轮：初版按「种子运行时刻的上月末」动态算，与写死的 `purposeNote` 叙事月份必然脱钩、且绕开了 `business-date.util`——改钉固定时刻后 `effectiveDate=2026-08-31`，与 `purposeNote` 逐字对应，不再随重铺月份漂移）。
 
 账本新增一条：code 87 `VENDOR_PAYMENT`，DR `E.FIRM_OPS` / CR `A.FIRM_ASSET`，AED ledger，2,500.00 元（250,000 分）——`deterministicTransferId('SEED_VENDOR_PAYMENT', 'AED', 'VENDOR_PAYMENT', 0)`；配 1 条 `tbTransferEvidence` + 2 条 `accountFlow` 镜像（debit→OUT / credit→IN，同 LP 卖出腿 84 先例）。
 

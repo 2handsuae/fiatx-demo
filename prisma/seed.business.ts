@@ -2600,11 +2600,14 @@ async function seedCompanyFunding(prisma: PrismaClient): Promise<void> {
   const payImpact = `Pay ${payAmountFormatted} ${aedAsset.currency} to outsourcing vendor ${vendor.vendorNo} (${vendor.name}) `
     + `(purpose: ${payPrudentialPurpose}); the firm's ${aedAsset.currency} operating balance decreases once the payment clears`;
 
-  // effectiveDate = 上月末（业务日，相对种子运行时刻的「上一个自然月最后一天」，正午取值
-  // 避开 UTC/迪拜业务日边界）——与 purposeNote 的叙事月份（HexTrust 2026-08 custody fee）
-  // 逐字对应：本任务落地当月（2026-09）的上月末即 2026-08-31。
-  const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 12, 0, 0);
-  const payAt = prevMonthEnd;
+  // effectiveDate 钉死 2026-08-31（评审 Imp#1 修复轮，甲案）：此前按「种子运行时刻的上月末」
+  // 动态算，与写死的 purposeNote 叙事月份（'HexTrust 2026-08 custody fee'）必然脱钩——
+  // 2026-10-01 起重铺会把 referenceNo/effectiveDate 漂到 9 月，事由仍留在 8 月，且当时用
+  // getFullYear()/getMonth() 本机时区直拼日期，绕开了项目明令业务日边界只许经过的
+  // business-date.util。改照 LP 腿 1（seedLpDesk 的 executedAt 常量）先例：不跟种子运行
+  // 时刻走，钉一个固定时刻，事由/业务日/外部参考/baseline 判据从此永远一致，时区问题
+  // 一并消失。
+  const payAt = new Date('2026-08-31T08:00:00Z');
   const effectiveDate = toBusinessDate(payAt);
 
   const payTraceId = `SEED_VENDOR_PAYMENT_${payNo}`;
