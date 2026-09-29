@@ -103,6 +103,9 @@ export const ApprovalActionTypes = {
   // INTERNAL_TRANSFER_APPROVAL/LP_EXCHANGE_APPROVAL 同形状。挂在 CapitalInjection 主体
   // （entityRef=cinNo）。
   CAPITAL_INJECTION_APPROVAL: 'CAPITAL_INJECTION_APPROVAL',
+  // 战役乙波二 T5（2026-09-29）：付款单发起——金库提、CFO 单步批，复刻
+  // CAPITAL_INJECTION_APPROVAL 同形状。挂在 VendorPayment 主体（entityRef=payNo）。
+  VENDOR_PAYMENT_APPROVAL: 'VENDOR_PAYMENT_APPROVAL',
 } as const;
 
 export const ApprovalStatuses = {
@@ -462,6 +465,10 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   [ApprovalActionTypes.CAPITAL_INJECTION_APPROVAL]: {
     steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true,
   },
+  // 战役乙波二 T5（task-5-brief.md 原文逐字）：付款单——CFO 单步 48h 可撤。
+  [ApprovalActionTypes.VENDOR_PAYMENT_APPROVAL]: {
+    steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true,
+  },
 };
 
 /**
@@ -519,6 +526,8 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.LP_EXCHANGE_APPROVAL,
   // 战役乙波二 T3：注资单——同上漏白名单教训，一并登记。
   ApprovalActionTypes.CAPITAL_INJECTION_APPROVAL,
+  // 战役乙波二 T5：付款单——同上漏白名单教训，一并登记。
+  ApprovalActionTypes.VENDOR_PAYMENT_APPROVAL,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

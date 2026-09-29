@@ -1,7 +1,10 @@
 // 战役乙波二 T4：付款单 DTO/投影/状态枚举。照 capital-injection.dto.ts 先例。
-import { ApiPropertyOptional } from '@nestjs/swagger';
+// T5：补 InitiateVendorPaymentDto/CancelVendorPaymentDto——请求体装饰器 DTO（`...Dto` 名
+// 留给本层，T4 的 CreateVendorPaymentInput 是服务入参 interface，两者不是一回事，
+// 照 CancelCapitalInjectionDto/InitiateCapitalInjectionDto 先例，评审交接第 3 条）。
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsOptional } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 /** 六态（乙波二 spec §3.2）：批准即复核运营户余额——够则进 EXECUTING（建出款资金单），
  *  不够落 FAILED（零资金单，照 LP/划转单先例）；EXECUTING 上⚡推出款确认（回单先于
@@ -31,6 +34,23 @@ export interface CreateVendorPaymentInput {
   fromWalletId: string; // F_OPS（付款币网络行）
   traceId?: string | null;
   createdByUserId: string;
+}
+
+/** T5 controller 入参——字段对齐 workflow 的 InitiateVendorPaymentInput（照
+ *  InitiateCapitalInjectionDto 先例：只认业务键 vendorNo/assetId，金额是元字符串）。 */
+export class InitiateVendorPaymentDto {
+  @ApiProperty() @IsString() @IsNotEmpty() vendorNo!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() payeeAccountRef!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() assetId!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() amount!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() purposeNote!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() prudentialPurpose!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() traceId?: string;
+}
+
+export class CancelVendorPaymentDto {
+  @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
 }
 
 export class VendorPaymentListQueryDto {

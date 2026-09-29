@@ -506,6 +506,14 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/capital-injections/:cinNo/confirm', "Confirm the contribution (post the entries) — the funds are booked into the firm's own assets", ['FUNDING_WRITE']),
   route('GET', '/admin/capital-injections', 'List capital injections', ['FUNDING_READ']),
   route('GET', '/admin/capital-injections/:cinNo', 'Get capital injection detail (with funds-order legs)', ['FUNDING_READ']),
+  // ─── 战役乙波二 T5 · 付款单（VendorPayment）：单腿出项，写动作全归 FUNDING_WRITE ───
+  // 腿 1 推进走资金单页 ⚡（FUNDS_ORDER_ACT），付款详情页不设推单按钮——本族无 simulate-*
+  // 端点（同 500 区惯例，但少了 confirm/simulate-contribution 两条：付款单落账全在腿事件里
+  // 自动收口，没有金库手动确认这一步）。静态段先于 :payNo（同 490/500 区惯例）。
+  route('POST', '/admin/vendor-payments', 'Initiate a vendor payment (pay a registered outsourcing vendor) — CFO signs it off', ['FUNDING_WRITE']),
+  route('POST', '/admin/vendor-payments/:payNo/cancel', 'Cancel a pending-approval vendor payment', ['FUNDING_WRITE']),
+  route('GET', '/admin/vendor-payments', 'List vendor payments', ['FUNDING_READ']),
+  route('GET', '/admin/vendor-payments/:payNo', 'Get vendor payment detail (with funds-order legs)', ['FUNDING_READ']),
   // 平账 A 批：⚡拨钟——把案件账龄截止拨到过去（演示件，挂现有拨钟组，桶 demo.act_clock 已涵盖 SLA timers）
   route('POST', '/admin/reconciliation/cases/:caseNo/simulate-aging-timeout', 'Fast-forward a reconciliation case past its aging line (demo only)', ['DEMO_CLOCK_WRITE']),
 
@@ -583,8 +591,10 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // ⚡ 演示装置——挂 Demo Instruments 组（金库），非 OBLIGATION_WRITE（合规官不是自己的裁决人，
   // 快进是演示者操作，同报送单⚡先例）。
   route('POST', '/admin/compliance-obligations/:obligationNo/simulate-due', 'Fast-forward obligation nextDueAt to now (demo only)', ['DEMO_CLOCK_WRITE']),
-  route('GET', '/admin/outsourcing-vendors', 'List outsourcing vendors', ['COMPLIANCE_OFFICE_VIEW']),
-  route('GET', '/admin/outsourcing-vendors/:vendorNo', 'Outsourcing vendor detail', ['COMPLIANCE_OFFICE_VIEW']),
+  // OR 粗门（战役乙波二 T5，照 regulatory-filings 两族先例）：金库开付款单要选在册外包商
+  // （裁定 5），零权限扩张——只读名册两条 GET 加 FUNDING_WRITE，写路由三条不动。
+  route('GET', '/admin/outsourcing-vendors', 'List outsourcing vendors', ['COMPLIANCE_OFFICE_VIEW', 'FUNDING_WRITE']),
+  route('GET', '/admin/outsourcing-vendors/:vendorNo', 'Outsourcing vendor detail', ['COMPLIANCE_OFFICE_VIEW', 'FUNDING_WRITE']),
   route('POST', '/admin/outsourcing-vendors', 'Register an outsourcing vendor', ['VENDOR_REGISTER_WRITE']),
   route('PATCH', '/admin/outsourcing-vendors/:vendorNo', 'Update an outsourcing vendor', ['VENDOR_REGISTER_WRITE']),
   route('POST', '/admin/outsourcing-vendors/:vendorNo/terminate', 'Terminate an outsourcing vendor', ['VENDOR_REGISTER_WRITE']),
