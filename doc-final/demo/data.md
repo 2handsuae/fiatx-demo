@@ -174,6 +174,29 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 
 **种子后（`stack.sh reset self`，`demo:all` 跑之前）的期望余额**（实测坐实）：F_LIQ（USDT）归零（85 进 86 出，净 0）；F_OPS(AED) 从注资起点 1,000,000 减至 **950,000**（−50,000）；F_OPS(USDT) 从注资起点 100,000 加至 **113,600**（+13,600）。三个时间戳字段（`executedAt`/`deliveredAt`/`settledAt`）相对**铺场时刻**回拨 3/2/1 天，不锚死日历日期（同上方各种子节先例）。
 
+## 公司资金种子（business seed，两张 CIN 壳单 + 一张 PAY 历史单，2026-09-29 战役乙波二 Task 9）
+
+`seedCompanyFunding()`（`prisma/seed.business.ts`，紧随 `seedLpDesk()` 之后）照该函数的直写形态铺快照数据：不走 `CapitalInjectionWorkflowService`/`VendorPaymentWorkflowService`（同 LP 的理由——链路长，seed 脚本走裸 `PrismaClient`+`tigerbeetle-node`，服务直调铺数走不通）。`cinNo`/`payNo`/`approvalNo`/资金单号均用 `buildDeterministicNo` 派生，reset 重铺后逐字不变。
+
+### 两张 CIN 壳单（复用既有账，账本零新增）
+
+`seedCapitalInjection()`（1936 行起）早就把两条 CAPITAL_INJECTION（码 70）分录 + evidence + accountFlow 写进库了（`sourceType='SEED_CAPITAL'`，`externalRef='SEED-CAPITAL-<CUR>'）。本函数只补上那两条分录本该配的 `CapitalInjection` 壳单行 + 一张 APPROVED 审批单 + 一张 CLEARED 资金单壳——**不新开分录**，壳单与既有账的关联纯靠 `externalRef` 复用同一个值（spec §8「plan 实测」定案）：
+
+| 币种 | cinNo | 金额 | approvalNo | fundsOrderNo | 资金单外部参考 |
+|---|---|---|---|---|---|
+| AED | `CIN2601011488` | 1,000,000 | `APR2601011192`（`CAPITAL_INJECTION_APPROVAL`，CFO 单步 APPROVED） | `FDO2601018332` | `referenceNo=SEED-CAPITAL-AED` |
+| USDT | `CIN2601013475` | 100,000 | `APR2601015426`（`CAPITAL_INJECTION_APPROVAL`，CFO 单步 APPROVED） | `FDO2601013407` | `txHash=SEED-CAPITAL-USDT` |
+
+出资方统一 `FiatX Holdings Ltd (founding shareholder)`，`prudentialPurpose='Initial operating capital under prudential capital plan'`，`status=SUCCESS`，`receivedAt=settledAt=` 种子运行时刻。资金单终态 `CLEARED`（`FundsOrderStatus` 现名，非 `CapitalInjection.status` 的 `SUCCESS`），`legSeq=1`，`fromWalletId=null`（外部出资方无坐标，坐标落 `fromAddress`/`fromIban` 一行文本）。
+
+### 一张 PAY 历史单（HexTrust，AED 2,500，新增码 87 一条分录）
+
+`payNo=PAY2601015456`：挂 `vendor-hextrust`（`vendorNo=VEN2601017083`），`payeeAccountRef='AE07 0331 2345 6789 0123 456 (HexTrust AED settlement)'`，`purposeNote='HexTrust 2026-08 custody fee'`，`prudentialPurpose='Discharge outsourced custody service fee obligation'`，`status=SUCCESS`。审批单 `APR2601011194`（`VENDOR_PAYMENT_APPROVAL`，CFO 单步 APPROVED）。资金单 `FDO2601011571`（direction OUT，终态 `CLEARED`，`referenceNo=ZB202608317AB0AB0088`，`fakeBankRef` 派生）。`effectiveDate` 取上月末（业务日，相对种子运行时刻——与 `purposeNote` 的叙事月份一致）。
+
+账本新增一条：code 87 `VENDOR_PAYMENT`，DR `E.FIRM_OPS` / CR `A.FIRM_ASSET`，AED ledger，2,500.00 元（250,000 分）——`deterministicTransferId('SEED_VENDOR_PAYMENT', 'AED', 'VENDOR_PAYMENT', 0)`；配 1 条 `tbTransferEvidence` + 2 条 `accountFlow` 镜像（debit→OUT / credit→IN，同 LP 卖出腿 84 先例）。
+
+**种子后（`stack.sh reset self`，`demo:all` 跑之前）的期望余额**（实测坐实）：F_OPS(AED) 从 LP 卖出腿之后的 950,000 再减至 **947,500**（−2,500，即码 87 一条出账）；F_OPS(USDT) 不动（本任务零 USDT 出账）。三张种子表没有 operator，不写审计（同其余种子表先例——LP 兑换单本身也是零审计，仅 LP 档案登记写审计）。
+
 ## 各脚本造什么
 
 | 命令 | 产出 |
@@ -243,7 +266,7 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 | 恒等式 | 结果 |
 |---|---|
 | COA CLIENT(AED): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 29612565 == 29612565 |
-| COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 94870335 == 94870335 |
+| COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 94620335 == 94620335 |
 | COA CLIENT(USDT): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 4392571811 == 4392571811 |
 | COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 114013428189 == 114013428189 |
 <!-- GENERATED:END -->

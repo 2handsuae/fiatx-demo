@@ -81,6 +81,11 @@ export async function seedBusiness(
   // needs seedCapitalInjection 的公司起始余额（卖出腿要扣 FIRM_OPS AED，注资在前才不会
   // 让恒等式在负数区间起步）。
   await seedLpDesk(prisma);
+  // 公司资金种子（战役乙波二 Task 9，spec §7/§9）：两张 CIN 壳单 + 一张 PAY 历史单——
+  // needs seedCapitalInjection 的账本行（CIN 壳单复用）+ seedOutsourcingVendors 的
+  // vendor-hextrust 登记行（PAY 历史单挂靠）；排在 seedLpDesk 之后跑（F_OPS(AED) 期望
+  // 起点是 LP 卖出腿扣完之后的 950,000，本任务的 −2,500 落在它之上）。
+  await seedCompanyFunding(prisma);
 
   console.log('✅ Business data seeded.');
 }
@@ -2446,6 +2451,284 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
       }
     }
     console.log(`  ✔ LP exchange evidence: ${evidenceRows} evidence row(s) + ${flowRows} flow row(s)`);
+  } finally {
+    client.destroy();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 公司资金种子 — 战役乙波二 Task 9（spec §7/§9）：两张 CIN 壳单 + 一张 PAY 历史单，
+// 各配一条 APPROVED 审批单去死链（同 LP T9 评审订正先例）。
+//
+// CIN 壳单特殊之处：seedCapitalInjection()（上方 1936 行起）早就把两条 CAPITAL_INJECTION
+// （码 70）分录 + evidence + accountFlow 写进库了（sourceType='SEED_CAPITAL'，
+// externalRef='SEED-CAPITAL-<CUR>'）——本函数只补上那两条分录本该配的资金单壳，**账本
+// 零新增**；壳单与既有账的关联纯靠 externalRef 复用同一个值（不新开分录，spec §8「plan
+// 实测」定案，注释即注明）。PAY 历史单没有这层历史包袱，本函数从零建一条码 87 分录 +
+// evidence + accountFlow（照 seedLpDesk 卖出腿 84 的直写形态裁一腿）。
+//
+// 照 seedLpDesk 的直写形态：不走 CapitalInjectionWorkflowService/VendorPaymentWorkflowService
+// ——同样理由（Nest DI/事件总线/审批服务链路长，seed 脚本走裸 PrismaClient+tigerbeetle-node，
+// 服务直调铺数走不通）。种子表纪律：没有 operator，不写审计（同 seedLpDesk 里 LP 兑换单
+// 本身的先例——LP_PROFILE_CREATED 是唯一例外，因为它是「档案登记」不是「资金事件」）。
+// ─────────────────────────────────────────────────────────────
+
+async function seedCompanyFunding(prisma: PrismaClient): Promise<void> {
+  const tbAddress = process.env.TB_ADDRESS;
+  if (!tbAddress) {
+    // 同 seedLpDesk 纪律：PAY 历史单要写一条新分录（码 87），不能 graceful skip——
+    // 少这笔账会让 F_OPS(AED) 期望余额（baseline.md）与实际不符，且失败点在很远的下游。
+    throw new Error(
+      'TB_ADDRESS 未设置，无法铺供应商付款历史单的账本分录。修法：确认调用方显式传 TB_ADDRESS（见 scripts/reset-stack.sh）。',
+    );
+  }
+
+  const TREASURY_USER_NO = 'ADM2501010011'; // treasury@fiatx.com
+  const CFO_USER_NO = 'ADM2501010010'; // cfo@fiatx.com
+  const [treasuryUser, cfoUser] = await Promise.all([
+    prisma.user.findUnique({ where: { userNo: TREASURY_USER_NO } }),
+    prisma.user.findUnique({ where: { userNo: CFO_USER_NO } }),
+  ]);
+  if (!treasuryUser || !cfoUser) {
+    throw new Error('seedCompanyFunding: 找不到 treasury/CFO 种子管理员——seed.base.ts 的 db:base:sync 是否先跑？');
+  }
+
+  const now = new Date();
+
+  // ── Step 1: CIN 壳两张（每币种一张，复用 seedCapitalInjection 已写的码 70 账）───
+  let cinCount = 0;
+  for (const currency of Object.keys(SEED_FIRM_CAPITAL)) {
+    const asset = await prisma.asset.findFirst({ where: { currency, status: 'ACTIVE' } });
+    if (!asset) { console.log(`  ⚠ seedCompanyFunding: 资产 ${currency} 不存在，跳过 CIN 壳单`); continue; }
+    const toWallet = await findLpDeskPlatformWallet(prisma, 'F_OPS', asset.network);
+    const isCrypto = asset.type === 'CRYPTO';
+    const currencyKey = currency.toLowerCase();
+
+    const cinNo = buildDeterministicNo('CIN', `seed-capital-${currencyKey}`);
+    const approvalNo = buildDeterministicNo('APR', `cin-seed-capital-${currencyKey}`);
+    const amountMajor = SEED_FIRM_CAPITAL[currency];
+    const amountFormatted = new Prisma.Decimal(amountMajor).toFixed(asset.decimals);
+    const prudentialPurpose = 'Initial operating capital under prudential capital plan';
+    const contributorName = 'FiatX Holdings Ltd (founding shareholder)';
+    const impact = `Contribute ${amountFormatted} ${currency} into the firm's operating account `
+      + `(purpose: ${prudentialPurpose}); the firm's ${currency} operating balance increases once the contribution is confirmed`;
+
+    const cin = await prisma.capitalInjection.upsert({
+      where: { cinNo },
+      update: {},
+      create: {
+        cinNo, contributorName, assetId: asset.id, amount: amountMajor, prudentialPurpose,
+        status: 'SUCCESS', reason: 'Initial shareholder capital call to fund firm operations ahead of go-live.',
+        toWalletId: toWallet.id as string, approvalNo,
+        receivedAt: now, settledAt: now,
+        traceId: `SEED_CAPITAL_${currency}`, createdByUserId: TREASURY_USER_NO,
+        createdAt: now, updatedAt: now,
+      },
+    });
+
+    const approvalSubmittedAt = new Date(now.getTime() - 2 * 60 * 60 * 1000); // 种子时刻前 2h
+    const approvalDecidedAt = new Date(now.getTime() - 60 * 60 * 1000); // 种子时刻前 1h
+    await prisma.approvalCase.upsert({
+      where: { approvalNo },
+      update: {},
+      create: {
+        approvalNo, actionType: 'CAPITAL_INJECTION_APPROVAL', entityRef: cin.cinNo,
+        createdByUserId: treasuryUser.id, createdByUserNo: TREASURY_USER_NO,
+        status: 'APPROVED', allowCancel: true,
+        objectSnapshot: JSON.stringify({
+          cinNo: cin.cinNo, contributorName, amount: `${amountFormatted} ${currency}`,
+          prudentialPurpose, impact,
+        }),
+        traceId: cin.traceId,
+        createdAt: approvalSubmittedAt, submittedAt: approvalSubmittedAt,
+        timeoutAt: new Date(approvalSubmittedAt.getTime() + 48 * 60 * 60 * 1000),
+        steps: {
+          create: [{
+            stepNo: 1, status: 'APPROVED', checkerRoleCandidates: 'CFO',
+            decidedByUserId: cfoUser.id, decidedByUserNo: CFO_USER_NO, decidedByRole: 'CFO',
+            reason: 'Initial capitalisation reviewed against founding shareholder resolution — approved.',
+            decidedAt: approvalDecidedAt, createdAt: approvalSubmittedAt,
+          }],
+        },
+      },
+    });
+
+    // 壳单资金单——legSeq 1、方向 IN（fromWalletId=null，外部出资方无坐标，坐标落一行
+    // 文本）、终态 CLEARED（FundsOrderStatus 现名，非 CapitalInjection.status 的 SUCCESS）。
+    // externalRef 复用既有账本行的 SEED-CAPITAL-<CUR>——这是壳单与账关联的唯一纽带，
+    // 不新开分录（见函数头注释）。
+    const fundsOrderNo = buildDeterministicNo('FDO', `seed-capital-${currencyKey}-leg1`);
+    const externalRef = `SEED-CAPITAL-${currency}`;
+    await prisma.fundsOrder.upsert({
+      where: { fundsOrderNo },
+      update: {},
+      create: {
+        fundsOrderNo, capitalInjectionId: cin.id, legSeq: 1, attempt: 1, status: 'CLEARED',
+        assetId: asset.id, amount: amountMajor, netAmount: amountMajor,
+        fromWalletId: null,
+        fromAddress: isCrypto ? contributorName : null,
+        fromIban: isCrypto ? null : contributorName,
+        toWalletId: toWallet.id as string, toAddress: toWallet.address, toIban: toWallet.iban,
+        referenceNo: isCrypto ? undefined : externalRef,
+        txHash: isCrypto ? externalRef : undefined,
+        statusHistory: JSON.stringify([
+          { toStatus: 'CONFIRMED', action: 'CREATE', at: now.toISOString() },
+          { fromStatus: 'CONFIRMED', toStatus: 'CLEARED', action: 'CLEAR', operatorId: 'CAPITAL_INJECTION_WORKFLOW', at: now.toISOString() },
+        ]),
+        createdAt: now, updatedAt: now, confirmedAt: now, completedAt: now,
+      },
+    });
+    cinCount += 1;
+  }
+  console.log(`Seeded ${cinCount} capital injection rows (SUCCESS) + ${cinCount} APPROVED approval cases + ${cinCount} funds orders (CLEARED, zero new ledger entries — reuse SEED_CAPITAL evidence).`);
+
+  // ── Step 2: PAY 历史单（HexTrust，AED 2,500，code 87）─────────────────────
+  const vendorNo = buildDeterministicNo('VEN', 'vendor-hextrust');
+  const vendor = await prisma.outsourcingVendor.findUnique({ where: { vendorNo } });
+  if (!vendor) throw new Error('seedCompanyFunding: 找不到 vendor-hextrust 登记行——seedOutsourcingVendors 是否先跑？');
+  const aedAsset = await prisma.asset.findFirst({ where: { currency: 'AED', status: 'ACTIVE' } });
+  if (!aedAsset) throw new Error('seedCompanyFunding: AED 资产行缺失——seedAssets 是否先跑？');
+  const fromWallet = await findLpDeskPlatformWallet(prisma, 'F_OPS', aedAsset.network);
+
+  const payNo = buildDeterministicNo('PAY', 'seed-vendor-payment-hextrust-2026-08');
+  const payApprovalNo = buildDeterministicNo('APR', 'pay-seed-vendor-payment-hextrust-2026-08');
+  const payeeAccountRef = 'AE07 0331 2345 6789 0123 456 (HexTrust AED settlement)';
+  const purposeNote = 'HexTrust 2026-08 custody fee';
+  const payPrudentialPurpose = 'Discharge outsourced custody service fee obligation';
+  const payAmount = '2500';
+  const payAmountFormatted = new Prisma.Decimal(payAmount).toFixed(aedAsset.decimals);
+  const payImpact = `Pay ${payAmountFormatted} ${aedAsset.currency} to outsourcing vendor ${vendor.vendorNo} (${vendor.name}) `
+    + `(purpose: ${payPrudentialPurpose}); the firm's ${aedAsset.currency} operating balance decreases once the payment clears`;
+
+  // effectiveDate = 上月末（业务日，相对种子运行时刻的「上一个自然月最后一天」，正午取值
+  // 避开 UTC/迪拜业务日边界）——与 purposeNote 的叙事月份（HexTrust 2026-08 custody fee）
+  // 逐字对应：本任务落地当月（2026-09）的上月末即 2026-08-31。
+  const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 12, 0, 0);
+  const payAt = prevMonthEnd;
+  const effectiveDate = toBusinessDate(payAt);
+
+  const payTraceId = `SEED_VENDOR_PAYMENT_${payNo}`;
+  const payment = await prisma.vendorPayment.upsert({
+    where: { payNo },
+    update: {},
+    create: {
+      payNo, vendorId: vendor.id, vendorNo: vendor.vendorNo, vendorName: vendor.name,
+      payeeAccountRef, assetId: aedAsset.id, amount: payAmount,
+      purposeNote, prudentialPurpose: payPrudentialPurpose,
+      status: 'SUCCESS', reason: 'Monthly vendor invoice settlement',
+      fromWalletId: fromWallet.id as string, approvalNo: payApprovalNo,
+      executedAt: payAt, settledAt: payAt,
+      traceId: payTraceId, createdByUserId: TREASURY_USER_NO,
+      createdAt: payAt, updatedAt: payAt,
+    },
+  });
+
+  const payApprovalSubmittedAt = new Date(payAt.getTime() - 2 * 60 * 60 * 1000);
+  const payApprovalDecidedAt = new Date(payAt.getTime() - 60 * 60 * 1000);
+  await prisma.approvalCase.upsert({
+    where: { approvalNo: payApprovalNo },
+    update: {},
+    create: {
+      approvalNo: payApprovalNo, actionType: 'VENDOR_PAYMENT_APPROVAL', entityRef: payment.payNo,
+      createdByUserId: treasuryUser.id, createdByUserNo: TREASURY_USER_NO,
+      status: 'APPROVED', allowCancel: true,
+      objectSnapshot: JSON.stringify({
+        payNo: payment.payNo, vendorNo: vendor.vendorNo, vendorName: vendor.name,
+        payeeAccountRef, amount: `${payAmountFormatted} ${aedAsset.currency}`,
+        purposeNote, prudentialPurpose: payPrudentialPurpose, impact: payImpact,
+      }),
+      traceId: payTraceId,
+      createdAt: payApprovalSubmittedAt, submittedAt: payApprovalSubmittedAt,
+      timeoutAt: new Date(payApprovalSubmittedAt.getTime() + 48 * 60 * 60 * 1000),
+      steps: {
+        create: [{
+          stepNo: 1, status: 'APPROVED', checkerRoleCandidates: 'CFO',
+          decidedByUserId: cfoUser.id, decidedByUserNo: CFO_USER_NO, decidedByRole: 'CFO',
+          reason: 'Vendor payment reviewed against outsourcing invoice — amount and payee coordinates confirmed, approved.',
+          decidedAt: payApprovalDecidedAt, createdAt: payApprovalSubmittedAt,
+        }],
+      },
+    },
+  });
+
+  const payFundsOrderNo = buildDeterministicNo('FDO', 'seed-vendor-payment-hextrust-2026-08-leg1');
+  const payRef = fakeBankRef(payFundsOrderNo, effectiveDate);
+  await prisma.fundsOrder.upsert({
+    where: { fundsOrderNo: payFundsOrderNo },
+    update: {},
+    create: {
+      fundsOrderNo: payFundsOrderNo, vendorPaymentId: payment.id, legSeq: 1, attempt: 1, status: 'CLEARED',
+      assetId: aedAsset.id, amount: payAmount, netAmount: payAmount,
+      fromWalletId: fromWallet.id as string, fromIban: fromWallet.iban,
+      toIban: payeeAccountRef,
+      referenceNo: payRef,
+      statusHistory: JSON.stringify([
+        { toStatus: 'CREATED', action: 'CREATE', at: payAt.toISOString() },
+        { fromStatus: 'CREATED', toStatus: 'SUBMITTED', action: 'SUBMIT', operatorId: 'VENDOR_PAYMENT_WORKFLOW', at: payAt.toISOString() },
+        { fromStatus: 'SUBMITTED', toStatus: 'CONFIRMED', action: 'CONFIRM', operatorId: 'VENDOR_PAYMENT_WORKFLOW', at: payAt.toISOString() },
+        { fromStatus: 'CONFIRMED', toStatus: 'CLEARED', action: 'CLEAR', operatorId: 'VENDOR_PAYMENT_WORKFLOW', at: payAt.toISOString() },
+      ]),
+      createdAt: payAt, updatedAt: payAt, confirmedAt: payAt, completedAt: payAt,
+    },
+  });
+
+  console.log(`Seeded 1 vendor payment (${payNo}, SUCCESS) + 1 APPROVED payment approval case + 1 funds order (CLEARED).`);
+
+  // ── 账本一条（87）：DR FIRM_OPS / CR FIRM_ASSET，AED ledger ──────────────
+  const aedLedger = TB_LEDGERS[aedAsset.currency as keyof typeof TB_LEDGERS];
+  const [firmOpsAed, firmAssetAed] = await Promise.all([
+    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_OPS, aedLedger),
+    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_ASSET, aedLedger),
+  ]);
+  const amountMinor = BigInt(payAmount) * (10n ** BigInt(aedAsset.decimals));
+
+  let client: ReturnType<typeof tbCreateClient>;
+  try {
+    client = tbCreateClient({ cluster_id: 0n, replica_addresses: [tbAddress] });
+  } catch (err: any) {
+    console.log(`  ⚠ Cannot connect to TigerBeetle for vendor payment seed: ${err.message}`);
+    return;
+  }
+
+  try {
+    const transferId = deterministicTransferId('SEED_VENDOR_PAYMENT', 'AED', 'VENDOR_PAYMENT', 0);
+    const transfers = [{
+      id: transferId,
+      debit_account_id: BigInt('0x' + firmOpsAed.tbAccountId),   // DR FIRM_OPS
+      credit_account_id: BigInt('0x' + firmAssetAed.tbAccountId), // CR FIRM_ASSET
+      amount: amountMinor,
+      pending_id: 0n, user_data_128: 0n, user_data_64: 0n, user_data_32: 0, timeout: 0,
+      ledger: aedLedger, code: TB_TRANSFER_CODES.VENDOR_PAYMENT, flags: 0, timestamp: 0n,
+    }];
+    const errors = await client.createTransfers(transfers);
+    const realErrors = errors.filter((e: any) => e.status !== TB_TRANSFER_EXISTS_LP && e.status !== TB_DEV_OK_LP);
+    if (realErrors.length > 0) {
+      console.log(`  ⚠ Vendor payment seed had ${realErrors.length} transfer errors: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
+    }
+
+    const tbTransferId = bigintToHex(transferId);
+    const shared = {
+      sourceType: 'VENDOR_PAYMENT', sourceNo: payNo, eventCode: 'VENDOR_PAYMENT',
+      amount: new Prisma.Decimal(amountMinor.toString()), assetCode: aedAsset.currency, transferType: 'POSTED',
+      isExternalCrossing: true, externalRef: payRef, effectiveDate,
+    };
+    await (prisma as any).tbTransferEvidence.upsert({
+      where: { tbTransferId }, update: {},
+      create: {
+        tbTransferId, ...shared, debitCode: 'E.FIRM_OPS', creditCode: 'A.FIRM_ASSET',
+        debitTbAccountId: firmOpsAed.tbAccountId, creditTbAccountId: firmAssetAed.tbAccountId,
+        traceId: payTraceId, actorType: 'SYSTEM', actorId: 'VENDOR_PAYMENT_WORKFLOW',
+        memo: `Vendor payment ${payNo} confirmed (paid to ${vendor.name})`,
+        debitWalletRef: fromWallet.id, creditWalletRef: fromWallet.id, createdAt: payAt,
+      },
+    });
+    for (const [tbAccountId, direction] of [[firmOpsAed.tbAccountId, 'OUT'], [firmAssetAed.tbAccountId, 'IN']] as const) {
+      await (prisma as any).accountFlow.upsert({
+        where: { tbTransferId_tbAccountId: { tbTransferId, tbAccountId } }, update: {},
+        create: { tbTransferId, tbAccountId, walletRef: fromWallet.id, direction, ...shared, createdAt: payAt },
+      });
+    }
+    console.log(`  ✔ Vendor payment evidence: 1 evidence row + 2 flow row(s) (code 87, DR E.FIRM_OPS / CR A.FIRM_ASSET, AED ${payAmountFormatted}).`);
   } finally {
     client.destroy();
   }
