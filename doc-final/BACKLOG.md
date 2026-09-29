@@ -105,6 +105,8 @@ Last Updated: 2026-09-29（战役乙波一 T11 文档收口：新设 §M「战�
 
 - [ ] 兑换成功通知未接（SUCCESS 时不调 Notification）｜来源: 2026-07-04 V6 体检
 
+- [ ] **兑换单资金单腿在管理台没有任何非超管角色能完整推完**：`FundsOrderDetail.tsx` 的「⚡ Simulation」面板统一按 `FUNDS_ORDER_PUSH_WRITE`（`FUNDS_ORDER_ACT` 组）门控可见性，但兑换单腿的真实推进端点 `POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance` 挂的是完全不同的组 `TRADING_SWAP_WRITE`（`swap-transactions.controller.ts:90-93` / `rbac.catalog.ts:435`）——`TREASURY_OFFICER` 持 `FUNDS_ORDER_ACT` 不持 `TRADING_SWAP_WRITE`（面板看得见、点了 403）；`OPS_OFFICER` 持 `TRADING_SWAP_WRITE` 不持 `FUNDS_ORDER_ACT`（面板本身不出现）。两组交集为空，实测两个角色各自都推不动。走查现场借道 `admin@`（超管跳过 RBAC）拿到证据，非常规演示路径，讲词已在 `demo/script.md` 场景 30 注明。业主待定：金库补 `TRADING_SWAP_WRITE`，还是运营补 `FUNDS_ORDER_ACT`（或两条各自的路由改挂对方已持有的组）｜来源: 2026-09-29 战役乙波二 T11 走查发现
+
 - [ ] **兑换域规则清单与阈值**：另起规则目录文档，含排雷（含 rejected 计数 / 缺 .notRejected 的聚合规则会造成
       「被拒→加分→再被拒」死循环）｜来源: 同上 §7
 > 注：swap 腿 InternalFund 命名债已并入下方「平账处置」的 funds-orders 域 RBAC 命名债条目，不重复登记。
@@ -339,7 +341,8 @@ Last Updated: 2026-09-29（战役乙波一 T11 文档收口：新设 §M「战�
 
 ## M. 战役乙 · LP 兑换台（暂编第九幕，V7 财资）
 
-- [ ] **`LedgerAccountList.tsx` 的 decimals 查找键与显示键不一致，code≠currency 的资产小数位显示错（USDT-TRON 类被放大约 10⁴ 倍）**：`decimalsMap` 用 `asset.currency`（如 `USDT`）建键，表格行按 `asset.code`（如 `USDT-TRON`）去查，键不对时静默回退 2 位小数——凡 `code≠currency` 的资产（本仓目前即 USDT-TRON）在这张账本科目视图里全部显示错，6 位小数的余额被放大成 2 位小数的读法，波前既有（内部划转单等既有流程同样受影响），LP 兑换台走查现场也能看到（前厅/运营户 USDT 余额行数字异常大）。业主芯片已挂 `task_475851be` ｜来源: 2026-09-29 战役乙波一 T8 走查发现
+- [ ] **`LedgerAccountList.tsx` 的 decimals 查找键与显示键不一致，code≠currency 的资产小数位显示错（USDT-TRON 类被放大约 10⁴ 倍）**：`decimalsMap` 用 `asset.currency`（如 `USDT`）建键，表格行按 `asset.code`（如 `USDT-TRON`）去查，键不对时静默回退 2 位小数——凡 `code≠currency` 的资产（本仓目前即 USDT-TRON）在这张账本科目视图里全部显示错，6 位小数的余额被放大成 2 位小数的读法，波前既有（内部划转单等既有流程同样受影响），LP 兑换台走查现场也能看到（前厅/运营户 USDT 余额行数字异常大）。业主芯片已挂 `task_475851be`。
+  **更深根因（2026-09-29 战役乙波二 T8 走查坐实，见 T8 报告）**：注册表写入路径全部一致用 `asset.code` 建键——`prisma/seed.business.ts:159` `ensureTbAccountRegistry({ assetCode: asset.code, ... })`，`customer-ledger-provisioning.service.ts:44`、`demo-lib.ts:320-322` 同款；但服务层接口 `TbAccountRegistryService.RegisterParams.assetCurrency` 字段命名暗示"存的是币种"，`tb-account-registry.service.ts:58` 原样把调用方传入的 `asset.code` 落到 DB 列 `assetCode`。下游 `LedgerAccountList.tsx` 的 decimals 查找表天真按参数名字面意思、以为该列存的是 currency，用 `asset.currency` 建 decimalsMap 键，两者不一致时静默回退 2 位——命名误导→键选错，不是随手拼错键。T8 新页 `CompanyFundsDashboard`（`admin-web/src/pages/companyFundsFormat.ts`）已用 `currencyOf()` 把两种键形态统一收敛成 currency 一种自保，波二新页不受影响；`LedgerAccountList.tsx` 仍受影响，走查现场看板与老账本页两处数字不一致可当场对照给观众看（见 `demo/script.md` 场景 30） ｜来源: 2026-09-29 战役乙波一 T8 走查发现；根因深挖 2026-09-29 战役乙波二 T8
 
 - [ ] **LP 档案变更审批在途时，详情页不展示"有一张变更在途"的持久提示**：`LpProfileView` 投影只留了建档阶段的 `approvalNo` 列，变更审批号只进审计不回写主体行（T2 评审 Imp#1 明确设计意图）；前端只能吃提交变更那次 POST 响应里的 approvalNo 做一次性横幅提示，刷新页面或离开再回来就不再有视觉提示——能查到（审计区或 Approvals 列表按 entityRef 过滤），只是详情页本身看不出来。T2 设计的自然结果，走审批列表可达 ｜来源: 2026-09-29 战役乙波一 T7 走查发现
 

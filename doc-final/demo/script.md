@@ -443,3 +443,71 @@
 **判据**：与场景 26 完全同一状态机、同一组转账码（84/85/86，只是 ledger 对调）；验收并排数字一致。走查截图（`35`~`39`）入同一 evidence 目录。
 
 **期望**：观众看懂一件事——LP 兑换台不是两套系统各管一个方向，是一张单、一套状态机，方向只是填哪边资产的问题。
+
+## 场景 28（暂编）· 公司开张的钱从哪来：注资单全弧（V7 财资 · 公司资金）
+
+> 战役乙波二交付（2026-09-29）——幕次归属留战役乙收官统一定稿，本节先把走查步骤钉住。主篇文档 `modules/company-funds.md`。本场景 2026-09-29 T11 在 self 栈全程实走一遍（真提交/真点击，非种子摆拍），截图 `29`~`36`。
+
+**讲什么**：种子资本注入原型（码 70，DR FIRM_ASSET / CR FIRM_OPS）只是开张时铺好的账，注资单把它做成一张能反复开的运行时单据——金库填出资方、币种金额、审慎管理目的，CFO 单步批，等出资方把钱打进运营户，金库核对「应到 vs 实到」后确认入账，运营户余额才真的涨。确认前后是两个不同的时点，看板 F_OPS 格子在这两个时点之间不动——先批不等于钱到，钱到不等于账落。
+
+**造数**：不用种子，现场金库对一家新出资方（如 Sequoia Bridge Fund）开一张全新 AED 注资单，走完整条弧线（种子已铺两张 SUCCESS 壳单垫底——AED/USDT 各一张，出资方 `FiatX Holdings Ltd (founding shareholder)`，讲一句"公司开张那笔注资在册可查"）。
+
+**账号**：`treasury@fiatx.com`（金库，开单 / ⚡模拟出资方打款 / 确认入账全程）→ `cfo@fiatx.com`（CFO，唯一裁决人）。
+
+**走查**：
+① 金库登录 → 侧栏 Treasury → Capital Injections →「Initiate injection」→ 弹窗填 Contributor Name（如 Sequoia Bridge Fund）+ Asset=AED + Amount（如 150000）+ Prudential Purpose（必填，8 年安全港记录）+ Reason（必填）→ Initiate → 单据转 `PENDING_APPROVAL`，横幅带 approval 号。
+② 切 `cfo@` → 审批中心打开该单（`ACTION TYPE: CAPITAL_INJECTION_APPROVAL`，Impact 摘要一句话读到"Contribute 150000.00 AED into the firm's operating account...the firm's AED operating balance increases once the contribution is confirmed"）→ Approve → 单据转 `AWAITING_FUNDS`。
+③ 切回 `treasury@` → 打开详情页 →「⚡ Simulate contributor payment」→ 单据转 `RECEIVED`，详情页蓝色横幅明写"Funds have landed in the operating account but are not yet posted — confirm receipt to book the entries."。
+④ **此刻切 Company Funds 看板拍一帧**：运营户 AED 水位与确认前一致（重铺后本弧首笔注资，确认前维持种子基线 947,500.00 AED，见 `demo/baseline.md`）——钱已经到托管、账还没落，这正是"先到款、后落账"的中间态，看板当场证明这句话。
+⑤ 回注资单详情，点「Confirm receipt」→ 弹层 Expected（应到，来自单据 amount）与 Received（实到，⚡模拟打款回单金额）并排展示，纯核数零逻辑，两数一致 → Confirm receipt → 单据转 `SUCCESS`，落账码 70（复用种子既有语义），时间线四步全绿。
+⑥ 再切看板拍一帧：运营户 AED 水位应声上涨（确认后 947,500.00 → **1,097,500.00** AED，涨幅精确等于注资金额 150,000.00；本弧实测取自 2026-09-29 T11 走查，重铺后按同样金额复现同样数字）。
+
+**判据**：六态五边（`PENDING_APPROVAL→AWAITING_FUNDS→RECEIVED→SUCCESS`，另两条负向分支 `REJECTED`/`CANCELLED`）；确认前后看板 F_OPS 对照帧数字精确对得上注资金额；Expected/Received 并排核数、非二次审批（CFO 已批过单，前厅不做第二道 maker-checker）。
+
+**期望**：观众看懂两件事——① 公司自己的钱进门跟客户充值一样，有单有审批有账本分录；② 到款与落账是两个动作，看板能当场演出这中间那一拍。
+
+## 场景 29（暂编）· 公司的钱怎么花：供应商付款单全弧（V7 财资 · 公司资金）
+
+> 战役乙波二交付（2026-09-29），幕次归属同场景 28 留收官定稿。本场景 2026-09-29 T11 在 self 栈全程实走一遍，截图 `37`~`42`。
+
+**讲什么**：公司也要给外部供应商付钱——HexTrust 的托管月费是演示代表，收款方只能从外包商登记册（甲波四立的那本册）下拉选，选不到自由填的地址，这条边把"甲乙两个战役的东西真的接上了"这句话坐实。付款单是公司→外部单腿出，批完钱不会立刻动，要等金库把出款资金单推完才真正扣款。
+
+**造数**：不用种子，现场金库对 HexTrust 开一张全新月费付款单（种子已铺一张 SUCCESS 历史付款——2026-08 月费 AED 2,500，讲一句"上个月的账在册可查，这个月现开一张"）。
+
+**账号**：`treasury@fiatx.com`（金库，开单 / ⚡推出款全程）→ `cfo@fiatx.com`（CFO，唯一裁决人）。
+
+**走查**：
+① 金库登录 → 侧栏 Treasury → Vendor Payments →「Initiate payment」→ 弹窗下拉选 HexTrust（ACTIVE 外包商，vendorNo 显式带出）+ Payee Account Reference（收款坐标，一行文本）+ Asset=AED + Amount（如 3200）+ Purpose（如 HexTrust 2026-09 custody fee）+ Prudential Purpose（必填）+ Reason（必填）→ Initiate → 单据转 `PENDING_APPROVAL`。
+② 切 `cfo@` → 审批中心打开该单（`ACTION TYPE: VENDOR_PAYMENT_APPROVAL`，Impact 摘要读到"Pay 3200.00 AED to outsourcing vendor VEN...(HexTrust)...the firm's AED operating balance decreases once the payment clears"）→ Approve → 单据转 `EXECUTING`，出款资金单已建，详情页横幅"Approved, the payout leg is in flight — advance it from the funds order page."。
+③ **此刻切看板拍一帧**：运营户 AED 水位维持批准前数字不变（批完不等于扣完）。
+④ 从付款单详情点开出款资金单（法币腿）→ ⚡ Submit → ⚡ Settle，腿转 `Settled`。
+⑤ 回付款单详情，单据已自动转 `SUCCESS`，落账码 87（`VENDOR_PAYMENT`，本波唯一新码）。
+⑥ 再切看板拍一帧：运营户 AED 水位应声下降，跌幅精确等于付款金额（承接场景 28 之后 1,097,500.00 → **1,094,300.00** AED，跌 3,200.00；本弧实测取自 2026-09-29 T11 走查）。
+
+**判据**：六态六边（`PENDING_APPROVAL→EXECUTING→SUCCESS`，另 `FAILED`「批了运营户没钱」/`REJECTED`/`CANCELLED` 三条负向）；付款后看板下降帧数字精确对得上付款金额；收款方点回外包商登记册真实路由（横向只读，铁律③放行）。
+
+**期望**：观众看懂两件事——① 公司花钱跟收钱同一套门（金库开、CFO 批），批完不是扣完；② 收款方来自甲波四那本登记册，两个战役的活真的接上了，不是各画各的。
+
+## 场景 30（暂编）· 公司资金全景看板：五区巡览 + 利润体现（V7 财资 · 公司资金）
+
+> 战役乙波二交付（2026-09-29），幕次归属留战役乙收官统一定稿。本场景 2026-09-29 T11 在 self 栈全程实走一遍（含一笔现场客户兑换，非种子摆拍），截图 `43`~`47`。
+
+**讲什么**：看板是给管理层看家底的一屏——运营户各币种水位（见底阈值线，见了这条线就该找 LP 补货）、LP 在途待验收、结算在途、三收入格（利润体现）、最近资金动态，五个区一屏读完，全部读既有账本端点，零新聚合逻辑。看板每一格与账本三列表（科目/凭证/流水）同源同值，这不是两套数字各算各的。
+
+**造数**：`bash scripts/on-stack.sh self demo:all`（铺齐三域 29 笔标准场景数据，含若干笔真实客户兑换，先把三收入格垫上非零基线）+ 现场一笔客户兑换（Alice USDT→AED 300，看三收入格实时再涨一格）。
+
+**账号**：`treasury@fiatx.com`（看板 / 账本三列表）→ 客户端 `demo_alice`（现场兑换）→ `compliance_lead@`（KYT 裁决）→ 推资金单一步（见判据说明，本弧走 `admin@fiatx.com` 超管，非常规演示角色，缘由见判据）。
+
+**走查**：
+① 金库登录 Company Funds 看板，从上到下巡览五区：运营户水位（AED/USDT 两卡，阈值线 900,000 AED / 100,000 USDT，余额高于线显绿、低于线转红）；LP 在途待验收（读 F_LIQ 科目 203）；结算在途（读 F_SET 科目 201，仅法币有行）；三收入格（210/211/212，AED/USDT 分列，标题直读 API 下发的 `accountName`）；最近资金动态（最近 10 条流水，人话事件标签，场景 28/29 刚做的注资/付款两笔当场就在列表里）——`demo:all` 已铺过若干笔标准兑换，此刻 Trading Fee Income AED 格读到 20.00（非零基线）。
+② 客户端登录 Alice（余额来自 `demo:all` 铺的花名册）→ Swap 页卖 300 USDT 买 AED（手续费 10.00 AED），Confirm and Swap → 单转 `PROCESSING`（COMPLIANCE_PENDING，等 KYT）。
+③ 切 `compliance_lead@` → Swap Transactions 该单详情 → 下拉到「⚡ Simulation」区 →「① Approved」→ 单转 `PROCESSING · SELL`（等卖出腿清算）。
+④ 卖出腿（USDT）资金单 ⚡ Broadcast → ⚡ Seen in Mempool → ⚡ Confirm；买入腿（AED）资金单 ⚡ Submit → ⚡ Settle；费腿（AED，收款方 F_FEE）⚡ Submit → ⚡ Settle——三腿逐一推进后单转 `SUCCESS`。
+⑤ **三收入格前后对照帧**：推腿前后各切一次看板，Trading Fee Income AED 格从 20.00 涨到 30.00（涨幅精确等于本笔兑换手续费 10.00 AED）——利润体现的正戏当场演给观众看。
+⑥ **同源同值收尾核对**：切 Ledger Accounts 页，Owner 筛 SYSTEM →「Company Operating Funds – AED」余额与看板运营户 AED 格逐位一致（判据是两页相等，不是某个固定数——具体数值随当次重铺后场景 28/29 的实际走法变化；2026-09-29 T11 那次实测样例为两处均 1,391,798.62 AED）；「Trading/Withdrawal/Other Service Income – AED」三行与看板三收入格 AED 三格逐位一致（同一逻辑，T11 实测样例 30.00 / 52.00 / 42.00，其中三收入格不受注资/付款单据影响，凡重铺后只做过场景 28/29/30 全弧、未额外多开单，此三数可复现）——讲词收在"刚才看板上跳的那一格，账本页查一下，是同一个数字，不是看板另算的"。USDT 侧因既有 `LedgerAccountList` 小数位显示错（`code≠currency` 资产键不一致，`BACKLOG.md` §M 已登记更深根因），走查现场能看见新旧两页数字不一致（看板 8.000000 USDT vs 老账本页 80,000.00），讲词收在"看板这张新页已经修了这个换算坑，旧的账本科目页还没排到"，不是本波复发。
+
+**判据**：看板五区数字与账本三列表 AED 侧逐位同源同值；USDT 侧继承既有显示缺口（非本波复发，已有 BACKLOG 记录）；三收入格随现场客户兑换实时上涨，涨幅等于该笔手续费。
+
+**走查中发现的一处新账（未修，已登记）**：步骤④推腿动作，管理台「⚡ Simulation」面板对兑换单挂的资金单腿统一按 `FUNDS_ORDER_PUSH_WRITE` 权限门控面板可见性，但兑换单腿的真实推进端点（`POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance`）挂的是 `TRADING_SWAP_WRITE`——金库持前者不持后者（面板看得见、点了 403），运营持后者不持前者（面板本身不出现）：本仓现状下，兑换单的资金单腿在管理台没有任何非超管角色能推完整套。本弧为了拿到「利润体现」的真实截图借道 `admin@fiatx.com`（超管跳过 RBAC），非常规演示路径，已登记 `BACKLOG.md` §E，业主定谁来兜底这条腿（金库补 `TRADING_SWAP_WRITE`，还是运营补 `FUNDS_ORDER_ACT`）后再改本节讲词。
+
+**期望**：观众看懂两件事——① 看板不是另建的一套真相，是既有账本数据换了个一屏能看完的排版；② 利润不是财务报表里的抽象数字，客户兑一笔、看板上那一格就当场跳一下。
