@@ -23,10 +23,9 @@ export class CreateLpProfileDto {
   @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
 }
 
-/** 四个结算坐标字段各自可选——「至少一个」由发起改坐标的调用方（Task 3 workflow）在
- *  组装审批单 objectSnapshot 前校验（同 transaction-limit-rules.service.ts 的
- *  「形状字段至少一个」先例，落在调用方而非 DTO 装饰器——本仓无自定义 class-validator
- *  装饰器可用）。reason 必填，供 LP_PROFILE_CHANGE_PROPOSED 契约。 */
+/** 四个结算坐标字段各自可选——不做「至少一个坐标」的后端校验（R9 裁定：输入防御性
+ *  校验属禁做清单）；前端 modal 预填四字段。reason 必填，供
+ *  LP_PROFILE_CHANGE_PROPOSED 契约。 */
 export class ProposeSettlementChangeDto {
   @ApiPropertyOptional() @IsOptional() @IsString() fiatBankName?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() fiatIban?: string;

@@ -402,7 +402,8 @@ async function planWallets(
   //                        (CUSTOMER → CLIENT_PAYABLE/DEPOSIT_SUSPENSE;
   //                         FIRM     → FIRM_OPS/SET/INCOME_SWAP_FEE/
   //                         INCOME_WITHDRAW_FEE/INCOME_OTHER, plus retired
-  //                         202/203 kept so pre-COA-v2 history still mirrors).
+  //                         202/204（203 已于 2026-09-29 战役乙复活）kept so
+  //                         pre-COA-v2 history still mirrors).
   //                        Aggregate codes (CLIENT_ASSET=1 / FIRM_ASSET=50)
   //                        are filtered out — matches WalletBalanceChecker.
   //
@@ -411,7 +412,8 @@ async function planWallets(
   //   account_flows.direction='IN'  ⇒ external statement IN  (balance UP)
   //   account_flows.direction='OUT' ⇒ external statement OUT (balance DOWN)
   // The TB accounts in scope (CLIENT_PAYABLE/SUSPENSE = LIABILITY,
-  // FIRM_OPS/SET/INCOME_*/retired-202/203 = EQUITY) are ALL credit-normal
+  // FIRM_OPS/SET/INCOME_*/retired-202/204（203 已于 2026-09-29 战役乙复活）=
+  // EQUITY) are ALL credit-normal
   // right-side-of-BS accounts → same single rule for both books, no
   // role/event override.
   //

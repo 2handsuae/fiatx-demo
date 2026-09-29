@@ -61,7 +61,7 @@ DELIVERED ──accept(金库,验收=核数)──▶ SUCCESS（落验收转腿�
 
 ## 5. 关键技术节点
 
-- 主体 `src/modules/asset-treasury/lp-desk/`：`liquidity-provider.service.ts`（四态迁移表 / 零 UUID 投影）、`lp-exchange.service.ts`（八态迁移表 / 余额闸 / 三腿计划）；工作流 `lp-profile-workflow.service.ts`（建档 / 改结算 / 启停）、`lp-exchange-workflow.service.ts`（发起 / ⚡推腿 / ⚡模拟到货 / 验收）
+- 主体 `src/modules/asset-treasury/lp-desk/`：`lp-profile.service.ts`（四态迁移表 / 零 UUID 投影）、`lp-exchange.service.ts`（八态迁移表 / 余额闸 / 三腿计划）；工作流 `lp-profile-workflow.service.ts`（建档 / 改结算 / 启停）、`lp-exchange-workflow.service.ts`（发起 / ⚡推腿 / ⚡模拟到货 / 验收）
 - 审批类型 `LP_PROFILE_APPROVAL` / `LP_PROFILE_CHANGE` / `LP_EXCHANGE_APPROVAL`（均金库提 / CFO 单步 / 48h / 可撤，白名单表已登记）
 - 转账码新段 84/85/86（`LP_EXCHANGE_PAY` / `LP_EXCHANGE_RECEIVE` / `LP_EXCHANGE_ACCEPT`）；资金单第五父键 `lpExchangeId`
 - COA：`FIRM_LIQ`=203 复活（`tb-account-codes.constant.ts`）；对账映射 `wallet-recon-run.service.ts` 从"退役科目期望恒 0"改真 1:1 直比（`wallet-balance-checker.service.ts` 同款）

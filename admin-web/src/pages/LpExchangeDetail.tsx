@@ -98,8 +98,11 @@ const LpExchangeTimeline = ({ detail }: { detail: Detail }) => {
   return (
     <div className="flex flex-col gap-3">
       {visibleStages.map((s, idx) => {
-        const done = isTerminalNegative ? true : idx < reachedIdx;
-        const current = isTerminalNegative ? false : idx === reachedIdx;
+        // SUCCESS 终态：末格（idx === reachedIdx）也判 done，不留 current 高亮——
+        // FAILED/REJECTED/CANCELLED 走 isTerminalNegative 分支，不受此判影响。
+        const isFinalSuccess = !isTerminalNegative && detail.status === 'SUCCESS' && idx === reachedIdx;
+        const done = isTerminalNegative ? true : idx < reachedIdx || isFinalSuccess;
+        const current = isTerminalNegative ? false : idx === reachedIdx && !isFinalSuccess;
         const ts = stampFor(detail, s.key);
         return (
           <div key={s.key} className="flex items-center gap-3">

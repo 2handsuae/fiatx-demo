@@ -98,7 +98,7 @@
 - 客户档位升级 `identity/tier-upgrade/`（2026-09-08 第二幕客户域波三，详见 `modules/v2-customer-compliance.md`）：申请→补料→高管准入核准→`tradingTier` BASIC→PREMIUM 单向翻转；同批接上 TB 客户账本户运行时开户钩子（挂客户首次进 ACTIVE，此前只有种子脚本会开户）
 - 制裁定性裁决 `identity/customers/sanction-disposition-workflow.service.ts`（2026-09-26 战役甲波三）：合规官提、MLRO 单步批，排除/部分/确认三选一出口横向联动限制账（`CustomerRestrictionsService`）与报送台 AML 族（`RegulatoryFilingService.openForSanction()`），铁律③各写各的；详见 `modules/v2-customer-compliance.md`/`modules/v9-regulatory-filing.md`
 - 状态机：各域 service 内显式迁移表（如 `withdraw-transactions.service.ts` 的 10 态 23 边、`swap-transactions.service.ts` 的 5 态 7 边——2026-09-13 波四共享抽离清除 `FAILED`/`REVERSED` 两个不可达死枚举后，兑换域枚举与可达状态数首次一致；2026-09-14 波五 FROZEN 从零出边终态翻案为押锁不放的中间态，补 `RESUME`/`REJECT_REFUND` 两条出边，5 边→7 边，见 `modules/v6-swap.md` §2）；工作流（`*-workflow.service.ts`）串主体
-- 账本：TigerBeetle 复式记账，9 码科目表，实时 1:1 逐腿 post；对账引擎在 `clearing-settle`
+- 账本：TigerBeetle 复式记账，10 码科目表，实时 1:1 逐腿 post；对账引擎在 `clearing-settle`
 - 权限：`rbac.catalog.ts` 集中登记端点 × 权限包
 - 两级门：**L1** = 平台内所有限制条件的判断（`L1GateService` 十项，三域共用），**L2** = Sumsub 合规判断；`OPERATION_PENDING` 只能从 L2 通过进入
 
