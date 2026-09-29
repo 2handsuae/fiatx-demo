@@ -308,4 +308,40 @@ describe('FundsOrderService', () => {
       expect(updateArg.data.referenceNo).toBeUndefined();
     });
   });
+
+  // 战役乙波二 T1：资金单第六/第七父键 capitalInjectionId/vendorPaymentId。
+  describe('capital-injection / vendor-payment 两父键（战役乙波二 T1）', () => {
+    it('directionOf: capital-injection leg is IN — CREATED --SUBMIT--> invalid (IN 表没有 CREATED 入口，入口是 CONFIRMED)', async () => {
+      prisma.fundsOrder.findUnique.mockResolvedValue({
+        id: 'fo-ci', status: 'CREATED',
+        depositTransactionId: null, withdrawTransactionId: null, swapTransactionId: null,
+        internalTransferId: null, lpExchangeId: null, capitalInjectionId: 'ci-1', vendorPaymentId: null,
+        legSeq: 1, attempt: 1, statusHistory: null, asset: { type: 'FIAT' },
+      });
+      await expect(service.advance('fo-ci', FundsOrderAction.SUBMIT, 'SYSTEM')).rejects.toThrow(/direction=IN/);
+    });
+
+    it('directionOf: vendor-payment leg is OUT — CREATED --CLEAR--> invalid (OUT 表没有 CREATED→CLEAR 边)', async () => {
+      prisma.fundsOrder.findUnique.mockResolvedValue({
+        id: 'fo-vp', status: 'CREATED',
+        depositTransactionId: null, withdrawTransactionId: null, swapTransactionId: null,
+        internalTransferId: null, lpExchangeId: null, capitalInjectionId: null, vendorPaymentId: 'vp-1',
+        legSeq: 1, attempt: 1, statusHistory: null, asset: { type: 'FIAT' },
+      });
+      await expect(service.advance('fo-vp', FundsOrderAction.CLEAR, 'SYSTEM')).rejects.toThrow(/direction=OUT/);
+    });
+
+    it('funding legs never count toward customer closure guard — countNonTerminalByCustomer 的 OR 名单仍恰好三项（deposit/withdraw/swap），不含 capitalInjection/vendorPayment', async () => {
+      let capturedWhere: any = null;
+      prisma.fundsOrder.count = jest.fn(async ({ where }: any) => { capturedWhere = where; return 0; });
+      const count = await service.countNonTerminalByCustomer('customer-1');
+      expect(count).toBe(0);
+      expect(capturedWhere.OR).toHaveLength(3);
+      expect(capturedWhere.OR).toEqual([
+        { deposit: { is: { ownerType: 'CUSTOMER', ownerId: 'customer-1' } } },
+        { withdrawTransaction: { is: { ownerType: 'CUSTOMER', ownerId: 'customer-1' } } },
+        { swapTransaction: { is: { ownerType: 'CUSTOMER', ownerId: 'customer-1' } } },
+      ]);
+    });
+  });
 });

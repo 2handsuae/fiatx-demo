@@ -61,6 +61,12 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   // 子先删；否则旧库里 e2e/RBAC 探针建出的 filing 行会在 reset 后原样留存）。
   'regulatoryFilingEntry',
   'regulatoryFiling',
+  // 公司资金台（战役乙波二 T1 加表——capitalInjection FK → asset(RESTRICT)；vendorPayment
+  // 另 FK → outsourcingVendor(RESTRICT)，必须排在下方 outsourcingVendor 之前。funds_orders 的
+  // 第六/第七父键 FK → 本两表(ON DELETE CASCADE)，但 fundsOrder 已在上方「Funds layer」段更早
+  // 清空，顺序天然安全——同 lpExchange 先例。加表必配，波二判例。）
+  'capitalInjection',
+  'vendorPayment',
   // 合规办公室三表（战役甲波四 T1 加表时同样漏登记本清单——2026-09-27 T7 重铺闸首验
   // 撞见：verify:rbac 的 OBLIGATION/RI 探针夹具在 reset 后原样留存，与上面 regulatoryFiling
   // 那次一模一样的遗漏形态。三表互无 FK、彼此独立，删除顺序不敏感。）

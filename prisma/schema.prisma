@@ -652,6 +652,8 @@ model Asset {
   internalTransfers              InternalTransfer[]
   lpExchangesAsSellAsset         LpExchange[]                    @relation("LpExchangeSellAsset")
   lpExchangesAsBuyAsset          LpExchange[]                    @relation("LpExchangeBuyAsset")
+  capitalInjections              CapitalInjection[]              @relation("CapitalInjectionAsset")
+  vendorPayments                 VendorPayment[]                 @relation("VendorPaymentAsset")
   reconciliationCases            ReconciliationCase[]
   withdrawalFeeLevels            WithdrawalFeeLevel[]
   swapFeeLevelsFrom              SwapFeeLevel[]                  @relation("SwapFeeLevelFromAsset")
@@ -957,6 +959,62 @@ model LpExchange {
   @@map("lp_exchanges")
 }
 
+// 战役乙波二（2026-09-29）：注资单——运行时资本注入。进项单腿，钱到运营户不过前厅（F_LIQ 是 LP 专用），落账复用码 70。
+model CapitalInjection {
+  id                String    @id @default(uuid())
+  cinNo             String    @unique
+  contributorName   String    // 出资方名称（一行文本，不立主体）
+  assetId           String
+  amount            Decimal   // 元
+  prudentialPurpose String    // 审慎管理目的（8 年安全港记录，必填）
+  status            String    @default("PENDING_APPROVAL") // PENDING_APPROVAL | AWAITING_FUNDS | RECEIVED | SUCCESS | REJECTED | CANCELLED
+  reason            String
+  toWalletId        String    // F_OPS（注入币网络行）
+  approvalNo        String?
+  receivedAt        DateTime?
+  settledAt         DateTime?
+  traceId           String
+  createdByUserId   String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  asset       Asset @relation("CapitalInjectionAsset", fields: [assetId], references: [id])
+  fundsOrders FundsOrder[] @relation("CapitalInjectionFundsOrders")
+  @@index([status])
+  @@map("capital_injections")
+}
+
+// 战役乙波二：供应商付款单——公司→在册外包商，出项单腿（码 87）。收款方存 vendorNo 业务键引用（登记册无坐标，收款坐标金库手填）。
+model VendorPayment {
+  id                String    @id @default(uuid())
+  payNo             String    @unique
+  vendorId          String
+  vendorNo          String
+  vendorName        String    // 快照，列表零联查
+  payeeAccountRef   String    // 收款账户坐标（一行文本，资金单 to 侧记录）
+  assetId           String
+  amount            Decimal   // 元
+  purposeNote       String    // 付款事由（如「HexTrust 2026-09 月费」）
+  prudentialPurpose String
+  status            String    @default("PENDING_APPROVAL") // PENDING_APPROVAL | EXECUTING | SUCCESS | FAILED | REJECTED | CANCELLED
+  reason            String
+  fromWalletId      String    // F_OPS（付款币网络行）
+  approvalNo        String?
+  failureReasonCode String?   // INSUFFICIENT_FIRM_BALANCE | LEG_FAILED
+  failureNote       String?
+  executedAt        DateTime?
+  settledAt         DateTime?
+  traceId           String
+  createdByUserId   String
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  vendor      OutsourcingVendor @relation("VendorPayments", fields: [vendorId], references: [id])
+  asset       Asset @relation("VendorPaymentAsset", fields: [assetId], references: [id])
+  fundsOrders FundsOrder[] @relation("VendorPaymentFundsOrders")
+  @@index([status])
+  @@index([vendorNo])
+  @@map("vendor_payments")
+}
+
 model FundsOrder {
   id                    String                 @id @default(uuid())
   fundsOrderNo          String                 @unique
@@ -965,6 +1023,8 @@ model FundsOrder {
   withdrawTransactionId String?
   internalTransferId    String?
   lpExchangeId          String?
+  capitalInjectionId    String?
+  vendorPaymentId       String?
   legSeq                Int                    @default(1)
   attempt               Int                    @default(1)
   status                String
@@ -997,6 +1057,8 @@ model FundsOrder {
   withdrawTransaction   WithdrawTransaction?   @relation("WithdrawFundsOrders", fields: [withdrawTransactionId], references: [id], onDelete: Cascade)
   internalTransfer      InternalTransfer?      @relation("InternalTransferFundsOrders", fields: [internalTransferId], references: [id], onDelete: Cascade)
   lpExchange            LpExchange?            @relation("LpExchangeFundsOrders", fields: [lpExchangeId], references: [id], onDelete: Cascade)
+  capitalInjection      CapitalInjection?      @relation("CapitalInjectionFundsOrders", fields: [capitalInjectionId], references: [id], onDelete: Cascade)
+  vendorPayment         VendorPayment?         @relation("VendorPaymentFundsOrders", fields: [vendorPaymentId], references: [id], onDelete: Cascade)
   asset                 Asset                  @relation(fields: [assetId], references: [id])
   fromWallet            Wallet?                @relation("FundsOrderFromWallet", fields: [fromWalletId], references: [id])
   toWallet              Wallet?                @relation("FundsOrderToWallet", fields: [toWalletId], references: [id])
@@ -1005,11 +1067,15 @@ model FundsOrder {
   @@unique([swapTransactionId, legSeq, attempt])
   @@unique([internalTransferId, legSeq, attempt])
   @@unique([lpExchangeId, legSeq, attempt])
+  @@unique([capitalInjectionId, legSeq, attempt])
+  @@unique([vendorPaymentId, legSeq, attempt])
   @@index([depositTransactionId])
   @@index([swapTransactionId, legSeq])
   @@index([withdrawTransactionId])
   @@index([internalTransferId])
   @@index([lpExchangeId])
+  @@index([capitalInjectionId])
+  @@index([vendorPaymentId])
   @@index([status])
   @@index([txHash])
   @@index([createdAt])
@@ -1836,6 +1902,7 @@ model OutsourcingVendor {
   traceId            String
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+  vendorPayments     VendorPayment[] @relation("VendorPayments")
   @@index([status])
   @@map("outsourcing_vendors")
 }

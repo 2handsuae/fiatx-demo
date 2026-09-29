@@ -74,6 +74,9 @@ export const TB_TRANSFER_CODES = {
   LP_EXCHANGE_PAY: 84,     // 卖出腿：DR FIRM_OPS / CR FIRM_ASSET（卖出币 ledger，付给 LP，外穿）
   LP_EXCHANGE_RECEIVE: 85, // 买入腿：DR FIRM_ASSET / CR FIRM_LIQ（买入币 ledger，LP 打来落前厅，外穿）
   LP_EXCHANGE_ACCEPT: 86,  // 验收转腿：DR FIRM_LIQ / CR FIRM_OPS（买入币 ledger，验收入库，内转）
+
+  // ── 战役乙波二（2026-09-29）：供应商付款（87）。单腿出：运营户直出到收款坐标；注资复用 70 ──
+  VENDOR_PAYMENT: 87, // 付款腿：DR FIRM_OPS / CR FIRM_ASSET（付款币 ledger，付给在册外包商，外穿）
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];
