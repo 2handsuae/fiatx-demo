@@ -116,7 +116,7 @@ EXECUTING ──⚡推出款确认(回单先于落账)──▶ SUCCESS（落账
 | RBAC 桶 | 77 | **80** | `treasury.view_dashboard` / `treasury.view_funding` / `treasury.act_funding` |
 | RBAC 组 | 85 | **88** | `FUNDING_DASHBOARD_VIEW`（金库/CFO/高管/内审四职务）/ `FUNDING_READ`（金库/CFO/内审，照 LP_READ 先例）/ `FUNDING_WRITE`（唯金库）；CFO 裁决走审批角色路由不占桶；`FUNDING_DASHBOARD_VIEW` 同时以 OR 挂上 `GET /admin/tb/accounts` 两路由作路由锚（持有者本就可达，零权限扩张） |
 | 审批类型 | 49 | **51** | `CAPITAL_INJECTION_APPROVAL` / `VENDOR_PAYMENT_APPROVAL`（均金库提/CFO 单步/48h/可撤）；三件套含白名单表勿漏 |
-| 审计现役码 | 312 | **324** | 注资族 6：CIN_ `REQUESTED/APPROVED/FUNDS_RECEIVED/CONFIRMED/REJECTED/CANCELLED`；付款族 6：PAY_ `REQUESTED/EXECUTION_STARTED/EXECUTED/FAILED/REJECTED/CANCELLED`（命名照 LPX 族体例；域 TREASURY；词表入库 lark 目录并重导全量册，照波一惯例） |
+| 审计现役码 | 312 | **324** | 注资族 6：`CAPITAL_INJECTION_{REQUESTED,APPROVED,FUNDS_RECEIVED,CONFIRMED,REJECTED,CANCELLED}`；付款族 6：`VENDOR_PAYMENT_{REQUESTED,EXECUTION_STARTED,EXECUTED,FAILED,REJECTED,CANCELLED}`（全名体例照 LP_PROFILE_/LP_EXCHANGE_ 族先例，与 plan 一致——波一「缩写/全名两张皮」教训，此处即定稿名；域 TREASURY；词表入库 lark 目录并重导全量册，照波一惯例） |
 | 转账码 | 86 止 | **+1（87）** | §4 表定死，plan 不得追加 |
 | COA 科目 | 10 | **10** | 零增删（总纲 §2「COA 内做完」） |
 | prisma 表 | — | **+2** | capital_injections / vendor_payments；FundsOrder +2 列；**加表必配 reset 登记表**（波二判例） |
