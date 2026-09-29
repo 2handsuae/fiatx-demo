@@ -286,6 +286,13 @@ const DashboardLayout = () => {
           icon: <Landmark size={13} />,
           requiredPermissions: [PERMISSIONS.LP_PROFILES_READ],
         },
+        // 战役乙波一（Task 8）：LP 兑换单——先款后货三腿，金库开单 / CFO 批。
+        {
+          path: '/admin/lp-exchanges',
+          label: 'LP Exchanges',
+          icon: <Repeat size={13} />,
+          requiredPermissions: [PERMISSIONS.LP_EXCHANGES_READ],
+        },
       ],
     },
     // ─── Assets & Limits ──────────────────────────────────────────

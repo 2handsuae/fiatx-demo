@@ -26,7 +26,7 @@ import {
 
 /* ── Types ──────────────────────────────────────────────────── */
 
-type ParentType = 'all' | 'deposit' | 'withdraw' | 'swap' | 'internal-transfer';
+type ParentType = 'all' | 'deposit' | 'withdraw' | 'swap' | 'internal-transfer' | 'lp-exchange';
 
 interface FundsOrderItem {
   fundsOrderNo: string;
@@ -40,6 +40,8 @@ interface FundsOrderItem {
   swapNo?: string | null;
   // 平账二期：第四种父键——内部划转单
   transferNo?: string | null;
+  // 战役乙波一 T8（改派项 R11a）：第五种父键——LP 兑换单。
+  exchangeNo?: string | null;
   txHash?: string | null;
   referenceNo?: string | null;
 }
@@ -65,6 +67,7 @@ const PARENT_TYPES: Array<{ key: ParentType; label: string }> = [
   { key: 'withdraw', label: 'Withdraw' },
   { key: 'swap', label: 'Swap' },
   { key: 'internal-transfer', label: 'Internal transfer' },
+  { key: 'lp-exchange', label: 'LP exchange' },
 ];
 
 /* ── Helpers ────────────────────────────────────────────────── */
@@ -77,6 +80,7 @@ const parentOf = (
   if (item.withdrawNo) return { kind: 'Withdraw', no: item.withdrawNo };
   if (item.swapNo) return { kind: 'Swap', no: item.swapNo };
   if (item.transferNo) return { kind: 'Internal transfer', no: item.transferNo };
+  if (item.exchangeNo) return { kind: 'LP exchange', no: item.exchangeNo };
   return { kind: '—', no: null };
 };
 

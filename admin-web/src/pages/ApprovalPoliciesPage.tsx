@@ -78,6 +78,8 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   INCIDENT_CLOSE_CUSTOMER: 'Incident Close · Customer',
   // 战役乙波一 Task 7：LP 档案——金库提、CFO 单步批。
   LP_PROFILE_APPROVAL: 'LP profile registration',
+  // 战役乙波一 Task 8：LP 兑换单——金库提、CFO 单步批。
+  LP_EXCHANGE_APPROVAL: 'LP exchange',
   LP_PROFILE_CHANGE: 'LP settlement change',
 };
 

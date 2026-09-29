@@ -87,6 +87,9 @@ interface FundsOrderDetail {
   swapTransaction?: FoParent | null;
   // 平账二期：第四种父键——内部划转单。回链走业务号 transferNo，不碰 id。
   internalTransfer?: { transferNo: string; status: string } | null;
+  // 战役乙波一 T8（改派项 R11b）：第五种父键——LP 兑换单。回链走业务号
+  // exchangeNo（findOneByNoForAdmin 已下发 lpExchange {id,exchangeNo,status}）。
+  lpExchange?: { exchangeNo: string; status: string } | null;
   depositNo?: string | null;
   withdrawNo?: string | null;
   swapNo?: string | null;
@@ -167,6 +170,14 @@ const resolveParent = (
       no: data.internalTransfer.transferNo,
       status: data.internalTransfer.status ?? '',
       route: '/admin/custody/internal-transfers/' + data.internalTransfer.transferNo,
+    };
+  }
+  if (data.lpExchange?.exchangeNo) {
+    return {
+      kind: 'LP exchange',
+      no: data.lpExchange.exchangeNo,
+      status: data.lpExchange.status ?? '',
+      route: '/admin/lp-exchanges/' + data.lpExchange.exchangeNo,
     };
   }
   return null;
@@ -354,8 +365,12 @@ const FundsOrderDetail = () => {
   const parent = resolveParent(data);
   // 波二（2026-09-19 业主定）：运营无划转读权——Internal transfer 的关联跳转按权限渲染，
   // 单号照显（业务键本就在资金单读面内），只收「点得到、点了被拒」的幽灵链接。
+  // 战役乙波一 T8（改派项 R11b，同款理由）：SMO/MLRO/TECH_OFFICER/OPS_OFFICER 持
+  // FUNDS_ORDER_VIEW 但不持 LP_READ——LP exchange 关联跳转同样按权限渲染。
   const parentLinkAllowed =
-    !parent || parent.kind !== 'Internal transfer' || hasPermission(PERMISSIONS.INTERNAL_TRANSFERS_READ);
+    !parent ||
+    ((parent.kind !== 'Internal transfer' || hasPermission(PERMISSIONS.INTERNAL_TRANSFERS_READ)) &&
+      (parent.kind !== 'LP exchange' || hasPermission(PERMISSIONS.LP_EXCHANGES_READ)));
 
   // 平账·推单处置门控（Task 4；Task 7 补划转腿）：swap 腿走 Swap 详情页逐腿推进
   // （顺序守卫，本页 ⚡ 模拟面板的 isSwap 分支也走同一个 swap advance 端点——本页

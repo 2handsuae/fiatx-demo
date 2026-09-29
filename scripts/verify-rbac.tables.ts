@@ -60,4 +60,10 @@ export const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
   // （rbac.catalog.ts COMPLIANCE_OFFICER 绑定区）。
   COMPLAINT_RESOLUTION: 'COMPLAINT_READ', // → /admin/governance/complaints/:complaintNo（合规官持 COMPLAINT_READ）
   INCIDENT_CLOSE_CUSTOMER: 'INCIDENT_READ', // → /admin/governance/incidents/:incidentNo（合规官持 INCIDENT_READ）
+  // 战役乙波一：LP 档案 / LP 兑换单，唯一裁决人 CFO 持 LP_READ（rbac.catalog.ts CFO 绑定区）。
+  // T7 加了 approvalEntityRoutes.ts 的 LP_PROFILE_APPROVAL/LP_PROFILE_CHANGE 两行，漏加这张
+  // 表的对应行——S9 断言当时就该红（本任务 Task 8 补 LP_EXCHANGE_APPROVAL 时顺手补齐两处旧账）。
+  LP_PROFILE_APPROVAL: 'LP_READ', // → /admin/lp-profiles/:lpNo（CFO 持 LP_READ）
+  LP_PROFILE_CHANGE: 'LP_READ', // → /admin/lp-profiles/:lpNo（CFO 持 LP_READ）
+  LP_EXCHANGE_APPROVAL: 'LP_READ', // → /admin/lp-exchanges/:exchangeNo（CFO 持 LP_READ）
 };

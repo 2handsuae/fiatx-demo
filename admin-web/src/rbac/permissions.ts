@@ -95,6 +95,15 @@ export const PERMISSIONS = {
   LP_PROFILE_SUSPEND: 'api.post.admin_lp_profiles_lpno_suspend',
   LP_PROFILE_REACTIVATE: 'api.post.admin_lp_profiles_lpno_reactivate',
 
+  // 战役乙波一（Task 8）：LP 兑换单——六个码精确镜像 rbac.catalog.ts 里 T6 已登记的
+  // buildPermissionCode(method, path) 派生值（同上方 89-96 行 Task 7 先例）。
+  LP_EXCHANGES_READ: 'api.get.admin_lp_exchanges',
+  LP_EXCHANGE_DETAIL_READ: 'api.get.admin_lp_exchanges_exchangeno',
+  LP_EXCHANGE_CREATE: 'api.post.admin_lp_exchanges',
+  LP_EXCHANGE_CANCEL: 'api.post.admin_lp_exchanges_exchangeno_cancel',
+  LP_EXCHANGE_ACCEPT: 'api.post.admin_lp_exchanges_exchangeno_accept',
+  LP_EXCHANGE_SIMULATE_DELIVERY: 'api.post.admin_lp_exchanges_exchangeno_simulate_delivery',
+
   // 平账三期（2026-09-06）：事故登记——三个码精确镜像 rbac.catalog.ts route() 的
   // buildPermissionCode 派生值。列表/详情两个 GET 路由的 allowedGroups 同时含
   // INCIDENT_READ/INCIDENT_WRITE（route() 已登记），写动作只有 INCIDENT_WRITE 一组；
