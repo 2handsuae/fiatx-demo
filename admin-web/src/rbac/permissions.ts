@@ -126,6 +126,14 @@ export const PERMISSIONS = {
   VENDOR_PAYMENT_CREATE: 'api.post.admin_vendor_payments',
   VENDOR_PAYMENT_CANCEL: 'api.post.admin_vendor_payments_payno_cancel',
 
+  // 战役乙波二（Task 8）：公司资金全景看板——页面本身不消费任何专属后端端点（复用既有
+  // TB_ACCOUNTS_READ/TB_FLOWS_READ 数据端点），但那两条数据路由同时被技术官/运营的
+  // LEDGER_ACCOUNT_READ 覆盖，不能借来门控导航/路由。这个值不是 buildPermissionCode()
+  // 派生的 'api.xxx' 字面量，而是 rbac.catalog.ts 里唯一挂 FUNDING_DASHBOARD_VIEW 单组的
+  // 服务层/前端门控标记码（cap.treasury.funding_dashboard，MARKER，同 cap.incident.*
+  // 先例）——只有金库/CFO/高管/内审恰四职务会在 /auth/me 的 permissions 里拿到它。
+  FUNDING_DASHBOARD_VIEW: 'cap.treasury.funding_dashboard',
+
   // 平账三期（2026-09-06）：事故登记——三个码精确镜像 rbac.catalog.ts route() 的
   // buildPermissionCode 派生值。列表/详情两个 GET 路由的 allowedGroups 同时含
   // INCIDENT_READ/INCIDENT_WRITE（route() 已登记），写动作只有 INCIDENT_WRITE 一组；

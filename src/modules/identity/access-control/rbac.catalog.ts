@@ -111,7 +111,10 @@ export type PermissionGroup =
   // 战役乙波二 T3：注资单（CapitalInjection）——开单 / 撤回 / ⚡到款 / 确认入账归金库
   // （FUNDING_WRITE），CFO/内审读得到列表详情（FUNDING_READ），同 LP_READ/LP_WRITE 先例。
   | 'FUNDING_READ'
-  | 'FUNDING_WRITE';
+  | 'FUNDING_WRITE'
+  // 战役乙波二 T8：公司资金全景看板——独立可见性门控（金库/CFO/高管/内审恰四职务，
+  // spec §7），非 FUNDING_READ 的别名（SENIOR_MANAGEMENT_OFFICER 不持 FUNDING_READ）。
+  | 'FUNDING_DASHBOARD_VIEW';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -632,9 +635,25 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   { code: 'cap.incident.ops', name: 'Incident operator capability: OPERATIONS family', description: 'Incident family operator capability (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/incident-capability/ops', groups: ['INCIDENT_OPS_WRITE'] },
   { code: 'cap.incident.fin', name: 'Incident operator capability: FINANCIAL family', description: 'Incident family operator capability (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/incident-capability/fin', groups: ['INCIDENT_FIN_WRITE'] },
 
+  // 战役乙波二 T8：公司资金看板前端门控标记码——不是路由。看板数据本身读既有
+  // GET /admin/tb/accounts（上方已挂 FUNDING_DASHBOARD_VIEW OR 锚），但那两条路由同时被
+  // TECH_OFFICER/OPS_OFFICER 的 LEDGER_ACCOUNT_READ 覆盖，若前端也用那两条路由派生的码门控
+  // 页面导航/路由，会把技术官/运营一并放进来——不是 spec §7「金库/CFO/高管/内审恰四职务」
+  // 的本意。admin-web 的 /auth/me 只下发扁平的权限码列表（buildRolePermissionCodeMap()
+  // 按分组过滤 RBAC_PERMISSION_DEFINITIONS，与 method 无关），故仿 cap.incident.*/cap.filing.*
+  // 先例（Ruling-6）登记一个只挂 FUNDING_DASHBOARD_VIEW 单组的服务层/前端门控标记码——
+  // buildRolePermissionCodeMap() 会把它精确派给持有该组的四个职务，S7 白名单见
+  // scripts/verify-rbac.ts。admin-web/src/rbac/permissions.ts 的 FUNDING_DASHBOARD_VIEW
+  // 直接引用这个字面量码（同 cap.* 系列不经 buildPermissionCode 派生的既有写法）。
+  { code: 'cap.treasury.funding_dashboard', name: 'Treasury capability: view company funds dashboard', description: 'Frontend route/nav gate marker for the company funds overview page (service-layer gate marker, not a route)', method: 'MARKER', path: '/internal/treasury-capability/funding-dashboard', groups: ['FUNDING_DASHBOARD_VIEW'] },
+
   // TB Ledger
-  route('GET', '/admin/tb/accounts', 'List TB account registry', ['LEDGER_ACCOUNT_READ']),
-  route('GET', '/admin/tb/accounts/:tbAccountId', 'Get TB account detail', ['LEDGER_ACCOUNT_READ']),
+  // 战役乙波二 T8：FUNDING_DASHBOARD_VIEW 以 OR 挂上这两条既有路由，是路由锚而非新能力——
+  // 四职务（金库/CFO/高管/内审）本就持 LEDGER_ACCOUNT_READ，这两条路由本已可达（spec §1/§7
+  // 实测：高管/内审/CFO/金库/技术官/运营六职务均持 LEDGER_ACCOUNT_READ），零权限扩张。看板
+  // 页面本身的前端可见性另有独立门控——见下方 cap.treasury.funding_dashboard 服务层标记码。
+  route('GET', '/admin/tb/accounts', 'List TB account registry', ['LEDGER_ACCOUNT_READ', 'FUNDING_DASHBOARD_VIEW']),
+  route('GET', '/admin/tb/accounts/:tbAccountId', 'Get TB account detail', ['LEDGER_ACCOUNT_READ', 'FUNDING_DASHBOARD_VIEW']),
   route('GET', '/admin/tb/transfers', 'List TB transfer evidence', ['LEDGER_EVIDENCE_READ']),
   route('GET', '/admin/tb/transfers/:tbTransferId', 'Get TB transfer evidence detail', ['LEDGER_EVIDENCE_READ']),
   route('GET', '/admin/tb/account-flows', 'List account flows', ['LEDGER_FLOW_READ']),
@@ -1003,6 +1022,11 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
         description: 'Initiate capital injections and vendor payments, confirm receipts — CFO signs off',
         groups: ['FUNDING_WRITE'],
       },
+      {
+        key: 'treasury.view_dashboard', label: 'View company funds dashboard',
+        description: 'One-screen view of firm liquidity: operating balances vs low-water thresholds, in-transit, settlement and income accounts',
+        groups: ['FUNDING_DASHBOARD_VIEW'],
+      },
     ],
   },
   // ─── Domain: Customer ────────────────────────────────
@@ -1217,6 +1241,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役甲波四 T5：高管新增 RI_REPLACEMENT 裁决位——需要读得到闹钟墙/合规日历/两册
     // （同上 REG_FILING_READ 先例，裁决人要看得见）。
     'COMPLIANCE_OFFICE_VIEW',
+    // 战役乙波二 T8：公司资金全景看板——金库/CFO/高管/内审恰四职务（spec §7 裁定 6）。
+    'FUNDING_DASHBOARD_VIEW',
   ],
 
   CISO: [
@@ -1297,6 +1323,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'LP_READ',
     // 战役乙波二 T3：注资单同 LP_READ 先例——内审全域只读，不建 FUNDING_WRITE。
     'FUNDING_READ',
+    // 战役乙波二 T8：公司资金全景看板——金库/CFO/高管/内审恰四职务（spec §7 裁定 6）。
+    'FUNDING_DASHBOARD_VIEW',
   ],
 
   // 拦的手：开/解限制、贴撕标签、提解冻；管理台里推不动任何交易单据（D-不翻案）
@@ -1358,6 +1386,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'LP_READ',
     // 战役乙波二 T3：注资单发起的唯一裁决人——同上，需要读得到列表/详情。
     'FUNDING_READ',
+    // 战役乙波二 T8：公司资金全景看板——金库/CFO/高管/内审恰四职务（spec §7 裁定 6）。
+    'FUNDING_DASHBOARD_VIEW',
   ],
 
   // 提现地址的写权限全仓仅此一处；钱包地址行只从种子来，管理台只读。
@@ -1397,6 +1427,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役乙波二 T3：注资单开单归金库——maker（金库）≠ checker（CFO），verify:rbac S5 守着
     // （同 LP_PROFILE/LP_EXCHANGE 先例）。
     'FUNDING_READ', 'FUNDING_WRITE',
+    // 战役乙波二 T8：公司资金全景看板——金库/CFO/高管/内审恰四职务（spec §7 裁定 6）。
+    'FUNDING_DASHBOARD_VIEW',
     'INCIDENT_WRITE',
     // 对账平账两角色定案（2026-09-10）：DEMO_CLOCK_WRITE 随本组整体迁入——案件页 ⚡Fast-forward
     // aging 按钮，以及充值/提现/兑换 SLA 超时与审批超时的演示拨钟，运营不再持有。

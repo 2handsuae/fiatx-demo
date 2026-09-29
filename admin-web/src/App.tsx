@@ -65,6 +65,7 @@ const CapitalInjectionList = lazy(() => import('./pages/CapitalInjectionList'));
 const CapitalInjectionDetail = lazy(() => import('./pages/CapitalInjectionDetail'));
 const VendorPaymentList = lazy(() => import('./pages/VendorPaymentList'));
 const VendorPaymentDetail = lazy(() => import('./pages/VendorPaymentDetail'));
+const CompanyFundsDashboard = lazy(() => import('./pages/CompanyFundsDashboard'));
 const TransactionLimitList = lazy(() => import('./pages/TransactionLimitList'));
 const TransactionLimitDetail = lazy(() => import('./pages/TransactionLimitDetail'));
 const WithdrawalFeeLevelList = lazy(() => import('./pages/WithdrawalFeeLevelList'));
@@ -257,6 +258,9 @@ function App() {
             {/* 战役乙波二（Task 7）：付款单——支付在册外包商，金库开单 / CFO 批 */}
             <Route path="vendor-payments" element={withPermission(<VendorPaymentList />, [PERMISSIONS.VENDOR_PAYMENTS_READ])} />
             <Route path="vendor-payments/:payNo" element={withPermission(<VendorPaymentDetail />, [PERMISSIONS.VENDOR_PAYMENT_DETAIL_READ])} />
+
+            {/* 战役乙波二 Task 8：公司资金全景看板——恰四职务（金库/CFO/高管/内审）可见。 */}
+            <Route path="company-funds" element={withPermission(<CompanyFundsDashboard />, [PERMISSIONS.FUNDING_DASHBOARD_VIEW])} />
 
             {/* assets */}
             <Route path="assets" element={withPermission(<AssetList />, [PERMISSIONS.ASSETS_READ])} />

@@ -298,11 +298,20 @@ const DashboardLayout = () => {
       ],
     },
     // ─── Treasury（战役乙波二）────────────────────────────────────
-    // 公司自身资金动线——不是客户/LP 域。Task 6：注资单先落地；Task 7：付款单续补。
+    // 公司自身资金动线——不是客户/LP 域。Task 6：注资单先落地；Task 7：付款单续补；
+    // Task 8：公司资金全景看板——恰四职务（金库/CFO/高管/内审）可见，运营/技术官
+    // 均不持 FUNDING_DASHBOARD_VIEW，导航无入口（同组的两条数据路由 OR 锚不改变这点，
+    // 见 rbac.catalog.ts cap.treasury.funding_dashboard 注释）。
     {
       label: 'Treasury',
       icon: <PiggyBank size={12} />,
       children: [
+        {
+          path: '/admin/company-funds',
+          label: 'Company Funds',
+          icon: <Gauge size={13} />,
+          requiredPermissions: [PERMISSIONS.FUNDING_DASHBOARD_VIEW],
+        },
         {
           path: '/admin/capital-injections',
           label: 'Capital Injections',

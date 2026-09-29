@@ -887,6 +887,11 @@ function runS6FrontendBackendCodeDiff(): void {
 //     服务层门标记码，method: 'MARKER'，永久性例外（跟 cap.incident.* 同类，不会「出生」
 //     成真路由）。
 //   （close-no-filing 端点曾以「暂未出生」列此白名单；T3 controller 落地后已按约删除。）
+//
+// 战役乙波二 T8：cap.treasury.funding_dashboard——公司资金看板的前端路由/导航门控标记码
+// （rbac.catalog.ts，method: 'MARKER'），同类永久性例外：只挂 FUNDING_DASHBOARD_VIEW 单组，
+// 用来让 admin-web 精确区分「恰四职务」与「同样持有 LEDGER_ACCOUNT_READ 的技术官/运营」，
+// 不对应任何真实 HTTP 路由。
 const S7_PENDING_DEAD_ROWS = new Set<string>([
   'cap.incident.funds',
   'cap.incident.tech',
@@ -895,6 +900,7 @@ const S7_PENDING_DEAD_ROWS = new Set<string>([
   'cap.incident.fin',
   'cap.filing.general',
   'cap.filing.aml',
+  'cap.treasury.funding_dashboard',
 ]);
 
 /** 镜像 admin-permission.guard.ts#buildRequestPermissionCode 的拼接算法——不是重新
