@@ -67,4 +67,8 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   // 结案（entityRef = incidentNo，同既有四条 INCIDENT_CLOSE_* 惯例）指向既有事故详情路由。
   COMPLAINT_RESOLUTION: (r) => `/admin/governance/complaints/${r}`,
   INCIDENT_CLOSE_CUSTOMER: (r) => `/admin/governance/incidents/${r}`,
+  // 战役乙波一（Task 7）：LP 档案建档 / 结算坐标变更——entityRef 都是 lpNo
+  // （lp-profile-workflow.service.ts initiateCreate/proposeSettlementChange 逐字确认）。
+  LP_PROFILE_APPROVAL: (r) => `/admin/lp-profiles/${r}`,
+  LP_PROFILE_CHANGE: (r) => `/admin/lp-profiles/${r}`,
 };

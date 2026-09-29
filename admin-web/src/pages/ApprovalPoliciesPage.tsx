@@ -76,6 +76,9 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   // 战役甲波五 Task 9（承接项F）：投诉裁决/客户族事故结案——运营提、合规官批。
   COMPLAINT_RESOLUTION: 'Complaint · Resolution',
   INCIDENT_CLOSE_CUSTOMER: 'Incident Close · Customer',
+  // 战役乙波一 Task 7：LP 档案——金库提、CFO 单步批。
+  LP_PROFILE_APPROVAL: 'LP profile registration',
+  LP_PROFILE_CHANGE: 'LP settlement change',
 };
 
 export default function ApprovalPoliciesPage() {

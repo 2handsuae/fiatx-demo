@@ -31,6 +31,7 @@ import {
   ChevronDown,
   Send,
   Building2,
+  Landmark,
   Clock,
   CalendarClock,
   BookUser,
@@ -277,6 +278,13 @@ const DashboardLayout = () => {
           label: 'Internal Transfers',
           icon: <ArrowLeftRight size={13} />,
           requiredPermissions: [PERMISSIONS.INTERNAL_TRANSFERS_READ],
+        },
+        // 战役乙波一（Task 7）：LP 档案——金库注册 / CFO 批的流动性提供方登记册。
+        {
+          path: '/admin/lp-profiles',
+          label: 'LP Register',
+          icon: <Landmark size={13} />,
+          requiredPermissions: [PERMISSIONS.LP_PROFILES_READ],
         },
       ],
     },

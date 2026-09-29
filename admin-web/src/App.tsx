@@ -57,6 +57,8 @@ const WithdrawalAddressList = lazy(() => import('./pages/WithdrawalAddressList')
 const WithdrawalAddressDetail = lazy(() => import('./pages/WithdrawalAddressDetail'));
 const InternalTransferList = lazy(() => import('./pages/InternalTransferList'));
 const InternalTransferDetail = lazy(() => import('./pages/InternalTransferDetail'));
+const LpProfileList = lazy(() => import('./pages/LpProfileList'));
+const LpProfileDetail = lazy(() => import('./pages/LpProfileDetail'));
 const TransactionLimitList = lazy(() => import('./pages/TransactionLimitList'));
 const TransactionLimitDetail = lazy(() => import('./pages/TransactionLimitDetail'));
 const WithdrawalFeeLevelList = lazy(() => import('./pages/WithdrawalFeeLevelList'));
@@ -233,6 +235,10 @@ function App() {
             {/* 平账二期：内部划转单（公司 → 客户补款 / 垫款） */}
             <Route path="custody/internal-transfers" element={withPermission(<InternalTransferList />, [PERMISSIONS.INTERNAL_TRANSFERS_READ])} />
             <Route path="custody/internal-transfers/:transferNo" element={withPermission(<InternalTransferDetail />, [PERMISSIONS.INTERNAL_TRANSFER_DETAIL_READ])} />
+
+            {/* 战役乙波一（Task 7）：LP 档案——金库注册 / CFO 批 */}
+            <Route path="lp-profiles" element={withPermission(<LpProfileList />, [PERMISSIONS.LP_PROFILES_READ])} />
+            <Route path="lp-profiles/:lpNo" element={withPermission(<LpProfileDetail />, [PERMISSIONS.LP_PROFILE_DETAIL_READ])} />
 
             {/* assets */}
             <Route path="assets" element={withPermission(<AssetList />, [PERMISSIONS.ASSETS_READ])} />
