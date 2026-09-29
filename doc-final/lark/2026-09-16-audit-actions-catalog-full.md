@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-09-28 ｜ 基线 main `00e913c3` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
-> 现役 **296 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
+> 生成于 2026-09-29 ｜ 基线 main `cebbb686` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 现役 **312 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 29 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 43 ｜ 合计 296
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 29 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 23 ｜ RECON 9 ｜ GOVERNANCE 43 ｜ 合计 312
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -525,7 +525,7 @@
 | `SWAP_SLA_TIMEOUT_SIMULATED` | ⚡ 拨钟模拟 SLA 超时 | I 继承 | — |  |  |
 | `SWAP_DEMO_SCENARIO_RUN` | ⚡ 喂裁决按钮被按下 | I 继承 | — |  |  |
 
-## TREASURY 域 —— V7 财资（内部划转单）（7 码）
+## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台）（23 码）
 
 公司的钱给客户：认损补款 / 退汇垫款。第四类订单，法币两腿经结算户、加密币一腿；金库提、CFO 批。
 
@@ -540,6 +540,32 @@
 | `INTERNAL_TRANSFER_LEG_POSTED` | 一条腿落账（法币两腿各一条） | I 继承 | amount |  |  |
 | `INTERNAL_TRANSFER_SETTLED` | 整单结清、客户余额复位 | I 继承 | amount, effectiveDate |  |  |
 | `INTERNAL_TRANSFER_FAILED` | 执行失败（腿 2 失败款停结算户，人工处理） | I 继承 | reasonCode |  |  |
+
+### LP 档案生命周期（8） — 战役乙波一 T2/T3 新增，金库建档 / 改结算坐标 / 启停，CFO 单步批
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `LP_PROFILE_CREATED` | 登记新增流动性提供商（金库提交，待 CFO 批） | N 单步 | reason |  |  |
+| `LP_PROFILE_APPROVED` | CFO 批准建档，档案转 ACTIVE | I 继承 | approvalNo | ✓ |  |
+| `LP_PROFILE_REJECTED` | CFO 驳回或超时，档案转 REJECTED（终态） | I 继承 | approvalNo | ✓ |  |
+| `LP_PROFILE_CHANGE_PROPOSED` | 提结算坐标变更（金库提，新坐标快照进审批单，待 CFO 批） | I 继承 | reason |  |  |
+| `LP_PROFILE_CHANGE_APPLIED` | CFO 批准变更，新结算坐标落地（档案仍 ACTIVE） | I 继承 | approvalNo | ✓ |  |
+| `LP_PROFILE_CHANGE_REJECTED` | CFO 驳回或超时变更，坐标原样不动 | I 继承 | approvalNo | ✓ |  |
+| `LP_PROFILE_SUSPENDED` | 金库暂停 LP（直接迁移，留痕不批） | I 继承 | reason |  |  |
+| `LP_PROFILE_REACTIVATED` | 金库恢复 LP（直接迁移，留痕不批） | I 继承 | reason |  |  |
+
+### LP 兑换单生命周期（8） — 战役乙波一 T4/T5 新增，先款后货三腿，金库提 / CFO 单步批 / 验收
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `LP_EXCHANGE_REQUESTED` | 发起兑换单（卖一种资产买另一种，金库提，待 CFO 批） | N 单步 | amount, reason |  |  |
+| `LP_EXCHANGE_CANCELLED` | 待批时金库撤单 | I 继承 | reason |  |  |
+| `LP_EXCHANGE_REJECTED` | CFO 驳回或超时，转 REJECTED（终态） | I 继承 | approvalNo | ✓ |  |
+| `LP_EXCHANGE_EXECUTION_STARTED` | CFO 批准（复核运营户余额），卖出腿建单执行开始 | I 继承 | approvalNo | ✓ |  |
+| `LP_EXCHANGE_PAY_LEG_POSTED` | 卖出腿清算落账，转入悬空期（等 LP 发货） | I 继承 | amount |  |  |
+| `LP_EXCHANGE_DELIVERED` | ⚡ LP 打款落前厅（模拟到货，买入腿建单落账） | I 继承 | amount |  |  |
+| `LP_EXCHANGE_ACCEPTED` | 金库验收（核数），买入腿转入运营户，整单结清（终态） | I 继承 | amount, effectiveDate |  |  |
+| `LP_EXCHANGE_FAILED` | 批准后运营户余额不足，或落腿失败，整单转 FAILED（终态） | I 继承 | reasonCode |  |  |
 
 ## RECON 域 —— V8 对账（9 码）
 

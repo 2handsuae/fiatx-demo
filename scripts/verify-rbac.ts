@@ -731,6 +731,88 @@ function runStaticChecks(): void {
       ? `持有职务集合恰为 {${[...complaintReadHolders].join(',')}}`
       : `持有职务集合为 {${[...complaintReadHolders].join(',')}}，期望恰为 {${[...expectedComplaintReadHolders].join(',')}}`,
   );
+
+  // ── S13：LP 两组「四处齐」+ 唯一持有断言 + 波前→波后计数（战役乙波一 T3/T6/T10）──────
+  // 同 S10/S11/S12 范式：两个新组（LP_READ/LP_WRITE）一次性核验 route() 挂载 /
+  // ACTION_BUCKET_CATALOG 桶挂载 / 职务持有均 >=1（联合类型成员由 tsc 收口，同 S10/S11/S12
+  // 头注释）；两桶挂既有 Treasury 域（treasury.view_lp/treasury.act_lp，T3 域注释），域数
+  // 不变仍 15。再加两条精确持有断言——LP_WRITE 金库独持（开档案/改结算坐标/启停/开兑换单/
+  // 验收全在金库手上，CFO 单步裁决不占本组，同 INTERNAL_TRANSFER_WRITE「maker≠checker」
+  // 反向先例）；LP_READ 恰为 {TREASURY_OFFICER,CFO,INTERNAL_AUDITOR}（金库=经办人、CFO=
+  // 裁决人要看得见列表/详情、内审=全域只读人设，同 INTERNAL_TRANSFER_READ 三持先例）。
+  // 三条新审批策略（LP_PROFILE_APPROVAL/LP_PROFILE_CHANGE/LP_EXCHANGE_APPROVAL）在
+  // MAKER_GROUP_BY_POLICY 里已由 T3/T5 登记（见上方 S5/S8 消费的那张表本体）——策略全集
+  // 覆盖由已有的 S8「MAKER 表与策略一一对应」自动兜住，不必在这里重复一条判据。
+  const LP_GROUPS: PermissionGroup[] = ['LP_READ', 'LP_WRITE'];
+  const lpCoverage = LP_GROUPS.map((g) => {
+    const groupRoutes = RBAC_PERMISSION_DEFINITIONS.filter((d) => d.groups.includes(g));
+    const groupBuckets = ACTION_BUCKET_CATALOG.flatMap((domain) => domain.buckets).filter((b) => b.groups.includes(g));
+    const groupHolders = Object.entries(RBAC_ROLE_GROUP_BINDINGS)
+      .filter(([, groups]) => (groups as PermissionGroup[]).includes(g))
+      .map(([role]) => role);
+    return { group: g, routes: groupRoutes.length, buckets: groupBuckets.length, holders: groupHolders };
+  });
+  const uncoveredLpGroups = lpCoverage.filter((c) => c.routes < 1 || c.buckets < 1 || c.holders.length < 1);
+  check(
+    'S13a LP 两组四处齐（route() / ACTION_BUCKET_CATALOG 桶 / 职务持有；联合类型由 tsc 收口）',
+    uncoveredLpGroups.length === 0,
+    uncoveredLpGroups.length === 0
+      ? lpCoverage.map((c) => `${c.group}: route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length}`).join('；')
+      : `未齐全: ${uncoveredLpGroups.map((c) => `${c.group}(route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length})`).join(', ')}`,
+  );
+
+  const lpHoldersOf = (g: PermissionGroup) => lpCoverage.find((c) => c.group === g)!.holders;
+  const lpWriteHolders = lpHoldersOf('LP_WRITE');
+  check(
+    'S13b LP_WRITE 金库独持',
+    lpWriteHolders.length === 1 && lpWriteHolders[0] === 'TREASURY_OFFICER',
+    lpWriteHolders.length === 1 && lpWriteHolders[0] === 'TREASURY_OFFICER'
+      ? '持有职务集合恰为 {TREASURY_OFFICER}'
+      : `持有职务集合为 {${lpWriteHolders.join(',') || '空'}}，期望恰为 {TREASURY_OFFICER}`,
+  );
+
+  const lpReadHolders = new Set(lpHoldersOf('LP_READ'));
+  const expectedLpReadHolders = new Set(['TREASURY_OFFICER', 'CFO', 'INTERNAL_AUDITOR']);
+  const lpReadSetsEqual = lpReadHolders.size === expectedLpReadHolders.size &&
+    [...expectedLpReadHolders].every((r) => lpReadHolders.has(r));
+  check(
+    'S13c LP_READ 恰为 {金库,CFO,内审}',
+    lpReadSetsEqual,
+    lpReadSetsEqual
+      ? `持有职务集合恰为 {${[...lpReadHolders].join(',')}}`
+      : `持有职务集合为 {${[...lpReadHolders].join(',')}}，期望恰为 {${[...expectedLpReadHolders].join(',')}}`,
+  );
+
+  // S13d：波前→波后计数（brief Step 1 明点要求）——ACTION_BUCKET_CATALOG 总桶数由运行时
+  // 数组直接数（75→77）；PermissionGroup 是纯类型，编译后不存在于运行时，数不了，改用
+  // overview.md §4 页脚本身登记的权威公式（`sed -n '9,106p' rbac.catalog.ts | grep -cE
+  // "^\s*\|? *'[A-Z0-9_]+'"`，2026-09-28 战役甲波五收口实测）同构镜像：正则抽取
+  // `export type PermissionGroup =` 到其终止 `;` 之间的每个带引号标识符——这是对已声明
+  // 结构本体的机械抽取（同 S6/S7 头注释：抽的是数据结构本体，不是为了让某个字符串命中而
+  // 投绿灯），不算违反文件头「不 grep 源码文本」红线（那条红线打的是「用文本匹配代替行为
+  // 验证」，这里验证的对象本来就是文本声明本身，没有对应的运行时值可读）。
+  const declaredPermissionGroups = (() => {
+    const catalogPath = path.resolve(__dirname, '../src/modules/identity/access-control/rbac.catalog.ts');
+    const text = fs.readFileSync(catalogPath, 'utf8');
+    const start = text.indexOf('export type PermissionGroup =');
+    if (start === -1) return new Set<string>();
+    const end = text.indexOf(';', start);
+    const block = text.slice(start, end === -1 ? undefined : end);
+    const groups = new Set<string>();
+    const re = /'([A-Z0-9_]+)'/g;
+    let gm: RegExpExecArray | null;
+    while ((gm = re.exec(block)) !== null) groups.add(gm[1]);
+    return groups;
+  })();
+  const totalBuckets = ACTION_BUCKET_CATALOG.flatMap((d) => d.buckets).length;
+  const totalDomains = ACTION_BUCKET_CATALOG.length;
+  check(
+    'S13d 波前→波后计数（域 15→15 不变、桶 75→77、组 83→85；LP_READ/LP_WRITE 两个新成员都在册）',
+    totalDomains === 15 && totalBuckets === 77 && declaredPermissionGroups.size === 85 &&
+      declaredPermissionGroups.has('LP_READ') && declaredPermissionGroups.has('LP_WRITE'),
+    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 77）｜` +
+      `PermissionGroup 联合类型共 ${declaredPermissionGroups.size} 个成员（预期 85，含 LP_READ/LP_WRITE）`,
+  );
 }
 
 // ══════════════════════ S6：前后端权限码表差集 ══════════════════════
@@ -1349,6 +1431,35 @@ const PROBES: DirectionalProbe[] = [
     section: '投诉两组门(T6)', name: '金库 不得 看投诉列表', method: 'GET',
     routePattern: '/admin/complaints', path: '/admin/complaints',
     role: 'treasury', expect: 'DENY',
+  },
+
+  // ── LP 台仅金库写、CFO 只读推不动（战役乙波一 T10）──────────────────────
+  // 同「钱包地址只在金库」/「资产管控只在运营」形态：POST 打占位 lpNo（NOPE 业务上必然
+  // 不存在），ALLOW 判据只验权限闸不验业务——守卫放行后落到 LpProfileService.findByNo
+  // 抛 NotFoundException（404），非 403 即 ALLOW 判据成立（见文件头「ALLOW→POST 允许
+  // 404/400」红线注释）。不选 POST /admin/lp-profiles（真建档）作 ALLOW 探针——那会真建
+  // 一条 PENDING_APPROVAL 档案并发起真实 LP_PROFILE_APPROVAL 审批单，T9 种子基线已锁死
+  // LP 花名册恰为「Falcon+Dune 两家」供 T11 剧本消费；LP 档案状态机（spec §2.2）没有
+  // 「撤回」边（PENDING_APPROVAL 只能走 CFO 批/驳/超时三条路），不像 LP 兑换单那样有
+  // 自服务 cancel 收尾，探针不该给基线掺入清不掉的第三家。suspend 端点本身零副作用
+  // 前提（占位 lpNo 查不到，转 404 而非真落库），是本轮唯一同时满足「测到 LP_WRITE 写
+  // 动作」与「零残留」两条件的端点。
+  {
+    section: 'LP 台仅金库写(T10)', name: '金库 可以 提暂停 LP（占位 lpNo）', method: 'POST',
+    routePattern: '/admin/lp-profiles/:lpNo/suspend', path: `/admin/lp-profiles/${NOPE}/suspend`,
+    role: 'treasury', expect: 'ALLOW', body: { reason: 'verify:rbac probe' },
+  },
+  {
+    section: 'LP 台仅金库写(T10)', name: '运营 不得 提暂停 LP（无 LP_WRITE）', method: 'POST',
+    routePattern: '/admin/lp-profiles/:lpNo/suspend', path: `/admin/lp-profiles/${NOPE}/suspend`,
+    role: 'ops_officer', expect: 'DENY',
+    body: { reason: 'verify:rbac probe' },
+  },
+  {
+    section: 'LP 台仅金库写(T10)', name: 'CFO 不得 提暂停 LP（只持 LP_READ，推不动写动作）', method: 'POST',
+    routePattern: '/admin/lp-profiles/:lpNo/suspend', path: `/admin/lp-profiles/${NOPE}/suspend`,
+    role: 'cfo', expect: 'DENY',
+    body: { reason: 'verify:rbac probe' },
   },
 ];
 

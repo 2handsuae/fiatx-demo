@@ -117,11 +117,11 @@ DELIVERED ──accept(金库,验收=核数)──▶ SUCCESS（落验收转腿�
 
 | 计数 | 波前 | 预期终态 | 增量内容 |
 |---|---|---|---|
-| RBAC 域 | 15 | **15** | 不新增域，桶挂 Treasury 域 |
-| RBAC 桶 | 75 | **77** | `treasury.view_lp` / `treasury.act_lp` |
-| RBAC 组 | 83 | **预期 85** | `LP_READ`（金库/CFO/内审）/ `LP_WRITE`（金库独持）；CFO 裁决走审批角色路由不占桶；verify:rbac 实测钉数，偏差回填本表 |
-| 审批类型 | 35 | **38** | `LP_PROFILE_APPROVAL` / `LP_PROFILE_CHANGE` / `LP_EXCHANGE_APPROVAL`（均金库提/CFO 单步/48h/可撤）；三件套含白名单表勿漏（甲教训） |
-| 审计现役码 | 296 | **预期 312** | 档案族 8：LPP_ `CREATED/APPROVED/REJECTED/CHANGE_PROPOSED/CHANGE_APPLIED/CHANGE_REJECTED/SUSPENDED/REACTIVATED`；兑换族 8：LPX_ `REQUESTED/CANCELLED/REJECTED/EXECUTION_STARTED/PAY_LEG_POSTED/DELIVERED/ACCEPTED/FAILED`（命名 plan 定稿可微调，数量口径 16；域 TREASURY） |
+| RBAC 域 | 15 | **15**（T10 实测：`ACTION_BUCKET_CATALOG.length` 恰 15，与波前一致） | 不新增域，桶挂 Treasury 域 |
+| RBAC 桶 | 75 | **77**（T10 实测：`ACTION_BUCKET_CATALOG` 总桶数恰 77，命中预期） | `treasury.view_lp` / `treasury.act_lp` |
+| RBAC 组 | 83 | **85**（T10 实测：`PermissionGroup` 联合类型成员数恰 85，命中预期，无偏差） | `LP_READ`（金库/CFO/内审）/ `LP_WRITE`（金库独持）；CFO 裁决走审批角色路由不占桶 |
+| 审批类型 | ~~35~~ **46**（本行波前基数系 plan 拟定时的估计值，T10 实测纠偏：`git show 5cd8856d:src/modules/governance/approvals/constants/approval.constants.ts \| node -e "..."` 抽取 `DEFAULT_APPROVAL_POLICIES` 的 `[ApprovalActionTypes.X]:` 键恰 46 个，非 35；5cd8856d 是波一 plan 落地那一笔，早于 T1，即真实波前基线） | ~~38~~ **49**（T10 实测：现有 `DEFAULT_APPROVAL_POLICIES` 同法数恰 49 个 = 46+3，新增三条 key 与预期完全一致，唯波前/终态两个绝对数需订正） | `LP_PROFILE_APPROVAL` / `LP_PROFILE_CHANGE` / `LP_EXCHANGE_APPROVAL`（均金库提/CFO 单步/48h/可撤）；三件套含白名单表勿漏（甲教训）——**增量口径 +3 本身没错，错在两个绝对基数**，`scripts/verify-rbac.ts` 的 S8「MAKER 表与策略一一对应」判据已逐条钉住这三条，不受本行文字纠偏影响 |
+| 审计现役码 | 296 | **312**（T10 实测：`npm run audit:vocab` 分域计数合计恰 312，命中预期，无偏差） | 档案族 8：LPP_ `CREATED/APPROVED/REJECTED/CHANGE_PROPOSED/CHANGE_APPLIED/CHANGE_REJECTED/SUSPENDED/REACTIVATED`；兑换族 8：LPX_ `REQUESTED/CANCELLED/REJECTED/EXECUTION_STARTED/PAY_LEG_POSTED/DELIVERED/ACCEPTED/FAILED`（命名维持 plan 定稿原样，数量口径 16；域 TREASURY，词表已入 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md` TREASURY 域两个新分组并重新导出 `2026-09-16-audit-actions-catalog-full.md`） |
 | 转账码 | 83 止 | **+3（84/85/86）** | §4 表定死，plan 不得追加 |
 | COA 科目 | 9 | **10** | FIRM_LIQ=203 复活（§5） |
 | prisma 表 | — | **+2** | liquidity_providers / lp_exchanges；FundsOrder +1 列；**加表必配 reset 登记表**（波二判例） |

@@ -527,7 +527,7 @@
 | `SWAP_SLA_TIMEOUT_SIMULATED` | ⚡ 拨钟模拟 SLA 超时 | I 继承 | — |  |
 | `SWAP_DEMO_SCENARIO_RUN` | ⚡ 喂裁决按钮被按下 | I 继承 | — |  |
 
-## TREASURY 域 —— V7 财资（内部划转单）（7 码）
+## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台）（23 码）
 
 公司的钱给客户：认损补款 / 退汇垫款。第四类订单，法币两腿经结算户、加密币一腿；金库提、CFO 批。
 
@@ -542,6 +542,32 @@
 | `INTERNAL_TRANSFER_LEG_POSTED` | 一条腿落账（法币两腿各一条） | I 继承 | amount |  |
 | `INTERNAL_TRANSFER_SETTLED` | 整单结清、客户余额复位 | I 继承 | amount, effectiveDate |  |
 | `INTERNAL_TRANSFER_FAILED` | 执行失败（腿 2 失败款停结算户，人工处理） | I 继承 | reasonCode |  |
+
+### LP 档案生命周期（8） — 战役乙波一 T2/T3 新增，金库建档 / 改结算坐标 / 启停，CFO 单步批
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `LP_PROFILE_CREATED` | 登记新增流动性提供商（金库提交，待 CFO 批） | N 单步 | reason |  |
+| `LP_PROFILE_APPROVED` | CFO 批准建档，档案转 ACTIVE | I 继承 | approvalNo | ✓ |
+| `LP_PROFILE_REJECTED` | CFO 驳回或超时，档案转 REJECTED（终态） | I 继承 | approvalNo | ✓ |
+| `LP_PROFILE_CHANGE_PROPOSED` | 提结算坐标变更（金库提，新坐标快照进审批单，待 CFO 批） | I 继承 | reason |  |
+| `LP_PROFILE_CHANGE_APPLIED` | CFO 批准变更，新结算坐标落地（档案仍 ACTIVE） | I 继承 | approvalNo | ✓ |
+| `LP_PROFILE_CHANGE_REJECTED` | CFO 驳回或超时变更，坐标原样不动 | I 继承 | approvalNo | ✓ |
+| `LP_PROFILE_SUSPENDED` | 金库暂停 LP（直接迁移，留痕不批） | I 继承 | reason |  |
+| `LP_PROFILE_REACTIVATED` | 金库恢复 LP（直接迁移，留痕不批） | I 继承 | reason |  |
+
+### LP 兑换单生命周期（8） — 战役乙波一 T4/T5 新增，先款后货三腿，金库提 / CFO 单步批 / 验收
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `LP_EXCHANGE_REQUESTED` | 发起兑换单（卖一种资产买另一种，金库提，待 CFO 批） | N 单步 | amount, reason |  |
+| `LP_EXCHANGE_CANCELLED` | 待批时金库撤单 | I 继承 | reason |  |
+| `LP_EXCHANGE_REJECTED` | CFO 驳回或超时，转 REJECTED（终态） | I 继承 | approvalNo | ✓ |
+| `LP_EXCHANGE_EXECUTION_STARTED` | CFO 批准（复核运营户余额），卖出腿建单执行开始 | I 继承 | approvalNo | ✓ |
+| `LP_EXCHANGE_PAY_LEG_POSTED` | 卖出腿清算落账，转入悬空期（等 LP 发货） | I 继承 | amount |  |
+| `LP_EXCHANGE_DELIVERED` | ⚡ LP 打款落前厅（模拟到货，买入腿建单落账） | I 继承 | amount |  |
+| `LP_EXCHANGE_ACCEPTED` | 金库验收（核数），买入腿转入运营户，整单结清（终态） | I 继承 | amount, effectiveDate |  |
+| `LP_EXCHANGE_FAILED` | 批准后运营户余额不足，或落腿失败，整单转 FAILED（终态） | I 继承 | reasonCode |  |
 
 ## RECON 域 —— V8 对账（9 码）
 
