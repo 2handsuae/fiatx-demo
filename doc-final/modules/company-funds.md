@@ -65,7 +65,7 @@ EXECUTING ──⚡推出款确认(回单先于落账)──▶ SUCCESS（落账
 - COA：零增删（10 码内做完，铁律⑤），注资 `DR FIRM_ASSET/CR FIRM_OPS`、付款 `DR FIRM_OPS/CR FIRM_ASSET`
 - 审计：TREASURY 域新增 12 码——注资族 6（`CAPITAL_INJECTION_{REQUESTED,APPROVED,FUNDS_RECEIVED,CONFIRMED,REJECTED,CANCELLED}`）、付款族 6（`VENDOR_PAYMENT_{REQUESTED,EXECUTION_STARTED,EXECUTED,FAILED,REJECTED,CANCELLED}`）
 - 权限：`treasury.view_dashboard`（`FUNDING_DASHBOARD_VIEW`，金库/CFO/高管/内审四职务，另以 OR 挂 `GET /admin/tb/accounts` 两路由作路由锚）、`treasury.view_funding`（`FUNDING_READ`，金库/CFO/内审三职务，照 `LP_READ` 先例）、`treasury.act_funding`（`FUNDING_WRITE`，唯金库）；前端另有一枚 `MARKER` 型标记码 `cap.treasury.funding_dashboard`（仿 `cap.incident.*` 先例，零真实路由，纯前端路由/导航门控——因 `GET /admin/tb/accounts` 本身被 `LEDGER_ACCOUNT_READ` 覆盖、持有者含技术官/运营，若看板直接借道这个既有码会把非目标职务一并放行，故新增专属标记码）
-- 端点：`admin/capital-injections`（list/create/detail/cancel/simulate-payment/confirm）、`admin/vendor-payments`（list/create/detail/cancel）；看板零新端点，纯前端组装既有 `GET /admin/tb/accounts`、`GET /admin/tb/account-flows`
+- 端点：`admin/capital-injections`（list/create/detail/cancel/simulate-contribution/confirm）、`admin/vendor-payments`（list/create/detail/cancel）；看板零新端点，纯前端组装既有 `GET /admin/tb/accounts`、`GET /admin/tb/account-flows`
 - 表 `capital_injections` / `vendor_payments`（reset 登记已补）；admin-web 三页 `CapitalInjectionList/Detail`、`VendorPaymentList/Detail`（Treasury 导航组）、`CompanyFundsDashboard`（阈值常量单独文件 `companyFundsThresholds.ts`，AED 900,000 / USDT 100,000，实测线上方钉死）
 - 金额换算：看板独立实现 `companyFundsFormat.ts`（`currencyOf()` 统一收敛 `asset.code`/`asset.currency` 两种键形态，`formatMinorToMajor`/`isBelowThresholdMinor` 均 BigInt-safe，不经 `Number()`）——不复用、不复发 `LedgerAccountList.tsx` 的既有 decimals 显示缺口（见 §6 与 `BACKLOG.md` §M）
 

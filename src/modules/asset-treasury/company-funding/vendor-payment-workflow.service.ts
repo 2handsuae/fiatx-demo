@@ -10,7 +10,7 @@
 // 内部 id 读 VendorPayment 行（事件只带 id，主体服务只暴露按业务号查，照
 // LpExchangeWorkflowService.handleFundsOrderChanged 先例，横向读放行）。
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -58,8 +58,6 @@ const majorToMinor = (amount: Prisma.Decimal | string, decimals: number): bigint
 
 @Injectable()
 export class VendorPaymentWorkflowService {
-  private readonly logger = new Logger(VendorPaymentWorkflowService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly payments: VendorPaymentService,

@@ -18,7 +18,7 @@ export enum CapitalInjectionStatus {
 /** CapitalInjectionService.create() 的入参——toWalletId（F_OPS）由调用方（Task 3
  *  workflow，经 SystemWalletResolver 解析）传入，本服务不解析钱包（照
  *  LpExchangeService.create 头注释纪律：三个钱包 id 由 workflow 侧解析）。 */
-export interface CreateCapitalInjectionDto {
+export interface CreateCapitalInjectionInput {
   contributorName: string;
   assetId: string;
   amount: string; // 元
@@ -31,7 +31,7 @@ export interface CreateCapitalInjectionDto {
 
 /** T3 controller 入参——字段对齐 workflow 的 InitiateCapitalInjectionInput（照
  *  InitiateLpExchangeDto 先例：只认业务键 assetId，金额是元字符串）。T2 评审交接第 1 条：
- *  上面的 CreateCapitalInjectionDto 是服务入参 interface，不是请求体——本类才是
+ *  上面的 CreateCapitalInjectionInput 是服务入参 interface，不是请求体——本类才是
  *  @Body() 装饰器 DTO，ValidationPipe whitelist 需要它。 */
 export class InitiateCapitalInjectionDto {
   @ApiProperty() @IsString() @IsNotEmpty() contributorName!: string;

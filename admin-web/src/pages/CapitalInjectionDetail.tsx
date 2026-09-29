@@ -193,7 +193,7 @@ const ConfirmReceiptModal = ({
           <div className="rounded border border-adm-border bg-adm-bg p-3 text-center">
             <div className="font-mono text-[9px] uppercase text-adm-t3">Expected</div>
             <div className="mt-1 font-mono text-lg font-semibold text-adm-t1">
-              {detail.amount} {detail.assetCode}
+              {formatAssetAmount(detail.amount)} {detail.assetCode}
             </div>
           </div>
           <div className="rounded border border-adm-border bg-adm-bg p-3 text-center">

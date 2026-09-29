@@ -253,6 +253,16 @@ describe('CapitalInjectionWorkflowService (Task 3)', () => {
       expect(audit.requestId).toMatch(new RegExp(`^CAPITAL_INJECTION_CONFIRMED_${cinNo}_`));
     });
 
+    it('confirm：posting throws → status stays RECEIVED, fundsOrders.advance not called, no transition (铁律⑤：先账后状态，失败即停；照付款侧 posting throws 同款写法)', async () => {
+      const { wf, injections, accounting, fundsOrders, cinNo } = await seedAwaitingFunds();
+      await wf.simulateContribution(cinNo, treasury);
+      accounting.executeTransfer.mockRejectedValueOnce(new Error('TB down'));
+      await expect(wf.confirm(cinNo, treasury)).rejects.toThrow('TB down');
+      expect(fundsOrders.advance).not.toHaveBeenCalled();
+      const row = await injections.findByNo(cinNo);
+      expect(row.status).toBe(S.RECEIVED); // 停在原地，不重试
+    });
+
     it('二次 confirm 被拒（迁移表天然拒二次——已 SUCCESS，零出边）', async () => {
       const { wf, cinNo } = await seedAwaitingFunds();
       await wf.simulateContribution(cinNo, treasury);

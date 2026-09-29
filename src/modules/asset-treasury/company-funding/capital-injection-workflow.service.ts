@@ -8,7 +8,7 @@
 // CapitalInjectionService/AccountingService/FundsOrderService/SystemWalletResolver/
 // SimulatedCustodianStatementService 的公开方法，不直写域外表。
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -31,7 +31,7 @@ import { CapitalInjectionService } from './capital-injection.service';
 import { CapitalInjectionStatus } from './dto/capital-injection.dto';
 
 /** initiate() 入参——只认业务键（资产 id），零 UUID 由调用方外部拼；toWalletId（F_OPS）由
- *  本 workflow 解析（照 T2 CreateCapitalInjectionDto 的分工：主体服务不解析钱包）。 */
+ *  本 workflow 解析（照 T2 CreateCapitalInjectionInput 的分工：主体服务不解析钱包）。 */
 export interface InitiateCapitalInjectionInput {
   contributorName: string;
   assetId: string;
@@ -46,8 +46,6 @@ const majorToMinor = (amount: Prisma.Decimal | string, decimals: number): bigint
 
 @Injectable()
 export class CapitalInjectionWorkflowService {
-  private readonly logger = new Logger(CapitalInjectionWorkflowService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly injections: CapitalInjectionService,

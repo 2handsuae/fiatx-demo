@@ -11,7 +11,7 @@ import {
   CapitalInjectionListQueryDto,
   CapitalInjectionStatus,
   CapitalInjectionView,
-  CreateCapitalInjectionDto,
+  CreateCapitalInjectionInput,
 } from './dto/capital-injection.dto';
 
 @Injectable()
@@ -23,7 +23,7 @@ export class CapitalInjectionService {
   /** 出生守卫：contributorName/prudentialPurpose 非空、金额>0。toWalletId 由调用方
    *  （Task 3 workflow，经 SystemWalletResolver 解析）传入——本服务不解析钱包（照
    *  LpExchangeService.create 头注释纪律）。 */
-  async create(input: CreateCapitalInjectionDto) {
+  async create(input: CreateCapitalInjectionInput) {
     if (!input.contributorName?.trim()) {
       throw new BadRequestException('contributorName is required — every capital injection must record who contributed');
     }
