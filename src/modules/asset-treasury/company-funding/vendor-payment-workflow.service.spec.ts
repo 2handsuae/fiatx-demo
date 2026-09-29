@@ -154,6 +154,9 @@ describe('VendorPaymentWorkflowService (Task 5)', () => {
       expect(JSON.stringify(snapshot.objectSnapshot)).not.toMatch(/uuid-|w-ops/);
       expect(snapshot.objectSnapshot.amount).toBe('12000.00 AED');
       expect(snapshot.objectSnapshot.vendorName).toBe(activeVendor.name);
+      // 修复轮·控制器确认缺口：payeeAccountRef 必须在场——CFO 批的是「钱打到哪个账户」，
+      // 这坐标是金库开单手填的一次性值，不像 LP 单那样能从已批档案反查。
+      expect(snapshot.objectSnapshot.payeeAccountRef).toBe(baseInput.payeeAccountRef);
       const audit = auditLogs.recordByActor.mock.calls[0][0];
       expect(audit).toMatchObject({ action: 'VENDOR_PAYMENT_REQUESTED', actionDomain: 'TREASURY', primarySubjectNo: r.payNo, amount: '12000.00', approvalNo: 'APR1', reason: baseInput.reason });
       expect(audit.requestId).toMatch(new RegExp(`^VENDOR_PAYMENT_REQUESTED_${r.payNo}_`));

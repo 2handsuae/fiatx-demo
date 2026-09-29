@@ -100,9 +100,13 @@ export class VendorPaymentWorkflowService {
         actionType: ApprovalActionTypes.VENDOR_PAYMENT_APPROVAL,
         entityRef: row.payNo,
         traceId: row.traceId,
-        // 铁律⑥：快照零 UUID——审批页把 objectSnapshot 原样渲染
+        // 铁律⑥：快照零 UUID——审批页把 objectSnapshot 原样渲染。payeeAccountRef 必须在场
+        // （修复轮·控制器确认缺口）：对外付款的 maker-checker 核心是让 CFO 看到钱打到哪个
+        // 账户——LP 单不带坐标是因为坐标在 CFO 批过的 LP 档案里，付款单的坐标是金库开单
+        // 手填的一次性值，不进快照=门半盲。文本值，非 UUID，不扰零 UUID 断言。
         objectSnapshot: {
           payNo: row.payNo, vendorNo: row.vendorNo, vendorName: row.vendorName,
+          payeeAccountRef: row.payeeAccountRef,
           amount: `${amountFormatted} ${asset.currency}`,
           purposeNote: dto.purposeNote, prudentialPurpose: dto.prudentialPurpose, impact,
         },
