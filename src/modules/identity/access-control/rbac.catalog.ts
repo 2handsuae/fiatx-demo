@@ -483,6 +483,16 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/lp-profiles/:lpNo/reactivate', 'Reactivate a suspended liquidity provider', ['LP_WRITE']),
   route('GET', '/admin/lp-profiles', 'List liquidity providers', ['LP_READ']),
   route('GET', '/admin/lp-profiles/:lpNo', 'Get liquidity provider detail', ['LP_READ']),
+  // ─── 战役乙波一 T6 · LP 兑换（LpExchange）：先款后货三腿，写动作全归 LP_WRITE ───
+  // simulate-delivery 是 ⚡演示件，但推的是单据不是时间——归 LP_WRITE，不挂 DEMO_CLOCK_WRITE
+  // （同 funds-orders push/sync·push/manual 先例：FUNDS_ORDER_ACT 而非拨钟组，见下方
+  // Funds Orders 一节）。静态段先于 :exchangeNo，GET List 先于 GET Detail（同 470 区惯例）。
+  route('POST', '/admin/lp-exchanges', 'Initiate an LP exchange (sell one asset, buy another) — CFO signs it off', ['LP_WRITE']),
+  route('POST', '/admin/lp-exchanges/:exchangeNo/cancel', 'Cancel a pending-approval LP exchange (initiator only)', ['LP_WRITE']),
+  route('POST', '/admin/lp-exchanges/:exchangeNo/accept', 'Accept LP delivery — transfer the buy leg from the front desk to the operating account', ['LP_WRITE']),
+  route('POST', '/admin/lp-exchanges/:exchangeNo/simulate-delivery', 'Simulate the LP delivering the buy leg to the front desk (demo only)', ['LP_WRITE']),
+  route('GET', '/admin/lp-exchanges', 'List LP exchanges', ['LP_READ']),
+  route('GET', '/admin/lp-exchanges/:exchangeNo', 'Get LP exchange detail (with funds-order legs)', ['LP_READ']),
   // 平账 A 批：⚡拨钟——把案件账龄截止拨到过去（演示件，挂现有拨钟组，桶 demo.act_clock 已涵盖 SLA timers）
   route('POST', '/admin/reconciliation/cases/:caseNo/simulate-aging-timeout', 'Fast-forward a reconciliation case past its aging line (demo only)', ['DEMO_CLOCK_WRITE']),
 

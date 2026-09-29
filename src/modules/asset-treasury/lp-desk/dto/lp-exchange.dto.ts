@@ -1,7 +1,8 @@
-// 战役乙波一 T4：LP 兑换单 DTO/投影/状态枚举。
-import { ApiPropertyOptional } from '@nestjs/swagger';
+// 战役乙波一 T4：LP 兑换单 DTO/投影/状态枚举。T6 补请求体 DTO（照
+// lp-profile.dto.ts CreateLpProfileDto 先例：ValidationPipe whitelist 需要装饰器）。
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 /** 八态（乙波一 spec §3.2）：先款后货——批准即建卖出腿；卖出腿清算后进悬空期
  *  （等 LP 发货）；LP 打款落前厅为 DELIVERED（待验收）；验收（核数）落第三腿为 SUCCESS。 */
@@ -32,6 +33,23 @@ export interface CreateLpExchangeInput {
   buyToWalletId: string; // F_OPS（买入币网络行）
   traceId?: string | null;
   createdByUserId: string;
+}
+
+/** T6 controller 入参——字段对齐 workflow 的 InitiateLpExchangeInput（照 CreateLpProfileDto
+ *  先例：只认业务键 lpNo + 资产 id，两金额是元字符串）。 */
+export class InitiateLpExchangeDto {
+  @ApiProperty() @IsString() @IsNotEmpty() lpNo!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() sellAssetId!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() sellAmount!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() buyAssetId!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() buyAmount!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() prudentialPurpose!: string;
+  @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
+  @ApiPropertyOptional() @IsOptional() @IsString() traceId?: string;
+}
+
+export class CancelLpExchangeDto {
+  @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
 }
 
 export class LpExchangeListQueryDto {
