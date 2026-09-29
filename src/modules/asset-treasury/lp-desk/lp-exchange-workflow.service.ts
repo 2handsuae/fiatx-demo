@@ -1,8 +1,11 @@
 // 战役乙波一 T5 · LP 兑换 workflow（本波心脏）：审批裁决 / 三腿落账(84/85/86) / 验收 / ⚡到货。
 // 先款后货：批准即建卖出腿（腿 1，付给 LP，外穿）；腿 1 清算后进悬空期（等 LP 发货）；
 // LP 打款落前厅为腿 2（⚡simulateDelivery，同一动作内建单+落账+advance+审计，直达
-// CONFIRMED——照充值域 fiat-at-birth 模拟推腿先例）；验收（accept）建腿 3（内转
-// F_LIQ → F_OPS，不外穿）。铁律③各管各的：本文件只调 LpExchangeService/LpProfileService
+// CONFIRMED——照充值域 fiat-at-birth 模拟推腿先例）；验收（accept）建腿 3（F_LIQ → F_OPS，
+// 外穿+两侧回单——修复轮 1 评审 R13：原「内转不外穿」违反逐钱包对账模型，验收后 F_LIQ/F_OPS
+// 两条钱包行各留一个破口）。三腿回单一律先于落账（修复轮 1 评审 R12：后置会使 bumpClosing
+// 「当日无余额行」兜底基准已含本笔落账流水，非重铺当日外部余额双计）。铁律③各管各的：
+// 本文件只调 LpExchangeService/LpProfileService
 // 的公开方法、AccountingService/FundsOrderService/SystemWalletResolver/
 // SimulatedCustodianStatementService，不直写域外表——唯一例外是按事件带的内部 id 读
 // LpExchange 行（事件只带 id，主体服务只暴露按业务号查，照 InternalTransferWorkflowService
@@ -256,28 +259,32 @@ export class LpExchangeWorkflowService {
       throw new BadRequestException(`LP exchange ${exchangeNo} is not awaiting delivery (status=${row.status})`);
     }
     const profile = await this.lpProfiles.findByNo(row.lpNo);
+    const buyVia = await this.prisma.wallet.findUnique({ where: { id: row.buyViaWalletId } });
     const isCrypto = row.buyAsset.type === 'CRYPTO';
     // 照 deposit 域 fiat-at-birth 模拟推腿先例：initialStatus 直接落 CONFIRMED（⚡模拟动作，
     // 不走 SUBMIT/CONFIRM 两跳）；FundsOrderService.create 在 CONFIRMED 出生时自动铸 externalRef。
+    // 我方钱包侧（F_LIQ）也补 address/iban（照腿 1 与划转单惯例——两侧都填，不止外部坐标那侧）。
     const leg = await this.fundsOrders.create({
       lpExchangeId: row.id, legSeq: 2, initialStatus: FundsOrderStatus.CONFIRMED,
       assetId: row.buyAssetId, amount: String(row.buyAmount), netAmount: String(row.buyAmount),
       fromWalletId: null,
       fromAddress: isCrypto ? profile.cryptoAddress : null,
       fromIban: isCrypto ? null : profile.fiatIban,
-      toWalletId: row.buyViaWalletId,
+      toWalletId: buyVia?.id ?? null, toAddress: buyVia?.address ?? null, toIban: buyVia?.iban ?? null,
       traceId: row.traceId ?? undefined,
     });
-    await this.postBuyLeg(row, leg);
-    await this.fundsOrders.advance(leg.id, FundsOrderAction.CLEAR, 'LP_EXCHANGE_WORKFLOW');
     const externalRef = this.fundsOrders.resolveExternalRef({ ...leg, asset: row.buyAsset }) ?? leg.fundsOrderNo;
-    // 对账吃进的关键行：只写 F_LIQ 这一侧（LP 的外部坐标不是我们的钱包，fromWalletId 传 null）。
+    // 评审 Imp#1/R12：回单必须先于落账——85 先落账会让 bumpClosing「当日无余额行」兜底基准
+    // 已含本笔流水，兜底再加一次把外部余额双计（非重铺当日破口）。只写 F_LIQ 这一侧
+    // （LP 的外部坐标不是我们的钱包，fromWalletId 传 null）。
     await this.custodianStatement.recordLegMovement({
       fundsOrderNo: leg.fundsOrderNo, fromWalletId: null, toWalletId: row.buyViaWalletId,
       assetCode: row.buyAsset.code, assetType: isCrypto ? 'CRYPTO' : 'FIAT',
       amountMinor: majorToMinor(leg.amount, row.buyAsset.decimals), externalRef, at: new Date(),
       description: `Simulated custodian statement — LP exchange ${row.exchangeNo} buy leg (received from LP ${row.lpNo})`,
     });
+    await this.postBuyLeg(row, leg);
+    await this.fundsOrders.advance(leg.id, FundsOrderAction.CLEAR, 'LP_EXCHANGE_WORKFLOW');
     const updated = await this.exchanges.transition(exchangeNo, LpExchangeStatus.DELIVERED, { deliveredAt: new Date() });
     await this.exchangeAudit(row, {
       action: AuditActions.LP_EXCHANGE_DELIVERED, reason: 'LP delivery simulated, buy leg posted to the front desk',
@@ -287,7 +294,8 @@ export class LpExchangeWorkflowService {
     return { exchangeNo, status: updated.status as string };
   }
 
-  // ── 验收（腿 3）：内转 F_LIQ → F_OPS，不外穿 ──────────────────────────────
+  // ── 验收（腿 3）：F_LIQ → F_OPS，外穿+两侧回单（评审 R13：内转不外穿违反逐钱包对账模型，
+  //     F_LIQ/F_OPS 是两条钱包行，验收后账面挪了外部账单没动，两侧各留一个破口）─────────
 
   async accept(exchangeNo: string, actor: ApprovalActorContext) {
     const row = await this.exchanges.findByNo(exchangeNo);
@@ -297,11 +305,27 @@ export class LpExchangeWorkflowService {
     }
     const buyLegs = await this.fundsOrders.findByParent({ lpExchangeId: row.id }, { legSeq: 2 });
     const receivedAmount = buyLegs[0]?.amount ?? row.buyAmount;
+    const isCrypto = row.buyAsset.type === 'CRYPTO';
+    // 两侧都是我们自己的钱包（照腿 1 与划转单惯例：address/iban 与 walletId 一起填）。
+    const [buyVia, buyTo] = await Promise.all([
+      this.prisma.wallet.findUnique({ where: { id: row.buyViaWalletId } }),
+      this.prisma.wallet.findUnique({ where: { id: row.buyToWalletId } }),
+    ]);
     const leg = await this.fundsOrders.create({
       lpExchangeId: row.id, legSeq: 3, initialStatus: FundsOrderStatus.CONFIRMED,
       assetId: row.buyAssetId, amount: String(row.buyAmount), netAmount: String(row.buyAmount),
-      fromWalletId: row.buyViaWalletId, toWalletId: row.buyToWalletId,
+      fromWalletId: buyVia?.id ?? null, fromAddress: buyVia?.address ?? null, fromIban: buyVia?.iban ?? null,
+      toWalletId: buyTo?.id ?? null, toAddress: buyTo?.address ?? null, toIban: buyTo?.iban ?? null,
       traceId: row.traceId ?? undefined,
+    });
+    const externalRef = this.fundsOrders.resolveExternalRef({ ...leg, asset: row.buyAsset }) ?? leg.fundsOrderNo;
+    // 评审 Imp#2/R13：验收转腿两条钱包行都要过对账——F_LIQ 出 / F_OPS 入两侧各写一行；
+    // 回单先于落账（评审 R12 同一纪律）。
+    await this.custodianStatement.recordLegMovement({
+      fundsOrderNo: leg.fundsOrderNo, fromWalletId: row.buyViaWalletId, toWalletId: row.buyToWalletId,
+      assetCode: row.buyAsset.code, assetType: isCrypto ? 'CRYPTO' : 'FIAT',
+      amountMinor: majorToMinor(leg.amount, row.buyAsset.decimals), externalRef, at: new Date(),
+      description: `Simulated custodian statement — LP exchange ${row.exchangeNo} acceptance transfer (front desk → operating)`,
     });
     await this.postAcceptLeg(row, leg);
     await this.fundsOrders.advance(leg.id, FundsOrderAction.CLEAR, 'LP_EXCHANGE_WORKFLOW');
@@ -372,8 +396,9 @@ export class LpExchangeWorkflowService {
     });
   }
 
-  /** 腿 3（86）：DR FIRM_LIQ / CR FIRM_OPS，买入币 ledger，内转不外穿——两个物理钱包都是
-   *  我们自己的（buyViaWalletId → buyToWalletId），isExternalCrossing=false。 */
+  /** 腿 3（86）：DR FIRM_LIQ / CR FIRM_OPS，买入币 ledger——两个物理钱包都是我们自己的
+   *  （buyViaWalletId → buyToWalletId），但 isExternalCrossing=true（评审 R13：F_LIQ/F_OPS
+   *  是两条钱包行，逐钱包对账模型下这笔移动必须两侧都过对账，「内转」不等于「不进对账」）。 */
   private async postAcceptLeg(row: any, leg: any) {
     const ledger = this.ledgerOf(row.buyAsset.currency);
     const amount = majorToMinor(leg.amount, row.buyAsset.decimals);
@@ -384,7 +409,7 @@ export class LpExchangeWorkflowService {
       evidence: this.evidence(
         row, 'LP_EXCHANGE_ACCEPT', TB_ACCOUNT_CODES.FIRM_LIQ, TB_ACCOUNT_CODES.FIRM_OPS, row.buyAsset.currency,
         row.buyViaWalletId, row.buyToWalletId,
-        this.fundsOrders.resolveExternalRef({ ...leg, asset: row.buyAsset }), false,
+        this.fundsOrders.resolveExternalRef({ ...leg, asset: row.buyAsset }), true,
         `LP exchange ${row.exchangeNo} acceptance transfer (front desk → operating)`,
       ),
     });
@@ -405,6 +430,9 @@ export class LpExchangeWorkflowService {
     ];
     if (patch.approvalNo) subjects.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: patch.approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
     if (patch.fundsOrderNo) subjects.push({ subjectType: AuditEntityTypes.FUNDS_ORDER, subjectNo: patch.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED });
+    // spec §7：展示级字段（两边金额、LP 名、验收数）镜像 metadata（甲 R5 判例）——LP 名不在
+    // LpExchange 行上，八条码统一从档案服务取一次，不必逐个调用点各自传。
+    const profile = await this.lpProfiles.findByNo(row.lpNo);
     const sellFormatted = new Prisma.Decimal(row.sellAmount).toFixed(row.sellAsset.decimals);
     const buyFormatted = new Prisma.Decimal(row.buyAmount).toFixed(row.buyAsset.decimals);
     const input: any = {
@@ -421,7 +449,7 @@ export class LpExchangeWorkflowService {
       ...(patch.action === AuditActions.LP_EXCHANGE_REQUESTED ? {} : { correlationId: row.traceId }),
       requestId: `${patch.action}_${row.exchangeNo}_${randomUUID()}`,
       metadata: {
-        exchangeNo: row.exchangeNo, lpNo: row.lpNo,
+        exchangeNo: row.exchangeNo, lpNo: row.lpNo, lpName: profile.name,
         amount: `${sellFormatted} ${row.sellAsset.currency} → ${buyFormatted} ${row.buyAsset.currency}`,
         fundsOrderNo: patch.fundsOrderNo ?? null,
         ...(patch.metadata ?? {}),
