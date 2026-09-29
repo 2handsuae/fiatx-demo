@@ -145,6 +145,8 @@ describe('AuditLogsService', () => {
       LP_EXCHANGE: 'LP_EXCHANGE',
       // 战役乙波二 T2（2026-09-29）：注资单主体
       CAPITAL_INJECTION: 'CAPITAL_INJECTION',
+      // 战役乙波二 T4（2026-09-29）：付款单主体
+      VENDOR_PAYMENT: 'VENDOR_PAYMENT',
     });
 
     expect(AuditUserActions).toEqual({

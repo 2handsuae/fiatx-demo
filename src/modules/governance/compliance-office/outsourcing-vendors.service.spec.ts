@@ -143,6 +143,25 @@ describe('OutsourcingVendorsService (Task 4)', () => {
     });
   });
 
+  // ── assertActiveByNo（战役乙波二 T4 消费：付款单开单守卫）────────────────
+  describe('assertActiveByNo', () => {
+    it('resolves for an ACTIVE vendor', async () => {
+      const vendorNo = await registerVendor();
+      await expect(service.assertActiveByNo(vendorNo)).resolves.toBeUndefined();
+    });
+
+    it('rejects a TERMINATED vendor with 400', async () => {
+      const vendorNo = await registerVendor();
+      await service.terminate(vendorNo, mlro, {});
+      await expect(service.assertActiveByNo(vendorNo)).rejects.toThrow(BadRequestException);
+      await expect(service.assertActiveByNo(vendorNo)).rejects.toThrow(/not ACTIVE/);
+    });
+
+    it('rejects an unknown vendorNo with 404', async () => {
+      await expect(service.assertActiveByNo('VEN_DOES_NOT_EXIST')).rejects.toThrow(NotFoundException);
+    });
+  });
+
   // ── 审计信封真实过闸（真 AuditLogsService + 内存 mock Prisma，不碰真库）：同
   // compliance-obligations.service.spec.ts 先例——mock 版 recordByActor 是行为化 spy，
   // 不跑 assertActionSpec，COMPLIANCE_OFFICE_AUDIT_ACTIONS 的三个 VENDOR_* 声明是否真的

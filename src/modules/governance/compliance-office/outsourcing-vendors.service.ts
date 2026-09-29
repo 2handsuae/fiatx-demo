@@ -62,6 +62,15 @@ export class OutsourcingVendorsService {
     return this.toListItem(row);
   }
 
+  /** 付款单开单守卫（战役乙波二 T4 消费，照 LpProfileService.assertActiveByNo 形态）：
+   *  非 ACTIVE 一律拒——TERMINATED 外包商不能再收公司付款。 */
+  async assertActiveByNo(vendorNo: string): Promise<void> {
+    const row = await this.findByNo(vendorNo);
+    if (row.status !== VendorStatus.ACTIVE) {
+      throw new BadRequestException(`Outsourcing vendor ${vendorNo} is not ACTIVE (status=${row.status}) — cannot open a vendor payment against it.`);
+    }
+  }
+
   private toListItem(row: OutsourcingVendor) {
     return {
       vendorNo: row.vendorNo, name: row.name, serviceDescription: row.serviceDescription,

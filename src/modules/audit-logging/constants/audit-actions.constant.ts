@@ -43,6 +43,8 @@ export const AuditEntityTypes = {
   LP_EXCHANGE: 'LP_EXCHANGE',
   // 战役乙波二 T2（2026-09-29）：注资单主体
   CAPITAL_INJECTION: 'CAPITAL_INJECTION',
+  // 战役乙波二 T4（2026-09-29）：付款单主体
+  VENDOR_PAYMENT: 'VENDOR_PAYMENT',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -148,6 +150,8 @@ export const AuditBusinessWorkflowTypes = {
   LP_EXCHANGE: 'LP_EXCHANGE',
   // 战役乙波二 T2（2026-09-29）：注资单主体（财资件，独立主体 CapitalInjection）
   CAPITAL_INJECTION: 'CAPITAL_INJECTION',
+  // 战役乙波二 T4（2026-09-29）：付款单主体（财资件，独立主体 VendorPayment）
+  VENDOR_PAYMENT: 'VENDOR_PAYMENT',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -499,6 +503,13 @@ export const AuditActions = {
   CAPITAL_INJECTION_CANCELLED: 'CAPITAL_INJECTION_CANCELLED',
   CAPITAL_INJECTION_FUNDS_RECEIVED: 'CAPITAL_INJECTION_FUNDS_RECEIVED',
   CAPITAL_INJECTION_CONFIRMED: 'CAPITAL_INJECTION_CONFIRMED',
+  // ── 战役乙波二 T4（2026-09-29）：付款单六码（财资件，域 TREASURY）──────────
+  VENDOR_PAYMENT_REQUESTED: 'VENDOR_PAYMENT_REQUESTED',
+  VENDOR_PAYMENT_EXECUTION_STARTED: 'VENDOR_PAYMENT_EXECUTION_STARTED',
+  VENDOR_PAYMENT_EXECUTED: 'VENDOR_PAYMENT_EXECUTED',
+  VENDOR_PAYMENT_FAILED: 'VENDOR_PAYMENT_FAILED',
+  VENDOR_PAYMENT_REJECTED: 'VENDOR_PAYMENT_REJECTED',
+  VENDOR_PAYMENT_CANCELLED: 'VENDOR_PAYMENT_CANCELLED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1215,6 +1226,26 @@ export const CAMPAIGN_B_CAPITAL_INJECTION_AUDIT_ACTIONS: Record<string, AuditAct
   CAPITAL_INJECTION_CANCELLED:      { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   CAPITAL_INJECTION_FUNDS_RECEIVED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount'], requiresCausation: false },
   CAPITAL_INJECTION_CONFIRMED:      { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount', 'effectiveDate'], requiresCausation: false },
+};
+
+/** 战役乙波二 T4（spec §3/plan Task4 Step3）：付款单六码，域 TREASURY——同
+ * CAMPAIGN_B_CAPITAL_INJECTION_AUDIT_ACTIONS 先例，本战役新主体各自一表。REQUESTED 起
+ * 付款单自己的旅程老实标 NONE（不显式传 correlationId，交给写入方按需继承
+ * row.traceId）；EXECUTION_STARTED/REJECTED 由审批裁决驱动，requiresCausation 真、
+ * 必填 approvalNo；EXECUTED 是⚡推出款确认驱动的直接操作（腿事件驱动，回单先于落账），
+ * 必填 amount；FAILED 必填 reasonCode（INSUFFICIENT_FIRM_BALANCE|LEG_FAILED，同
+ * LP_EXCHANGE_FAILED 先例）；CANCELLED 是直接操作，必填 reason。审计实际写入点在
+ * Task 5 workflow，本任务只登记词表。主体信封：primarySubject=VENDOR_PAYMENT·payNo，
+ * subjects 加外包商 OUTSOURCING_VENDOR·vendorNo（横向 subject，铁律③放行）+审批单
+ * INSTRUMENT+资金单 RELATED；vendorName/payeeAccountRef 镜像 metadata（甲 R5 判例）；
+ * 每条带显式 requestId（`${action}_${payNo}_${randomUUID()}`）。 */
+export const CAMPAIGN_B_VENDOR_PAYMENT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  VENDOR_PAYMENT_REQUESTED:         { domain: 'TREASURY', correlationMode: N, requiredFields: ['amount', 'reason'], requiresCausation: false },
+  VENDOR_PAYMENT_EXECUTION_STARTED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  VENDOR_PAYMENT_EXECUTED:          { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount'], requiresCausation: false },
+  VENDOR_PAYMENT_FAILED:            { domain: 'TREASURY', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
+  VENDOR_PAYMENT_REJECTED:          { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  VENDOR_PAYMENT_CANCELLED:         { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——
