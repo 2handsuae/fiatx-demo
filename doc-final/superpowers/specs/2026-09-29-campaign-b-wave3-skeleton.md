@@ -19,7 +19,7 @@
   - 场景 28（注资全弧）/ 29（付款全弧）/ 30（看板五区巡览 + 账本三列表同源同值 + 现场客户兑换看三收入格实时涨，暂编）已在 self 栈全程实走，截图入 `doc-final/superpowers/checkups/2026-09-29-campaign-b-wave2-funding-evidence/`（`29`~`47`）；幕次归属（独立成第九幕或并入既有幕）留战役乙收官统一定稿。
   - **走查发现一处新账（未修，登 `BACKLOG.md` §E）**：兑换单资金单腿在管理台没有任何非超管角色能完整推完——前端「⚡ Simulation」面板统一按 `FUNDS_ORDER_PUSH_WRITE`（`FUNDS_ORDER_ACT` 组）门控可见性，但兑换单腿的真实推进端点 `POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance` 挂的是完全不同的组 `TRADING_SWAP_WRITE`；`TREASURY_OFFICER` 持前者不持后者（面板可见、点了 403），`OPS_OFFICER` 持后者不持前者（面板本身不出现），两组交集为空。此条与波三看板无直接依赖，但若波三剧本涉及"客户兑换消耗库存"类走查步骤，会撞上同一个坑，业主定谁来补齐（金库补 `TRADING_SWAP_WRITE` 还是运营补 `FUNDS_ORDER_ACT`）后再走场景。
 - **偏差**：spec §0 尾注「无主资金销账口径已对齐——不建，结构上不会产生」——本波（T2-T11）未涉及无主资金分支，原样承袭，留波三收官统一措辞落 §4 销账表。`decisions.md` 本波（T1-T11）全程未落笔（Plan Step 3 明示口径「本波不动，收官统一落」），留给波三收尾一并写入（含 LP 三拍板、⑰甲案、B1/B2 两分、F_LIQ 复活翻案，共波一波二两批，见总纲 §7 第 5 条）。
-- **悬挂项**：波一自身两条演示缺口（`LedgerAccountList` decimals 显示错 / LP 档案变更在途详情页无持久提示）已登 `BACKLOG.md` §M，均非波三前置阻塞项；波二新增一条 §M（decimals 显示错更深根因）+ 一条 §E（兑换单资金单腿推不动），同样非波三前置阻塞项，但 §E 那条若波三剧本要演"客户兑换"环节会现场撞上，需提前决定绕行方案（超管代推，还是先补权限）。
+- **悬挂项**：波一自身两条演示缺口（`LedgerAccountList` decimals 显示错 / LP 档案变更在途详情页无持久提示）已登 `BACKLOG.md` §M，均非波三前置阻塞项；波二新增一条 §M（decimals 显示错更深根因）+ 一条 §E（兑换单资金单腿推不动），同样非波三前置阻塞项，但 §E 那条若波三剧本要演"客户兑换"环节会现场撞上，需提前决定绕行方案（超管代推，还是先补权限）。**导航组归并**：LP 两页（LP Register / LP Exchanges）现挂 Custody 导航组，公司资金族三页（Company Funds / Capital Injections / Vendor Payments）现挂 Treasury 导航组——两族同属 V7 财资域却分落两个导航组，归并与否（例如都并入 Treasury，或新开一个"财资"导航组）留战役收官统一定，不在波三 spec 里顺手改（改导航分组属侧栏信息架构决策，跨战役影响面，派发点名必含项）。
 
 ## 已定事实（波三可直接假设成立、不必重查）
 
