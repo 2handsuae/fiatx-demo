@@ -302,6 +302,7 @@ it('SUCCESS is terminal — no further transitions', ...);
 - [ ] **Step 1: List**——列：cinNo（链详情）/出资方/`${amount} ${assetCode}`/status 徽章/createdAt；「Initiate injection」按钮（持 `treasury.act_funding` 码显示）开单 modal（出资方/资产/金额/审慎目的必填/reason），提交后提示「已提交 CFO 审批」。
 - [ ] **Step 2: Detail**——金额卡（大字）+ 出资方卡 + 状态时间线（六态人话标签：待审批/等出资方打款/已到款待确认/完成/已拒绝/已撤回）+ 资金单腿区（fundsOrderNo 链接/status/externalRef）+ 动作区（**状态×持码**双维，禁加第三维）：PENDING_APPROVAL→Cancel（+approvalNo 链接审批页）；AWAITING_FUNDS→⚡`Simulate contributor payment`（useSimulationMode 门控）；RECEIVED→**Confirm receipt** modal（并排 Expected=amount vs Received=腿金额，确认即 confirm——两数展示落在这）+ 审计区惯例（按 cinNo 查）。
 - [ ] **Step 3: 联动登记**——approvalEntityRoutes/ACTION_TYPE_LABELS/导航项/permissions.ts 常量。
+- [ ] **Step 3.5: 资金单读面接两个新父键**（T1 评审收口，两族一次接齐）——后端 `src/modules/funds-orders/dto/funds-orders-admin-query.dto.ts` `@IsIn` 白名单加 `'capital-injection'`/`'vendor-payment'` 两值；`admin-web/src/pages/FundsOrderList.tsx`（父单号列映射 + 筛选页签两枚）与 `FundsOrderDetail.tsx`（父单区）加 cinNo/payNo 两族——全部照既有 `lp-exchange`/`exchangeNo` 的接法逐处复制（漏接=注资/付款腿在资金单页父单号空列，铁律⑥）。
 - [ ] **Step 4: 闸（两条永不豁免①）**——`cd admin-web && npx tsc -b --noEmit`；起 self 栈实测前先 `stack.sh reset self`（含 db:base:sync 效果，保证后端加载 T3 新路由——只 seed 不重启=403，清单第 8 行）；preview 实点全弧（开单→批→⚡打款→确认，金额铁律：确认后对账本科目页核 F_OPS 同涨）；**截图**存 `doc-final/superpowers/checkups/2026-09-XX-campaign-b-wave2-evidence/`（按实际日期定名，T11 沿用）。
 - [ ] **Step 5: Commit** `feat(乙波二T6): 注资List/Detail+开单/确认/⚡打款+六态时间线`
 
