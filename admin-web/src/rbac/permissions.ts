@@ -104,6 +104,20 @@ export const PERMISSIONS = {
   LP_EXCHANGE_ACCEPT: 'api.post.admin_lp_exchanges_exchangeno_accept',
   LP_EXCHANGE_SIMULATE_DELIVERY: 'api.post.admin_lp_exchanges_exchangeno_simulate_delivery',
 
+  // 战役乙波二（Task 6）：注资单——六个码精确镜像 rbac.catalog.ts 里 T3 已登记的
+  // buildPermissionCode(method, path) 派生值（同上方 98-105 行 LP_EXCHANGE_* 先例）。
+  CAPITAL_INJECTIONS_READ: 'api.get.admin_capital_injections',
+  CAPITAL_INJECTION_DETAIL_READ: 'api.get.admin_capital_injections_cinno',
+  CAPITAL_INJECTION_CREATE: 'api.post.admin_capital_injections',
+  CAPITAL_INJECTION_CANCEL: 'api.post.admin_capital_injections_cinno_cancel',
+  CAPITAL_INJECTION_SIMULATE_CONTRIBUTION: 'api.post.admin_capital_injections_cinno_simulate_contribution',
+  CAPITAL_INJECTION_CONFIRM: 'api.post.admin_capital_injections_cinno_confirm',
+
+  // 战役乙波二 Task 6 Step 3.5（T1 评审收口，两族一次接齐）：付款单读权——本任务只需要
+  // 它来给 FundsOrderDetail.tsx 的「Linked Vendor payment」回链按权限门控（同 INTERNAL_
+  // TRANSFERS_READ/LP_EXCHANGES_READ 先例）；付款单自己的 List/Detail 页与其余码归 Task 7。
+  VENDOR_PAYMENTS_READ: 'api.get.admin_vendor_payments',
+
   // 平账三期（2026-09-06）：事故登记——三个码精确镜像 rbac.catalog.ts route() 的
   // buildPermissionCode 派生值。列表/详情两个 GET 路由的 allowedGroups 同时含
   // INCIDENT_READ/INCIDENT_WRITE（route() 已登记），写动作只有 INCIDENT_WRITE 一组；

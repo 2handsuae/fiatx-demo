@@ -32,6 +32,8 @@ import {
   Send,
   Building2,
   Landmark,
+  PiggyBank,
+  Banknote,
   Clock,
   CalendarClock,
   BookUser,
@@ -292,6 +294,20 @@ const DashboardLayout = () => {
           label: 'LP Exchanges',
           icon: <Repeat size={13} />,
           requiredPermissions: [PERMISSIONS.LP_EXCHANGES_READ],
+        },
+      ],
+    },
+    // ─── Treasury（战役乙波二）────────────────────────────────────
+    // 公司自身资金动线——不是客户/LP 域。Task 6：注资单先落地；Task 7 续补付款单。
+    {
+      label: 'Treasury',
+      icon: <PiggyBank size={12} />,
+      children: [
+        {
+          path: '/admin/capital-injections',
+          label: 'Capital Injections',
+          icon: <Banknote size={13} />,
+          requiredPermissions: [PERMISSIONS.CAPITAL_INJECTIONS_READ],
         },
       ],
     },

@@ -74,4 +74,7 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   // 战役乙波一（Task 8）：LP 兑换单——entityRef 是 exchangeNo
   // （lp-exchange-workflow.service.ts initiate() 逐字确认）。
   LP_EXCHANGE_APPROVAL: (r) => `/admin/lp-exchanges/${r}`,
+  // 战役乙波二（Task 6）：注资单——entityRef 是 cinNo
+  // （capital-injection-workflow.service.ts initiate() 逐字确认）。
+  CAPITAL_INJECTION_APPROVAL: (r) => `/admin/capital-injections/${r}`,
 };

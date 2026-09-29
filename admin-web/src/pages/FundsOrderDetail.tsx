@@ -90,6 +90,11 @@ interface FundsOrderDetail {
   // 战役乙波一 T8（改派项 R11b）：第五种父键——LP 兑换单。回链走业务号
   // exchangeNo（findOneByNoForAdmin 已下发 lpExchange {id,exchangeNo,status}）。
   lpExchange?: { exchangeNo: string; status: string } | null;
+  // 战役乙波二 Task 6（T1 评审收口）：第六/第七种父键——注资单/付款单。回链走业务号
+  // cinNo/payNo（findOneByNoForAdmin 已下发 capitalInjection {id,cinNo,status} /
+  // vendorPayment {id,payNo,status}）。
+  capitalInjection?: { cinNo: string; status: string } | null;
+  vendorPayment?: { payNo: string; status: string } | null;
   depositNo?: string | null;
   withdrawNo?: string | null;
   swapNo?: string | null;
@@ -178,6 +183,23 @@ const resolveParent = (
       no: data.lpExchange.exchangeNo,
       status: data.lpExchange.status ?? '',
       route: '/admin/lp-exchanges/' + data.lpExchange.exchangeNo,
+    };
+  }
+  // 战役乙波二 Task 6 Step 3.5（T1 评审收口）：第六/第七种父键——注资单/付款单。
+  if (data.capitalInjection?.cinNo) {
+    return {
+      kind: 'Capital injection',
+      no: data.capitalInjection.cinNo,
+      status: data.capitalInjection.status ?? '',
+      route: '/admin/capital-injections/' + data.capitalInjection.cinNo,
+    };
+  }
+  if (data.vendorPayment?.payNo) {
+    return {
+      kind: 'Vendor payment',
+      no: data.vendorPayment.payNo,
+      status: data.vendorPayment.status ?? '',
+      route: '/admin/vendor-payments/' + data.vendorPayment.payNo,
     };
   }
   return null;
@@ -367,10 +389,13 @@ const FundsOrderDetail = () => {
   // 单号照显（业务键本就在资金单读面内），只收「点得到、点了被拒」的幽灵链接。
   // 战役乙波一 T8（改派项 R11b，同款理由）：SMO/MLRO/TECH_OFFICER/OPS_OFFICER 持
   // FUNDS_ORDER_VIEW 但不持 LP_READ——LP exchange 关联跳转同样按权限渲染。
+  // 战役乙波二 Task 6 Step 3.5（同款理由）：注资单/付款单关联跳转按 FUNDING_READ 渲染。
   const parentLinkAllowed =
     !parent ||
     ((parent.kind !== 'Internal transfer' || hasPermission(PERMISSIONS.INTERNAL_TRANSFERS_READ)) &&
-      (parent.kind !== 'LP exchange' || hasPermission(PERMISSIONS.LP_EXCHANGES_READ)));
+      (parent.kind !== 'LP exchange' || hasPermission(PERMISSIONS.LP_EXCHANGES_READ)) &&
+      (parent.kind !== 'Capital injection' || hasPermission(PERMISSIONS.CAPITAL_INJECTIONS_READ)) &&
+      (parent.kind !== 'Vendor payment' || hasPermission(PERMISSIONS.VENDOR_PAYMENTS_READ)));
 
   // 平账·推单处置门控（Task 4；Task 7 补划转腿）：swap 腿走 Swap 详情页逐腿推进
   // （顺序守卫，本页 ⚡ 模拟面板的 isSwap 分支也走同一个 swap advance 端点——本页
