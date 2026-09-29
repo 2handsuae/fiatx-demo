@@ -26,7 +26,8 @@ import { writeSeedAudit } from './seed-audit.helper';
 import { FilingStatus, FilingEntryKinds, RegulatoryAuthorities } from '../src/modules/governance/regulatory-filings/regulatory-filing.constants';
 import { getFilingTypeConfig } from '../src/modules/governance/regulatory-filings/filing-type-registry';
 import { addBusinessDays } from '../src/modules/governance/regulatory-filings/business-days';
-import { DUBAI_UTC_OFFSET_MS } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
+import { DUBAI_UTC_OFFSET_MS, toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
+import { fakeChainTxHash, fakeBankRef } from '../src/common/utils/fake-external-refs.util';
 import { INCIDENT_REPORT_BASES } from '../src/modules/governance/incidents/incident.constants';
 import { ObligationFrequencies, ObligationStatus, VendorStatus } from '../src/modules/governance/compliance-office/compliance-office.constants';
 import { ComplaintCategories, ComplaintClientMessageTypes, ComplaintEntryKinds, ComplaintResolutionOutcomes, ComplaintStatus } from '../src/modules/governance/complaints/complaint.constants';
@@ -76,6 +77,10 @@ export async function seedBusiness(
   await provisionTbAccounts(prisma);
   // Firm capital bootstrap: DR FIRM_ASSET / CR FIRM_OPS per currency.
   await seedCapitalInjection(prisma);
+  // LP desk layer（战役乙波一 Task 9，spec §7/§9）：两档案 + 一张 SUCCESS 历史兑换单——
+  // needs seedCapitalInjection 的公司起始余额（卖出腿要扣 FIRM_OPS AED，注资在前才不会
+  // 让恒等式在负数区间起步）。
+  await seedLpDesk(prisma);
 
   console.log('✅ Business data seeded.');
 }
@@ -2050,6 +2055,312 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
       }
     }
     console.log(`  ✔ Capital injection evidence: ${evidenceRows.length} evidence row(s) + ${evidenceRows.length * 2} flow row(s)`);
+  } finally {
+    client.destroy();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// LP desk — 战役乙波一 Task 9：两档案 + 一张 SUCCESS 历史兑换单。
+//
+// 照 seedCapitalInjection 的直写形态：不走 LpProfileService/LpExchangeWorkflowService
+// ——那两个服务链路长（Nest DI / 事件总线 / 审批服务），本脚本走的是裸 PrismaClient +
+// tigerbeetle-node，服务直调铺数走不通；手写镜像，逐行对齐
+// lp-exchange-workflow.service.ts 的真实记账/回单形态：AccountingService.executeTransfer
+// 每次调用内部都会原子写 1 条 tbTransferEvidence + 2 条 accountFlow
+// （AccountFlowProjectorService.persist，debit→OUT / credit→IN）——三腿 84/85/86 各一次，
+// 3 条 evidence + 6 行 accountFlow 镜像。托管回单（external_statement_lines /
+// external_balances）不铺：seedCapitalInjection 模板本身也不写它，且 recon:demo 铺场
+// 脚本每次都会把外部账单从 account_flows 重铸一遍（simulated-custodian-statement.service.ts
+// 头注释），本笔的 account_flows 镜像已经在库里，无需预先复制托管回单。
+// ─────────────────────────────────────────────────────────────
+
+/** 平台系统钱包查找（照 SystemWalletResolver.resolve 同一个 where 子句直写——seed 脚本
+ *  走裸 PrismaClient，拿不到该 Nest 服务）。 */
+async function findLpDeskPlatformWallet(prisma: PrismaClient, vaultCode: string, network: string) {
+  const wallet = await (prisma as any).wallet.findFirst({
+    where: { vaultCode, network, ownerType: 'PLATFORM', ownerNo: 'PLATFORM', status: 'ACTIVE' },
+    orderBy: { createdAt: 'asc' },
+  });
+  if (!wallet) {
+    throw new Error(`seedLpDesk: 找不到 ACTIVE 平台钱包 vaultCode=${vaultCode} network=${network}——seedPlatformWallets 是否先跑？`);
+  }
+  return wallet;
+}
+
+/** 系统科目注册表查找（同 seedCapitalInjection 的 tbAccountRegistry.findFirst 写法）。 */
+async function findLpDeskSystemAccount(prisma: PrismaClient, code: number, ledger: number): Promise<{ tbAccountId: string }> {
+  const reg = await (prisma as any).tbAccountRegistry.findFirst({ where: { code, ledger, ownerType: 'SYSTEM' }, select: { tbAccountId: true } });
+  if (!reg) {
+    throw new Error(`seedLpDesk: 找不到系统科目注册行 code=${code} ledger=${ledger}——provisionTbAccounts 是否先跑？`);
+  }
+  return reg;
+}
+
+const TB_TRANSFER_EXISTS_LP = 46; // CreateTransferStatus.exists（同 seedCapitalInjection）
+const TB_DEV_OK_LP = 4294967295; // CreateTransferStatus.created（dev-mode echo，同上）
+
+async function seedLpDesk(prisma: PrismaClient): Promise<void> {
+  const tbAddress = process.env.TB_ADDRESS;
+  if (!tbAddress) {
+    // 同 seedCapitalInjection 纪律：不 graceful skip——少这三笔账本分录会让 F_LIQ/F_OPS
+    // 的期望余额（baseline.md）与实际不符，且失败点会落在很远的 verify:coa 下游。
+    throw new Error(
+      'TB_ADDRESS 未设置，无法铺 LP 历史兑换单的账本分录。修法：确认调用方显式传 TB_ADDRESS（见 scripts/reset-stack.sh）。',
+    );
+  }
+
+  const TREASURY_USER_NO = 'ADM2501010011'; // treasury@fiatx.com（seed.base.ts ROLE_SEED_ACCOUNTS）
+
+  // ── 两档案 ────────────────────────────────────────────────────────────
+  const falconLpNo = buildDeterministicNo('LPP', 'falcon-liquidity-fze');
+  const duneLpNo = buildDeterministicNo('LPP', 'dune-otc-dmcc');
+  const falconApprovalNo = buildDeterministicNo('APR', 'lp-falcon-liquidity-registration');
+
+  const falcon = await prisma.liquidityProvider.upsert({
+    where: { lpNo: falconLpNo },
+    update: {},
+    create: {
+      lpNo: falconLpNo,
+      name: 'Falcon Liquidity FZE',
+      fiatBankName: 'Mashreq Bank PJSC',
+      fiatIban: buildSystemPoolIban('LP_FALCON', 'AED'),
+      cryptoNetwork: 'TRON',
+      cryptoAddress: fakeTronAddress('LP|Falcon Liquidity FZE'),
+      agreementRef: 'LPA-2026-FALCON-001',
+      status: 'ACTIVE',
+      approvalNo: falconApprovalNo,
+      createdByUserId: TREASURY_USER_NO,
+    },
+  });
+  const dune = await prisma.liquidityProvider.upsert({
+    where: { lpNo: duneLpNo },
+    update: {},
+    create: {
+      lpNo: duneLpNo,
+      name: 'Dune OTC DMCC',
+      fiatBankName: 'RAKBANK',
+      fiatIban: buildSystemPoolIban('LP_DUNE', 'AED'),
+      cryptoNetwork: 'TRON',
+      cryptoAddress: fakeTronAddress('LP|Dune OTC DMCC'),
+      agreementRef: 'LPA-2026-DUNE-002',
+      status: 'SUSPENDED',
+      createdByUserId: TREASURY_USER_NO,
+    },
+  });
+
+  await writeSeedAudit(prisma, {
+    action: 'LP_PROFILE_CREATED',
+    subjectType: 'LIQUIDITY_PROVIDER',
+    subjectNo: falcon.lpNo,
+    actorNo: 'DEMO_SEED',
+    actionDomain: 'TREASURY',
+    afterData: {
+      name: falcon.name, fiatBankName: falcon.fiatBankName, cryptoNetwork: falcon.cryptoNetwork,
+      agreementRef: falcon.agreementRef, status: falcon.status, approvalNo: falcon.approvalNo,
+    },
+  });
+
+  console.log(`Seeded 2 LP profile rows (${falcon.name} ACTIVE / ${dune.name} SUSPENDED).`);
+
+  // ── 一张 SUCCESS 历史兑换单：卖 50,000 AED 买 13,600 USDT（示例价 3.6765 手填口径）──
+  const SELL_AMOUNT = '50000';
+  const BUY_AMOUNT = '13600';
+  const [aedAsset, usdtAsset] = await Promise.all([
+    prisma.asset.findFirst({ where: { currency: 'AED', status: 'ACTIVE' } }),
+    prisma.asset.findFirst({ where: { currency: 'USDT', status: 'ACTIVE' } }),
+  ]);
+  if (!aedAsset || !usdtAsset) throw new Error('seedLpDesk: AED/USDT 资产行缺失——seedAssets 是否先跑？');
+
+  const [sellFrom, buyVia, buyTo] = await Promise.all([
+    findLpDeskPlatformWallet(prisma, 'F_OPS', aedAsset.network),
+    findLpDeskPlatformWallet(prisma, 'F_LIQ', usdtAsset.network),
+    findLpDeskPlatformWallet(prisma, 'F_OPS', usdtAsset.network),
+  ]);
+
+  const exchangeNo = buildDeterministicNo('LPX', 'falcon-aed-usdt-2026-history');
+  const exchangeApprovalNo = buildDeterministicNo('APR', 'lpx-falcon-aed-usdt-2026-history');
+  const traceId = `SEED_LP_EXCHANGE_${exchangeNo}`;
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const nowMs = Date.now();
+  const executedAt = new Date(nowMs - 3 * DAY_MS);
+  const deliveredAt = new Date(nowMs - 2 * DAY_MS);
+  const settledAt = new Date(nowMs - 1 * DAY_MS);
+
+  const exchange = await prisma.lpExchange.upsert({
+    where: { exchangeNo },
+    update: {},
+    create: {
+      exchangeNo,
+      lpId: falcon.id, lpNo: falcon.lpNo,
+      sellAssetId: aedAsset.id, sellAmount: SELL_AMOUNT,
+      buyAssetId: usdtAsset.id, buyAmount: BUY_AMOUNT,
+      prudentialPurpose: 'Maintain adequate USDT operating liquidity for client withdrawal settlement (CRM Rulebook Part I, Rule I.E prudential liquidity management).',
+      status: 'SUCCESS',
+      reason: 'Quarterly USDT liquidity top-up ahead of settlement peak — swap surplus AED operating float for USDT via the approved LP.',
+      sellFromWalletId: sellFrom.id, buyViaWalletId: buyVia.id, buyToWalletId: buyTo.id,
+      approvalNo: exchangeApprovalNo,
+      executedAt, deliveredAt, settledAt,
+      traceId, createdByUserId: TREASURY_USER_NO,
+      createdAt: executedAt, updatedAt: settledAt,
+    },
+  });
+
+  // 三张资金单（挂 lpExchangeId）——腿 1 卖出 AED（FIAT→referenceNo）、腿 2/3 买入 USDT
+  // （CRYPTO→txHash），全部落终态 CLEARED（历史已清算单）。
+  const leg1No = buildDeterministicNo('FDO', `${exchangeNo}-leg1`);
+  const leg2No = buildDeterministicNo('FDO', `${exchangeNo}-leg2`);
+  const leg3No = buildDeterministicNo('FDO', `${exchangeNo}-leg3`);
+  const leg1Ref = fakeBankRef(leg1No, '2026-01-01');
+  const leg2TxHash = fakeChainTxHash(leg2No);
+  const leg3TxHash = fakeChainTxHash(leg3No);
+
+  await prisma.fundsOrder.upsert({
+    where: { fundsOrderNo: leg1No }, update: {},
+    create: {
+      fundsOrderNo: leg1No, lpExchangeId: exchange.id, legSeq: 1, attempt: 1, status: 'CLEARED',
+      assetId: aedAsset.id, amount: SELL_AMOUNT, netAmount: SELL_AMOUNT,
+      fromWalletId: sellFrom.id, fromIban: sellFrom.iban,
+      toIban: falcon.fiatIban,
+      referenceNo: leg1Ref,
+      statusHistory: JSON.stringify([
+        { toStatus: 'CREATED', action: 'CREATE', at: executedAt.toISOString() },
+        { fromStatus: 'CREATED', toStatus: 'SUBMITTED', action: 'SUBMIT', operatorId: 'LP_EXCHANGE_WORKFLOW', at: executedAt.toISOString() },
+        { fromStatus: 'SUBMITTED', toStatus: 'CONFIRMED', action: 'CONFIRM', operatorId: 'LP_EXCHANGE_WORKFLOW', at: executedAt.toISOString() },
+        { fromStatus: 'CONFIRMED', toStatus: 'CLEARED', action: 'CLEAR', operatorId: 'LP_EXCHANGE_WORKFLOW', at: executedAt.toISOString() },
+      ]),
+      createdAt: executedAt, updatedAt: executedAt, confirmedAt: executedAt, completedAt: executedAt,
+    },
+  });
+  await prisma.fundsOrder.upsert({
+    where: { fundsOrderNo: leg2No }, update: {},
+    create: {
+      fundsOrderNo: leg2No, lpExchangeId: exchange.id, legSeq: 2, attempt: 1, status: 'CLEARED',
+      assetId: usdtAsset.id, amount: BUY_AMOUNT, netAmount: BUY_AMOUNT,
+      fromAddress: falcon.cryptoAddress,
+      toWalletId: buyVia.id, toAddress: buyVia.address,
+      txHash: leg2TxHash,
+      statusHistory: JSON.stringify([
+        { toStatus: 'CONFIRMED', action: 'CREATE', at: deliveredAt.toISOString() },
+        { fromStatus: 'CONFIRMED', toStatus: 'CLEARED', action: 'CLEAR', operatorId: 'LP_EXCHANGE_WORKFLOW', at: deliveredAt.toISOString() },
+      ]),
+      createdAt: deliveredAt, updatedAt: deliveredAt, confirmedAt: deliveredAt, completedAt: deliveredAt,
+    },
+  });
+  await prisma.fundsOrder.upsert({
+    where: { fundsOrderNo: leg3No }, update: {},
+    create: {
+      fundsOrderNo: leg3No, lpExchangeId: exchange.id, legSeq: 3, attempt: 1, status: 'CLEARED',
+      assetId: usdtAsset.id, amount: BUY_AMOUNT, netAmount: BUY_AMOUNT,
+      fromWalletId: buyVia.id, fromAddress: buyVia.address,
+      toWalletId: buyTo.id, toAddress: buyTo.address,
+      txHash: leg3TxHash,
+      statusHistory: JSON.stringify([
+        { toStatus: 'CONFIRMED', action: 'CREATE', at: settledAt.toISOString() },
+        { fromStatus: 'CONFIRMED', toStatus: 'CLEARED', action: 'CLEAR', operatorId: 'LP_EXCHANGE_WORKFLOW', at: settledAt.toISOString() },
+      ]),
+      createdAt: settledAt, updatedAt: settledAt, confirmedAt: settledAt, completedAt: settledAt,
+    },
+  });
+
+  console.log(`Seeded 1 LP exchange (${exchangeNo}, SUCCESS) + 3 funds orders (legs 1/2/3, all CLEARED).`);
+
+  // ── 账本分录（84→85→86）+ 六行 accountFlow 镜像 ──────────────────────────
+  const aedLedger = TB_LEDGERS[aedAsset.currency as keyof typeof TB_LEDGERS];
+  const usdtLedger = TB_LEDGERS[usdtAsset.currency as keyof typeof TB_LEDGERS];
+  const [firmOpsAed, firmAssetAed, firmAssetUsdt, firmLiqUsdt, firmOpsUsdt] = await Promise.all([
+    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_OPS, aedLedger),
+    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_ASSET, aedLedger),
+    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_ASSET, usdtLedger),
+    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_LIQ, usdtLedger),
+    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_OPS, usdtLedger),
+  ]);
+
+  const toMinor = (major: string, decimals: number): bigint => BigInt(major) * (10n ** BigInt(decimals));
+
+  // 逐行对齐 lp-exchange-workflow.service.ts 的 postSellLeg/postBuyLeg/postAcceptLeg 三次
+  // executeTransfer 调用（evidence() 私有方法的借贷科目/walletRef 组合）。
+  const legs = [
+    {
+      eventCode: 'LP_EXCHANGE_PAY', ledger: aedLedger, debitReg: firmOpsAed, creditReg: firmAssetAed,
+      debitCoa: 'E.FIRM_OPS', creditCoa: 'A.FIRM_ASSET', amount: toMinor(SELL_AMOUNT, aedAsset.decimals), assetCode: 'AED',
+      debitWalletRef: sellFrom.id as string, creditWalletRef: sellFrom.id as string, externalRef: leg1Ref,
+      code: TB_TRANSFER_CODES.LP_EXCHANGE_PAY, memo: `LP exchange ${exchangeNo} sell leg (paid to LP ${falcon.lpNo})`, at: executedAt,
+    },
+    {
+      eventCode: 'LP_EXCHANGE_RECEIVE', ledger: usdtLedger, debitReg: firmAssetUsdt, creditReg: firmLiqUsdt,
+      debitCoa: 'A.FIRM_ASSET', creditCoa: 'E.FIRM_LIQ', amount: toMinor(BUY_AMOUNT, usdtAsset.decimals), assetCode: 'USDT',
+      debitWalletRef: buyVia.id as string, creditWalletRef: buyVia.id as string, externalRef: leg2TxHash,
+      code: TB_TRANSFER_CODES.LP_EXCHANGE_RECEIVE, memo: `LP exchange ${exchangeNo} buy leg (received from LP ${falcon.lpNo})`, at: deliveredAt,
+    },
+    {
+      eventCode: 'LP_EXCHANGE_ACCEPT', ledger: usdtLedger, debitReg: firmLiqUsdt, creditReg: firmOpsUsdt,
+      debitCoa: 'E.FIRM_LIQ', creditCoa: 'E.FIRM_OPS', amount: toMinor(BUY_AMOUNT, usdtAsset.decimals), assetCode: 'USDT',
+      debitWalletRef: buyVia.id as string, creditWalletRef: buyTo.id as string, externalRef: leg3TxHash,
+      code: TB_TRANSFER_CODES.LP_EXCHANGE_ACCEPT, memo: `LP exchange ${exchangeNo} acceptance transfer (front desk → operating)`, at: settledAt,
+    },
+  ];
+
+  let client: ReturnType<typeof tbCreateClient>;
+  try {
+    client = tbCreateClient({ cluster_id: 0n, replica_addresses: [tbAddress] });
+  } catch (err: any) {
+    console.log(`  ⚠ Cannot connect to TigerBeetle for LP exchange seed: ${err.message}`);
+    return;
+  }
+
+  try {
+    const transferIds = legs.map((leg) => deterministicTransferId('LP_EXCHANGE', exchangeNo, leg.eventCode, 0));
+    const transfers = legs.map((leg, i) => ({
+      id: transferIds[i],
+      debit_account_id: BigInt('0x' + leg.debitReg.tbAccountId),
+      credit_account_id: BigInt('0x' + leg.creditReg.tbAccountId),
+      amount: leg.amount,
+      pending_id: 0n, user_data_128: 0n, user_data_64: 0n, user_data_32: 0, timeout: 0,
+      ledger: leg.ledger, code: leg.code, flags: 0, timestamp: 0n,
+    }));
+
+    const errors = await client.createTransfers(transfers);
+    const realErrors = errors.filter((e: any) => e.status !== TB_TRANSFER_EXISTS_LP && e.status !== TB_DEV_OK_LP);
+    if (realErrors.length > 0) {
+      console.log(`  ⚠ LP exchange seed had ${realErrors.length} transfer errors: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
+    }
+
+    // Evidence/flow 写入不看 TB「已存在」状态，统一走 upsert（同 seedCapitalInjection：
+    // upsert 自身的幂等性覆盖了重跑场景，不需要按 TB 结果逐笔分流）。
+    let evidenceRows = 0;
+    let flowRows = 0;
+    for (let i = 0; i < legs.length; i += 1) {
+      const leg = legs[i];
+      const tbTransferId = bigintToHex(transferIds[i]);
+      const effectiveDate = toBusinessDate(leg.at);
+      const shared = {
+        sourceType: 'LP_EXCHANGE', sourceNo: exchangeNo, eventCode: leg.eventCode,
+        amount: new Prisma.Decimal(leg.amount.toString()), assetCode: leg.assetCode, transferType: 'POSTED',
+        isExternalCrossing: true, externalRef: leg.externalRef, effectiveDate,
+      };
+      await (prisma as any).tbTransferEvidence.upsert({
+        where: { tbTransferId }, update: {},
+        create: {
+          tbTransferId, ...shared, debitCode: leg.debitCoa, creditCode: leg.creditCoa,
+          debitTbAccountId: leg.debitReg.tbAccountId, creditTbAccountId: leg.creditReg.tbAccountId,
+          traceId, actorType: 'SYSTEM', actorId: 'LP_EXCHANGE_WORKFLOW', memo: leg.memo,
+          debitWalletRef: leg.debitWalletRef, creditWalletRef: leg.creditWalletRef, createdAt: leg.at,
+        },
+      });
+      evidenceRows += 1;
+      for (const [tbAccountId, walletRef, direction] of [
+        [leg.debitReg.tbAccountId, leg.debitWalletRef, 'OUT'],
+        [leg.creditReg.tbAccountId, leg.creditWalletRef, 'IN'],
+      ] as const) {
+        await (prisma as any).accountFlow.upsert({
+          where: { tbTransferId_tbAccountId: { tbTransferId, tbAccountId } }, update: {},
+          create: { tbTransferId, tbAccountId, walletRef, direction, ...shared, createdAt: leg.at },
+        });
+        flowRows += 1;
+      }
+    }
+    console.log(`  ✔ LP exchange evidence: ${evidenceRows} evidence row(s) + ${flowRows} flow row(s)`);
   } finally {
     client.destroy();
   }

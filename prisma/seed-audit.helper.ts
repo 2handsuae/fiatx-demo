@@ -13,6 +13,9 @@ export interface SeedAuditInput {
   afterData: Record<string, unknown>;
   actorNo: SeedActorNo;
   ownerCustomerNo?: string | null;
+  /** 默认 'CONFIG'（本文件原设计——见下方函数注释）；显式传其它域给非 CONFIG 域的动作码
+   *  写一条留痕（2026-09-29 战役乙波一 T9 加：LP_PROFILE_CREATED 是 TREASURY 域）。 */
+  actionDomain?: string;
 }
 
 // 审计单号 = AUD + 日期 + 6 位随机数，同一天内会撞（生日问题）。服务侧
@@ -39,11 +42,15 @@ function currentCommit(): string {
 }
 
 /** 种子的留痕：跑在 Nest 之外，照 AuditLogsService 的列约定直写一行（去重钥匙与它同式，重跑种子不会写第二行）。
- *  只给"配置"写：资产 / 平台钱包行 / 限额 / 费率两族 / 演示客户的收款地址与提现地址。 */
+ *  原设计只给"配置"写：资产 / 平台钱包行 / 限额 / 费率两族 / 演示客户的收款地址与提现地址——
+ *  这些调用不传 actionDomain，落 CONFIG。2026-09-29 战役乙波一 T9 加 actionDomain 可选参：
+ *  LP 档案建档审计（LP_PROFILE_CREATED）码本身注册在 TREASURY 域，写 CONFIG 会与契约表打架，
+ *  显式传 'TREASURY' 覆盖默认值。 */
 export async function writeSeedAudit(prisma: PrismaClient, input: SeedAuditInput) {
+  const actionDomain = input.actionDomain ?? 'CONFIG';
   const requestId = `${input.action}_${input.subjectNo}`;
   const idempotencyKey = createHash('sha256')
-    .update(['CONFIG', input.action, input.subjectType, input.subjectNo, 'NO_CORRELATION', requestId].join('|'))
+    .update([actionDomain, input.action, input.subjectType, input.subjectNo, 'NO_CORRELATION', requestId].join('|'))
     .digest('hex');
   const existing = await prisma.auditLogEvent.findUnique({ where: { idempotencyKey } });
   if (existing) return existing;
@@ -63,7 +70,7 @@ export async function writeSeedAudit(prisma: PrismaClient, input: SeedAuditInput
   // （maskIpAddress(undefined) 显式返回 null，不是 undefined）。
   const payloadDigest = sha256Hex({
     action: input.action,
-    actionDomain: 'CONFIG',
+    actionDomain,
     primarySubjectType: input.subjectType,
     primarySubjectNo: input.subjectNo,
     ownerCustomerNo: input.ownerCustomerNo ?? null,
@@ -89,7 +96,7 @@ export async function writeSeedAudit(prisma: PrismaClient, input: SeedAuditInput
           occurredAt,
           recordedAt: occurredAt,
           action: input.action,
-          actionDomain: 'CONFIG',
+          actionDomain,
           actorType: 'SYSTEM',
           actorNo: input.actorNo,
           actorDisplayName: input.actorNo,

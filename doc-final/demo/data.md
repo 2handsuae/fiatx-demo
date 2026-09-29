@@ -145,6 +145,33 @@ Mona 的 EMIRATES_ID 补料请求（`requestNo=MRQ2601019867`，PENDING_SUBMISSI
 
 ⚠️ 三行 `submittedAt`/`ackDeadlineAt`/`resolveDeadlineAt`/`acknowledgedAt`/`extendedAt`/`resolvedAt` 都相对**铺场时刻**回拨，不是固定日期——每次 `stack.sh reset` 重铺，②的"还剩 2 天"效果会重新从铺场当下起算，但 `complaintNo` 逐字不变（`buildDeterministicNo` 只吃 seedKey，不吃时间）。entries 的 `actorNo`：ACK/EXTENSION_NOTICE/INTERNAL_NOTE 落 `ops_officer@fiatx.com` 的固定 `userNo`（`ADM2501010008`，rbac.catalog.ts `COMPLAINT_WRITE` 唯一持有职务）；FINAL_RESPONSE 落 `'SYSTEM'` 字面量，同 `applyResolution()` 真实行为（裁决生效是系统动作，无 actor）。
 
+## LP 兑换台种子（business seed，两档案 + 一张历史单，2026-09-29 战役乙波一 Task 9）
+
+`seedLpDesk()`（`prisma/seed.business.ts`，紧随 `seedCapitalInjection()` 之后——历史单卖出腿要扣公司 AED 起始余额，注资必须先落地）照该函数的直写形态铺快照数据：不走 `LpProfileService`/`LpExchangeWorkflowService`（链路长、依赖 Nest DI/事件总线/审批服务，seed 脚本走裸 `PrismaClient`+`tigerbeetle-node`，服务直调铺数走不通），手写镜像并逐行对齐 `lp-exchange-workflow.service.ts` 的真实记账/回单形态。`lpNo`/`exchangeNo`/`approvalNo`/资金单号均用 `buildDeterministicNo` 派生，reset 重铺后逐字不变。
+
+### 两档案
+
+| LP | lpNo | 状态 | 结算坐标 | approvalNo |
+|---|---|---|---|---|
+| Falcon Liquidity FZE | `LPP2601010183` | ACTIVE | Mashreq Bank PJSC（AED IBAN）+ TRON 地址 | `APR2601015507`（占位，无真实审批单背书——同 `seedIncidents` 补救单 `referenceNo` 先例，纯叙事引用） |
+| Dune OTC DMCC | `LPP2601017193` | SUSPENDED | RAKBANK（AED IBAN）+ TRON 地址 | 无（种子直落 SUSPENDED，不经历"先批准再停用"的迁移路径） |
+
+Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`writeSeedAudit` 2026-09-29 起支持覆盖默认 CONFIG 域，见 `prisma/seed-audit.helper.ts`）；Dune 不写审计（同其余种子表"没有 operator、不写审计"先例）。
+
+### 一张 SUCCESS 历史单
+
+`LPX2601016429`（挂 Falcon）：卖 50,000 AED 买 13,600 USDT（示例价 3.6765，手填口径，非实时行情）。三腿资金单全部终态 `CLEARED`：
+
+| 腿 | fundsOrderNo | 资产 | 金额 | 账本分录（code） | 借/贷 | 外部参考 |
+|---|---|---|---|---|---|---|
+| 1 卖出 | `FDO2601017173` | AED | 50,000 | 84 `LP_EXCHANGE_PAY` | DR `E.FIRM_OPS` / CR `A.FIRM_ASSET` | `referenceNo`（FIAT，`fakeBankRef`） |
+| 2 买入落前厅 | `FDO2601017269` | USDT | 13,600 | 85 `LP_EXCHANGE_RECEIVE` | DR `A.FIRM_ASSET` / CR `E.FIRM_LIQ` | `txHash`（CRYPTO，`fakeChainTxHash`） |
+| 3 验收转 | `FDO2601015607` | USDT | 13,600 | 86 `LP_EXCHANGE_ACCEPT` | DR `E.FIRM_LIQ` / CR `E.FIRM_OPS` | `txHash`（CRYPTO） |
+
+三腿各配 1 条 `tbTransferEvidence` + 2 条 `accountFlow` 镜像（`AccountFlowProjectorService` 的真实行为：debit→OUT / credit→IN）——**3 条 evidence + 6 行 account_flows**。托管回单（`external_statement_lines`/`external_balances`）不铺：`seedCapitalInjection` 模板本身也不写它，且 `recon:demo` 铺场脚本每次都会把外部账单从 `account_flows` 重铸一遍（`simulated-custodian-statement.service.ts` 头注释），本笔的 `account_flows` 镜像已经在库里，无需预先复制。
+
+**种子后（`stack.sh reset self`，`demo:all` 跑之前）的期望余额**（实测坐实）：F_LIQ（USDT）归零（85 进 86 出，净 0）；F_OPS(AED) 从注资起点 1,000,000 减至 **950,000**（−50,000）；F_OPS(USDT) 从注资起点 100,000 加至 **113,600**（+13,600）。三个时间戳字段（`executedAt`/`deliveredAt`/`settledAt`）相对**铺场时刻**回拨 3/2/1 天，不锚死日历日期（同上方各种子节先例）。
+
 ## 各脚本造什么
 
 | 命令 | 产出 |
@@ -214,7 +241,7 @@ Mona 的 EMIRATES_ID 补料请求（`requestNo=MRQ2601019867`，PENDING_SUBMISSI
 | 恒等式 | 结果 |
 |---|---|
 | COA CLIENT(AED): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 29612565 == 29612565 |
-| COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 99870335 == 99870335 |
+| COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 94870335 == 94870335 |
 | COA CLIENT(USDT): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 4392571811 == 4392571811 |
-| COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 100413428189 == 100413428189 |
+| COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 114013428189 == 114013428189 |
 <!-- GENERATED:END -->

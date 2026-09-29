@@ -223,3 +223,21 @@ test/sla.e2e-spec.ts                         # 私库
 
 ⚠️ **环境闸口已知缺口（与本任务无关，未修）**：`admin-web/node_modules` 在本 worktree 为空目录（0 个包），`npx tsc -b --noEmit`/`vite` 均不可执行——`stack.sh up self` 因此起不来 admin 前端（backend 仍正常起、demo:all 走后端直调不受影响）。本任务未改动任何 `admin-web`/`client-web` 文件，`client-web` 侧 `npx tsc -b --noEmit` 已单独实测通过；`admin-web` 侧的 tsc 门槛本任务未能过（环境缺口，非代码红），建议下一次涉及 admin-web 的任务先 `cd admin-web && npm install` 补齐。
 
+## 战役乙波一 LP 地基种子断言 + F_LIQ 直比判据（reset 判据，2026-09-29 Task 9 起）
+
+`bash scripts/stack.sh reset self` 从零建库重铺后（`seedLpDesk()` 随 `db:seed:business` 落地，紧随 `seedCapitalInjection()` 之后），三张表应各自恰好这些行，连跑两次 reset 结果逐字一致（`lpNo`/`exchangeNo`/`approvalNo`/`fundsOrderNo` 均用 `buildDeterministicNo` 派生，`upsert` 保幂等；已实测两轮独立 reset 数字完全相同）：
+
+| 表 | 行数 | 关键行 |
+|---|---|---|
+| `liquidity_providers` | **2** | `LPP2601010183`（Falcon Liquidity FZE，ACTIVE，`approvalNo=APR2601015507`）／`LPP2601017193`（Dune OTC DMCC，SUSPENDED，无 approvalNo） |
+| `lp_exchanges` | **1** | `LPX2601016429`（挂 Falcon，卖 50,000 AED 买 13,600 USDT，SUCCESS，`approvalNo=APR2601015999`） |
+| `funds_orders`（`lpExchangeId` 非空） | **3** | `FDO2601017173`（腿1卖出，AED 50,000，CLEARED，`referenceNo=ZB20260101043095EE71`）／`FDO2601017269`（腿2买入，USDT 13,600，CLEARED，`txHash=0x2000fe...`）／`FDO2601015607`（腿3验收，USDT 13,600，CLEARED，`txHash=0x50ac04...`） |
+| `tb_transfer_evidence`（`sourceType='LP_EXCHANGE'`） | **3** | 84/85/86 各一条，`sourceNo=LPX2601016429` |
+| `account_flows`（`sourceType='LP_EXCHANGE'`） | **6** | 三腿各 2 行（debit→OUT / credit→IN），逐行对齐 `AccountFlowProjectorService` 的真实投影行为 |
+
+**F_LIQ 直比判据（reset 后、`demo:all` 之前的独立实测，不受花名册流水影响）**：`ledger=1(AED) code=203(E.FIRM_LIQ) balance=0` ／ `ledger=2(USDT) code=203(E.FIRM_LIQ) balance=0`（85 进 86 出，净 0）；`ledger=1 code=200(E.FIRM_OPS) balance=95000000`（= 注资起点 100,000,000 分 − 腿1 5,000,000 分 = 950,000.00 AED，**F_OPS(AED) 减 5 万**）；`ledger=2 code=200(E.FIRM_OPS) balance=113600000000`（= 注资起点 100,000,000,000 分 + 腿3 13,600,000,000 分 = 113,600.000000 USDT，**F_OPS(USDT) 加 1.36 万**）——四项与 spec/plan 的期望值逐位吻合。
+
+**reset 登记表缺口顺带补齐**（Task 9 Step 2）：`scripts/reset-business-data.ts` 的 `BUSINESS_DELEGATES_FK_SAFE` 补 `lpExchange`/`liquidityProvider`（排在 `asset` 之前，`lpExchange` 排在 `liquidityProvider` 之前）；核实 T7 修主张的「`approvalCase`/`approvalStep` 也缺席清单」为真（该两表从建库起就不在清单里，DB 层 `approval_steps → approval_cases` 雖有 `ON DELETE CASCADE`，但从未有任何脚本对 `approval_cases` 本身发起过删除，此前全靠各主体表级联"看起来清了"），已一并补齐两行（`approvalStep` 在 `approvalCase` 之前）。首次实测坐实缺口存在：第一轮 `reset self` 的清理阶段打印 `Deleted 4 from approvalStep` / `Deleted 4 from approvalCase` / `Deleted 1 from lpExchange` / `Deleted 1 from liquidityProvider`——这些正是本任务开工前、T3/T5/T7/T8 各任务人工走查/截图验收残留在库里的探针数据，补登记前 reset 从未清过它们；第二轮 `reset self` 复测四行全部归零（`Deleted 0 from approvalStep` / `Deleted 0 from approvalCase` / `Deleted 1 from lpExchange` / `Deleted 2 from liquidityProvider`——后两个稳定在"本次种子刚写入的量"，不再是历史残留）。
+
+**实测口径**：`bash scripts/stack.sh reset self` → 全绿（`verify:demo-data ALL PASS`，打印 `Seeded 2 LP profile rows` + `Seeded 1 LP exchange (LPX2601016429, SUCCESS) + 3 funds orders` + `LP exchange evidence: 3 evidence row(s) + 6 flow row(s)`）→ 直查库三表行数与上表逐字相符 → 再次 `reset self` → 三个业务号（`LPP2601010183`/`LPP2601017193`/`LPX2601016429`）逐字不变 → `bash scripts/stack.sh up self` → `bash scripts/on-stack.sh self demo:all` → 花名册 29/29 + COA 4/4 恒等式全过（`COA FIRM(AED)`/`COA FIRM(USDT)` 恒等式公式已带 `FIRM_LIQ` 项，`data.md` 生成区随之改写为新数值，非代码红）→ `bash scripts/on-stack.sh self verify:coa` → `ALL INVARIANTS PASS`（两恒等式 + 负余额检查 67 个科目全部 ≥ 0，无一为负）→ `npx tsc --noEmit -p tsconfig.json` 全绿。⚠️ **demo:all 前必须先 `stack.sh up self`**——`demo:all` 的 `runFrankPreStage`/`makerCheckerApprove` 走真实 HTTP 登录（`demo-mlro.ts#loginAs`），栈未起会在此处 `FATAL TypeError: fetch failed / ECONNREFUSED`；若已误跑过一次半截的 `demo:all`（Frank 已被制裁广播连坐冻结），必须先 `stack.sh reset self` 重铺出全新库才能重跑，不能在同一库上接着 `up` 后再跑（同上方"`demo:all` 必须在全新库上跑"约束）。
+

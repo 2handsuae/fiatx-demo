@@ -123,6 +123,27 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'travelRuleCase',
   'sumsubWebhookEvent',
 
+  // ── Governance approvals (children before parents) ─────────────────
+  // approval_cases/approval_steps 从建库起就不在这份清单里——approval_steps FK →
+  // approval_cases 在 DB 层有 ON DELETE CASCADE（migration 20260316000000，见
+  // schema.prisma ApprovalStep.approvalCase relation），此前没被单独撞见过是因为
+  // 走审批流程的功能都靠各自的主体表（internalTransfer/incident 等）一起清、级联
+  // 视觉上"看起来清了"——直到战役乙波一 LP 档案/兑换单登场，两条主体表都漏登记
+  // 本清单的同时，也才第一次看见 approval_cases/approval_steps 本身的缺口（reset 后
+  // 行数不归零，2026-09-29 T7 截图闸走查撞见，TOOLING-DEBT 已登记）。DB 级 CASCADE 已
+  // 保证删 approval_cases 会带走 approval_steps，这里仍显式列出子表——照本清单其余
+  // 加表先例，一次列全，不靠隐式级联省一行。
+  'approvalStep',
+  'approvalCase',
+
+  // ── LP desk（战役乙波一 T2/T4 加表）──────────────────────────────────
+  // lp_exchanges FK → liquidity_providers 且 FK → asset（均默认 RESTRICT，无 onDelete
+  // 覆盖）：必须排在 liquidityProvider 与 asset 之前。funds_orders.lpExchangeId 也
+  // FK → lp_exchanges（ON DELETE CASCADE），但 fundsOrder 已在上方「Funds layer」段
+  // 更早被清空，顺序天然安全。
+  'lpExchange',
+  'liquidityProvider',
+
   // ── Customers / assets / wallets / TB registry ─────────────────────
   // tb_account_registry references customer/asset by business key, not FK,
   // but clear it before customers/assets for cleanliness.
