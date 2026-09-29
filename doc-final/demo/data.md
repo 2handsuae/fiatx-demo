@@ -153,10 +153,12 @@ Mona 的 EMIRATES_ID 补料请求（`requestNo=MRQ2601019867`，PENDING_SUBMISSI
 
 | LP | lpNo | 状态 | 结算坐标 | approvalNo |
 |---|---|---|---|---|
-| Falcon Liquidity FZE | `LPP2601010183` | ACTIVE | Mashreq Bank PJSC（AED IBAN）+ TRON 地址 | `APR2601015507`（占位，无真实审批单背书——同 `seedIncidents` 补救单 `referenceNo` 先例，纯叙事引用） |
+| Falcon Liquidity FZE | `LPP2601010183` | ACTIVE | Mashreq Bank PJSC（AED IBAN）+ TRON 地址 | `APR2601015507`（真实 `ApprovalCase`+`ApprovalStep` 背书，CFO 单步 APPROVED——评审 R15 补种，见下方「审批背书」段） |
 | Dune OTC DMCC | `LPP2601017193` | SUSPENDED | RAKBANK（AED IBAN）+ TRON 地址 | 无（种子直落 SUSPENDED，不经历"先批准再停用"的迁移路径） |
 
-Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`writeSeedAudit` 2026-09-29 起支持覆盖默认 CONFIG 域，见 `prisma/seed-audit.helper.ts`）；Dune 不写审计（同其余种子表"没有 operator、不写审计"先例）。
+Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`reason` 非空——契约 `requiredFields=['reason']`，`writeSeedAudit` 2026-09-29 起支持覆盖默认 CONFIG 域 + 传 `reason`，见 `prisma/seed-audit.helper.ts`）；Dune 不写审计（同其余种子表"没有 operator、不写审计"先例）。
+
+**审批背书（评审 R15 甲案，2026-09-29 修复轮）**：Falcon 建档（`APR2601015507`，`LP_PROFILE_APPROVAL`）与历史单（`APR2601015999`，`LP_EXCHANGE_APPROVAL`）各配一条真实 `ApprovalCase`+`ApprovalStep`（CFO 单步，status=APPROVED），`objectSnapshot` 逐字对齐 `lp-profile-workflow.service.ts#initiateCreate`/`lp-exchange-workflow.service.ts#initiate` 的真实快照形状（零 UUID）。补种原因：详情页 `approvalNo` 非空即渲染链接，占位号此前点进去是 `Approval not found` 死链——演示者最可能点开的两个页面（Falcon 档案 / LPX 历史单）都会撞上，故补真实背书替换占位值。
 
 ### 一张 SUCCESS 历史单
 
@@ -168,7 +170,7 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 | 2 买入落前厅 | `FDO2601017269` | USDT | 13,600 | 85 `LP_EXCHANGE_RECEIVE` | DR `A.FIRM_ASSET` / CR `E.FIRM_LIQ` | `txHash`（CRYPTO，`fakeChainTxHash`） |
 | 3 验收转 | `FDO2601015607` | USDT | 13,600 | 86 `LP_EXCHANGE_ACCEPT` | DR `E.FIRM_LIQ` / CR `E.FIRM_OPS` | `txHash`（CRYPTO） |
 
-三腿各配 1 条 `tbTransferEvidence` + 2 条 `accountFlow` 镜像（`AccountFlowProjectorService` 的真实行为：debit→OUT / credit→IN）——**3 条 evidence + 6 行 account_flows**。托管回单（`external_statement_lines`/`external_balances`）不铺：`seedCapitalInjection` 模板本身也不写它，且 `recon:demo` 铺场脚本每次都会把外部账单从 `account_flows` 重铸一遍（`simulated-custodian-statement.service.ts` 头注释），本笔的 `account_flows` 镜像已经在库里，无需预先复制。
+三腿各配 1 条 `tbTransferEvidence` + 2 条 `accountFlow` 镜像（`AccountFlowProjectorService` 的真实行为：debit→OUT / credit→IN）——**3 条 evidence + 6 行 account_flows**（这是三腿的真实记账镜像；真实 workflow 的托管回单本身是 4 行非 6 行，见下一句）。托管回单（`external_statement_lines`/`external_balances`）不铺：`seedCapitalInjection` 模板本身也不写它，且 `recon:demo` 铺场脚本每次都会把外部账单从 `account_flows` 重铸一遍（`simulated-custodian-statement.service.ts` 头注释），本笔的 `account_flows` 镜像已经在库里，无需预先复制——**重铺后对账活证据见 `baseline.md`「F_LIQ 对账直比判据」节**：`recon:demo:pass` 实测 F_LIQ(USDT) 钱包在检且 `bucket=MATCHED matchedCount=2`（腿2 IN + 腿3 OUT 两行配对），`recon:demo:break` 18/18 场景不受干扰。
 
 **种子后（`stack.sh reset self`，`demo:all` 跑之前）的期望余额**（实测坐实）：F_LIQ（USDT）归零（85 进 86 出，净 0）；F_OPS(AED) 从注资起点 1,000,000 减至 **950,000**（−50,000）；F_OPS(USDT) 从注资起点 100,000 加至 **113,600**（+13,600）。三个时间戳字段（`executedAt`/`deliveredAt`/`settledAt`）相对**铺场时刻**回拨 3/2/1 天，不锚死日历日期（同上方各种子节先例）。
 

@@ -130,8 +130,8 @@ DELIVERED ──accept(金库,验收=核数)──▶ SUCCESS（落验收转腿�
 
 ## §8 种子与演示同步
 
-- 种子：LP 两家——`Falcon Liquidity FZE`（ACTIVE，主用）/ `Dune OTC DMCC`（SUSPENDED，示范停用拒开单）；一张 SUCCESS 历史兑换单垫底（含三腿资金单与回单，重铺后对账全绿的活证据）。
-- 同步 `demo/data.md` 生成区、`demo/baseline.md`（F_LIQ 直比判据 + 历史单）、`demo/script.md` 场景 26/27（暂编，波三收官定稿）：26=正向全弧（USDT 见底 → 卖 AED 买 USDT：开单→CFO 批→⚡付款→悬空期看板讲解→⚡LP 打款→验收→落库存）；27=反向快演。
+- 种子：LP 两家——`Falcon Liquidity FZE`（ACTIVE，主用）/ `Dune OTC DMCC`（SUSPENDED，示范停用拒开单）；一张 SUCCESS 历史兑换单垫底（三腿资金单+账务镜像；回单由 recon:demo 从流水重铸——订正 2026-09-29 T9 评审：真实 workflow 回单为 4 行非 6 行、种子不铺回单照注资先例；重铺后对账活证据=recon:demo:pass 断言 F_LIQ 在检且 MATCHED + break 18/18，判据入 baseline）。
+- 同步 `demo/data.md` 生成区、`demo/baseline.md`（F_LIQ/F_OPS 余额判据 + F_LIQ 对账直比判据 + 历史单）、`demo/script.md` 场景 26/27（暂编，波三收官定稿）：26=正向全弧（USDT 见底 → 卖 AED 买 USDT：开单→CFO 批→⚡付款→悬空期看板讲解→⚡LP 打款→验收→落库存）；27=反向快演。
 - 数据 reset 重铺，不写兼容（总纲 §3 假设）。
 
 ## §9 验收判据（可执行口径）

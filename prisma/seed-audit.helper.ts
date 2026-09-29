@@ -16,6 +16,12 @@ export interface SeedAuditInput {
   /** 默认 'CONFIG'（本文件原设计——见下方函数注释）；显式传其它域给非 CONFIG 域的动作码
    *  写一条留痕（2026-09-29 战役乙波一 T9 加：LP_PROFILE_CREATED 是 TREASURY 域）。 */
   actionDomain?: string;
+  /** 默认 null（原 7 处调用的契约都要求 `afterData`，不要求 `reason`）；显式传给要求
+   *  `reason` 的动作码——2026-09-29 战役乙波一 T9 评审 M3 加：`LP_PROFILE_CREATED` 的契约
+   *  `requiredFields` 含 `reason`（`AuditLogEvent.reason` 是真实列，本文件此前恒写 null）。
+   *  注意：`writeSeedAudit` 绕过 `AuditLogsService`，`requiredFields` 校验本身不会在这条
+   *  路径上跑——加这个参数是为了让写出的行本身带上业务要求的字段，不是让校验通过。 */
+  reason?: string | null;
 }
 
 // 审计单号 = AUD + 日期 + 6 位随机数，同一天内会撞（生日问题）。服务侧
@@ -81,7 +87,7 @@ export async function writeSeedAudit(prisma: PrismaClient, input: SeedAuditInput
     sourceIp: null,
     sourcePlatform: 'SYSTEM',
     outcome: 'SUCCESS',
-    reason: null,
+    reason: input.reason ?? null,
     metadata: metadataObj,
     occurredAt: occurredAt.toISOString(),
     retainedUntil: retainedUntil.toISOString(),
@@ -107,6 +113,7 @@ export async function writeSeedAudit(prisma: PrismaClient, input: SeedAuditInput
           primarySubjectNo: input.subjectNo,
           ownerCustomerNo: input.ownerCustomerNo ?? null,
           outcome: 'SUCCESS',
+          reason: input.reason ?? null,
           afterData,
           correlationId,
           traceId: correlationId,

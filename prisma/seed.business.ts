@@ -2111,6 +2111,20 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
   }
 
   const TREASURY_USER_NO = 'ADM2501010011'; // treasury@fiatx.com（seed.base.ts ROLE_SEED_ACCOUNTS）
+  const CFO_USER_NO = 'ADM2501010010'; // cfo@fiatx.com（同上，LP_PROFILE_APPROVAL/LP_EXCHANGE_APPROVAL 唯一签核角色）
+
+  // 评审 R15 甲案（2026-09-29 修复轮）：详情页 approvalNo 非空即渲染链接，占位号点进去
+  // 是死链——补两张真实 ApprovalCase+ApprovalStep（CFO 单步已批），approvalNo 复用下面
+  // 已经确定性生成的值。ApprovalCase.createdByUserId / ApprovalStep.decidedByUserId 存
+  // 的是真实 User.id（UUID，非 userNo）——同 approvals.service.ts#createDraftCase/approve
+  // 的字段口径，需要先查两个种子管理员的真实行。
+  const [treasuryUser, cfoUser] = await Promise.all([
+    prisma.user.findUnique({ where: { userNo: TREASURY_USER_NO } }),
+    prisma.user.findUnique({ where: { userNo: CFO_USER_NO } }),
+  ]);
+  if (!treasuryUser || !cfoUser) {
+    throw new Error('seedLpDesk: 找不到 treasury/CFO 种子管理员——seed.base.ts 的 db:base:sync 是否先跑？');
+  }
 
   // ── 两档案 ────────────────────────────────────────────────────────────
   const falconLpNo = buildDeterministicNo('LPP', 'falcon-liquidity-fze');
@@ -2155,13 +2169,47 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     subjectNo: falcon.lpNo,
     actorNo: 'DEMO_SEED',
     actionDomain: 'TREASURY',
+    // 契约 requiredFields=['reason']（评审 M3：此前恒写 null，`writeSeedAudit` 2026-09-29
+    // 起支持 reason 通道，见 prisma/seed-audit.helper.ts）。
+    reason: 'LP registered — new liquidity provider onboarded for AED/USDT exchange desk.',
     afterData: {
       name: falcon.name, fiatBankName: falcon.fiatBankName, cryptoNetwork: falcon.cryptoNetwork,
       agreementRef: falcon.agreementRef, status: falcon.status, approvalNo: falcon.approvalNo,
     },
   });
 
-  console.log(`Seeded 2 LP profile rows (${falcon.name} ACTIVE / ${dune.name} SUSPENDED).`);
+  // 评审 R15 甲案：Falcon 建档审批——单步 CFO 已批，objectSnapshot 逐字对齐
+  // lp-profile-workflow.service.ts#initiateCreate 的真实快照形状（零 UUID）。
+  const falconApprovalSubmittedAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000); // 铺场时刻−10天
+  const falconApprovalDecidedAt = new Date(falconApprovalSubmittedAt.getTime() + 60 * 60 * 1000); // +1h
+  await prisma.approvalCase.upsert({
+    where: { approvalNo: falconApprovalNo },
+    update: {},
+    create: {
+      approvalNo: falconApprovalNo,
+      actionType: 'LP_PROFILE_APPROVAL',
+      entityRef: falcon.lpNo,
+      createdByUserId: treasuryUser.id, createdByUserNo: TREASURY_USER_NO,
+      status: 'APPROVED', allowCancel: true,
+      objectSnapshot: JSON.stringify({
+        lpNo: falcon.lpNo, name: falcon.name, fiatIban: falcon.fiatIban,
+        cryptoAddress: falcon.cryptoAddress, agreementRef: falcon.agreementRef,
+      }),
+      traceId: `SEED_LP_PROFILE_${falcon.lpNo}`,
+      createdAt: falconApprovalSubmittedAt, submittedAt: falconApprovalSubmittedAt,
+      timeoutAt: new Date(falconApprovalSubmittedAt.getTime() + 48 * 60 * 60 * 1000),
+      steps: {
+        create: [{
+          stepNo: 1, status: 'APPROVED', checkerRoleCandidates: 'CFO',
+          decidedByUserId: cfoUser.id, decidedByUserNo: CFO_USER_NO, decidedByRole: 'CFO',
+          reason: 'LP registration reviewed against agreement and settlement coordinates — approved.',
+          decidedAt: falconApprovalDecidedAt, createdAt: falconApprovalSubmittedAt,
+        }],
+      },
+    },
+  });
+
+  console.log(`Seeded 2 LP profile rows (${falcon.name} ACTIVE / ${dune.name} SUSPENDED) + 1 APPROVED profile-registration approval case.`);
 
   // ── 一张 SUCCESS 历史兑换单：卖 50,000 AED 买 13,600 USDT（示例价 3.6765 手填口径）──
   const SELL_AMOUNT = '50000';
@@ -2203,6 +2251,43 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
       executedAt, deliveredAt, settledAt,
       traceId, createdByUserId: TREASURY_USER_NO,
       createdAt: executedAt, updatedAt: settledAt,
+    },
+  });
+
+  // 评审 R15 甲案：兑换单审批——单步 CFO 已批，objectSnapshot 逐字对齐
+  // lp-exchange-workflow.service.ts#initiate 的真实快照形状（零 UUID，含 impact 一句话）。
+  const sellFormatted = new Prisma.Decimal(SELL_AMOUNT).toFixed(aedAsset.decimals);
+  const buyFormatted = new Prisma.Decimal(BUY_AMOUNT).toFixed(usdtAsset.decimals);
+  const exchangeImpact = `Sell ${sellFormatted} ${aedAsset.currency} to LP ${falcon.lpNo} for ${buyFormatted} ${usdtAsset.currency} `
+    + `(purpose: ${exchange.prudentialPurpose}); the firm's ${aedAsset.currency} operating balance decreases once the sell leg clears, `
+    + `and its ${usdtAsset.currency} operating balance increases once the delivery is accepted`;
+  const exchangeApprovalSubmittedAt = new Date(executedAt.getTime() - 2 * 60 * 60 * 1000); // 卖出腿落账前 2h
+  const exchangeApprovalDecidedAt = new Date(executedAt.getTime() - 30 * 60 * 1000); // 落账前 30min
+  await prisma.approvalCase.upsert({
+    where: { approvalNo: exchangeApprovalNo },
+    update: {},
+    create: {
+      approvalNo: exchangeApprovalNo,
+      actionType: 'LP_EXCHANGE_APPROVAL',
+      entityRef: exchange.exchangeNo,
+      createdByUserId: treasuryUser.id, createdByUserNo: TREASURY_USER_NO,
+      status: 'APPROVED', allowCancel: true,
+      objectSnapshot: JSON.stringify({
+        exchangeNo: exchange.exchangeNo, lpNo: falcon.lpNo, lpName: falcon.name,
+        sell: `${sellFormatted} ${aedAsset.currency}`, buy: `${buyFormatted} ${usdtAsset.currency}`,
+        prudentialPurpose: exchange.prudentialPurpose, impact: exchangeImpact,
+      }),
+      traceId,
+      createdAt: exchangeApprovalSubmittedAt, submittedAt: exchangeApprovalSubmittedAt,
+      timeoutAt: new Date(exchangeApprovalSubmittedAt.getTime() + 48 * 60 * 60 * 1000),
+      steps: {
+        create: [{
+          stepNo: 1, status: 'APPROVED', checkerRoleCandidates: 'CFO',
+          decidedByUserId: cfoUser.id, decidedByUserNo: CFO_USER_NO, decidedByRole: 'CFO',
+          reason: 'LP exchange reviewed — sell/buy amounts and prudential purpose accepted, approved.',
+          decidedAt: exchangeApprovalDecidedAt, createdAt: exchangeApprovalSubmittedAt,
+        }],
+      },
     },
   });
 
@@ -2263,7 +2348,7 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     },
   });
 
-  console.log(`Seeded 1 LP exchange (${exchangeNo}, SUCCESS) + 3 funds orders (legs 1/2/3, all CLEARED).`);
+  console.log(`Seeded 1 LP exchange (${exchangeNo}, SUCCESS) + 1 APPROVED exchange approval case + 3 funds orders (legs 1/2/3, all CLEARED).`);
 
   // ── 账本分录（84→85→86）+ 六行 accountFlow 镜像 ──────────────────────────
   const aedLedger = TB_LEDGERS[aedAsset.currency as keyof typeof TB_LEDGERS];
