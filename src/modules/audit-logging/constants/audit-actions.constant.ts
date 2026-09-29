@@ -41,6 +41,8 @@ export const AuditEntityTypes = {
   LIQUIDITY_PROVIDER: 'LIQUIDITY_PROVIDER',
   // 战役乙波一 T4（2026-09-29）：LP 兑换单主体
   LP_EXCHANGE: 'LP_EXCHANGE',
+  // 战役乙波二 T2（2026-09-29）：注资单主体
+  CAPITAL_INJECTION: 'CAPITAL_INJECTION',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -144,6 +146,8 @@ export const AuditBusinessWorkflowTypes = {
   LP_PROFILE: 'LP_PROFILE',
   // 战役乙波一 T4（2026-09-29）：LP 兑换单主体（财资件，独立主体 LpExchange）
   LP_EXCHANGE: 'LP_EXCHANGE',
+  // 战役乙波二 T2（2026-09-29）：注资单主体（财资件，独立主体 CapitalInjection）
+  CAPITAL_INJECTION: 'CAPITAL_INJECTION',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -488,6 +492,13 @@ export const AuditActions = {
   LP_EXCHANGE_DELIVERED: 'LP_EXCHANGE_DELIVERED',
   LP_EXCHANGE_ACCEPTED: 'LP_EXCHANGE_ACCEPTED',
   LP_EXCHANGE_FAILED: 'LP_EXCHANGE_FAILED',
+  // ── 战役乙波二 T2（2026-09-29）：注资单六码（财资件，域 TREASURY）──────────
+  CAPITAL_INJECTION_REQUESTED: 'CAPITAL_INJECTION_REQUESTED',
+  CAPITAL_INJECTION_APPROVED: 'CAPITAL_INJECTION_APPROVED',
+  CAPITAL_INJECTION_REJECTED: 'CAPITAL_INJECTION_REJECTED',
+  CAPITAL_INJECTION_CANCELLED: 'CAPITAL_INJECTION_CANCELLED',
+  CAPITAL_INJECTION_FUNDS_RECEIVED: 'CAPITAL_INJECTION_FUNDS_RECEIVED',
+  CAPITAL_INJECTION_CONFIRMED: 'CAPITAL_INJECTION_CONFIRMED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1183,6 +1194,27 @@ export const CAMPAIGN_B_LP_EXCHANGE_AUDIT_ACTIONS: Record<string, AuditActionSpe
   LP_EXCHANGE_DELIVERED:         { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount'], requiresCausation: false },
   LP_EXCHANGE_ACCEPTED:          { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount', 'effectiveDate'], requiresCausation: false },
   LP_EXCHANGE_FAILED:            { domain: 'TREASURY', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
+};
+
+/** 战役乙波二 T2（spec §2/plan Task2 Step3）：注资单六码，域 TREASURY——同
+ * CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS 先例，本战役新主体各自一表。REQUESTED 起注资
+ * 单自己的旅程老实标 NONE（同 LP_EXCHANGE_REQUESTED 先例：不显式传 correlationId，
+ * 交给写入方按需继承 row.traceId）；APPROVED/REJECTED 由审批裁决驱动，
+ * requiresCausation 真、必填 approvalNo；CANCELLED 是直接操作，必填 reason；
+ * FUNDS_RECEIVED 是 ⚡模拟到款驱动的直接操作（腿事件驱动），必填 amount；CONFIRMED
+ * 是确认入账（核数）动作，必填 amount+effectiveDate（同 LP_EXCHANGE_ACCEPTED /
+ * INTERNAL_TRANSFER_SETTLED 先例，expected/received 两数并排走 metadata）。审计
+ * 实际写入点在 Task 3 workflow，本任务只登记词表。主体信封：primarySubject=
+ * CAPITAL_INJECTION·cinNo，审批单 INSTRUMENT、资金单 RELATED；contributorName/
+ * 金额镜像 metadata（甲 R5 判例）；每条带显式 requestId
+ * （`${action}_${cinNo}_${randomUUID()}`）。 */
+export const CAMPAIGN_B_CAPITAL_INJECTION_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  CAPITAL_INJECTION_REQUESTED:      { domain: 'TREASURY', correlationMode: N, requiredFields: ['amount', 'reason'], requiresCausation: false },
+  CAPITAL_INJECTION_APPROVED:       { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  CAPITAL_INJECTION_REJECTED:       { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  CAPITAL_INJECTION_CANCELLED:      { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  CAPITAL_INJECTION_FUNDS_RECEIVED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount'], requiresCausation: false },
+  CAPITAL_INJECTION_CONFIRMED:      { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount', 'effectiveDate'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——

@@ -143,6 +143,8 @@ describe('AuditLogsService', () => {
       LP_PROFILE: 'LP_PROFILE',
       // 战役乙波一 T4（2026-09-29）：LP 兑换单主体
       LP_EXCHANGE: 'LP_EXCHANGE',
+      // 战役乙波二 T2（2026-09-29）：注资单主体
+      CAPITAL_INJECTION: 'CAPITAL_INJECTION',
     });
 
     expect(AuditUserActions).toEqual({
