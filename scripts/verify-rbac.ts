@@ -784,26 +784,15 @@ function runStaticChecks(): void {
   );
 
   // S13d：波前→波后计数（brief Step 1 明点要求）——ACTION_BUCKET_CATALOG 总桶数由运行时
-  // 数组直接数（75→77）；PermissionGroup 是纯类型，编译后不存在于运行时，数不了，改用
-  // overview.md §4 页脚本身登记的权威公式（`sed -n '9,106p' rbac.catalog.ts | grep -cE
-  // "^\s*\|? *'[A-Z0-9_]+'"`，2026-09-28 战役甲波五收口实测）同构镜像：正则抽取
-  // `export type PermissionGroup =` 到其终止 `;` 之间的每个带引号标识符——这是对已声明
-  // 结构本体的机械抽取（同 S6/S7 头注释：抽的是数据结构本体，不是为了让某个字符串命中而
-  // 投绿灯），不算违反文件头「不 grep 源码文本」红线（那条红线打的是「用文本匹配代替行为
-  // 验证」，这里验证的对象本来就是文本声明本身，没有对应的运行时值可读）。
-  const declaredPermissionGroups = (() => {
-    const catalogPath = path.resolve(__dirname, '../src/modules/identity/access-control/rbac.catalog.ts');
-    const text = fs.readFileSync(catalogPath, 'utf8');
-    const start = text.indexOf('export type PermissionGroup =');
-    if (start === -1) return new Set<string>();
-    const end = text.indexOf(';', start);
-    const block = text.slice(start, end === -1 ? undefined : end);
-    const groups = new Set<string>();
-    const re = /'([A-Z0-9_]+)'/g;
-    let gm: RegExpExecArray | null;
-    while ((gm = re.exec(block)) !== null) groups.add(gm[1]);
-    return groups;
-  })();
+  // 数组直接数（75→77）。PermissionGroup 是纯类型，编译后不存在于运行时，数不了它的
+  // 声明字面量总数；评审 Imp#1 判定「读源文件正则抠联合类型」是新增的「扫源码文本」
+  // 判据，与本任务派发口径冲突（S6/S7 的文本扫描是既有债，不许援引它们给新判据免责）。
+  // 改为纯运行时替代：直接并上本函数顶部（S1/S2/S2b 已算好）的 routedGroups/
+  // heldGroups/bucketGroups 三个 Set 取并集——「目前至少挂了一处路由/桶/职务绑定的组
+  // 一共多少个」，不是「类型声明了多少个字面量」，两者在本仓库当前状态下数值相同（85，
+  // 见下方失效验证）；若未来出现一个声明了但三处全不挂的类型成员，S13d 数不到它，但
+  // 那个缺口本就是 S1/S2/S2b 的判定范围，不是本判据该管的事。
+  const declaredPermissionGroups = new Set<string>([...routedGroups, ...heldGroups, ...bucketGroups]);
   const totalBuckets = ACTION_BUCKET_CATALOG.flatMap((d) => d.buckets).length;
   const totalDomains = ACTION_BUCKET_CATALOG.length;
   check(
@@ -811,7 +800,7 @@ function runStaticChecks(): void {
     totalDomains === 15 && totalBuckets === 77 && declaredPermissionGroups.size === 85 &&
       declaredPermissionGroups.has('LP_READ') && declaredPermissionGroups.has('LP_WRITE'),
     `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 77）｜` +
-      `PermissionGroup 联合类型共 ${declaredPermissionGroups.size} 个成员（预期 85，含 LP_READ/LP_WRITE）`,
+      `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 85，含 LP_READ/LP_WRITE）`,
   );
 }
 
