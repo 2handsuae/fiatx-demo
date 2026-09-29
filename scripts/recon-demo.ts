@@ -829,8 +829,12 @@ async function injectScenarios(
   // 场景 ⑩ · 查无果（spec §5）：公司池一条外部行金额改 7 分 + 同步压收盘——
   // 「翻遍凭证也对不上」的小额差，答案键成因就是 UNEXPLAINED。放公司池是刻意的：
   // 下一轮核销上线时公司池核销 = 一笔分录进损益即结案，这条素材直接复用。
+  // 排除 E.FIRM_LIQ（战役乙波一 T11 R17 撞车检查实测坐实）：F_LIQ 是 LP 兑换单的
+  // 在途验收户，完稿态（SUCCESS）余额必归零；若被选中背这笔「查无果」小额差，会
+  // 与 LP 兑换单「终态平」的演示叙事撞车——同一钱包里混进一条解释不了的差额，
+  // 观众会误以为是 LP 流程本身漏了账，而它其实是⑩场景刻意注入的破口素材。
   const firmUnexplainedPlan = firmCandidates.find(
-    (p) => p.walletRef !== firmHedgedPlan.walletRef && p.lines.length > 0,
+    (p) => p.walletRef !== firmHedgedPlan.walletRef && p.lines.length > 0 && p.coaCode !== 'E.FIRM_LIQ',
   );
   if (!firmUnexplainedPlan) {
     throw new Error('场景 ⑩ 需要第二个带外部行的干净公司钱包——现有公司钱包要么被 ⑪⑫ 占用要么无流水。');

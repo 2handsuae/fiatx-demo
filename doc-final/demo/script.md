@@ -402,3 +402,44 @@
 **判据**：`CYBER_BCDR` 依据码集合固定为 `['TIR_K_H']`（单钟，非双钟）；报送单 `deadlineAt` = 事件 `registeredAt`+72h，与审批单 Impact 摘要里的 statutory deadline 逐字一致；GENERAL 族报送单必经签发（`Pending Signoff`→`Signed Off`两态，与 AML 族"直接 Mark Submitted、零签发"对照）；结案走 `INCIDENT_CLOSE_TECHSEC`（CISO 单步，事故域五条结案链之一，与投诉族 `INCIDENT_CLOSE_CUSTOMER`（合规官单步）、FUNDS 族 `INCIDENT_CLOSE_SECURITY`（MLRO+CFO 两步）、`INCIDENT_CLOSE_FINANCIAL`（CFO 单步）、审慎族 `INCIDENT_CLOSE_PRUDENTIAL`（高管单步）并列）；结案前事件详情 Actions 区 Request Close 按钮禁用文案为「Not yet assessed / 对应报送单未提交」，报送单标已提交后才放行——报送闭环是结案的前置门。走查截图入 `doc-final/superpowers/checkups/2026-09-28-act-a-wave5-evidence/`（`14`~`17`）。
 
 **期望**：观众看懂两件事——① 法定钟不是摆设，登记那一刻起 72h 就在跑，报送单详情页的 deadline 读得到具体到期时刻；② 通用报送族（GENERAL）与反洗钱报文族（AML，场景 19/20）刻意用两套签发规则同屏对比——网安事件这类"谁都要审"，STR/CNMR 这类"法定谁也批不得"，两种监管治理姿态本身就是演示点。
+
+---
+
+## 场景 26（暂编）· 库存见底找 LP 补货：LP 兑换单正向全弧（V7 财资 · LP 兑换台）
+
+> 战役乙波一交付（2026-09-29）——幕次归属（是否独立成第九幕、或并入既有幕）留战役乙收官统一定稿，本节先把走查步骤钉住，不占用第几幕的编号位。主篇文档 `modules/lp-desk.md`。本场景 2026-09-29 T11 在 self 栈全程实走一遍（真提交/真点击，非种子摆拍），十二张截图留证。
+
+**讲什么**：客户天天兑换消耗库存，运营户迟早见底——这时金库向签了约的场外流动性提供商（LP）开一张兑换单：卖出一种资产、买入另一种，两边金额手填。先款后货：我方先出钱（卖出腿运营户直出），等 LP 把货打进一间在途验收前厅（`FIRM_LIQ` 复活，2026-08-13 因零活体退役、本波因这个真实需求复活），金库清点核对（应收 vs 实到并排，纯展示零逻辑）后才正式转进运营户——悬空期里运营户已经瘪下去、前厅还空着，这个中间态账本页看得见。
+
+**造数**：不用种子，现场金库对 LP 名册里 ACTIVE 的 Falcon Liquidity FZE 开一张全新兑换单，走完整条弧线（种子已铺一张历史 SUCCESS 单垫底，同名册可直接打开对照）。
+
+**账号**：`treasury@fiatx.com`（金库，开单/⚡推腿/⚡模拟到货/验收全程）→ `cfo@fiatx.com`（CFO，建档与开单两条审批的唯一裁决人）。
+
+**走查**：
+① 金库登录 → 侧栏 Custody → LP Exchanges → 「Initiate exchange」→ 弹窗选 Falcon Liquidity FZE（ACTIVE）+ Sell Asset=AED、Sell Amount（如 10000）+ Buy Asset=USDT-TRON、Buy Amount（如 2720）+ Prudential Purpose（必填，8 年安全港记录）+ Reason（必填）→ Initiate → 单据转 `PENDING_APPROVAL`，横幅带 approval 号。
+② 切 `cfo@` → 审批中心打开该单（`ACTION TYPE: LP_EXCHANGE_APPROVAL`，Impact 摘要一句话读到"the firm's AED operating balance decreases once the sell leg clears, and its USDT operating balance increases once the delivery is accepted"）→ Approve（二次确认弹层，同一按钮打开确认层再点一次同名按钮，本弧两处 CFO 批准均如此）→ 单据转 `EXECUTING`，卖出腿资金单已建。
+③ 切回 `treasury@` → 打开卖出腿资金单详情（AED 法币腿）→ ⚡ Submit → ⚡ Settle → 腿转 `CLEARED`，兑换单转 `AWAITING_DELIVERY`——详情页蓝色横幅明写"Sell leg cleared, waiting for the LP to deliver the buy leg to the front desk — the firm's AED operating balance has already decreased."，八态时间线停在「Awaiting LP delivery」。
+④ 打开 Ledger Accounts，按 Code 筛 `203 · FIRM_LIQ`：两条资产行（AED/USDT-TRON）余额均 `0.00`——前厅还空着；再筛 `200 · FIRM_OPS`：AED 行已比开单前少了卖出金额——运营户已经瘪。悬空期账实两头都能在账本页对照给观众看。
+⑤ 回兑换单详情，点「⚡ Simulate LP delivery」→ 单据转 `DELIVERED`，买入腿资金单已建并 `CLEARED`（模拟 LP 打款一步到位落前厅）。**此刻是 F_LIQ 真正持有非零余额的唯一窗口**——回 Ledger Accounts 按 `203 · FIRM_LIQ` 再筛一次，买入资产那一行余额已变成买入金额（非零）；这正是 spec 要求「在途中间态」的取证时点，运营侧此刻现场跑一次 `bash scripts/on-stack.sh self verify:coa`，两恒等式 + 负余额检查全绿——账实在这个中间态依然一致，不是等到终态才平。
+⑥ 详情页「Accept delivery」→ 验收弹层：Expected（应收，来自单据 buyAmount）与 Received（实到，腿 2 资金单自己的金额）并排展示 → 数字一致 → Accept delivery 确认 → 单据转 `SUCCESS`，八态时间线全绿，验收转腿（腿 3）自动建并清算——买入资产从前厅转进运营户，`203 · FIRM_LIQ` 两资产行回落 `0.00`。
+⑦ 收尾核对：现场跑一次 `bash scripts/on-stack.sh self recon:demo:pass`（或点 Reconciliation Runs 页 Re-reconcile）——`status=PASS`、`casesOpened=0`，F_LIQ 钱包在检查范围内且 `MATCHED`——终态平，本弧对账机制吃进了这三腿流水，不需要额外收编。
+
+**判据**：八态八边（`PENDING_APPROVAL→EXECUTING→AWAITING_DELIVERY→DELIVERED→SUCCESS`，另三条负向分支 `FAILED`/`REJECTED`/`CANCELLED`）；三腿转账码 84/85/86 固定；F_LIQ 中间态非零、终态归零两个时点都过 `verify:coa`；`recon:demo:break` 的场景⑩「查无果」候选钱包已显式排除 `E.FIRM_LIQ`（本场景 T11 走查时实测撞见并修，见 `scripts/recon-demo.ts` 注释——避免同一钱包里混进一条注入的「解释不了的差额」，与本场景「终态平」的叙事打架），排除后重跑仍 18/18 全检出。走查截图（`23`~`34`）入 `doc-final/superpowers/checkups/2026-09-29-campaign-b-wave1-evidence/`。
+
+**期望**：观众看懂三件事——① 一张兑换单打通"库存见底→找 LP 补货"整条弧，单据/审批/资金单/账本分录/对账全程留痕；② 悬空期不是黑箱——运营户已减、前厅未到，账本页当场看得见这个"钱在路上"的中间态，且这个中间态账实仍然一致；③ 验收是核数不是审批——CFO 已经批过单，前厅不做成第二道 maker-checker。
+
+## 场景 27（暂编）· 反向快演：USDT 积压回吐（V7 财资 · LP 兑换台）
+
+> 战役乙波一交付（2026-09-29），幕次归属同场景 26 留收官定稿。
+
+**讲什么**：同一张单据、同一套状态机、同一组转账码——只是卖出/买入两边资产对调（卖 USDT-TRON 买 AED）。没有 IN/OUT 两种订单类型，方向只是同一张单的两个立场。
+
+**造数**：不用种子，现场对同一家 Falcon 开一张反向单，快演全弧（步骤与场景 26 逐一对应，不重复展开逻辑，只点差异）。
+
+**账号**：`treasury@fiatx.com` → `cfo@fiatx.com`（同场景 26）。
+
+**走查**：① Initiate exchange → Sell Asset=USDT-TRON（如 3000）、Buy Asset=AED（如 11030）→ CFO 批 → ② ⚡ 推卖出腿——这次是加密币腿，走 `⚡ Broadcast → ⚡ Seen in Mempool → ⚡ Confirm` 三步（法币腿场景 26 是 `⚡ Submit → ⚡ Settle` 两步，两族资金单推进节奏本就不同，对照着讲）→ `AWAITING_DELIVERY` → ③ ⚡ Simulate LP delivery → `DELIVERED` → ④ Accept delivery：Expected/Received 并排（本弧 11030.00 AED 对 11,030.00 AED）→ Accept → `SUCCESS`，八态时间线全绿。
+
+**判据**：与场景 26 完全同一状态机、同一组转账码（84/85/86，只是 ledger 对调）；验收并排数字一致。走查截图（`35`~`39`）入同一 evidence 目录。
+
+**期望**：观众看懂一件事——LP 兑换台不是两套系统各管一个方向，是一张单、一套状态机，方向只是填哪边资产的问题。
