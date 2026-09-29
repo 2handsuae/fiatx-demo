@@ -527,7 +527,7 @@
 | `SWAP_SLA_TIMEOUT_SIMULATED` | ⚡ 拨钟模拟 SLA 超时 | I 继承 | — |  |
 | `SWAP_DEMO_SCENARIO_RUN` | ⚡ 喂裁决按钮被按下 | I 继承 | — |  |
 
-## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台）（23 码）
+## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（35 码）
 
 公司的钱给客户：认损补款 / 退汇垫款。第四类订单，法币两腿经结算户、加密币一腿；金库提、CFO 批。
 
@@ -568,6 +568,28 @@
 | `LP_EXCHANGE_DELIVERED` | ⚡ LP 打款落前厅（模拟到货，买入腿建单落账） | I 继承 | amount |  |
 | `LP_EXCHANGE_ACCEPTED` | 金库验收（核数），买入腿转入运营户，整单结清（终态） | I 继承 | amount, effectiveDate |  |
 | `LP_EXCHANGE_FAILED` | 批准后运营户余额不足，或落腿失败，整单转 FAILED（终态） | I 继承 | reasonCode |  |
+
+### 注资单生命周期（6） — 战役乙波二 T2/T3 新增，金库开单 / CFO 单步批 / ⚡模拟到款 / 确认入账
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `CAPITAL_INJECTION_REQUESTED` | 发起注资（金库开单，出资方注资运营户，待 CFO 批） | N 单步 | amount, reason |  |
+| `CAPITAL_INJECTION_APPROVED` | CFO 批准，转入等到款 | I 继承 | approvalNo | ✓ |
+| `CAPITAL_INJECTION_REJECTED` | CFO 驳回或超时，转 REJECTED（终态） | I 继承 | approvalNo | ✓ |
+| `CAPITAL_INJECTION_CANCELLED` | 待批时金库撤单 | I 继承 | reason |  |
+| `CAPITAL_INJECTION_FUNDS_RECEIVED` | ⚡ 模拟出资方打款到账（建腿转 RECEIVED，先回单不落账） | I 继承 | amount |  |
+| `CAPITAL_INJECTION_CONFIRMED` | 确认入账（核数落码 70 分录、腿清算，整单结清） | I 继承 | amount, effectiveDate |  |
+
+### 付款单生命周期（6） — 战役乙波二 T4/T5 新增，金库开单 / CFO 单步批，批准即自动执行落账
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `VENDOR_PAYMENT_REQUESTED` | 发起付款（金库开单，向已注册外包商付款，待 CFO 批） | N 单步 | amount, reason |  |
+| `VENDOR_PAYMENT_EXECUTION_STARTED` | CFO 批准，付款腿建单，自动执行（无需再手动确认） | I 继承 | approvalNo | ✓ |
+| `VENDOR_PAYMENT_EXECUTED` | 付款腿落账并清算（码 87），整单结清（终态） | I 继承 | amount |  |
+| `VENDOR_PAYMENT_FAILED` | 运营户余额不足，或落腿失败，整单转 FAILED（终态） | I 继承 | reasonCode |  |
+| `VENDOR_PAYMENT_REJECTED` | CFO 驳回或超时，转 REJECTED（终态） | I 继承 | approvalNo | ✓ |
+| `VENDOR_PAYMENT_CANCELLED` | 待批时金库撤单 | I 继承 | reason |  |
 
 ## RECON 域 —— V8 对账（9 码）
 

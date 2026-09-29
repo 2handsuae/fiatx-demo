@@ -800,11 +800,86 @@ function runStaticChecks(): void {
   const totalBuckets = ACTION_BUCKET_CATALOG.flatMap((d) => d.buckets).length;
   const totalDomains = ACTION_BUCKET_CATALOG.length;
   check(
-    'S13d 波前→波后计数（域 15→15 不变、桶 75→77、组 83→85；LP_READ/LP_WRITE 两个新成员都在册）',
-    totalDomains === 15 && totalBuckets === 77 && declaredPermissionGroups.size === 85 &&
-      declaredPermissionGroups.has('LP_READ') && declaredPermissionGroups.has('LP_WRITE'),
-    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 77）｜` +
-      `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 85，含 LP_READ/LP_WRITE）`,
+    // 战役乙波二 T10：本判据是「当前总数」快照，非累加历史——上一次校准是波一 T10
+    // （75→77 桶、83→85 组，LP_READ/LP_WRITE 两个新成员）；本次校准把桶/组两个数字
+    // 顺延到波二 T8 落地后的终态（77→80 桶、85→88 组），新增三个 FUNDING_* 成员一并
+    // 收进 has() 断言。数字来源=运行时直接数，非手抄：失效验证见 task-10-report.md
+    // （改动前先跑一次，S13d 在 77/85 门槛下确认落红，再改成 80/88 转绿）。
+    'S13d 波前→波后计数（域 15→15 不变、桶 77→80、组 85→88；FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW 三个新成员都在册）',
+    totalDomains === 15 && totalBuckets === 80 && declaredPermissionGroups.size === 88 &&
+      declaredPermissionGroups.has('FUNDING_READ') && declaredPermissionGroups.has('FUNDING_WRITE') &&
+      declaredPermissionGroups.has('FUNDING_DASHBOARD_VIEW'),
+    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 80）｜` +
+      `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 88，含 FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW）`,
+  );
+
+  // ── S14：公司资金三组「四处齐」+ 唯一持有断言 + OR 粗门登记（战役乙波二 T3/T5/T8/T10）──
+  // 同 S10/S11/S12/S13 范式：三个新组（FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW）
+  // 一次性核验 route() 挂载 / ACTION_BUCKET_CATALOG 桶挂载 / 职务持有均 >=1（联合类型
+  // 成员由 tsc 收口，同 S10-S13 头注释）；三桶挂既有 Treasury 域（treasury.view_funding/
+  // treasury.act_funding/treasury.view_dashboard，T2/T3/T8 域注释），域数不变仍 15。
+  // 再加两条精确持有断言——FUNDING_WRITE 金库独持（注资/付款开单撤回全在金库手上，
+  // CFO 单步裁决不占本组，同 LP_WRITE/INTERNAL_TRANSFER_WRITE「maker≠checker」反向
+  // 先例）；FUNDING_DASHBOARD_VIEW 恰为 {TREASURY_OFFICER,CFO,SENIOR_MANAGEMENT_OFFICER,
+  // INTERNAL_AUDITOR}（spec §7 裁定 6，T8 已登记职务绑定）。注资/付款两族的审批策略在
+  // MAKER_GROUP_BY_POLICY 里已由 T3/T5 登记——策略全集覆盖由已有的 S8「MAKER 表与策略
+  // 一一对应」自动兜住，不必在这里重复一条判据。
+  // 再加一条 OR 粗门登记判据（brief Step1 明点）——外包商名册两条 GET 是
+  // COMPLIANCE_OFFICE_VIEW（T6 先例）与 FUNDING_WRITE（T8 零权限扩张，金库开付款前要
+  // 能翻到收款方）的 OR：静态判据只核对 route() 声明的 groups 数组含两者（真放行由
+  // 行为探针「金库 GET /admin/outsourcing-vendors 200」互证，见下方 PROBES 表）。
+  const FUNDING_GROUPS: PermissionGroup[] = ['FUNDING_READ', 'FUNDING_WRITE', 'FUNDING_DASHBOARD_VIEW'];
+  const fundingCoverage = FUNDING_GROUPS.map((g) => {
+    const groupRoutes = RBAC_PERMISSION_DEFINITIONS.filter((d) => d.groups.includes(g));
+    const groupBuckets = ACTION_BUCKET_CATALOG.flatMap((domain) => domain.buckets).filter((b) => b.groups.includes(g));
+    const groupHolders = Object.entries(RBAC_ROLE_GROUP_BINDINGS)
+      .filter(([, groups]) => (groups as PermissionGroup[]).includes(g))
+      .map(([role]) => role);
+    return { group: g, routes: groupRoutes.length, buckets: groupBuckets.length, holders: groupHolders };
+  });
+  const uncoveredFundingGroups = fundingCoverage.filter((c) => c.routes < 1 || c.buckets < 1 || c.holders.length < 1);
+  check(
+    'S14a 公司资金三组四处齐（route() / ACTION_BUCKET_CATALOG 桶 / 职务持有；联合类型由 tsc 收口）',
+    uncoveredFundingGroups.length === 0,
+    uncoveredFundingGroups.length === 0
+      ? fundingCoverage.map((c) => `${c.group}: route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length}`).join('；')
+      : `未齐全: ${uncoveredFundingGroups.map((c) => `${c.group}(route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length})`).join(', ')}`,
+  );
+
+  const fundingHoldersOf = (g: PermissionGroup) => fundingCoverage.find((c) => c.group === g)!.holders;
+  const fundingWriteHolders = fundingHoldersOf('FUNDING_WRITE');
+  check(
+    'S14b FUNDING_WRITE 唯金库持有',
+    fundingWriteHolders.length === 1 && fundingWriteHolders[0] === 'TREASURY_OFFICER',
+    fundingWriteHolders.length === 1 && fundingWriteHolders[0] === 'TREASURY_OFFICER'
+      ? '持有职务集合恰为 {TREASURY_OFFICER}'
+      : `持有职务集合为 {${fundingWriteHolders.join(',') || '空'}}，期望恰为 {TREASURY_OFFICER}`,
+  );
+
+  const fundingDashboardHolders = new Set(fundingHoldersOf('FUNDING_DASHBOARD_VIEW'));
+  const expectedFundingDashboardHolders = new Set(['TREASURY_OFFICER', 'CFO', 'SENIOR_MANAGEMENT_OFFICER', 'INTERNAL_AUDITOR']);
+  const fundingDashboardSetsEqual = fundingDashboardHolders.size === expectedFundingDashboardHolders.size &&
+    [...expectedFundingDashboardHolders].every((r) => fundingDashboardHolders.has(r));
+  check(
+    'S14c FUNDING_DASHBOARD_VIEW 恰为 {金库,CFO,高管,内审}',
+    fundingDashboardSetsEqual,
+    fundingDashboardSetsEqual
+      ? `持有职务集合恰为 {${[...fundingDashboardHolders].join(',')}}`
+      : `持有职务集合为 {${[...fundingDashboardHolders].join(',')}}，期望恰为 {${[...expectedFundingDashboardHolders].join(',')}}`,
+  );
+
+  const vendorRegisterRoutes = RBAC_PERMISSION_DEFINITIONS.filter(
+    (d) => d.method === 'GET' && (d.path === '/admin/outsourcing-vendors' || d.path === '/admin/outsourcing-vendors/:vendorNo'),
+  );
+  const vendorRegisterOrGateBad = vendorRegisterRoutes.filter(
+    (d) => !(d.groups.includes('COMPLIANCE_OFFICE_VIEW') && d.groups.includes('FUNDING_WRITE')),
+  );
+  check(
+    'S14d 外包商名册两条 GET 的 groups 恰含 COMPLIANCE_OFFICE_VIEW+FUNDING_WRITE（OR 粗门登记）',
+    vendorRegisterRoutes.length === 2 && vendorRegisterOrGateBad.length === 0,
+    vendorRegisterRoutes.length === 2 && vendorRegisterOrGateBad.length === 0
+      ? vendorRegisterRoutes.map((d) => `${d.method} ${d.path}: groups=[${d.groups.join(',')}]`).join('；')
+      : `不符: 路由数 ${vendorRegisterRoutes.length}（期望 2）｜groups 不含两者的: ${vendorRegisterOrGateBad.map((d) => `${d.method} ${d.path}=[${d.groups.join(',')}]`).join(', ')}`,
   );
 }
 
@@ -1460,6 +1535,35 @@ const PROBES: DirectionalProbe[] = [
     role: 'cfo', expect: 'DENY',
     body: { reason: 'verify:rbac probe' },
   },
+
+  // ── 公司资金三组门（战役乙波二 T10，spec §7 / brief Step 2）─────────────────
+  // 四条纯权限闸/路由锚，同「合规办公室四组门」「LP 台仅金库写」先例：DENY 两条不需要
+  // 合法 body（Guard 先于 Pipe 跑，占位/空 body 在业务层之前就被挡）；GET ALLOW 两条
+  // 直接判 2xx。金库真开注资拿真实 201 的那条需要跨请求依赖（先查一个真实 assetId 再
+  // 建单，成功后还要撤回清零残留），涉及动态数据，不进本静态表，见下方专用函数
+  // verifyFundingWriteAllowProbe（同「档位升级读安全」「RI 换人审批链」先例）。
+  {
+    section: '公司资金三组门(T10)', name: '运营 不得 开注资单（无 FUNDING_WRITE）', method: 'POST',
+    routePattern: '/admin/capital-injections', path: '/admin/capital-injections',
+    role: 'ops_officer', expect: 'DENY',
+    body: { contributorName: 'probe', assetId: NOPE, amount: '1', prudentialPurpose: 'probe', reason: 'probe' },
+  },
+  {
+    section: '公司资金三组门(T10)', name: 'CFO 不得 开付款单（只持 FUNDING_READ，推不动写动作）', method: 'POST',
+    routePattern: '/admin/vendor-payments', path: '/admin/vendor-payments',
+    role: 'cfo', expect: 'DENY',
+    body: { vendorNo: NOPE, assetId: NOPE, amount: '1', purposeNote: 'probe', reason: 'probe' },
+  },
+  {
+    section: '公司资金三组门(T10)', name: '高管 可以 看 TB 账户注册表（dashboard OR 锚正例）', method: 'GET',
+    routePattern: '/admin/tb/accounts', path: '/admin/tb/accounts',
+    role: 'sm', expect: 'ALLOW',
+  },
+  {
+    section: '公司资金三组门(T10)', name: '金库 可以 看外包商名册（OR 粗门正例，FUNDING_WRITE 一侧放行）', method: 'GET',
+    routePattern: '/admin/outsourcing-vendors', path: '/admin/outsourcing-vendors',
+    role: 'treasury', expect: 'ALLOW',
+  },
 ];
 
 async function runDirectionalProbe(tokens: Record<string, string>, p: DirectionalProbe): Promise<void> {
@@ -1502,6 +1606,53 @@ async function runDirectionalProbe(tokens: Record<string, string>, p: Directiona
       check(`[${p.section}] ${p.name} · 探针收尾清理`, false, `清理失败: ${String(e?.message ?? e)}`);
     }
   }
+}
+
+// ══════════════════════ 公司资金写权真放行（战役乙波二 T10，brief Step 2）══════════════════════
+//
+// 上方 PROBES 静态表的「公司资金三组门」四条测的都是权限闸（DENY 不需要合法 body，
+// GET ALLOW 直判 2xx）。唯独金库开注资这条 brief 原话点名要拿到真实 201——不是 LP
+// suspend 那种「占位 lpNo 必然 404，只验闸不验业务」的形态，而是要证明 FUNDING_WRITE
+// 真放行到 CapitalInjectionWorkflowService.initiate() 建出一张真单，不是停在守卫层就
+// 蒙混过关。真单需要一个真实 Asset.id——InitiateCapitalInjectionDto.assetId 目前接的
+// 是内部 UUID 不是业务键（T2/T3 遗留设计，findUnique({where:{id}})，不在本任务范围内
+// 改），现查现打：GET /assets?currency=AED&take=1（金库持 ASSET_CONFIG_READ，AED 是
+// seedCapitalInjection 已铺好 F_OPS 系统钱包与 TB 账本的两个币种之一）。建成后立刻
+// 撤回（cancel，PENDING_APPROVAL 态金库可自行撤，同「报送台经办唯合规官」创建-作废
+// 探针先例），零残留——不给 T9 已锁死的种子基线（2 张 SUCCESS CIN 壳）掺入第三张。
+async function verifyFundingWriteAllowProbe(tokens: Record<string, string>): Promise<void> {
+  const label = '公司资金写权(T10) · 金库开注资';
+  const { status: assetStatus, json: assetBody } = await call('GET', '/assets?currency=AED&take=1', tokens.treasury);
+  const assetId = assetBody?.items?.[0]?.id;
+  if (assetStatus !== 200 || !assetId) {
+    check(label, false, `GET /assets?currency=AED&take=1 → ${assetStatus}，拿不到真实 assetId，无法继续`);
+    return;
+  }
+
+  const injectPath = '/admin/capital-injections';
+  const { status, json } = await call('POST', injectPath, tokens.treasury, {
+    contributorName: 'RBAC probe contributor',
+    assetId,
+    amount: '100',
+    prudentialPurpose: 'verify:rbac probe — capital injection ALLOW evidence',
+    reason: 'verify:rbac probe, cancelled immediately after',
+  });
+  check(
+    `[${label}] 金库 可以 开注资（FUNDING_WRITE 真放行到 workflow，非仅守卫层）`,
+    status === 201,
+    `POST ${injectPath} → ${status}（期望 201）`,
+  );
+  const cinNo = json?.cinNo;
+  if (status !== 201 || !cinNo) return;
+
+  const { status: cancelStatus } = await call('POST', `/admin/capital-injections/${cinNo}/cancel`, tokens.treasury, {
+    reason: 'verify:rbac probe cleanup',
+  });
+  check(
+    `[${label}] 探针收尾清理 · 撤回自建注资单`,
+    cancelStatus === 201,
+    `POST /admin/capital-injections/${cinNo}/cancel → ${cancelStatus}（期望 201，把探针建出的 ${cinNo} 转 CANCELLED）`,
+  );
 }
 
 // ══════════════════════ 档位升级读安全（波三终审修三）══════════════════════
@@ -2082,6 +2233,11 @@ async function main(): Promise<void> {
     { section: '投诉裁决链(T6)', name: '运营立案调查', method: 'POST', routePattern: '/admin/complaints/:complaintNo/investigation' },
     { section: '投诉裁决链(T6)', name: '运营提裁决', method: 'POST', routePattern: '/admin/complaints/:complaintNo/propose-resolution' },
     { section: '⚡拨钟门控交叉(T6)', name: '⚡ 拨快投诉钟', method: 'POST', routePattern: '/admin/complaints/:complaintNo/simulate-timeout' },
+    // 战役乙波二 T10：verifyFundingWriteAllowProbe 打的两条路由不在 PROBES 静态表里
+    // （需要先查真实 assetId 再建单、成功后还要撤回），单独登记预检——同上 T6 波四/
+    // 波五先例。
+    { section: '公司资金写权(T10)', name: '金库开注资', method: 'POST', routePattern: '/admin/capital-injections' },
+    { section: '公司资金写权(T10)', name: '金库撤回注资单', method: 'POST', routePattern: '/admin/capital-injections/:cinNo/cancel' },
   ];
   const missing = findUnregisteredRoutes(liveRoutes, usages);
   if (missing.length > 0) {
@@ -2097,6 +2253,10 @@ async function main(): Promise<void> {
   for (const p of PROBES) {
     await runDirectionalProbe(tokens, p);
   }
+  console.log('');
+
+  console.log('── 公司资金写权真放行：金库开注资拿真实 201（战役乙波二 T10）──');
+  await verifyFundingWriteAllowProbe(tokens);
   console.log('');
 
   console.log('── 档位升级读安全（运营可读 / 高管不可提，零写入）──');

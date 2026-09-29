@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-09-29 ｜ 基线 main `cebbb686` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
-> 现役 **312 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
+> 生成于 2026-09-29 ｜ 基线 main `0fb54740` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 现役 **324 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 29 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 23 ｜ RECON 9 ｜ GOVERNANCE 43 ｜ 合计 312
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 29 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 35 ｜ RECON 9 ｜ GOVERNANCE 43 ｜ 合计 324
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -525,7 +525,7 @@
 | `SWAP_SLA_TIMEOUT_SIMULATED` | ⚡ 拨钟模拟 SLA 超时 | I 继承 | — |  |  |
 | `SWAP_DEMO_SCENARIO_RUN` | ⚡ 喂裁决按钮被按下 | I 继承 | — |  |  |
 
-## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台）（23 码）
+## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（35 码）
 
 公司的钱给客户：认损补款 / 退汇垫款。第四类订单，法币两腿经结算户、加密币一腿；金库提、CFO 批。
 
@@ -566,6 +566,28 @@
 | `LP_EXCHANGE_DELIVERED` | ⚡ LP 打款落前厅（模拟到货，买入腿建单落账） | I 继承 | amount |  |  |
 | `LP_EXCHANGE_ACCEPTED` | 金库验收（核数），买入腿转入运营户，整单结清（终态） | I 继承 | amount, effectiveDate |  |  |
 | `LP_EXCHANGE_FAILED` | 批准后运营户余额不足，或落腿失败，整单转 FAILED（终态） | I 继承 | reasonCode |  |  |
+
+### 注资单生命周期（6） — 战役乙波二 T2/T3 新增，金库开单 / CFO 单步批 / ⚡模拟到款 / 确认入账
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `CAPITAL_INJECTION_REQUESTED` | 发起注资（金库开单，出资方注资运营户，待 CFO 批） | N 单步 | amount, reason |  |  |
+| `CAPITAL_INJECTION_APPROVED` | CFO 批准，转入等到款 | I 继承 | approvalNo | ✓ |  |
+| `CAPITAL_INJECTION_REJECTED` | CFO 驳回或超时，转 REJECTED（终态） | I 继承 | approvalNo | ✓ |  |
+| `CAPITAL_INJECTION_CANCELLED` | 待批时金库撤单 | I 继承 | reason |  |  |
+| `CAPITAL_INJECTION_FUNDS_RECEIVED` | ⚡ 模拟出资方打款到账（建腿转 RECEIVED，先回单不落账） | I 继承 | amount |  |  |
+| `CAPITAL_INJECTION_CONFIRMED` | 确认入账（核数落码 70 分录、腿清算，整单结清） | I 继承 | amount, effectiveDate |  |  |
+
+### 付款单生命周期（6） — 战役乙波二 T4/T5 新增，金库开单 / CFO 单步批，批准即自动执行落账
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `VENDOR_PAYMENT_REQUESTED` | 发起付款（金库开单，向已注册外包商付款，待 CFO 批） | N 单步 | amount, reason |  |  |
+| `VENDOR_PAYMENT_EXECUTION_STARTED` | CFO 批准，付款腿建单，自动执行（无需再手动确认） | I 继承 | approvalNo | ✓ |  |
+| `VENDOR_PAYMENT_EXECUTED` | 付款腿落账并清算（码 87），整单结清（终态） | I 继承 | amount |  |  |
+| `VENDOR_PAYMENT_FAILED` | 运营户余额不足，或落腿失败，整单转 FAILED（终态） | I 继承 | reasonCode |  |  |
+| `VENDOR_PAYMENT_REJECTED` | CFO 驳回或超时，转 REJECTED（终态） | I 继承 | approvalNo | ✓ |  |
+| `VENDOR_PAYMENT_CANCELLED` | 待批时金库撤单 | I 继承 | reason |  |  |
 
 ## RECON 域 —— V8 对账（9 码）
 
