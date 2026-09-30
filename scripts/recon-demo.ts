@@ -48,6 +48,20 @@
 //                  ExternalStatementLine rows + demo-tagged FundsOrder rows.
 //                  Demo:all business data is left untouched.
 //
+//   --mode=crisis  ⚡ 战役乙波三 T6 · 危机铺设，场景 31 专用（doc-final/superpowers/
+//                  specs/2026-09-30-campaign-b-wave3-prudential-closeout-spec.md
+//                  §5）。Pass-mode mirror（全钱包镜像，保证其余钱包仍 PASS）+ 只
+//                  在选定客户 AED 托管钱包上注入**一条**幽灵 OUT 行（我方无任何单据，
+//                  客户未发起）——照场景⑱同构放大，独立函数
+//                  `injectCrisisScenario`，**不进** 18 场景常规集、不写 manifest、
+//                  不碰 pass/break 的任何断言路径。跑完预期 casesOpened==1、
+//                  该案 ORPHAN_EXTERNAL/CLIENT、金额=CRISIS_THEFT_AED_MINOR。
+//                  reset 即消（clearWalletDemo 的 externalStatementLine/
+//                  externalBalance blanket delete 已覆盖，无需专门清理），可反复演。
+//                  必经 `bash scripts/on-stack.sh <self|main> recon:demo:crisis`
+//                  ——顶部 requireStackEnv 守卫对所有 mode 一视同仁，裸跑当场
+//                  fail-fast（缺 DATABASE_URL/TB_ADDRESS）。
+//
 // Anchor-free: every walletRef / asset / amount comes from the *current*
 // account_flows snapshot. The script will work on any seeded dataset; the
 // only requirement is ≥1 FIRM wallet + enough CUSTOMER wallets with
@@ -58,6 +72,7 @@
 //   npx ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=pass
 //   npx ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=break
 //   npx ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=reset
+//   npx ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=crisis
 
 // 栈环境守卫必须排在所有 import 之前。本文件 import 了 AppModule 及一串 Nest
 // provider（第 50 行起），守卫此前只经 './demo-lib'（第 63 行）传递引入，排在它们之后。
@@ -95,7 +110,7 @@ import { resolveDemoCustomers } from './demo-lib';
 // CAUSE_REGISTRY 同源——种子改错码、加错码、漏改码都会在这里炸编译。
 import type { CauseCode } from '../src/modules/clearing-settle/reconciliation/disposition/cause-registry';
 
-type Mode = 'pass' | 'break' | 'reset';
+type Mode = 'pass' | 'break' | 'reset' | 'crisis';
 
 // Minimal ctx for the shared stuck-withdraw fixture (scenario 1). The fixture
 // (`createStuckWithdraw` / `injectStuckExternalMirror`) is duck-typed on `any`
@@ -121,7 +136,7 @@ function parseArgs(argv: string[]): { mode: Mode; cutoffIso: string | null } {
   let mode: Mode = 'pass';
   let cutoffIso: string | null = null;
   for (const a of argv) {
-    const m = a.match(/^--mode=(pass|break|reset)$/);
+    const m = a.match(/^--mode=(pass|break|reset|crisis)$/);
     if (m) mode = m[1] as Mode;
     else if (a.startsWith('--mode=')) console.warn(`unknown --mode "${a}" — defaulting to "pass"`);
     const c = a.match(/^--cutoff=(.+)$/);
@@ -685,6 +700,81 @@ async function assertTargetWalletsClean(
     '在途识别会认领它们并把这些钱包的桶重判成 BREAK，答案键就不再成立。\n' +
     '处理：要么把该场景挪到别的钱包，要么在 WalletExpectation 里把 hasNonTerminalFundsOrder 设为 true 并相应改期望桶。',
   );
+}
+
+// ── Crisis mode (Task 6, spec §5) — 独立于 18 场景常规集 ──────────────────
+//
+// 只服务场景 31「⚡穿底：托管失窃与客户复原」。与 pass/break 共用 Phase 1/2
+// （planWallets/writeMirror，保证其余钱包仍 PASS），main() 里另起分支调用本
+// 函数注入**恰一条**幽灵 OUT 行，不进 ManifestV3、不碰 injectScenarios 半个
+// 字符。照场景⑱同构放大：我方无任何内部单据、客户未发起，成因语义同
+// UNAUTHORIZED_OUTFLOW（本模式不写 manifest，成因由金库在案件行手动定性，
+// 见 demo/script.md 场景 31 步骤 3）。
+//
+// 失窃额校准（T6「先跑后选」方法论，spec §5 校准表；2026-09-30 reset 后实测，
+// 详细数字见 task-6-report.md）：
+//   F_OPS(AED) 当刻 946,089.35，NLA 当刻 1,364,752.25，红线 1,200,000.00，
+//   Bob（demo_bob@example.com）AED 托管钱包当刻实值 262,200.00（其 250,000
+//   在途提现单 PENDING_APPROVAL 只在 TB 记一笔 debitsPending 押注、尚未落
+//   account_flows，不占用这里的口径——planWallets 的 internalTotal 只认
+//   POSTED 流水）。五判据实测全过，候选 250,000.00 AED / Bob 未改动。
+const CRISIS_THEFT_AED_MINOR = D('25000000'); // 分：250,000.00 AED
+const CRISIS_THEFT_OWNER_EMAIL = 'demo_bob@example.com';
+const CRISIS_REF_PREFIX = 'CRISIS-';
+
+interface CrisisInjectionResult {
+  walletRef: string;
+  externalRef: string;
+  amountMinor: string;
+}
+
+async function injectCrisisScenario(
+  prisma: PrismaService,
+  plans: WalletPlan[],
+  cutoff: Date,
+): Promise<CrisisInjectionResult> {
+  const cutoffDate = ymd(cutoff);
+  const owner = await (prisma as any).customerMain.findUnique({
+    where: { email: CRISIS_THEFT_OWNER_EMAIL }, select: { customerNo: true },
+  });
+  if (!owner) throw new Error(`场景 31 危机铺设需要客户 ${CRISIS_THEFT_OWNER_EMAIL} —— demo:all 是否跑过？`);
+  const plan = plans.find((p) => p.ownerNo === owner.customerNo && p.currency === 'AED' && p.walletKind === 'CUSTOMER');
+  if (!plan) throw new Error(`找不到 ${owner.customerNo} 的 AED 客户钱包 —— demo:all 是否跑过？`);
+
+  // 同款前置闸（复用 assertTargetWalletsClean，非新写）：目标钱包不得带非终态
+  // 资金单，否则在途识别会把幽灵行认领成 IN_TRANSIT 而不是期望的 ORPHAN_EXTERNAL。
+  await assertTargetWalletsClean(prisma, [{ walletRef: plan.walletRef, allowNonTerminal: false }]);
+
+  const walletTotal = new Prisma.Decimal(plan.internalTotal.toString());
+  if (CRISIS_THEFT_AED_MINOR.gt(walletTotal)) {
+    throw new Error(
+      `失窃额 ${CRISIS_THEFT_AED_MINOR.div(100).toFixed(2)} AED 超过 ${owner.customerNo} 钱包当刻实值 ` +
+      `${walletTotal.div(100).toFixed(2)} AED —— 花名册改动使 T6 校准过期，须重新「先跑后选」（spec §5）`,
+    );
+  }
+
+  const externalRef = `${CRISIS_REF_PREFIX}${cutoffDate}-UNAUTHORIZED-OUTFLOW`;
+  await (prisma as any).externalStatementLine.create({
+    data: {
+      source: sourceFor(plan.currency), accountRef: plan.walletRef, subAccount: plan.walletRef,
+      book: plan.book, currency: plan.currency, direction: 'OUT', amount: CRISIS_THEFT_AED_MINOR, externalRef,
+      channelRef: null, datetime: cutoff,
+      description: 'Demo crisis — unauthorized outflow, no originating order of any kind (scenario 31 fixture, T6)',
+      dedupKey: `DEMO-INJ-${cutoffDate}-${plan.walletRef}-crisis-unauthorized-outflow`,
+    },
+  });
+
+  const source = sourceFor(plan.currency);
+  const eb = await (prisma as any).externalBalance.findUnique({
+    where: { source_accountRef_cutoffDate: { source, accountRef: plan.walletRef, cutoffDate } },
+  });
+  if (!eb) throw new Error(`No external balance for wallet ${plan.walletRef} —— writeMirror 是否已跑？`);
+  await (prisma as any).externalBalance.update({
+    where: { id: eb.id },
+    data: { closingBalance: eb.closingBalance.minus(CRISIS_THEFT_AED_MINOR) },
+  });
+
+  return { walletRef: plan.walletRef, externalRef, amountMinor: CRISIS_THEFT_AED_MINOR.toString() };
 }
 
 // ── Phase 3 (break only): inject the full break-scenario matrix ────────
@@ -1972,6 +2062,13 @@ async function main() {
     }
   }
 
+  // Phase 3 (crisis only) — inject the single scenario-31 ghost line. 与 break
+  // 分支互斥、不写 manifest、不影响 pass/break 任何路径（T6, spec §5）。
+  if (mode === 'crisis') {
+    const injected = await injectCrisisScenario(prisma, plans, cutoff);
+    console.log(`crisis injected: wallet=${injected.walletRef}  externalRef=${injected.externalRef}  amountMinor=${injected.amountMinor}`);
+  }
+
   // Phase 3.5 — populate balanceAfter on every line (running balance from opening).
   // Keyed on cutoffDate = the day the ExternalBalance/lines were written (the
   // early `cutoff`), so use that (not engineCutoff) — they share the same
@@ -2041,6 +2138,22 @@ async function main() {
     }
     if (ok) console.log(`\nALL ${manifest.scenarios.length} SCENARIOS DETECTED PER MANIFEST`);
     else console.error('\nASSERT(S) FAILED');
+  } else if (mode === 'crisis') {
+    // 场景 31 专用：恰一条幽灵行落在恰一个钱包上，期望恰开 1 案、桶=BREAK、
+    // 差异行=ORPHAN_EXTERNAL，其余钱包（含 Bob 自己其他货币）仍是 PASS 的镜像，
+    // 不产生任何 IN_TRANSIT / AMOUNT_MISMATCH（T6 三证②）。
+    const checks = [
+      ['status==BREAK', result.status === 'BREAK'],
+      ['casesOpened==1', result.casesOpened === 1],
+      ['orphanExternal==1', result.orphanExternal === 1],
+      ['orphanInternal==0', result.orphanInternal === 0],
+      ['mismatch==0', result.mismatch === 0],
+    ] as const;
+    console.log(`\n──── crisis-mode asserts ────`);
+    for (const [label, pass] of checks) {
+      console.log(`  ${pass ? 'OK' : 'FAIL'}  ${label}`);
+      if (!pass) ok = false;
+    }
   }
 
   console.log(`\n════════ recon:demo ${mode} DONE — ${ok ? 'OK' : 'FAILED'} ════════`);

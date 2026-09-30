@@ -276,3 +276,11 @@ DATABASE_URL="file:/tmp/exchange_js_wt_campaign_b_wave2_funding/dev.db" TB_ADDRE
 
 **评审修复轮追记（Imp#1，2026-09-29）**：初版 `payAt`/`effectiveDate` 按「种子运行时刻的上月末」动态算（`new Date(now.getFullYear(), now.getMonth(), 0, ...)`，绕开了项目明令业务日边界只许经过的 `business-date.util`），而 `purposeNote` 是写死的 `'HexTrust 2026-08 custody fee'`——两者本该同源却各走各的，2026-10-01 起重铺会让 `referenceNo`/`effectiveDate` 漂到 9 月而事由仍停在 8 月，本节上表的 `ZB202608317AB0AB0088`/`2026-08-31` 两天后就会与实跑结果脱钩。已改判：`payAt` 钉死常量 `new Date('2026-08-31T08:00:00Z')`（照 LP 腿 1 先例），`effectiveDate`/`referenceNo`/`executedAt`/`settledAt` 全部由它推导，不再依赖种子运行时刻。修复后重跑 `reset self`（第三次独立重铺）实测：`ledger=1 code=200 balance=94750000` 不变；`demo:all` 后 `COA FIRM(AED) 94620335==94620335` 不变；`referenceNo`/`effectiveDate` 仍是 `ZB202608317AB0AB0088`/`2026-08-31`（与钉死前巧合相同，因为本次改动发生在 2026-09-29，钉死值与当时的"上月末"恰好重合；但从此不再随重铺月份漂移）；`recon:demo:pass`/`recon:demo:break`/`verify:coa` 三闸全绿（同上表数字）。
 
+## 战役乙波三 NLA 静态判据（reset 判据，2026-09-30 Task 6 起）
+
+由 `prudential.constants.ts` 代码常量 + 上两节已登记的 F_OPS 余额推得，零新表零新种子——三行全部可由 `GET /admin/prudential/status` 或 TB 直读复现：
+
+- **NLA 合计（reset 后、demo:all 之前，TB 直读，同上两节口径）**：AED 腿 `F_OPS(AED)=94,750,000` 分 + USDT 腿 `usdtMinorToAedMinor(113,600,000,000)=41,719,600` 分（×3.6725 系数向下取整）= **136,469,600 分 = 1,364,696.00 AED**。demo:all 后（花名册流水落账）实测漂到 `136,475,225` 分 `=1,364,752.25`（`GET /admin/prudential/status` 2026-09-30 实测，`perAsset`/`nlaAedMinor` 与本公式逐位互证）。
+- **红线**：`NLA_FLOOR_AED_MINOR = 1.2 × MONTHLY_OPEX_BASE_AED_MINOR(100,000,000 分)` = **120,000,000 分 = 1,200,000.00 AED**（reset 后 headroom 16,469,600 分 = 164,696.00，恒不破线）。
+- **crisis（场景 31）+ 补款划转后期望**：`recon:demo:crisis` 本身只写外部账单幽灵行，不动 TB/`F_OPS`，此刻 `breached` 仍为 `false`（2026-09-30 实测互证，见 task-6-report.md）。场景 31 步骤 7 补款划转落地后（F_OPS(AED) 真实出 250,000.00 = `CRISIS_THEFT_AED_MINOR`，`scripts/recon-demo.ts`）NLA 预期降至 demo:all 后 NLA − 250,000.00 ≈ **1,114,752.25 AED < 红线 1,200,000.00** → `breached` 预期翻 `true`（T8/T9 场景 32 步骤 1 巡检抓红、步骤 2 付款门 400 拒的前提；本任务只铺危机、不建补款流程，该期望值待 T8/T9 落地后回填实测）。
+

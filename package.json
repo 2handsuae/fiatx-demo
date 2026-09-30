@@ -50,6 +50,7 @@
     "recon:demo:pass": "ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=pass",
     "recon:demo:break": "ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=break",
     "recon:demo:reset": "ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=reset",
+    "recon:demo:crisis": "ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=crisis",
     "recon:rerun": "ts-node -r tsconfig-paths/register scripts/recon-rerun.ts",
     "demo:in-transit": "ts-node -r tsconfig-paths/register scripts/demo-in-transit.ts",
     "demo:setup": "ts-node -r tsconfig-paths/register scripts/demo-setup.ts",
