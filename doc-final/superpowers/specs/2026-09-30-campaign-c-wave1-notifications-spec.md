@@ -3,6 +3,11 @@
 > 总纲：`2026-09-30-campaign-c-outreach-disclosure-charter.md` §2 波一行 ｜ 骨架：`2026-09-30-campaign-c-wave1-skeleton.md`（8 岔口本 spec 全收口）｜ 脑暴拍板 2026-09-30 ｜ 状态：**待业主过目 → plan**
 > 本任务做：通知本体 / gateway 复活 / 三域+投诉接线 / email 模拟留痕 / 客户端消息中心 / 三页信号刷新 / 审计词表 / 剧本文档同步。本任务不做（对照 CLAUDE.md §2）：真发邮件 ｜ 模板编辑器 ｜ 管理员侧通知 ｜ 浏览器推送/短信 ｜ 发送失败重试与断线兜底（272 原文"断线交 socket.io 自带重连不加兜底"）｜ 通知偏好设置 ｜ 假挂病根修（留搁置总纲）。
 
+## 执行订正（2026-10-01，T11 文档收口，spec 原文不改只追记）
+
+1. **§1"冻结/解冻收敛前后同为『处理中』"系口语措辞，非字面状态码**：实测 `toCustomerSwapStatus(FROZEN)` = `'COMPLIANCE_PENDING'`（`swap-transactions.service.ts:677`），不是 `PROCESSING`；且 FROZEN 在 5 态状态机里唯一入边来自 `COMPLIANCE_PENDING --FREEZE-->`（`:424-430`），两端收敛值恒等，连信号/通知的"判据不成立"结论不受此措辞误影响——冻结落地前后 `collapsedFrom===collapsedTo`，零通知、零信号，反面验收判据本身依旧成立，只是"处理中"这句话在 §1 原文读起来像在指代 `PROCESSING` 状态码，需订正为"收敛到同一个值（`COMPLIANCE_PENDING`），不是字面的 `PROCESSING`"。
+2. **§3"接线 = 各域 workflow/service 直调"在兑换域的实际落点是 workflow 层 + SLA 服务共 9 个事务后置调用点，不是状态落地处同步直调**：T7 首版把 `notifyOrderStatusChange` 调用放在 `markStatus` 所在的 `$transaction` 回调内，因该方法走独立 Prisma 连接写 `customerNotification`，SQLite 单写者下被外层未提交事务自锁到 5000ms 超时、外层事务回滚（订单卡回原状态）但通知已落库发出，且被 SLA sweep（`@Cron` 每 30 秒）反复重试同一死路、每轮再发一条重复假通知（`BACKLOG.md:106` 完整复现记录）。修法（`70d119ac`+`2067648e`）：新增私有方法 `SwapWorkflowService.notifySwapStatusChange()`，在对应 `$transaction` resolve **之后**调用，8 处调用点（`:579/847/900/1277/1826/1879/2088/2371`）+ `SwapSlaService` 超时拒单补接第 9 点（`:133`），充值/提现两域因调用点本就不在 `$transaction` 内未受影响、接线方式不变。
+
 ## §0 脑暴裁定台账（2026-09-30）
 
 **四拍板**：

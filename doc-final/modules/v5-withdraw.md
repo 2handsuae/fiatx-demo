@@ -87,6 +87,6 @@
 
 - **建单接口（`POST /client/withdraw-transactions`）的响应仍原样返回内部实体、未过白名单**——2026-09-12 已把列表 / 详情两个读面（`findAllForCustomer`/`findOneForCustomer`/`findOneForCustomerByWithdrawNo`）的 `status`/`completedAt` 收敛，建单响应这条独立路径未跟进（新建单不可能立即是 FROZEN，风险面小于读面，未在本轮范围内）——演示时讲页面不讲网络面板
 - **热钱包余额不查**：公司侧没钱也放行出金指令——演示别构造这个场景
-- **提现成功通知未接**；**费腿卡死后的视图残留**（Linked 卡片看着像在途，红旗只在单上）
+- **费腿卡死后的视图残留**（Linked 卡片看着像在途，红旗只在单上）
 - **全新 worktree 跑 demo:withdraw 会炸**（seed 无提现地址种子；main 栈已种好不受影响）
 - **VASP 归因靠客户自报**（注册地址时自选类型），无外部名录校验——TR 判定的诚实前提要讲清
