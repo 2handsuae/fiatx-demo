@@ -168,6 +168,36 @@ describe('NotificationsService', () => {
     consoleErrorSpy.mockRestore();
   });
 
+  // T8 走查逮到的 Important（fix round 2）：耐久性次序——demo-lib 脚本环境无
+  // `.listen()`，gateway.server 为 null，emit 同步抛错；此前信号排在落库前面，
+  // 外层 try/catch 把"本该落库"的这条也吞掉（18 笔 SUCCESS 充值偶然只写成 1 条）。
+  // 现在落库+审计先于信号，此处证明：信号抛错不影响已经写完的行/审计，方法仍 resolve。
+  it('gateway.emitCustomerUpdated 同步抛错（脚本环境无 server）→ 通知行/审计照常写入，方法 resolve 不 throw', async () => {
+    const { service, prisma, auditLogs, gateway } = makeService();
+    gateway.emitCustomerUpdated.mockImplementation(() => {
+      throw new TypeError("Cannot read properties of null (reading 'to')");
+    });
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      service.notifyOrderStatusChange({
+        domain: 'DEPOSIT',
+        orderNo: 'DEP-SIGNAL-ERR-1',
+        owner: { customerId: 'c1' },
+        collapsedFrom: 'PAYIN_PENDING',
+        collapsedTo: 'SUCCESS',
+        amount: '100',
+        assetCode: 'USDT',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(prisma.customerNotification.create).toHaveBeenCalledTimes(1);
+    expect(prisma.customerNotification.create.mock.calls[0][0].data.templateCode).toBe('DEPOSIT_SUCCESS');
+    expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    consoleErrorSpy.mockRestore();
+  });
+
   it('owner 只给 customerNo 时补齐 customerId（供 gateway room 使用）', async () => {
     const { service, prisma, gateway } = makeService();
 
@@ -226,6 +256,25 @@ describe('NotificationsService', () => {
       expect(prisma.customerNotification.create).not.toHaveBeenCalled();
       expect(auditLogs.recordSystem).not.toHaveBeenCalled();
       expect(gateway.emitCustomerUpdated).not.toHaveBeenCalled();
+    });
+
+    // fix round 2 同款覆盖（投诉路径）——见订单路径同名用例的注释。
+    it('gateway.emitCustomerUpdated 同步抛错（脚本环境无 server）→ 通知行/审计照常写入，方法 resolve 不 throw', async () => {
+      const { service, prisma, auditLogs, gateway } = makeService();
+      gateway.emitCustomerUpdated.mockImplementation(() => {
+        throw new TypeError("Cannot read properties of null (reading 'to')");
+      });
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(
+        service.notifyComplaintStatus({ complaintNo: 'CPL-SIGNAL-ERR-1', owner: { customerId: 'c1' }, to: 'RESOLVED' }),
+      ).resolves.toBeUndefined();
+
+      expect(prisma.customerNotification.create).toHaveBeenCalledTimes(1);
+      expect(prisma.customerNotification.create.mock.calls[0][0].data.templateCode).toBe('COMPLAINT_RESOLVED');
+      expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
+      expect(consoleErrorSpy).toHaveBeenCalled();
+      consoleErrorSpy.mockRestore();
     });
   });
 });

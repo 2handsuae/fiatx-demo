@@ -73,17 +73,26 @@ export class NotificationsService {
    * 后置动作丢失。修在边界：整方法 try/catch，失败只 console.error，不再抛。
    * `notifyComplaintStatus` 同款处理，见下方——一处修护四域（充值/提现/兑换/
    * 投诉），不在每个调用点各包一层。
+   *
+   * T8 走查逮到的 Important（fix round 2）：耐久性次序——消息（customerNotification
+   * 行 + NOTIFICATION_SENT 审计）是持久物，信号（socket 推送）只是尽力而为，前者不能
+   * 死在后者手里。demo-lib 的 createApplicationContext() 脚本环境没有 `.listen()`，
+   * `gateway.server` 为 null，emit 同步抛错；若信号排在落库前面，外层 try/catch 会把
+   * "本该落库"的这条也一并吞掉——落库/审计必须先于信号完成，信号单独兜一层
+   * try/catch（见 emitSignal），确保信号失败时已经写完的行与审计不受影响。
    */
   async notifyOrderStatusChange(input: OrderNotifyInput): Promise<void> {
     try {
       if (input.collapsedFrom === input.collapsedTo) return;
 
       const owner = await this.resolveOwner(input.owner);
-      this.gateway.emitCustomerUpdated(owner.customerId);
 
       const templateCode = `${input.domain}_${input.collapsedTo}`;
       const template = NOTIFICATION_TEMPLATES[templateCode];
-      if (!template) return;
+      if (!template) {
+        this.emitSignal(owner.customerId, `notifyOrderStatusChange(no-template) ${input.domain} ${input.orderNo}`);
+        return;
+      }
 
       await this.send({
         ownerCustomerNo: owner.customerNo,
@@ -94,6 +103,8 @@ export class NotificationsService {
         relatedOrderType: input.domain,
         relatedOrderNo: input.orderNo,
       });
+
+      this.emitSignal(owner.customerId, `notifyOrderStatusChange ${input.domain} ${input.orderNo}`);
     } catch (err) {
       console.error(`[NotificationsService] notifyOrderStatusChange failed for ${input.domain} ${input.orderNo}:`, err);
     }
@@ -104,6 +115,7 @@ export class NotificationsService {
    * 评审 Important 修：命中即代表一次真实客户可见进展（方法签名不含 collapsedFrom，
    * "是否变化"已由调用方前置判断），同订单路径的"变了恒发"时机，补齐信号——下游铃铛
    * 未读数靠 customer.updated 刷新，不发信号=铃铛不亮。
+   * fix round 2：信号次序同订单路径改到落库+审计之后，emitSignal 内部兜错。
    */
   async notifyComplaintStatus(input: { complaintNo: string; owner: NotifyOwnerRef; to: string }): Promise<void> {
     try {
@@ -111,8 +123,6 @@ export class NotificationsService {
       if (!templateCode) return;
 
       const owner = await this.resolveOwner(input.owner);
-      this.gateway.emitCustomerUpdated(owner.customerId);
-
       const template = NOTIFICATION_TEMPLATES[templateCode];
 
       await this.send({
@@ -124,8 +134,22 @@ export class NotificationsService {
         relatedOrderType: 'COMPLAINT',
         relatedOrderNo: input.complaintNo,
       });
+
+      this.emitSignal(owner.customerId, `notifyComplaintStatus ${input.complaintNo}`);
     } catch (err) {
       console.error(`[NotificationsService] notifyComplaintStatus failed for ${input.complaintNo}:`, err);
+    }
+  }
+
+  /**
+   * 信号是尽力而为，单独兜错——绝不能让 emit 失败（如脚本环境无 `.listen()`，
+   * `gateway.server` 为 null）连累调用方已经写完的持久行/审计。
+   */
+  private emitSignal(customerId: string, context: string): void {
+    try {
+      this.gateway.emitCustomerUpdated(customerId);
+    } catch (err) {
+      console.error(`[NotificationsService] emitCustomerUpdated failed (${context}):`, err);
     }
   }
 
