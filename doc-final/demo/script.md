@@ -124,9 +124,10 @@
 走查：承接站 4.3 冻住的那张单 → 详情页侧栏「Frozen Disposition」点「Initiate Unfreeze」，填关联单号与理由 → 提交 → 切 `mlro@` 审批中心批准 → **批准后 5 分钟内**回到该单详情页 ⚡ 喂新裁决（如「① Approved」）收尾——这一步不是顺带可选，是明确要做的下一步
 判据：批准那一刻单转回 **COMPLIANCE_PENDING**（RESUME），出生锁原封不动仍押着（该客户 Overview locked 金额不变）；侧栏 SLA 区块同步重新起计时——5 分钟窗口、后端每 30 秒一轮 cron 扫描，倒计时现场肉眼可见。5 分钟内喂裁决收尾即正常结算；讲一句兜底：若窗口到点还没人喂裁决，下一轮 cron 自动把单判 **REJECTED**、出生锁这才放回余额——这正是"解冻回到正常审核轨道，就要过正常审核的时限"这条制度的体现，不是特赦，钱退回客户，不算事故。另一条出边「Reject & Refund」（`ops_officer@` 提、`mlro@` 批）直接转 **REJECTED**，同样这一刻锁才真正放回余额——"解冻续走"不动锁、"拒退"（无论人工提的还是 SLA 超时判的）才动锁，两条出边处置口径不同
 
-**站 4.6 · 兑换通知——本幕暂不演**（战役丙波一，2026-09-30 T10 现场实测，不建议带观众走）
-走查：无——这是一条**反面记录**，不是演示步骤。现场实测两次：① 新建一笔兑换、拿 ①Approved 一路推到 leg 4 确认（对照场景 26 的法币两步/加密三步节奏）；② 另建一笔兑换、在 COMPLIANCE_PENDING 直接喂「⑪ Rejected · no disposition tag」。两条路径的终态通知（`SWAP_SUCCESS`/`SWAP_REJECTED`）都挂在 `handleFundsOrderChanged`/`applyKytVerdict` 内部一个 `$transaction(...)` 里，`markStatus()` 同步调用的 `notifyOrderStatusChange()` 用的是另一条 Prisma 连接（没接外层 `tx`）——SQLite 单写者下这个嵌套写会卡住，直到外层事务撞上 Prisma 默认 5000ms 超时才放行，而那一刻外层事务自己已经"过期"，后续语句（`swapAudit`）随即抛 `Transaction already closed`，整个事务回滚
-判据（现场会看到什么，讲给同事听即可，不要现场点）：单据卡回 `COMPLIANCE_PENDING`/`PROCESSING`，从未真正到达 SUCCESS/REJECTED；但客户端消息中心**已经**收到一条「Exchange completed」/「Exchange not completed」——通知先于订单落地、订单却从没到达那个终态，两边对不上；卡住的单还会被 SLA sweep 每 30 秒重试一次同一条死路，每轮都再发一条同样的假通知（实测 Alice 一张卡住的单半小时内堆出 49 条重复消息）。唯一能确认工作正常的一环是**深链路由本身**——点这条假通知仍会正确跳到 `/swap/:swapNo` 详情页（只是页面显示 PROCESSING，与通知文案对不上，这正是缺陷现场）。证据与根因详见 `superpowers/checkups/2026-09-30-campaign-c-wave1-evidence/06-07.png` 与 `BACKLOG.md` :106 行、任务报告 `.superpowers/sdd/2026-09-30-campaign-c-wave1-notifications-plan/task-10-report.md`
+**站 4.6 · 兑换成功通知实时到账**（战役丙波一，2026-09-30 T10 现场实走，`2067648e` 修复后复验）
+账号：客户端 `demo_alice`（Swap 页/消息中心停留，全程不手动刷新）→ 管理台 `compliance_lead@`（喂裁决）→ `admin@`（推资金单腿）
+走查：客户端 Swap 页 USDT-TRON → AED 拿一次报价（金额随意）→ Confirm and Swap 建单（COMPLIANCE_PENDING）→ 切管理台该笔详情 ⚡ 喂「① Approved」→ 转 PROCESSING，四条腿依次建出（卖出腿 3 步 Broadcast/Seen in Mempool/Confirm、结算腿与买入腿各 2 步 Submit/Settle、费腿 2 步 Submit/Settle）→ 逐腿推完 → 单转 **SUCCESS** → 切回客户端（不刷新、不重新登录）铃铛即时亮、`/messages` 顶部出现「Exchange completed」→ 点开该条，深链落地该笔兑换详情页（SUCCESS，净收金额与 Swap 页一致）
+判据：客户端全程零手动刷新；该单消息中心与审计页**各恰好一条** `NOTIFICATION_SENT`（`templateCode=SWAP_SUCCESS`），不再重复——`2026-09-30` T10 走查曾逮到此路径 100% 复现"事务嵌套自锁→假通知+SLA sweep 每 30 秒重发"（见 `BACKLOG.md` :106 行），`2067648e`（随 `70d119ac` 一并）把通知调用移出 `$transaction`、放到 `markStatus` 所在事务 resolve 之后的 workflow 层（含 SLA 超时拒单这第 9 个调用点），T10 复验：同日 `demo:all` 整跑 0 次 `Transaction already closed`、4 条兑换花名册全部按预期终态落地，现场新建一笔复走同样零故障。证据见 `superpowers/checkups/2026-09-30-campaign-c-wave1-evidence/`（`14`~`17`）
 
 **期望**：观众看懂"一次兑换 = 卖出腿+买入腿+费腿的原子记账；报价费率与客户等级挂钩"。
 
