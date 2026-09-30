@@ -517,6 +517,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/vendor-payments/:payNo/cancel', 'Cancel a pending-approval vendor payment', ['FUNDING_WRITE']),
   route('GET', '/admin/vendor-payments', 'List vendor payments', ['FUNDING_READ']),
   route('GET', '/admin/vendor-payments/:payNo', 'Get vendor payment detail (with funds-order legs)', ['FUNDING_READ']),
+  // 战役乙波三 T1：审慎（NLA）只读状态端点——归既有桶 treasury.view_dashboard 的组
+  // FUNDING_DASHBOARD_VIEW（金库/CFO/高管/内审四职务本就持有，零权限扩张，零新桶）。
+  route('GET', '/admin/prudential/status', 'Get the current NLA prudential status', ['FUNDING_DASHBOARD_VIEW']),
   // 平账 A 批：⚡拨钟——把案件账龄截止拨到过去（演示件，挂现有拨钟组，桶 demo.act_clock 已涵盖 SLA timers）
   route('POST', '/admin/reconciliation/cases/:caseNo/simulate-aging-timeout', 'Fast-forward a reconciliation case past its aging line (demo only)', ['DEMO_CLOCK_WRITE']),
 

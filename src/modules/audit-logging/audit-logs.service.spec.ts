@@ -147,6 +147,8 @@ describe('AuditLogsService', () => {
       CAPITAL_INJECTION: 'CAPITAL_INJECTION',
       // 战役乙波二 T4（2026-09-29）：付款单主体
       VENDOR_PAYMENT: 'VENDOR_PAYMENT',
+      // 战役乙波三 T1（2026-09-30）：审慎（NLA）状态主体
+      PRUDENTIAL: 'PRUDENTIAL',
     });
 
     expect(AuditUserActions).toEqual({

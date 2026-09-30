@@ -29,6 +29,7 @@ import { ReconciliationModule } from './modules/clearing-settle/reconciliation/r
 import { InternalTransfersModule } from './modules/asset-treasury/internal-transfers/internal-transfers.module';
 import { LpDeskModule } from './modules/asset-treasury/lp-desk/lp-desk.module';
 import { CompanyFundingModule } from './modules/asset-treasury/company-funding/company-funding.module';
+import { PrudentialModule } from './modules/asset-treasury/prudential/prudential.module';
 import { AuditLogsModule } from './modules/audit-logging/audit-logs.module';
 import { GovernanceModule } from './modules/governance/governance.module';
 import { SumsubIngestionModule } from './modules/sumsub-ingestion/sumsub-ingestion.module';
@@ -90,6 +91,7 @@ import { TransactionLimitsModule as TransactionLimitRulesModule } from './module
     InternalTransfersModule,
     LpDeskModule,
     CompanyFundingModule,
+    PrudentialModule,
     AuditLogsModule,
     GovernanceModule,
     SumsubIngestionModule,

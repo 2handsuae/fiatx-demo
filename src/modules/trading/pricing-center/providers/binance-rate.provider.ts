@@ -23,10 +23,13 @@ interface BookTickerSnapshot {
   expiresAt: number;
 }
 
+/** AED 钉住汇率单源（战役乙波三提出为导出常量）：provider 报价与审慎 NLA 折算同源引用，不复制。 */
+export const AED_USD_PEG_RATE = '3.6725';
+
 @Injectable()
 export class BinanceRateProvider {
   private readonly logger = new Logger(BinanceRateProvider.name);
-  private readonly aedUsdRate = new Prisma.Decimal('3.6725');
+  private readonly aedUsdRate = new Prisma.Decimal(AED_USD_PEG_RATE);
   private readonly cacheTtlMs = 3000;
   private readonly bookTickerCache = new Map<string, BookTickerSnapshot>();
 

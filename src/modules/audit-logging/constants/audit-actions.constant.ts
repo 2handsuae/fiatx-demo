@@ -45,6 +45,8 @@ export const AuditEntityTypes = {
   CAPITAL_INJECTION: 'CAPITAL_INJECTION',
   // 战役乙波二 T4（2026-09-29）：付款单主体
   VENDOR_PAYMENT: 'VENDOR_PAYMENT',
+  // 战役乙波三 T1（2026-09-30）：审慎（NLA）状态主体——业务键固定 'NLA'，零 UUID
+  PRUDENTIAL_STATUS: 'PRUDENTIAL_STATUS',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -152,6 +154,8 @@ export const AuditBusinessWorkflowTypes = {
   CAPITAL_INJECTION: 'CAPITAL_INJECTION',
   // 战役乙波二 T4（2026-09-29）：付款单主体（财资件，独立主体 VendorPayment）
   VENDOR_PAYMENT: 'VENDOR_PAYMENT',
+  // 战役乙波三 T1（2026-09-30）：审慎（NLA）状态主体（财资件，独立主体 PrudentialStatus）
+  PRUDENTIAL: 'PRUDENTIAL',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -510,6 +514,9 @@ export const AuditActions = {
   VENDOR_PAYMENT_FAILED: 'VENDOR_PAYMENT_FAILED',
   VENDOR_PAYMENT_REJECTED: 'VENDOR_PAYMENT_REJECTED',
   VENDOR_PAYMENT_CANCELLED: 'VENDOR_PAYMENT_CANCELLED',
+  // ── 战役乙波三 T1（2026-09-30）：审慎（NLA）状态两码（财资件，域 TREASURY）──────
+  PRUDENTIAL_CHECK_PERFORMED: 'PRUDENTIAL_CHECK_PERFORMED',
+  PRUDENTIAL_GATE_BLOCKED: 'PRUDENTIAL_GATE_BLOCKED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1246,6 +1253,23 @@ export const CAMPAIGN_B_VENDOR_PAYMENT_AUDIT_ACTIONS: Record<string, AuditAction
   VENDOR_PAYMENT_FAILED:            { domain: 'TREASURY', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
   VENDOR_PAYMENT_REJECTED:          { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   VENDOR_PAYMENT_CANCELLED:         { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+};
+
+/** 战役乙波三 T1（spec §1/plan Task1 Step3）：审慎（NLA）状态两码，域 TREASURY——同
+ * CAMPAIGN_B_VENDOR_PAYMENT_AUDIT_ACTIONS 先例，本战役新主体各自一表。两码都是无审批
+ * 驱动的直接操作（correlationMode 老实标 NONE，不显式传 correlationId）：
+ * PRUDENTIAL_CHECK_PERFORMED 是巡检/端点读一次算一次的独立事件，必填 reasonCode
+ * （'NLA_OK' | 'NLA_BREACH' 区分 PASS/BREACH，outcome 都用成功值——PASS/BREACH 是
+ * 业务结果不是「写失败」，同站 856-860 注释的「非成功才强制 reasonCode」判据这里主动
+ * 加严，两条都带机器可读原因码）；PRUDENTIAL_GATE_BLOCKED 是门拦截当场留痕，
+ * outcome=DENIED（照 WITHDRAW_L1_BLOCKED 先例），必填 reasonCode+reason。审计实际
+ * 写入点在 T2（门）/T3（巡检）workflow，本任务只登记词表。主体信封：
+ * primarySubject=PRUDENTIAL_STATUS·业务键固定 'NLA'（度量名当业务键，零 UUID）；
+ * metadata 必带三个数（nlaAedMinor/floorAedMinor + 动后余量或缺口）；每条带显式
+ * requestId（`${action}_NLA_${randomUUID()}`）。 */
+export const CAMPAIGN_B_PRUDENTIAL_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  PRUDENTIAL_CHECK_PERFORMED: { domain: 'TREASURY', correlationMode: N, requiredFields: ['reasonCode'], requiresCausation: false },
+  PRUDENTIAL_GATE_BLOCKED:    { domain: 'TREASURY', correlationMode: N, requiredFields: ['reasonCode', 'reason'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——
