@@ -134,6 +134,11 @@ export const PERMISSIONS = {
   // 先例）——只有金库/CFO/高管/内审恰四职务会在 /auth/me 的 permissions 里拿到它。
   FUNDING_DASHBOARD_VIEW: 'cap.treasury.funding_dashboard',
 
+  // 战役乙波三（Task 4）：巡检写权——精确镜像 rbac.catalog.ts 里 T3 已登记的
+  // buildPermissionCode(method, path) 派生值（POST /admin/prudential/check，同上方
+  // CAPITAL_INJECTION_* 等既有代表码惯例）。唯金库持有（PRUDENTIAL_CHECK_WRITE 单组）。
+  PRUDENTIAL_CHECK_WRITE: 'api.post.admin_prudential_check',
+
   // 平账三期（2026-09-06）：事故登记——三个码精确镜像 rbac.catalog.ts route() 的
   // buildPermissionCode 派生值。列表/详情两个 GET 路由的 allowedGroups 同时含
   // INCIDENT_READ/INCIDENT_WRITE（route() 已登记），写动作只有 INCIDENT_WRITE 一组；

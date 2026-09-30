@@ -1,4 +1,8 @@
 // admin-web/src/pages/companyFundsThresholds.ts
+// 战役乙波三 T4 附注：NLA 监管红线不在此文件——单源在后端 prudential.constants.ts
+// （NLA_FLOOR_AED_MINOR），前端经 GET /admin/prudential/status 的 floorAedMinor 字段读取，
+// 本文件只管分币种见底线（下方常量，与 NLA 红线是两条独立的线，互不改动）。
+//
 // 战役乙波二 T8：公司资金看板 · 运营户（F_OPS）见底阈值——业主裁定写死常量
 // （乙波二 spec §0 裁定 1），不建配置面（禁做清单：动态配置只写边界不写当前值这类
 // 灵活性，本页没有"配置面"这个需求）。

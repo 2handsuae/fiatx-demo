@@ -7,12 +7,19 @@
 // 低于线时红字）② F_LIQ 在途待验收格 ③ F_SET 结算在途格 ④ 三收入格（210/211/212）
 // ⑤ 最近资金动态（流水最近 10 条）。波三接线声明：本波看板只展示，零事件、零推送、
 // 零预留挂点（乙总纲假设①、裁定 4）。
+//
+// 战役乙波三 T4：NLA（Net Liquid Assets，regulatory）区，置于五区之上，消费 T1/T3 的
+// GET/POST /admin/prudential/status|check——全部 dashboard 观众（本页既有
+// FUNDING_DASHBOARD_VIEW 门控四职务）可见合计水位+红线刻线+跌破横幅；巡检按钮唯持
+// PRUDENTIAL_CHECK_WRITE 的金库可见——真实业务动作，不挂 useSimulationMode（⚡）。
 import { useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { DetailCard } from '../components/compliance/DetailPageComponents';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
-import { adminIconButtonClass } from '../components/common/adminButtonStyles';
+import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { useAdminSession } from '../contexts/AdminSessionContext';
+import { PERMISSIONS } from '../rbac/permissions';
 import { COMPANY_FUNDS_THRESHOLDS } from './companyFundsThresholds';
 import {
   buildAssetLookup,
@@ -80,6 +87,27 @@ interface AssetRow {
   tbLedgerId: number | null;
 }
 
+/** 字段形状照 T1 `prudential.service.ts` 的 `PrudentialStatus`（后端唯一真相源）——
+ *  全部金额是 AED 最小单位字符串（2 位小数），只有 `perAsset[].balanceMinor` 是各自币种
+ *  的最小单位（AED 2 位 / USDT 6 位，decimals 经既有 assetLookup 查）。 */
+interface PrudentialAssetStatus {
+  assetCode: string;
+  currency: string;
+  balanceMinor: string;
+  aedEquivalentMinor: string;
+}
+
+interface PrudentialStatus {
+  perAsset: PrudentialAssetStatus[];
+  nlaAedMinor: string;
+  floorAedMinor: string;
+  headroomAedMinor: string;
+  breached: boolean;
+  monthlyOpexBaseAedMinor: string;
+  coefficient: string;
+  pegRate: string;
+}
+
 /* ── Helpers ─────────────────────────────────────────────────────── */
 
 const humanizeEventCode = (code: string): string =>
@@ -110,6 +138,11 @@ const gaugeScale = (balanceMinor: string | null, thresholdMajor: number | undefi
   const thresholdPct = threshold > 0 ? Math.max(0, Math.min(100, (threshold / scaleMax) * 100)) : null;
   return { fillPct, thresholdPct };
 };
+
+/** breached 时 headroomAedMinor 是负的最小单位字符串（nla − floor < 0）；缺口话术要报正数
+ *  「shortfall AED x」，全程 BigInt 不经 Number()（同文件铁律）。 */
+const shortfallAedMajor = (headroomAedMinor: string): string =>
+  formatMinorToMajor((-BigInt(headroomAedMinor)).toString(), 2);
 
 /* ── Sub-components ──────────────────────────────────────────────── */
 
@@ -178,6 +211,55 @@ const CompanyFundsDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // 战役乙波三 T4：NLA 区状态——独立于账本五区的 fetch（不同端点、不同失败态互不连坐）。
+  const { hasPermission } = useAdminSession();
+  const canRunPrudentialCheck = hasPermission(PERMISSIONS.PRUDENTIAL_CHECK_WRITE);
+  const [nla, setNla] = useState<PrudentialStatus | null>(null);
+  const [nlaError, setNlaError] = useState<string | null>(null);
+  const [checkSubmitting, setCheckSubmitting] = useState(false);
+  const [checkResult, setCheckResult] = useState<PrudentialStatus | null>(null);
+
+  const fetchNla = async () => {
+    setNlaError(null);
+    try {
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/prudential/status`);
+      if (!res.ok) {
+        setNlaError(await getApiErrorMessage(res, 'Failed to load prudential status.'));
+        return;
+      }
+      setNla(await res.json());
+    } catch (e) {
+      if (e instanceof AdminSessionError) return;
+      setNlaError('Failed to load prudential status.');
+    }
+  };
+
+  /** 巡检按钮：POST /admin/prudential/check 返回值形状与 GET status 完全同款（同一次
+   *  computeStatus 快照，见 prudential.service.ts performCheck），直接拿它当最新 status
+   *  用——不必巡检后再多打一次 GET（「顺手刷新 status」就是这一步）。 */
+  const handleRunCheck = async () => {
+    setCheckSubmitting(true);
+    setCheckResult(null);
+    try {
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/prudential/check`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        alert(await getApiErrorMessage(res, 'Prudential check failed'));
+        return;
+      }
+      const result: PrudentialStatus = await res.json();
+      setCheckResult(result);
+      setNla(result);
+      setNlaError(null);
+    } catch (e) {
+      if (e instanceof AdminSessionError) return;
+      alert('Prudential check request failed');
+    } finally {
+      setCheckSubmitting(false);
+    }
+  };
+
   const fetchAll = async () => {
     setLoading(true);
     setError(null);
@@ -232,6 +314,7 @@ const CompanyFundsDashboard = () => {
 
   useEffect(() => {
     void fetchAll();
+    void fetchNla();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -244,6 +327,13 @@ const CompanyFundsDashboard = () => {
   const liqAccounts = accountsByCode(TREASURY_CODES.FIRM_LIQ);
   const setAccountsRows = accountsByCode(TREASURY_CODES.FIRM_SET);
 
+  // NLA 合计水位条：分子=nlaAedMinor（AED 2 位小数），红线刻线在 floorAedMinor 位置——
+  // 复用既有 gaugeScale 的算术（fillPct/thresholdPct），只是这条线的颜色/语义在渲染处
+  // 改红（「监管红线」），跟运营户卡的琥珀色「见底线」区分开。
+  const nlaGauge = nla
+    ? gaugeScale(nla.nlaAedMinor, Number(nla.floorAedMinor) / 100, 2)
+    : { fillPct: 0, thresholdPct: null as number | null };
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* ─── Zone 1: Title ─── */}
@@ -252,7 +342,10 @@ const CompanyFundsDashboard = () => {
         subtitle="Firm liquidity at a glance — operating balances, in-transit, settlement and income"
       >
         <button
-          onClick={() => void fetchAll()}
+          onClick={() => {
+            void fetchAll();
+            void fetchNla();
+          }}
           className={adminIconButtonClass()}
           title="Refresh"
         >
@@ -274,6 +367,112 @@ const CompanyFundsDashboard = () => {
           </div>
         ) : (
           <>
+            {/* ── NLA (regulatory) — 战役乙波三 T4，置于五区之上 ── */}
+            <div
+              className={`overflow-hidden rounded-lg border shadow-sm ${
+                nla?.breached ? 'border-adm-red bg-adm-red/5' : 'border-adm-border bg-adm-panel'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-adm-border bg-adm-card px-4 py-2.5">
+                <span className="font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t2">
+                  Net Liquid Assets (regulatory)
+                </span>
+                {canRunPrudentialCheck && (
+                  <button
+                    type="button"
+                    disabled={checkSubmitting}
+                    onClick={() => void handleRunCheck()}
+                    className={adminButtonClass('workflowPrimary')}
+                  >
+                    {checkSubmitting ? 'Running…' : 'Run prudential check'}
+                  </button>
+                )}
+              </div>
+              <div className="p-4">
+                {!nla ? (
+                  <EmptyRow label={nlaError ?? 'Loading prudential status…'} />
+                ) : (
+                  <>
+                    {nla.breached && (
+                      <div className="mb-4 rounded border border-adm-red/30 bg-adm-red/10 px-4 py-2 font-mono text-[11px] font-semibold text-adm-red">
+                        NLA below regulatory floor — shortfall AED {shortfallAedMajor(nla.headroomAedMinor)}. A
+                        prudential incident must be registered (Incident Register, CFO).
+                      </div>
+                    )}
+
+                    <div className="relative h-3 w-full rounded-full bg-adm-border">
+                      <div
+                        className={`h-3 rounded-full ${nla.breached ? 'bg-adm-red' : 'bg-adm-green'}`}
+                        style={{ width: `${nlaGauge.fillPct}%` }}
+                      />
+                      {nlaGauge.thresholdPct != null && (
+                        <div
+                          className="absolute -top-1 h-5 w-0.5 bg-adm-red"
+                          style={{ left: `${nlaGauge.thresholdPct}%` }}
+                          title={`Regulatory floor: AED ${formatMinorToMajor(nla.floorAedMinor, 2)}`}
+                        />
+                      )}
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                      <div>
+                        <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">NLA</div>
+                        <div
+                          className={`mt-1 font-mono text-xl font-bold ${nla.breached ? 'text-adm-red' : 'text-adm-t1'}`}
+                        >
+                          AED {formatMinorToMajor(nla.nlaAedMinor, 2)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">Floor</div>
+                        <div className="mt-1 font-mono text-xl font-bold text-adm-t1">
+                          AED {formatMinorToMajor(nla.floorAedMinor, 2)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">Headroom</div>
+                        <div
+                          className={`mt-1 font-mono text-xl font-bold ${nla.breached ? 'text-adm-red' : 'text-adm-t1'}`}
+                        >
+                          AED {formatMinorToMajor(nla.headroomAedMinor, 2)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 font-mono text-[10px] text-adm-t3">
+                      {nla.perAsset
+                        .map((a) => `${a.currency} ${formatMinorToMajor(a.balanceMinor, decimalsOf(a.currency))}`)
+                        .join(' + ')}{' '}
+                      ≈ AED {formatMinorToMajor(nla.nlaAedMinor, 2)} @ {nla.pegRate}
+                    </div>
+
+                    {checkResult && (
+                      <div
+                        className={`mt-4 rounded border px-4 py-2 font-mono text-[11px] ${
+                          checkResult.breached
+                            ? 'border-adm-red/30 bg-adm-red/10 text-adm-red'
+                            : 'border-adm-green/30 bg-adm-green/10 text-adm-green'
+                        }`}
+                      >
+                        {checkResult.breached ? (
+                          <>
+                            NLA_BREACH — shortfall AED {shortfallAedMajor(checkResult.headroomAedMinor)}. A
+                            prudential incident must be registered (Incident Register, CFO).
+                          </>
+                        ) : (
+                          <>
+                            NLA_OK — NLA AED {formatMinorToMajor(checkResult.nlaAedMinor, 2)}, Floor AED{' '}
+                            {formatMinorToMajor(checkResult.floorAedMinor, 2)}, Headroom AED{' '}
+                            {formatMinorToMajor(checkResult.headroomAedMinor, 2)}. Logged to audit trail.
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
             {/* ── ① Operating balances (F_OPS) ── */}
             <DetailCard
               title="Operating Balances — Firm Operating Funds"
