@@ -1,6 +1,6 @@
 # 战役乙收官销账快照（总纲 §4/§7 终闸 2）
 
-> 对应总纲 `superpowers/specs/2026-09-28-campaign-b-company-funds-charter.md` §4（业主 20 条枚举 + roadmap 13 条）。
+> 对应总纲 `archive/superpowers/specs/2026-09-28-campaign-b-company-funds-charter.md` §4（业主 20 条枚举 + roadmap 13 条；2026-09-30 T11 随战役乙末波收官归档，路径已更新）。
 > **本表是快照，不是销账动作**——表尾「交业主确认」：业主看过、点头，才去 `reference/roadmap.md` 翻勾（agent 不主动读写该文件，本表不含翻勾清单，落笔由业主或业主指定会话执行）。
 > 生成方法：逐条对照总纲 §4 原文 + 三波交付物（spec/代码/modules 篇/demo 场景）+ `checkups/2026-09-28-campaign-b-treasury-checkup.md` §4（业主 20 条枚举 × 代码现状判读底账），一条不漏、一条不重复核对。章法照 `checkups/2026-09-28-campaign-a-closeout-ledger.md`（战役甲收官销账快照）。
 
@@ -80,9 +80,9 @@ roadmap 13 条 = 波内交付 5 + 天然满足 1 + 不建 7
 | 波二（注资·付款·全景看板） | ②、⑪、R8（半程） | 注资单、供应商付款单、公司资金全景看板五区；`modules/company-funds.md` §1-6 |
 | 波三（资金合规与收官） | ⑰、R4、R10、R9（天然满足） | NLA 算术门 + 巡检按钮 + 穿底主线（场景 31/32）+ 兑换腿丙案修复；`modules/company-funds.md` §7 |
 
-## §6 归档与合并后必做（备忘，本任务不执行）
+## §6 归档与合并后必做（备忘）
 
-1. **归档惯例**（合并时做，本任务未搬文件）：本战役总纲 + 三波 spec/plan/骨架（`superpowers/specs/2026-09-2[8-9]-campaign-b-*`、`superpowers/specs/2026-09-30-campaign-b-*`、`superpowers/plans/2026-09-29-campaign-b-*`、`superpowers/plans/2026-09-30-campaign-b-*`）随本波（波三）合并入 `archive/` 惯例移动；总纲 `2026-09-28-campaign-b-company-funds-charter.md`（活文档条款：存续到末波收官）一并随本波归档。
+1. **归档惯例**（已执行，2026-09-30 T11）：本战役总纲 + 三波 spec/plan/骨架共 10 个文件（`superpowers/specs/2026-09-2[8-9]-campaign-b-*`、`superpowers/specs/2026-09-30-campaign-b-*`、`superpowers/plans/2026-09-29-campaign-b-*`、`superpowers/plans/2026-09-30-campaign-b-*`）已 `git mv` 入 `archive/superpowers/{specs,plans}/`；总纲 `2026-09-28-campaign-b-company-funds-charter.md`（活文档条款：存续到末波收官，此刻到期）一并随本波归档。`doc-final/superpowers/{specs,plans}/` 下 `grep campaign-b` 已实测零命中。
 2. **业主本地合并 main 后三件套**（权限字典 / 内存定义 / schema+seed 均动过，缺一步会 403 或读旧库）：
    - 重启后端（`VALID_PERMISSION_GROUPS` 等常量进程启动时读入内存）
    - `npm run db:base:sync`（权限字典写入库）
