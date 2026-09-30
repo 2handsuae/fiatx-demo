@@ -48,7 +48,7 @@
 //                  ExternalStatementLine rows + demo-tagged FundsOrder rows.
 //                  Demo:all business data is left untouched.
 //
-//   --mode=crisis  ⚡ 战役乙波三 T6 · 危机铺设，场景 31 专用（doc-final/superpowers/
+//   --mode=crisis  ⚡ 战役乙波三 T6 · 危机铺设，场景 31 专用（doc-final/archive/superpowers/
 //                  specs/2026-09-30-campaign-b-wave3-prudential-closeout-spec.md
 //                  §5）。Pass-mode mirror（全钱包镜像，保证其余钱包仍 PASS）+ 只
 //                  在选定客户 AED 托管钱包上注入**一条**幽灵 OUT 行（我方无任何单据，
