@@ -560,3 +560,50 @@ bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash script
 走查截图 `t8-01`～`t8-18` 入 `doc-final/superpowers/checkups/2026-09-30-campaign-b-wave3-evidence/`。
 
 **期望**：观众看懂三件事——① 事故一生（登记→调查→定损→善后→结案）不是抽象流程图，是同一个客户、同一笔钱，从"少了"到"补回来"全程留痕可查；② 认损与补款是两个不同的动作——认损让账跟着外部事实走平（公司认了这笔损失），补款才是对客户的实际交代（钱真的补回卡里），中间隔着一张锁死金额的调账单和一次 CFO 审批；③ 审慎红线不是纸面数字——客户资金安全事件真实发生时，补偿客户的义务优先于公司自己的流动性缓冲（豁免生效），但公司自己也会因此撞线，看板红横幅当场证明这不是走过场。
+
+## 场景 32（暂编，归第九幕「公司的钱」，幕号 T10 统一定稿）· 审慎红线：跌破 → 报监管 → 注资复原（V7 财资 · 公司资金 + V9 事件中心 + 报送台）
+
+> 战役乙波三交付（2026-09-30），承接场景 31 穿底主线的收官——事故 `INC260930949208` 留在 RESOLVING、报送单 `FIL260930017382` 留在 DRAFT、公司自己的 NLA 撞穿监管红线，均是场景 31 刻意留下的钩子。本场景演完，第九幕「公司的钱」落幕。主篇文档 `modules/company-funds.md`、事件中心/报送台相关篇。本场景 2026-09-30 T9 在 self 栈全程实走一遍（真提交/真点击，非种子摆拍，金库/CFO/合规官/高管/MLRO 五账号轮转），二十七张截图留证。
+
+**造数**：**承接场景 31 现场，连场演出**——不 reset、不重铺、不重复造数。开场即是场景 31 收尾时点：`GET /admin/prudential/status` `breached=true`（NLA AED 1,114,752.25 / 红线 AED 1,200,000.00 / 缺口 AED −85,247.75）；事故 `INC260930949208` 状态 `RESOLVING`（认损调账已挂，补款划转尚未挂）；报送单 `FIL260930017382` 状态 `DRAFT`（CRM IV.E.5，场景 31 提交定损时自动开出，尚未起草送签）。
+
+**讲什么**：公司自己撞穿了监管红线——不是纸面数字，是金库真开不出付款单的现场演给你看。金库巡检抓红、CFO 登记一起新的审慎事故（跟场景 31 那起客户资金事故是两回事：一个管别人的钱，一个管自己的钱）、报送 VARA、股东注资补回、复原。同一时间把场景 31 留的那张报送单和那起事故一并收尾——两条监管义务、两起事故，同一场戏收官。
+
+**账号**：`treasury@fiatx.com`（金库，巡检 / 试开付款单 / 注资单开单兑现 / 挂载补款划转引用全程）→ `cfo@fiatx.com`（CFO，登记/调查/定损/结案请求审慎事故 + 批注资单 + 安全事故结案终批）→ `compliance_lead@fiatx.com`（合规官，两张报送单起草/送签/标已提交）→ `sm@fiatx.com`（高管/高级管理层，报送签发批准 + 审慎事故结案单步裁决）→ `mlro@fiatx.com`（MLRO，安全事故结案两步门第一步）。
+
+**走查**：
+
+① 金库登录 Company Funds 看板，「Net Liquid Assets (regulatory)」区点「Run prudential check」→ 结果卡当场转红：`NLA_BREACH — shortfall AED 85,247.75`，与持续显示的红横幅（NLA AED 1,114,752.25 / Floor AED 1,200,000.00 / Headroom AED −85,247.75）互为印证——巡检审计 `PRUDENTIAL_CHECK_PERFORMED`（`reasonCode=NLA_BREACH`）落痕。
+
+② **门的现场证明**：金库切 Vendor Payments →「Initiate payment」→ 随手选一家在册 ACTIVE 供应商（Gulf Office Systems）+ 5,000.00 AED + 例行文案 →「Initiate」→ 400 拒单，弹层内联红字三个数在屏：「Blocked by prudential floor (Company Rulebook VI.C): this payment would take Net Liquid Assets below the regulatory floor — NLA now 1114752.25 AED, after 1109752.25 AED, floor 1200000.00 AED.」——单未建、无单号，`PRUDENTIAL_GATE_BLOCKED` 审计落 `outcome=DENIED`，metadata 三个数俱全。跌破期间一切裁量出款被拦，客户资金事故留下的补款/注资两个豁免口子在④/⑦当场验证仍然放行。
+
+③ 切 `cfo@` → 事件中心「Register Incident」→ Type 选 **Prudential (NLA) breach**（FINANCIAL 族，CFO 独占经办）→ Title/Description 引用①的巡检结果 → 类型专属锚字段 Metric (NLA)=`NLA`、Shortfall amount=`85247.75`（两枚必填锚，落 `subjectRefs`）→ Register → 事故 **`INC260930508979`** 落库，状态 `Registered`。
+
+④ 同一账号「Start Investigation」→ 状态转 `Investigating` → 下滑 Assessment 区：Assessed amount `85247.75`、Assessment basis 唯一可选 **Shortfall assessed**、勾 **Regulatory report required**、报送依据唯一候选 **Company Rulebook VI.C / VI.F — NLA prudential breach, notify VARA immediately; daily updates until VARA is satisfied**（即时义务，界面不设小时倒计时）→「Submit Assessment」→ 状态转 `Assessed`，页面横幅「Regulatory filing opened: **`FIL260930300016`**」——定损联动自动开单，本类型 `allowedRemediationKinds` 空集，右栏提示「it can be closed directly once assessed」（不必先进 Resolving）。
+
+⑤ 合规官打开 `FIL260930300016` → Filing Draft 填正文（引用巡检数字、根因、注资补救计划、「daily updates until VARA is satisfied」叙事）→「Save Draft」→「Submit for Sign-off」→ 状态转 `Pending Signoff`，审批 `APR260930889609` 开 → 切 `sm@` 审批中心 Approve（单步 SENIOR_MANAGEMENT_OFFICER）→ 状态转 `Signed Off` → 切回 `compliance_lead@`「Mark Submitted」填对外编号 `VARA-PRU-2026-09-30-01` → 状态转 **`Submitted`**。
+
+⑥ **顺手收场景 31 那张**：合规官打开 `FIL260930017382`（CRM IV.E.5，场景 31 提交定损时自动开出、留在 `Draft`）→ 填正文（引用场景 31 的事故细节：未授权转出 250,000.00 AED、认损、全额补偿）→「Save Draft」→「Submit for Sign-off」→ 审批 `APR260930902092` 开 → `sm@` Approve → 状态转 `Signed Off` → `compliance_lead@`「Mark Submitted」填 `VARA-SEC-2026-09-30-01` → 状态转 **`Submitted`**——四帧快速带过，只为闭合场景 31 事故结案前置门②。
+
+⑦ 金库切 Capital Injections →「Initiate injection」→ Contributor Name `FiatX Holdings Ltd (founding shareholder)`（照场景 28 股东叙事名）+ Asset=AED + Amount **300,000.00**（≥缺口 85,247.75 取整）+ Prudential Purpose 引用本次缺口与事故/报送单号 + Reason → Initiate → 单据 **`CIN260930345280`** 转 `Pending Approval`，审批 `APR260930321132` 开（Impact 摘要读到「the firm's AED operating balance increases once the contribution is confirmed」）→ 切 `cfo@` Approve → 单据转 `Awaiting Contributor Payment` → 切回 `treasury@` →「⚡ Simulate contributor payment」→ 转 `Received`（蓝色横幅「Funds have landed...not yet posted」）→「Confirm receipt」→ Expected/Received 并排核数一致 → Confirm → 单据转 **`Success`**，落账——**跌破窗口内发起成功**：注资单从发起到批准到确认全程都在 `breached=true` 期间完成，豁免生效的行为证明。
+
+⑧ 切 Company Funds 看板：红横幅消失，「Net Liquid Assets (regulatory)」区转绿，NLA **AED 1,414,752.25**（1,114,752.25 + 300,000.00）、Floor AED 1,200,000.00、Headroom **AED 214,752.25**；运营户 AED 水位 996,089.35（696,089.35 + 300,000.00），回到见底线 900,000 上方转绿——再点「Run prudential check」→ 结果卡转绿：「NLA_OK — NLA AED 1,414,752.25, Floor AED 1,200,000.00, Headroom AED 214,752.25. Logged to audit trail.」，与①的红卡成对照，`PRUDENTIAL_CHECK_PERFORMED`（`reasonCode=NLA_OK`）第二条审计落痕。
+
+⑨ 切 `cfo@` 回 `INC260930508979` 详情页「Request Close」→ 结案审批 `APR260930835666` 开（`INCIDENT_CLOSE_PRUDENTIAL`，单步）→ 切 `sm@` 审批中心 Approve（Impact 摘要「Closing incident INC260930508979 (Prudential (NLA) breach): Assessment: shortfall assessed 85247.75, no remediation, reported to VARA」）→ 事故转 **`Closed`**——高管单步结案，前置门二证齐全：定损✓（SHORTFALL 85,247.75）+ 名下报送单已提交✓（`FIL260930300016` Submitted）。
+
+⑩ 场景 31 事故收尾：金库回 `INC260930949208` 详情页 Remediation 区 Type 选 **Transfer**、Reference No 填补款划转单号 `ITR260930393123` →「Link」→ 挂载成功（认损 `ADJUSTMENT`／补款 `TRANSFER` 两条引用齐全，均在 Remediation 表）→「Request Close」→ 结案审批 `APR260930277119` 开（`INCIDENT_CLOSE_SECURITY`，两步）→ 切 `mlro@` Approve（Step 1）→ 切 `cfo@` Approve（Step 2，终批）→ 事故转 **`Closed`**。
+
+⑪ **尾帧**：Incident Register 列表——`INC260930508979`（Prudential breach）与 `INC260930949208`（Unauthorized outflow）均 `Closed`；Regulatory Filings 列表——`FIL260930300016`/`FIL260930017382` 均 `Submitted`，各自 Incident 列回链两起事故；看板复原帧（⑧已拍）——两事故一并收官，公司的钱从穿底到复原、从秘密到通报，第九幕「公司的钱」落幕。
+
+**判据**：门拒 400 三个数在屏（NLA/动后 NLA/红线）且单未建；补款划转（场景 31 帧⑦）与本场景注资单均在跌破窗口内真实发起成功——豁免生效的行为证明（裁定 1）在案；巡检红/绿两条审计各落一条（`NLA_BREACH`/`NLA_OK`）；两起事故均 `Closed`，两张报送单均 `Submitted`；`GET /admin/prudential/status` 终态 `breached=false`、`nlaAedMinor=141475225`（AED 1,414,752.25）；`verify:coa` 全程（含注资后时点）两恒等式 + 负余额全绿。
+
+**账实证据**（走查后，self 栈，2026-09-30）：
+
+- `bash scripts/on-stack.sh self verify:coa` — 退出码 `0`，关键行：`✓ ledger 1 CLIENT 恒等 29612565` / `✓ ledger 1 FIRM 恒等 99620335` / `✓ ledger 2 CLIENT 恒等 4392571811` / `✓ ledger 2 FIRM 恒等 114013428189` / `✓ 负余额检查 通过 (67 个科目全部 ≥ 0)` / `ALL INVARIANTS PASS`（注资落账后时点；`ledger 1 FIRM` 从场景 31 收尾的 69620335 涨到 99620335，涨幅精确等于注资额 30000000 分=300,000.00 AED）。
+- 终态 `GET /admin/prudential/status`：`breached=false`、`nlaAedMinor=141475225`、`floorAedMinor=120000000`、`headroomAedMinor=21475225`（AED 1,414,752.25 / 1,200,000.00 / 214,752.25），与看板逐位一致。
+- 两起事故终态：`INC260930508979`（本场景新登记的审慎事故）与 `INC260930949208`（场景 31 的未授权转出事故）均 `status=CLOSED`。
+- 两张报送单终态：`FIL260930300016`（COMPANY_VI_C_F，本场景开）与 `FIL260930017382`（CRM_IV_E_5，场景 31 开）均 `status=SUBMITTED`。
+
+走查截图 `t9-01`～`t9-27` 入 `doc-final/superpowers/checkups/2026-09-30-campaign-b-wave3-evidence/`。
+
+**期望**：观众看懂三件事——① 审慎红线不是报表脚注，是金库真的开不出付款单的现场（门拒三个数在屏）；② 客户资金安全与公司自身审慎合规是两条不同的监管义务、两起独立的事故，但共享同一套登记/调查/定损/报送/结案机制，同一场戏里两条线各走各的门（CFO 单步 vs MLRO→CFO 两步）却收在同一次复原里；③ 补偿客户与补充公司自己的流动性，两者都不受跌破红线阻拦——义务优先于自身缓冲的豁免不是纸面条款，是补款划转与注资单在跌破窗口内真实发起成功这件事本身。
