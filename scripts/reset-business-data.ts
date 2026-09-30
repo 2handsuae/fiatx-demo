@@ -78,6 +78,8 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   // 不敏感，子表放前面只是与本节书写习惯保持一致。）
   'complaintEntry',
   'complaint',
+  // 客户通知（战役丙波一 T1 加表；无 FK，删除顺序不敏感）
+  'customerNotification',
   'reconciliationAdjustment',
   'reconciliationLineItem',
   'reconciliationCase',
