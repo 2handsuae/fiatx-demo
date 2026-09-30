@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-09-29 ｜ 基线 main `73d2af9f` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
-> 现役 **324 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
+> 生成于 2026-09-30 ｜ 基线 main `803105d3` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 现役 **326 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 29 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 35 ｜ RECON 9 ｜ GOVERNANCE 43 ｜ 合计 324
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 29 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 37 ｜ RECON 9 ｜ GOVERNANCE 43 ｜ 合计 326
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -525,7 +525,7 @@
 | `SWAP_SLA_TIMEOUT_SIMULATED` | ⚡ 拨钟模拟 SLA 超时 | I 继承 | — |  |  |
 | `SWAP_DEMO_SCENARIO_RUN` | ⚡ 喂裁决按钮被按下 | I 继承 | — |  |  |
 
-## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（35 码）
+## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（37 码）
 
 公司的钱给客户：认损补款 / 退汇垫款。第四类订单，法币两腿经结算户、加密币一腿；金库提、CFO 批。
 
@@ -588,6 +588,13 @@
 | `VENDOR_PAYMENT_FAILED` | 运营户余额不足，或落腿失败，整单转 FAILED（终态） | I 继承 | reasonCode |  |  |
 | `VENDOR_PAYMENT_REJECTED` | CFO 驳回或超时，转 REJECTED（终态） | I 继承 | approvalNo | ✓ |  |
 | `VENDOR_PAYMENT_CANCELLED` | 待批时金库撤单 | I 继承 | reason |  |  |
+
+### 审慎（NLA）状态（2） — 战役乙波三 T1 新增，巡检/端点读一次算一次 + 门拦截留痕
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `PRUDENTIAL_CHECK_PERFORMED` | 巡检/端点执行一次 NLA 检查（PASS/BREACH 由 reasonCode 区分） | N 单步 | reasonCode |  |  |
+| `PRUDENTIAL_GATE_BLOCKED` | 门因 NLA 不足拦截动作，当场留痕 | N 单步 | reasonCode, reason |  |  |
 
 ## RECON 域 —— V8 对账（9 码）
 

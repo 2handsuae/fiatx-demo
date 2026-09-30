@@ -2,16 +2,32 @@
 // acct(code, ledger) 编码 mock 先例——resolveTbAccountId 按 ledger 返回不同账户 id，
 // 若实现把 AED/USDT 的 ledger 传错或余额查错账户，断言会对不上，能真的抓到跨 ledger 错误）。
 import { PrudentialService } from './prudential.service';
-import { MONTHLY_OPEX_BASE_AED_MINOR, NLA_FLOOR_AED_MINOR, usdtMinorToAedMinor } from './prudential.constants';
+import { AED_USD_PEG_RATE, MONTHLY_OPEX_BASE_AED_MINOR, NLA_FLOOR_AED_MINOR, usdtMinorToAedMinor } from './prudential.constants';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 
 const AED = { id: 'asset-aed', code: 'AED', currency: 'AED', decimals: 2, type: 'FIAT', status: 'ACTIVE' };
 const USDT = { id: 'asset-usdt', code: 'USDT-TRON', currency: 'USDT', decimals: 6, type: 'CRYPTO', status: 'ACTIVE' };
+const SUSPENDED_USDT = { id: 'asset-usdt-susp', code: 'USDT-TRON', currency: 'USDT', decimals: 6, type: 'CRYPTO', status: 'SUSPENDED' };
 const OPS_WALLET = { id: 'w-ops', walletNo: 'WAL-OPS' };
 
+/** 评审 Imp#1：mock 真按 `where` 过滤（币种 + status，如果查询带了 status 的话）——不是
+ *  「mock 无视 where 假绿」（本仓判例）。这样若实现日后又偷偷塞回 `status: 'ACTIVE'`，
+ *  这份 mock 会把 SUSPENDED 资产真的滤掉，下面的"暂停资产仍计入 NLA"用例会真的变红。 */
 function makePrisma(assets: any[] = [AED, USDT]) {
-  return { asset: { findMany: jest.fn(async () => assets) } };
+  return {
+    asset: {
+      findMany: jest.fn(async ({ where }: any = {}) => {
+        const allowedCurrencies: string[] | undefined = where?.currency?.in;
+        const requiredStatus: string | undefined = where?.status;
+        return assets.filter(
+          (a) =>
+            (!allowedCurrencies || allowedCurrencies.includes(a.currency)) &&
+            (!requiredStatus || a.status === requiredStatus),
+        );
+      }),
+    },
+  };
 }
 
 function makeSystemWallets() {
@@ -64,6 +80,8 @@ describe('PrudentialService.computeStatus（乙波三 T1）', () => {
 
     const status = await service.computeStatus();
 
+    // 评审 Imp#1：查询只按币种，不按 status——findMany 的 where 里不该出现 status 键。
+    expect(prisma.asset.findMany).toHaveBeenCalledWith({ where: { currency: { in: ['AED', 'USDT'] } } });
     expect(systemWallets.resolve).toHaveBeenCalledWith(AED.id, 'F_OPS');
     expect(systemWallets.resolve).toHaveBeenCalledWith(USDT.id, 'F_OPS');
     expect(accounting.resolveTbAccountId).toHaveBeenCalledWith(
@@ -80,12 +98,33 @@ describe('PrudentialService.computeStatus（乙波三 T1）', () => {
     expect(status.breached).toBe(false);
     expect(status.monthlyOpexBaseAedMinor).toBe(MONTHLY_OPEX_BASE_AED_MINOR.toString());
     expect(status.coefficient).toBe('1.2');
+    expect(status.pegRate).toBe(AED_USD_PEG_RATE); // 裁定 R2：单源直出，不是第二份字面量
     expect(status.perAsset).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ assetCode: 'AED', currency: 'AED', balanceMinor: '100000000', aedEquivalentMinor: '100000000' }),
         expect.objectContaining({ assetCode: 'USDT-TRON', currency: 'USDT', balanceMinor: '113600000000', aedEquivalentMinor: '41719600' }),
       ]),
     );
+  });
+
+  it('keeps a SUSPENDED asset in the NLA — 评审 Imp#1：资产暂停只停交易，公司手上的余额没消失，不按 status 过滤', async () => {
+    const prisma: any = makePrisma([AED, SUSPENDED_USDT]);
+    const systemWallets: any = makeSystemWallets();
+    const accounting: any = makeAccounting({
+      AED: { creditsPosted: 100_000_000n, debitsPosted: 0n },
+      USDT: { creditsPosted: 113_600_000_000n, debitsPosted: 0n },
+    });
+    const service = new PrudentialService(prisma, systemWallets, accounting);
+
+    const status = await service.computeStatus();
+
+    // mock 是按 where 真过滤的（见 makePrisma 头注释）：这里能拿到 SUSPENDED_USDT，
+    // 恰恰证明 computeStatus 的查询没有带 status 条件——如果实现又偷偷塞回
+    // `status: 'ACTIVE'`，mock 会把它滤掉，下面两条断言就会红。
+    expect(systemWallets.resolve).toHaveBeenCalledWith(SUSPENDED_USDT.id, 'F_OPS');
+    const expectedNla = 100_000_000n + 41_719_600n;
+    expect(status.nlaAedMinor).toBe(expectedNla.toString());
+    expect(status.perAsset.find((a) => a.currency === 'USDT')).toBeDefined();
   });
 
   it('flags breach when below the floor, and headroom is negative-safe (breached ⇒ headroom < 0 as string)', async () => {

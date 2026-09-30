@@ -527,7 +527,7 @@
 | `SWAP_SLA_TIMEOUT_SIMULATED` | ⚡ 拨钟模拟 SLA 超时 | I 继承 | — |  |
 | `SWAP_DEMO_SCENARIO_RUN` | ⚡ 喂裁决按钮被按下 | I 继承 | — |  |
 
-## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（35 码）
+## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（37 码）
 
 公司的钱给客户：认损补款 / 退汇垫款。第四类订单，法币两腿经结算户、加密币一腿；金库提、CFO 批。
 
@@ -590,6 +590,13 @@
 | `VENDOR_PAYMENT_FAILED` | 运营户余额不足，或落腿失败，整单转 FAILED（终态） | I 继承 | reasonCode |  |
 | `VENDOR_PAYMENT_REJECTED` | CFO 驳回或超时，转 REJECTED（终态） | I 继承 | approvalNo | ✓ |
 | `VENDOR_PAYMENT_CANCELLED` | 待批时金库撤单 | I 继承 | reason |  |
+
+### 审慎（NLA）状态（2） — 战役乙波三 T1 新增，巡检/端点读一次算一次 + 门拦截留痕
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `PRUDENTIAL_CHECK_PERFORMED` | 巡检/端点执行一次 NLA 检查（PASS/BREACH 由 reasonCode 区分） | N 单步 | reasonCode |  |
+| `PRUDENTIAL_GATE_BLOCKED` | 门因 NLA 不足拦截动作，当场留痕 | N 单步 | reasonCode, reason |  |
 
 ## RECON 域 —— V8 对账（9 码）
 

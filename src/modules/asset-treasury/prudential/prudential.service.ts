@@ -6,7 +6,7 @@ import { AccountingService } from '../../accounting/tigerbeetle/accounting.servi
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
-import { MONTHLY_OPEX_BASE_AED_MINOR, NLA_FLOOR_AED_MINOR, usdtMinorToAedMinor } from './prudential.constants';
+import { AED_USD_PEG_RATE, MONTHLY_OPEX_BASE_AED_MINOR, NLA_FLOOR_AED_MINOR, usdtMinorToAedMinor } from './prudential.constants';
 
 export interface PrudentialAssetStatus {
   assetCode: string;
@@ -23,6 +23,9 @@ export interface PrudentialStatus {
   breached: boolean;
   monthlyOpexBaseAedMinor: string;
   coefficient: '1.2';
+  /** 评审裁定 R2：AED_USD_PEG_RATE 单源直出，供前端展示「@ 3.6725」折算注，
+   *  不必自己再写一份字面量。 */
+  pegRate: string;
 }
 
 @Injectable()
@@ -33,13 +36,15 @@ export class PrudentialService {
     private readonly accounting: AccountingService,
   ) {}
 
-  /** 查两资产（AED/USDT）→ 逐资产 resolve F_OPS 钱包（确认在册，同注资单先例）→
-   *  按 currency 对应 ledger 取 TB 运营户余额（口径同 vendor-payment.service.ts:98-109：
-   *  available = creditsPosted − debitsPosted − debitsPending）→ AED 直加、USDT 经
-   *  usdtMinorToAedMinor 折算 → 汇总 NLA，比红线算余量/缺口。 */
+  /** 查两资产（AED/USDT，不按 status 过滤——评审 Imp#1：暂停只停交易，公司手上的余额
+   *  没消失，NLA 必须照算，否则 demo/script.md 站 4 暂停 USDT-TRON 那幕会误报破线并
+   *  连累 T2 的门拦下无关的 AED 付款）→ 逐资产 resolve F_OPS 钱包（确认在册，同注资单
+   *  先例）→ 按 currency 对应 ledger 取 TB 运营户余额（口径同 vendor-payment.service.ts:
+   *  98-109：available = creditsPosted − debitsPosted − debitsPending）→ AED 直加、
+   *  USDT 经 usdtMinorToAedMinor 折算 → 汇总 NLA，比红线算余量/缺口。 */
   async computeStatus(): Promise<PrudentialStatus> {
     const assets = await this.prisma.asset.findMany({
-      where: { currency: { in: ['AED', 'USDT'] }, status: 'ACTIVE' },
+      where: { currency: { in: ['AED', 'USDT'] } },
     });
 
     const perAsset: PrudentialAssetStatus[] = [];
@@ -75,6 +80,7 @@ export class PrudentialService {
       breached: nlaAedMinor < NLA_FLOOR_AED_MINOR,
       monthlyOpexBaseAedMinor: MONTHLY_OPEX_BASE_AED_MINOR.toString(),
       coefficient: '1.2',
+      pegRate: AED_USD_PEG_RATE,
     };
   }
 }
