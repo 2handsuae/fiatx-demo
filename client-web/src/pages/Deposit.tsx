@@ -11,6 +11,7 @@ import {
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
 import { getDepositStatusView } from '../utils/depositStatusView';
+import { onCustomerUpdated } from '../utils/customerSocket';
 import { RestrictionBanner } from '../components/RestrictionBanner';
 import { PendingActionBanner } from '../components/PendingActionBanner';
 import { StatusBadge } from '../components/StatusBadge';
@@ -258,6 +259,15 @@ const Deposit = () => {
           fetchHistory();
       }
   }, [activeTab, page, historyStatus, historyAssetId, user]);
+
+  // History 列表随 customer.updated 信号刷新（战役丙波一 T9，BACKLOG:272）：payin/
+  // deposit 状态落库后后端广播该信号，前端收到就按当前筛选/页码重新拉一次，不再需要
+  // 客户手动刷新。本页不展示余额，故只挂 fetchHistory。
+  useEffect(() => {
+    const unbind = onCustomerUpdated(() => void fetchHistory());
+    return unbind;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, historyStatus, historyAssetId]);
 
   useEffect(() => {
     setSignalFeedback(null);

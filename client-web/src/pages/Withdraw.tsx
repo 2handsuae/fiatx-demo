@@ -13,6 +13,7 @@ import {
 } from '../utils/customerFetch';
 import { resolveSubmitErrorInfo, TIER_UPGRADE_HINT_CODES } from '../utils/limitErrorText';
 import { getWithdrawStatusView } from '../utils/withdrawStatusView';
+import { onCustomerUpdated } from '../utils/customerSocket';
 import { StatusBadge } from '../components/StatusBadge';
 
 interface Asset {
@@ -134,44 +135,62 @@ const Withdraw = () => {
   const [historyStatus, setHistoryStatus] = useState('');
   const [historyAssetId, setHistoryAssetId] = useState('');
 
+  const fetchAssets = async () => {
+    try {
+      const response = await customerFetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`);
+      if (response.ok) {
+        const data = await response.json();
+        setAssets(data.items || []);
+      }
+    } catch (error: unknown) {
+      if (error instanceof CustomerSessionError) return;
+      console.error('Failed to fetch assets', error);
+    }
+  };
+
+  // 抽成具名函数（战役丙波一 T9）：mount 时与 customer.updated 信号都要刷新余额，
+  // handleConfirmWithdraw 提交成功后的余额刷新也改调这里，不再各处各写一份。
+  const fetchBalances = async () => {
+    if (!user) return;
+    setBalanceLoading(true);
+    try {
+      const response = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/client/portfolio/balances`,
+      );
+      if (response.ok) {
+        const data = await response.json();
+        setBalances(data);
+        setBalanceError(null);
+      } else {
+        setBalanceError('Failed to load balances');
+      }
+    } catch (error: unknown) {
+      if (error instanceof CustomerSessionError) return;
+      setBalanceError('Failed to load balances');
+      console.error('Failed to fetch balances', error);
+    } finally {
+      setBalanceLoading(false);
+    }
+  };
+
   // Fetch Assets & Balances
   useEffect(() => {
-    const fetchData = async () => {
-      if (!user) return;
-      setBalanceLoading(true);
-      try {
-        // Fetch Assets
-        const assetsResponse = await customerFetch(
-          `${import.meta.env.VITE_API_URL}/assets?status=ACTIVE`,
-        );
-        if (assetsResponse.ok) {
-          const data = await assetsResponse.json();
-          setAssets(data.items || []);
-        }
-
-        // Fetch Balances
-        const balancesResponse = await customerFetch(
-          `${import.meta.env.VITE_API_URL}/client/portfolio/balances`,
-        );
-        if (balancesResponse.ok) {
-          const data = await balancesResponse.json();
-          setBalances(data);
-          setBalanceError(null);
-        } else {
-          setBalanceError('Failed to load balances');
-        }
-      } catch (error: unknown) {
-        if (error instanceof CustomerSessionError) {
-          return;
-        }
-        setBalanceError('Failed to load balances');
-        console.error('Failed to fetch data', error);
-      } finally {
-        setBalanceLoading(false);
-      }
-    };
-    fetchData();
+    if (!user) return;
+    fetchAssets();
+    fetchBalances();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  // 提现列表与余额随 customer.updated 信号刷新（战役丙波一 T9，BACKLOG:272）：处置/
+  // 放行/失败等落库后后端广播该信号，前端按当前筛选/页码与余额各刷一次。
+  useEffect(() => {
+    const unbind = onCustomerUpdated(() => {
+      fetchHistory();
+      fetchBalances();
+    });
+    return unbind;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, historyStatus, historyAssetId, user]);
 
   // Fetch Wallets (Outbound) when Asset Changes
   useEffect(() => {
@@ -390,14 +409,7 @@ const Withdraw = () => {
             setManualAddress('');
             setLimitBanner(null);
             clearQuoteState();
-            // Refresh balances
-            const balancesResponse = await customerFetch(
-              `${import.meta.env.VITE_API_URL}/client/portfolio/balances`,
-            );
-            if (balancesResponse.ok) {
-                const data = await balancesResponse.json();
-                setBalances(data);
-            }
+            fetchBalances();
         } else {
             const { message, limitCode } = await resolveSubmitErrorInfo(
               response,

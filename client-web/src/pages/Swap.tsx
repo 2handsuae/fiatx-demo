@@ -24,16 +24,14 @@ import {
 } from '../utils/customerFetch';
 import { resolveSubmitErrorInfo, TIER_UPGRADE_HINT_CODES } from '../utils/limitErrorText';
 import { getSwapStatusView } from '../utils/swapStatusView';
+import { onCustomerUpdated } from '../utils/customerSocket';
 import { RestrictionBanner } from '../components/RestrictionBanner';
 import { StatusBadge } from '../components/StatusBadge';
 import { isCapabilityRestricted } from '../utils/restrictedCapabilities';
 
 // 兑换不再是提交即成交：建单落 COMPLIANCE_PENDING 后，Sumsub 裁决靠 webhook 异步
-// 落地。提交成功后直接跳 History 列表（不再弹等待面板）；列表在存在非终态单时
-// 每 3s 轻量自刷，全部终态即停——客户在列表里看着 Processing 翻到终态。
-const HISTORY_REFRESH_INTERVAL_MS = 3000;
-// 终态集合与 swapStatusView 的口径一致。
-const SWAP_TERMINAL_STATUSES = new Set(['SUCCESS', 'REJECTED']);
+// 落地。提交成功后直接跳 History 列表（不再弹等待面板）；列表随 customer.updated
+// 信号刷新（T8 socket，见下方订阅 effect）——裁决落库后台推送，不再定时轮询。
 
 interface Asset {
   id: string;
@@ -553,21 +551,17 @@ const Swap = () => {
     return () => clearInterval(timer);
   }, [showConfirm, firmQuote]);
 
-  // History 自刷：列表里还有非终态单（Processing）时每 HISTORY_REFRESH_INTERVAL_MS
-  // 拉一次，让客户看着它翻到终态；全部终态即停。翻到终态那一刻顺带刷余额。
-  // 依赖 history 数组本身——每次 fetchHistory 返回都会重新评估是否还需要下一轮。
+  // History 与余额随 customer.updated 信号刷新（战役丙波一 T9，替代退役的 3s 自刷）：
+  // 后端在裁决/状态落库后广播该信号，前端收到就按当前筛选重新拉一次 History 并顺带
+  // 刷新余额（评审 Minor3：终态余额顺带刷不能丢）。
   useEffect(() => {
-    if (activeTab !== 'history') return;
-    const hasNonTerminal = history.some((h) => !SWAP_TERMINAL_STATUSES.has(h.status));
-    if (!hasNonTerminal) return;
-
-    const timer = setTimeout(async () => {
-      await fetchHistory();
+    const unbind = onCustomerUpdated(() => {
+      fetchHistory();
       fetchBalances();
-    }, HISTORY_REFRESH_INTERVAL_MS);
-    return () => clearTimeout(timer);
+    });
+    return unbind;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, history]);
+  }, [historyStatus, user]);
 
   // Routed through getSwapStatusView so this list can never render a raw
   // status code — COMPLIANCE_PENDING/PROCESSING both read "PROCESSING" here
