@@ -4,6 +4,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ComplaintsService } from './complaints.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { NotificationsService } from '../../../core/notifications/notifications.service';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 
 const ops: ApprovalActorContext = { actorType: 'ADMIN', userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['COMPLIANCE_OFFICER'] };
@@ -12,6 +13,7 @@ describe('ComplaintsService (Task 2)', () => {
   let prisma: PrismaService;
   let service: ComplaintsService;
   let auditLogs: { recordByActor: jest.Mock; recordSystem: jest.Mock };
+  let notifications: { notifyComplaintStatus: jest.Mock };
   const createdComplaintNos: string[] = [];
 
   beforeAll(async () => {
@@ -30,11 +32,13 @@ describe('ComplaintsService (Task 2)', () => {
 
   beforeEach(async () => {
     auditLogs = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn(async () => ({})) };
+    notifications = { notifyComplaintStatus: jest.fn(async () => undefined) };
     const mod = await Test.createTestingModule({
       providers: [
         ComplaintsService,
         { provide: PrismaService, useValue: prisma },
         { provide: AuditLogsService, useValue: auditLogs },
+        { provide: NotificationsService, useValue: notifications },
       ],
     }).compile();
     service = mod.get(ComplaintsService);
@@ -305,6 +309,48 @@ describe('ComplaintsService (Task 2)', () => {
     });
   });
 
+  // ── 战役丙波一 T7：transition 中心点落库成功后调 notifyComplaintStatus，
+  // 六个调用方共用一处，调用处不预判 to 是否命中客户可见模板（T2
+  // COMPLAINT_TEMPLATE_BY_TO 未登记的 to，如 INVESTIGATING，内部静默跳过——
+  // 断言仍然是"被调且 to=INVESTIGATING"，不是"不调用"，以贯彻"调用方不预判"）。
+  describe('战役丙波一 T7：transition → notifyComplaintStatus', () => {
+    it('acknowledge：RECEIVED→ACKNOWLEDGED，调用方不过滤，直接带 to=ACKNOWLEDGED', async () => {
+      const { complaintNo, customerNo } = await submitComplaint();
+      await service.acknowledge(ops, complaintNo, { message: 'ack' });
+      expect(notifications.notifyComplaintStatus).toHaveBeenCalledWith({
+        complaintNo, owner: { customerNo }, to: 'ACKNOWLEDGED',
+      });
+    });
+
+    it('startInvestigation：ACKNOWLEDGED→INVESTIGATING——调用处仍然调用（不预判命中），INVESTIGATING 未登记模板，静默留给 T2 内部', async () => {
+      const ctx = await submitComplaint();
+      await service.acknowledge(ops, ctx.complaintNo, { message: 'ack' });
+      notifications.notifyComplaintStatus.mockClear();
+      await service.startInvestigation(ops, ctx.complaintNo);
+      expect(notifications.notifyComplaintStatus).toHaveBeenCalledWith({
+        complaintNo: ctx.complaintNo, owner: { customerNo: ctx.customerNo }, to: 'INVESTIGATING',
+      });
+    });
+
+    it('extend：INVESTIGATING→INVESTIGATING_EXTENDED，带 to=INVESTIGATING_EXTENDED', async () => {
+      const ctx = await toInvestigating();
+      notifications.notifyComplaintStatus.mockClear();
+      await service.extend(ops, ctx.complaintNo, { explanation: 'need more time' });
+      expect(notifications.notifyComplaintStatus).toHaveBeenCalledWith({
+        complaintNo: ctx.complaintNo, owner: { customerNo: ctx.customerNo }, to: 'INVESTIGATING_EXTENDED',
+      });
+    });
+
+    it('applyResolution：RESOLUTION_PENDING→RESOLVED，带 to=RESOLVED', async () => {
+      const ctx = await toResolutionPending();
+      notifications.notifyComplaintStatus.mockClear();
+      await service.applyResolution(ctx.complaintNo, ctx.approvalNo, { outcome: 'UPHELD', resolutionText: 'Refunded' });
+      expect(notifications.notifyComplaintStatus).toHaveBeenCalledWith({
+        complaintNo: ctx.complaintNo, owner: { customerNo: ctx.customerNo }, to: 'RESOLVED',
+      });
+    });
+  });
+
   // ── markEscalated：守卫三连 ────────────────────────────────────────
   describe('markEscalated', () => {
     it('records escalatedIncidentNo without changing currentStatus', async () => {
@@ -446,7 +492,14 @@ describe('ComplaintsService (Task 2)', () => {
 
     beforeEach(async () => {
       const mod = await Test.createTestingModule({
-        providers: [ComplaintsService, { provide: PrismaService, useValue: prisma }, AuditLogsService],
+        providers: [
+          ComplaintsService,
+          { provide: PrismaService, useValue: prisma },
+          AuditLogsService,
+          // 通知层非本 describe 的断言对象——只需 DI 能解出来，mock 足够（同主
+          // beforeEach 的 notifications mock 形状，未跨块复用 jest.fn 引用）。
+          { provide: NotificationsService, useValue: { notifyComplaintStatus: jest.fn(async () => undefined) } },
+        ],
       }).compile();
       realService = mod.get(ComplaintsService);
     });

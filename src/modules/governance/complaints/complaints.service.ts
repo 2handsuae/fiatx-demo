@@ -18,6 +18,7 @@ import { Complaint, ComplaintEntry } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { NotificationsService } from '../../../core/notifications/notifications.service';
 import { AuditActions, AuditBusinessWorkflowTypes, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
@@ -102,6 +103,7 @@ export class ComplaintsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogs: AuditLogsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ── 读 ──────────────────────────────────────────────────────────────
@@ -219,7 +221,17 @@ export class ComplaintsService {
 
   private async transition(row: Complaint, to: string, patch: Record<string, unknown> = {}): Promise<Complaint> {
     this.assertTransition(row.currentStatus, to);
-    return this.prisma.complaint.update({ where: { complaintNo: row.complaintNo }, data: { currentStatus: to, ...patch } });
+    const updated = await this.prisma.complaint.update({ where: { complaintNo: row.complaintNo }, data: { currentStatus: to, ...patch } });
+    // 战役丙波一 T7：中心落库点落库成功后即调，不在六个调用方各自判断——
+    // to 是否命中客户可见模板由 T2 NotificationsService 内部判
+    // （COMPLAINT_TEMPLATE_BY_TO 未登记的 to，如 INVESTIGATING/RESOLUTION_PENDING，
+    // 静默跳过），调用处不过滤、每次状态落地都调。
+    await this.notificationsService.notifyComplaintStatus({
+      complaintNo: row.complaintNo,
+      owner: { customerNo: row.ownerCustomerNo },
+      to,
+    });
+    return updated;
   }
 
   // ── 提交（spec 双钟：ackDeadlineAt=submittedAt+7d，resolveDeadlineAt=submittedAt+28d）──

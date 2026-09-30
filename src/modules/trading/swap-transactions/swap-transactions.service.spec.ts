@@ -28,6 +28,7 @@ describe('SwapTransactionsService', () => {
       { emit: jest.fn() } as any,
       { recordByActor: jest.fn() } as any,
       { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any,
+      { notifyOrderStatusChange: jest.fn() } as any,
     );
   });
 
@@ -101,9 +102,11 @@ describe('SwapTransactionsService', () => {
 
 describe('markStatus transitions', () => {
   let service: SwapTransactionsService;
+  let notificationsService: { notifyOrderStatusChange: jest.Mock };
 
   beforeEach(() => {
-    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
+    notificationsService = { notifyOrderStatusChange: jest.fn().mockResolvedValue(undefined) };
+    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any, notificationsService as any);
   });
 
   it('COMPLIANCE_PENDING + kyt_approved → PROCESSING', async () => {
@@ -126,6 +129,49 @@ describe('markStatus transitions', () => {
       },
     } as any;
     expect(await service.markStatus('s1', SwapTransactionAction.KYT_REJECTED, tx)).toBe('REJECTED');
+  });
+
+  // 战役丙波一 T7：每次状态落地都调 notifyOrderStatusChange，断言传参真值
+  // （domain/orderNo/owner.customerId/collapsedFrom/collapsedTo）；amount/
+  // assetCode 不传（SWAP_SUCCESS/REJECTED 模板正文只用 orderNo）。
+  it('PROCESSING + success → SUCCESS：notifyOrderStatusChange 带 collapsedFrom=PROCESSING/collapsedTo=SUCCESS（均在客户面白名单内，逐字透传）', async () => {
+    const tx = {
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue({ id: 's1', swapNo: 'SWP0001', ownerId: 'cust-1', status: 'PROCESSING' }),
+        update: jest.fn().mockResolvedValue({ id: 's1', swapNo: 'SWP0001', ownerId: 'cust-1', status: 'SUCCESS' }),
+      },
+    } as any;
+
+    const next = await service.markStatus('s1', SwapTransactionAction.SUCCESS, tx);
+
+    expect(next).toBe('SUCCESS');
+    expect(notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith({
+      domain: 'SWAP',
+      orderNo: 'SWP0001',
+      owner: { customerId: 'cust-1' },
+      collapsedFrom: 'PROCESSING',
+      collapsedTo: 'SUCCESS',
+    });
+  });
+
+  it('COMPLIANCE_PENDING + kyt_rejected → REJECTED：notifyOrderStatusChange 带 collapsedTo=REJECTED', async () => {
+    const tx = {
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue({ id: 's1', swapNo: 'SWP0002', ownerId: 'cust-2', status: 'COMPLIANCE_PENDING' }),
+        update: jest.fn().mockResolvedValue({ id: 's1', swapNo: 'SWP0002', ownerId: 'cust-2', status: 'REJECTED' }),
+      },
+    } as any;
+
+    const next = await service.markStatus('s1', SwapTransactionAction.KYT_REJECTED, tx);
+
+    expect(next).toBe('REJECTED');
+    expect(notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith({
+      domain: 'SWAP',
+      orderNo: 'SWP0002',
+      owner: { customerId: 'cust-2' },
+      collapsedFrom: 'COMPLIANCE_PENDING',
+      collapsedTo: 'REJECTED',
+    });
   });
 
   it('终态不可推进：REJECTED + kyt_approved 抛错', async () => {
@@ -183,7 +229,7 @@ describe('SLA deadline 在状态机收口处统一设', () => {
   let service: SwapTransactionsService;
 
   beforeEach(() => {
-    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
+    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any, { notifyOrderStatusChange: jest.fn() } as any);
   });
 
   it('建单进入 COMPLIANCE_PENDING 时设 5 分钟 deadline', async () => {
@@ -299,7 +345,7 @@ describe('customer-facing tipping-off whitelist (findOneForCustomer / findOneFor
         findMany: jest.fn().mockResolvedValue([]),
       },
     };
-    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any, { notifyOrderStatusChange: jest.fn() } as any);
   });
 
   describe('findOneForCustomer', () => {
@@ -473,7 +519,7 @@ describe('Task 10: 客户面三层防线', () => {
       },
       fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any, { notifyOrderStatusChange: jest.fn() } as any);
   });
 
   describe('响应体：FROZEN 收敛成 COMPLIANCE_PENDING（不原样透传）', () => {
@@ -711,7 +757,7 @@ describe('findOneForAdmin', () => {
       // 第四批：admin 投影补材料请求活行（侧栏那格此前读一个不存在的列，恒 `—`）
       materialRequest: { findMany: jest.fn().mockResolvedValue([]) },
     };
-    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any, { notifyOrderStatusChange: jest.fn() } as any);
   });
 
   it('well-formed official-shape payload: parseDetail 输出提现同源形状（parity 2026-08-14）', async () => {
@@ -882,9 +928,11 @@ describe('兑换状态机 · FROZEN', () => {
 
 describe('markStatus · FROZEN 迁移边', () => {
   let service: SwapTransactionsService;
+  let notificationsService: { notifyOrderStatusChange: jest.Mock };
 
   beforeEach(() => {
-    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
+    notificationsService = { notifyOrderStatusChange: jest.fn().mockResolvedValue(undefined) };
+    service = new SwapTransactionsService({} as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any, notificationsService as any);
   });
 
   it('COMPLIANCE_PENDING + freeze → FROZEN（唯一合法入边）', async () => {
@@ -895,6 +943,31 @@ describe('markStatus · FROZEN 迁移边', () => {
       },
     } as any;
     expect(await service.markStatus('s1', SwapTransactionAction.FREEZE, tx)).toBe('FROZEN');
+  });
+
+  // 战役丙波一 T7：FROZEN 不在客户面白名单（SWAP_CUSTOMER_STATUS_PASSTHROUGH），
+  // toCustomerSwapStatus 把它收敛成字面串 'COMPLIANCE_PENDING'——不是 'PROCESSING'。
+  // brief 里"collapsed 恒 PROCESSING"是转述展示层语义（钱押着=处理中），本用例按
+  // toCustomerSwapStatus 的实际返回值断言真值，不按转述字面量断言。服务仍然每次
+  // 状态落地都调用，去重留给 T2 内部短路（collapsedFrom===collapsedTo）。
+  it('COMPLIANCE_PENDING + freeze → FROZEN：notifyOrderStatusChange 仍调用，collapsedFrom/To 均收敛为 COMPLIANCE_PENDING（FROZEN 收敛值，非 PROCESSING 字面量）', async () => {
+    const tx = {
+      swapTransaction: {
+        findUnique: jest.fn().mockResolvedValue({ id: 's1', swapNo: 'SWP0003', ownerId: 'cust-3', status: 'COMPLIANCE_PENDING' }),
+        update: jest.fn().mockResolvedValue({ id: 's1', swapNo: 'SWP0003', ownerId: 'cust-3', status: 'FROZEN' }),
+      },
+    } as any;
+
+    const next = await service.markStatus('s1', SwapTransactionAction.FREEZE, tx);
+
+    expect(next).toBe('FROZEN');
+    expect(notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith({
+      domain: 'SWAP',
+      orderNo: 'SWP0003',
+      owner: { customerId: 'cust-3' },
+      collapsedFrom: 'COMPLIANCE_PENDING',
+      collapsedTo: 'COMPLIANCE_PENDING',
+    });
   });
 
   // 2026-09-14 裁定翻案：FROZEN 不再是零出边终态，改成押锁不放的中间态——
@@ -980,6 +1053,7 @@ describe('setSlaDeadlineByNo (演示用「模拟超时」端点)', () => {
       { emit: jest.fn() } as any,
       auditLogsService as any,
       { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any,
+      { notifyOrderStatusChange: jest.fn() } as any,
     );
   });
 
@@ -1072,6 +1146,7 @@ describe('findAll — E1 ownerRestricted derivation (admin vs customerScope)', (
       { emit: jest.fn() } as any,
       { recordByActor: jest.fn() } as any,
       customerAccessService as any,
+      { notifyOrderStatusChange: jest.fn() } as any,
     );
   });
 

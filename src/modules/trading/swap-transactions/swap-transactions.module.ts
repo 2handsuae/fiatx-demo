@@ -18,6 +18,7 @@ import { CustomersModule } from '../../identity/customers/customers.module';
 import { MaterialRequestsModule } from '../../identity/material-requests/material-requests.module';
 import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
+import { NotificationsModule } from '../../../core/notifications/notifications.module';
 import { SwapUnfreezeApprovalService } from './swap-unfreeze-approval.service';
 import { SwapSanctionRefundApprovalService } from './swap-sanction-refund-approval.service';
 
@@ -71,6 +72,9 @@ import { SwapSanctionRefundApprovalService } from './swap-sanction-refund-approv
     // 波五 Task 3：SwapWorkflowService 注入 ApprovalsService（initiateUnfreeze/
     // initiateRefund 走 maker-checker 正门），同 WithdrawTransactionsModule 的引法。
     ApprovalsModule,
+    // 战役丙波一 T7：SwapTransactionsService.markStatus 每次状态落地都调
+    // NotificationsService.notifyOrderStatusChange 通知客户（同 T5/T6 引法）。
+    NotificationsModule,
   ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],
   providers: [

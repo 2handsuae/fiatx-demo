@@ -26,6 +26,7 @@ import {
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
+import { NotificationsService } from '../../../core/notifications/notifications.service';
 import { toCustomerAssetView } from '../shared/customer-view.util';
 import { resolveSlaFields as resolveSlaFieldsShared } from '../shared/sla-fields.util';
 import { freezeScanQueryArgs } from '../shared/freeze-scan.util';
@@ -161,6 +162,7 @@ export class SwapTransactionsService {
     private readonly eventEmitter: EventEmitter2,
     private readonly auditLogsService: AuditLogsService,
     private readonly customerAccessService: CustomerAccessService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private async getSwapAssetsOrThrow(fromAssetId: string, toAssetId: string) {
@@ -580,6 +582,21 @@ export class SwapTransactionsService {
       previousStatus: swap.status,
       status: next,
       traceId: updated.traceId,
+    });
+
+    // 战役丙波一 T7：每次状态落地都调 NotificationsService.notifyOrderStatusChange
+    // 通知客户，不自行预判 collapse 是否变化——去重在 T2 内部（collapsedFrom===
+    // collapsedTo 即短路）。ownerType 本域只有 'CUSTOMER' 一种取值（create() 唯一
+    // 调用点 swap-workflow.service.ts:466 硬编码 ownerType:'CUSTOMER'，无 FIRM/LP
+    // 等其他建单路径），故不需要像充值/提现那样加 ownerType 守卫。amount/assetCode
+    // 不传——SWAP_SUCCESS/REJECTED 模板正文只用 orderNo（notification-templates
+    // .constant.ts），兑换有 from/to 两条腿，没有单一"这笔的资产"可填，省略比传错好。
+    await this.notificationsService.notifyOrderStatusChange({
+      domain: 'SWAP',
+      orderNo: updated.swapNo,
+      owner: { customerId: updated.ownerId },
+      collapsedFrom: this.toCustomerSwapStatus(swap.status),
+      collapsedTo: this.toCustomerSwapStatus(next),
     });
 
     return next;

@@ -7,6 +7,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
+import { NotificationsModule } from '../../../core/notifications/notifications.module';
 import { ApprovalsModule } from '../approvals/approvals.module';
 import { IncidentsModule } from '../incidents/incidents.module';
 import { ComplaintsService } from './complaints.service';
@@ -17,7 +18,9 @@ import { ComplaintsController } from './complaints.controller';
 import { ComplaintsClientController } from './complaints.client.controller';
 
 @Module({
-  imports: [PrismaModule, AuditLogsModule, ApprovalsModule, IncidentsModule],
+  // 战役丙波一 T7：ComplaintsService.transition 中心点落库成功后调
+  // NotificationsService.notifyComplaintStatus 通知客户（同 T5/T6 引法）。
+  imports: [PrismaModule, AuditLogsModule, ApprovalsModule, IncidentsModule, NotificationsModule],
   controllers: [ComplaintsController, ComplaintsClientController],
   providers: [
     ComplaintsService,

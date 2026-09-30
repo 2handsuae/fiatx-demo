@@ -6,6 +6,7 @@ import { BinanceRateProvider } from '../pricing-center/providers/binance-rate.pr
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
+import { NotificationsService } from '../../../core/notifications/notifications.service';
 
 describe('SwapTransactionsService customer view enrichment (Task 4)', () => {
   let service: SwapTransactionsService;
@@ -20,6 +21,7 @@ describe('SwapTransactionsService customer view enrichment (Task 4)', () => {
         { provide: EventEmitter2, useValue: {} },
         { provide: AuditLogsService, useValue: {} },
         { provide: CustomerAccessService, useValue: {} },
+        { provide: NotificationsService, useValue: {} },
       ],
     }).compile();
 
