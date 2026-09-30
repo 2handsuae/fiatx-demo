@@ -26,7 +26,6 @@ import {
   AuditWorkflowTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
-import { NotificationsService } from '../../../core/notifications/notifications.service';
 import { toCustomerAssetView } from '../shared/customer-view.util';
 import { resolveSlaFields as resolveSlaFieldsShared } from '../shared/sla-fields.util';
 import { freezeScanQueryArgs } from '../shared/freeze-scan.util';
@@ -162,7 +161,6 @@ export class SwapTransactionsService {
     private readonly eventEmitter: EventEmitter2,
     private readonly auditLogsService: AuditLogsService,
     private readonly customerAccessService: CustomerAccessService,
-    private readonly notificationsService: NotificationsService,
   ) {}
 
   private async getSwapAssetsOrThrow(fromAssetId: string, toAssetId: string) {
@@ -584,21 +582,15 @@ export class SwapTransactionsService {
       traceId: updated.traceId,
     });
 
-    // 战役丙波一 T7：每次状态落地都调 NotificationsService.notifyOrderStatusChange
-    // 通知客户，不自行预判 collapse 是否变化——去重在 T2 内部（collapsedFrom===
-    // collapsedTo 即短路）。ownerType 本域只有 'CUSTOMER' 一种取值（create() 唯一
-    // 调用点 swap-workflow.service.ts:466 硬编码 ownerType:'CUSTOMER'，无 FIRM/LP
-    // 等其他建单路径），故不需要像充值/提现那样加 ownerType 守卫。amount/assetCode
-    // 不传——SWAP_SUCCESS/REJECTED 模板正文只用 orderNo（notification-templates
-    // .constant.ts），兑换有 from/to 两条腿，没有单一"这笔的资产"可填，省略比传错好。
-    await this.notificationsService.notifyOrderStatusChange({
-      domain: 'SWAP',
-      orderNo: updated.swapNo,
-      owner: { customerId: updated.ownerId },
-      collapsedFrom: this.toCustomerSwapStatus(swap.status),
-      collapsedTo: this.toCustomerSwapStatus(next),
-    });
-
+    // 战役丙波一 T7 修（T10 走查逮，fix round 1）：notifyOrderStatusChange 不
+    // 能放在这里——markStatus 从不拥有事务边界，`tx` 恒由调用方的
+    // `$transaction` 传入；NotificationsService 走独立 Prisma 连接写
+    // customerNotification，会在 SQLite 单写者下被本次未提交的外层事务锁住、
+    // 自锁到默认超时，外层事务因此回滚（订单卡回原状态），而通知已经"发出"——
+    // 真实复现：49 条假通知堆栈 + 订单状态回滚。通知调用已移到
+    // swap-workflow.service.ts 里每个 markStatus 调用点自己的 `$transaction`
+    // resolve 之后（8 处，逐处捕获该次迁移的 swapNo/ownerId/previousStatus/
+    // nextStatus）。
     return next;
   }
 

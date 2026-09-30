@@ -122,6 +122,17 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
       fromAsset: { currency: quote.fromAssetCode, code: quote.fromAssetCode, network: null, decimals: 6 },
       toAsset: { currency: quote.toAssetCode, code: quote.toAssetCode, network: null, decimals: 2 },
     })),
+    // 战役丙波一 T7 修（fix round 1）：notifySwapStatusChange 调用方
+    // toCustomerSwapStatus 做收敛——恒等直通，既有用例不关心收敛值，专属
+    // notify 用例自行覆盖。
+    toCustomerSwapStatus: jest.fn((status: string) => status),
+  };
+
+  // 战役丙波一 T7 修（fix round 1，T10 走查逮）：notifyOrderStatusChange 挪到
+  // SwapWorkflowService 自己的 $transaction resolve 之后调用（不再挂在
+  // markStatus 里）——workflow 层需要直接注入 NotificationsService。
+  const notificationsService = {
+    notifyOrderStatusChange: jest.fn(() => Promise.resolve()),
   };
 
   const auditLogsService = {
@@ -208,7 +219,7 @@ function buildMocks(quote: ReturnType<typeof baseQuote>) {
     }),
   };
 
-  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, limitGateService, l1Gate, prisma, sumsubTxnClient };
+  return { accountingService, swapQuoteService, swapTransactionsService, auditLogsService, eventEmitter, onboardingService, walletQuery, limitGateService, l1Gate, prisma, sumsubTxnClient, notificationsService };
 }
 
 function makeService(mocks: ReturnType<typeof buildMocks>) {
@@ -257,6 +268,7 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     {} as any, // materialRequestIssuer — not on this path
     mocks.l1Gate as any,
     {} as any, // approvalsService — not on this path (initiateSwap never opens FROZEN unfreeze/refund)
+    mocks.notificationsService as any,
   );
 }
 
@@ -835,6 +847,9 @@ function buildAdvanceLegMocks(opts: {
     recomputeProjections: jest.fn(() => Promise.resolve()),
     create: jest.fn(),
     findOne: jest.fn(),
+    // 战役丙波一 T7 修（fix round 1）：notifySwapStatusChange 调用方——恒等
+    // 直通，专属 notify 用例自行覆盖。
+    toCustomerSwapStatus: jest.fn((status: string) => status),
   };
 
   const fundsOrders = {
@@ -916,6 +931,14 @@ function buildAdvanceLegMocks(opts: {
     assertCapability: jest.fn(),
   };
 
+  // 战役丙波一 T7 修（fix round 1，T10 走查逮）：handleFundsOrderChanged 最后一
+  // 腿清讫会经 onLegConfirmed → markStatus(SUCCESS)，与 advanceLeg 共用这个
+  // factory——不能省略，否则最后一腿用例会在 notifySwapStatusChange 里撞
+  // undefined。
+  const notificationsService = {
+    notifyOrderStatusChange: jest.fn(() => Promise.resolve()),
+  };
+
   return {
     swapNo,
     swapRow,
@@ -931,6 +954,7 @@ function buildAdvanceLegMocks(opts: {
     fundsOrders,
     legAccounting,
     customerAccessService,
+    notificationsService,
   };
 }
 
@@ -956,6 +980,7 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     {} as any, // materialRequestIssuer — not on this path
     {} as any, // l1Gate — not on this path (advanceLeg 不建单)
     {} as any, // approvalsService — not on this path
+    mocks.notificationsService as any,
   );
 }
 
@@ -1112,6 +1137,39 @@ describe('SwapWorkflowService.handleFundsOrderChanged — CONFIRMED chaining', (
     // subscriber, FiatSettlementWorkflow, is deleted). Swap still marks
     // SUCCESS + audits SWAP_SUCCEEDED, but emits nothing.
     expect(mocks.eventEmitter.emit).not.toHaveBeenCalled();
+  });
+
+  // 战役丙波一 T7 修（fix round 1，T10 走查逮）：最后一腿清讫（PROCESSING→
+  // SUCCESS）是嵌套最深的一处——onLegConfirmed 本身也在 handleFundsOrderChanged
+  // 的 $transaction 回调里跑。notify 必须在这个外层 $transaction resolve 之后
+  // 才调用，不能提前。
+  it('T7 修·last-leg CONFIRMED→SUCCESS：回调执行期间未调用 notifyOrderStatusChange，resolve 后调用一次、传参真值', async () => {
+    const mocks = buildAdvanceLegMocks({
+      legs: [
+        { legSeq: 1, status: FundsOrderStatus.CLEARED },
+        { legSeq: 2, status: FundsOrderStatus.CLEARED },
+        { legSeq: 3, status: FundsOrderStatus.CLEARED },
+        { legSeq: 4, status: FundsOrderStatus.CONFIRMED },
+      ],
+    });
+    (mocks.swapTransactionsService.markStatus as jest.Mock).mockResolvedValue('SUCCESS');
+    mocks.prisma.$transaction = jest.fn(async (cb: any) => {
+      const result = await cb(mocks.txClient);
+      expect(mocks.notificationsService.notifyOrderStatusChange).not.toHaveBeenCalled();
+      return result;
+    });
+    const svc = makeAdvanceLegService(mocks);
+
+    await svc.handleFundsOrderChanged(evt({ legSeq: 4, attempt: 1 }) as any);
+
+    expect(mocks.notificationsService.notifyOrderStatusChange).toHaveBeenCalledTimes(1);
+    expect(mocks.notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith({
+      domain: 'SWAP',
+      orderNo: 'SWP0001',
+      owner: { customerId: 'cust-1' },
+      collapsedFrom: 'PROCESSING',
+      collapsedTo: 'SUCCESS',
+    });
   });
 
   it('no-op when the swap is already SUCCESS (idempotent replay)', async () => {
@@ -1505,6 +1563,15 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       saveSumsubVerdict: jest.fn(() => Promise.resolve()),
       recomputeProjections: jest.fn(() => Promise.resolve()),
       setNeedsReview: jest.fn(() => Promise.resolve()),
+      // 战役丙波一 T7 修（fix round 1）：notifySwapStatusChange 调用方——恒等
+      // 直通，专属 notify 用例自行覆盖。
+      toCustomerSwapStatus: jest.fn((status: string) => status),
+    };
+
+    // 战役丙波一 T7 修（fix round 1，T10 走查逮）：notifyOrderStatusChange 挪到
+    // $transaction resolve 之后调用，workflow 层需要注入 NotificationsService。
+    const notificationsService = {
+      notifyOrderStatusChange: jest.fn(() => Promise.resolve()),
     };
 
     const legAccounting = {
@@ -1657,6 +1724,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       customerMainRow,
       materialRequests,
       materialRequestIssuer,
+      notificationsService,
     };
   }
 
@@ -1680,6 +1748,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       mocks.materialRequestIssuer as any,
       {} as any, // l1Gate — not on this path (applyKytVerdict 不建单)
       {} as any, // approvalsService — not on this path
+      mocks.notificationsService as any,
     );
   }
 
@@ -1750,6 +1819,108 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       .map((c) => c[0])
       .find((a: any) => a.action === AuditActions.SWAP_KYT_REJECTED);
     expect(rejectedAudit).toBeDefined();
+  });
+
+  // 战役丙波一 T7 修（fix round 1，T10 走查逮，4 次独立 reset 100% 复现）：
+  // notifyOrderStatusChange 必须在 markStatus 所在的 $transaction 真正提交
+  // 之后才调——若错放回事务回调内（老毛病），NotificationsService 走独立
+  // Prisma 连接写 customerNotification，会在 SQLite 单写者下被本次未提交的
+  // 外层事务锁住、自锁到默认超时，外层事务因此回滚，而通知已经"发出"，
+  // SLA sweep 重试同一迁移每轮再发一条，堆出重复假通知。下面三条用例用可控
+  // $transaction mock 钉死"resolve 之后才调用"这条时序性质，覆盖 approved/
+  // rejected（本组）与 FROZEN（本组 sceneTag 分支）三种迁移；最后一条钉死
+  // 回滚路径（反面封条）。
+  describe('战役丙波一 T7 修：notifyOrderStatusChange 只在 $transaction resolve 之后才调用', () => {
+    it('approved（COMPLIANCE_PENDING→PROCESSING）：回调执行期间未调用，resolve 后调用一次、传参真值', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      (mocks.swapTransactionsService.markStatus as jest.Mock).mockResolvedValue('PROCESSING');
+      // 断言点放在 $transaction mock 内部、cb 已经跑完但 mock 自己还没 return
+      // 的这一刻——这正是"事务回调已提交所有内部调用、但 $transaction 包装本身
+      // 尚未把控制权交还调用方"的等价时刻。若 notify 被错放回 cb 内部，这里会
+      // 先于下面的断言被打破。
+      mocks.prisma.$transaction = jest.fn(async (cb: any) => {
+        const result = await cb(mocks.txClient);
+        expect(mocks.notificationsService.notifyOrderStatusChange).not.toHaveBeenCalled();
+        return result;
+      });
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', { verdict: 'approved' });
+
+      expect(mocks.notificationsService.notifyOrderStatusChange).toHaveBeenCalledTimes(1);
+      expect(mocks.notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith({
+        domain: 'SWAP',
+        orderNo: 'SWP0001',
+        owner: { customerId: 'cust-1' },
+        collapsedFrom: 'COMPLIANCE_PENDING',
+        collapsedTo: 'PROCESSING',
+      });
+    });
+
+    it('rejected 无制裁（COMPLIANCE_PENDING→REJECTED）：回调执行期间未调用，resolve 后调用一次、传参真值', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      (mocks.swapTransactionsService.markStatus as jest.Mock).mockResolvedValue('REJECTED');
+      mocks.prisma.$transaction = jest.fn(async (cb: any) => {
+        const result = await cb(mocks.txClient);
+        expect(mocks.notificationsService.notifyOrderStatusChange).not.toHaveBeenCalled();
+        return result;
+      });
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', { verdict: 'rejected', applicantActions: [] });
+
+      expect(mocks.notificationsService.notifyOrderStatusChange).toHaveBeenCalledTimes(1);
+      expect(mocks.notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith({
+        domain: 'SWAP',
+        orderNo: 'SWP0001',
+        owner: { customerId: 'cust-1' },
+        collapsedFrom: 'COMPLIANCE_PENDING',
+        collapsedTo: 'REJECTED',
+      });
+    });
+
+    it('rejected + 本单制裁命中（COMPLIANCE_PENDING→FROZEN，走 handleRejectDisposition 内部 $transaction）：回调执行期间未调用，resolve 后调用一次、传参真值', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      // 两个 $transaction（外层 applyKytVerdict 的 + handleRejectDisposition 内
+      // FREEZE 那个）共用这一个 mock；FREEZE 那次的 cb 跑完之后同样断言此刻
+      // notify 尚未被调——外层那次因 willFreeze 提前 return，cb 内本就不含
+      // markStatus，断言在那次自然成立，不会误伤。
+      mocks.prisma.$transaction = jest.fn(async (cb: any) => {
+        const result = await cb(mocks.txClient);
+        expect(mocks.notificationsService.notifyOrderStatusChange).not.toHaveBeenCalled();
+        return result;
+      });
+      const service = makeApplyKytVerdictService(mocks);
+
+      await service.applyKytVerdict('s1', { verdict: 'rejected', sceneTag: 'SANCTION_APPLICANT' });
+
+      expect(mocks.notificationsService.notifyOrderStatusChange).toHaveBeenCalledTimes(1);
+      expect(mocks.notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith({
+        domain: 'SWAP',
+        orderNo: 'SWP0001',
+        owner: { customerId: 'cust-1' },
+        collapsedFrom: 'COMPLIANCE_PENDING',
+        collapsedTo: 'FROZEN',
+      });
+    });
+
+    // 反面封条：T10 走查逮住的真实故障是"假通知已发但订单回滚"——这里钉死
+    // 反面，回滚路径下 notify 必须零调用（调用点在 `await this.prisma
+    // .$transaction(...)` 之后，事务 reject 时那一行永远执行不到）。
+    it('$transaction 回调抛错（模拟提交失败/回滚）：notifyOrderStatusChange 零调用', async () => {
+      const mocks = buildApplyKytVerdictMocks();
+      mocks.prisma.$transaction = jest.fn(async (cb: any) => {
+        await cb(mocks.txClient); // 内部调用（markStatus 等）先跑完，模拟"迁移已尝试"
+        throw new Error('simulated commit failure — outer transaction rolls back');
+      });
+      const service = makeApplyKytVerdictService(mocks);
+
+      await expect(
+        service.applyKytVerdict('s1', { verdict: 'approved' }),
+      ).rejects.toThrow('simulated commit failure');
+
+      expect(mocks.notificationsService.notifyOrderStatusChange).not.toHaveBeenCalled();
+    });
   });
 
   it('rejected hands off to handleRejectDisposition (Task 7 stub) with the swap + raw input', async () => {
@@ -2722,10 +2893,19 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
         Promise.resolve(inflight.find((s: any) => s.id === id) ?? null),
       ),
       setNeedsReview: jest.fn(() => Promise.resolve()),
+      // 战役丙波一 T7 修（fix round 1）：notifySwapStatusChange 调用方——恒等
+      // 直通，专属 notify 用例自行覆盖。
+      toCustomerSwapStatus: jest.fn((status: string) => status),
     };
 
     const auditLogsService = {
       recordSystem: jest.fn(() => Promise.resolve()),
+    };
+
+    // 战役丙波一 T7 修（fix round 1，T10 走查逮）：FREEZE 分支的 markStatus 现在
+    // 挂在 $transaction resolve 之后调 NotificationsService。
+    const notificationsService = {
+      notifyOrderStatusChange: jest.fn(() => Promise.resolve()),
     };
 
     const prisma: any = {
@@ -2746,7 +2926,7 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
     // mock 只为了能断言"没被调用"——押锁不放之后广播冻结路径不该再擦圈。
     const swapLegAccounting = { voidLeg: jest.fn(() => Promise.resolve()) };
 
-    return { inflight, txClient, swapTransactionsService, auditLogsService, prisma, customerAccessService, swapLegAccounting };
+    return { inflight, txClient, swapTransactionsService, auditLogsService, prisma, customerAccessService, swapLegAccounting, notificationsService };
   }
 
   function makeListenerService(mocks: ReturnType<typeof buildListenerMocks>) {
@@ -2769,6 +2949,7 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
       {} as any, // materialRequestIssuer — not on this path
       {} as any, // l1Gate — not on this path (限制便签监听器不建单)
       {} as any, // approvalsService — not on this path
+      mocks.notificationsService as any,
     );
   }
 
@@ -2938,6 +3119,7 @@ describe('SwapWorkflowService.initiateUnfreeze / initiateRefund（波五 Task 3�
       {} as any, // materialRequestIssuer
       {} as any, // l1Gate
       approvalsService as any,
+      {} as any, // notificationsService — initiateUnfreeze/initiateRefund只开审批件，不调 markStatus
     );
 
     return { workflow, swapTransactionsService, auditLogsService, approvalsService, prisma };
@@ -3139,6 +3321,9 @@ describe('SwapWorkflowService — 波五 Task 3：FROZEN 执行侧', () => {
             : SwapTransactionStatus.REJECTED,
         ),
       ),
+      // 战役丙波一 T7 修（fix round 1）：notifySwapStatusChange 调用方——恒等
+      // 直通，专属 notify 用例自行覆盖。
+      toCustomerSwapStatus: jest.fn((status: string) => status),
       ...overrides.swapTransactionsService,
     };
     const auditLogsService = { recordSystem: jest.fn().mockResolvedValue({}) };
@@ -3160,6 +3345,13 @@ describe('SwapWorkflowService — 波五 Task 3：FROZEN 执行侧', () => {
       ),
     };
 
+    // 战役丙波一 T7 修（fix round 1，T10 走查逮）：onUnfreezeApproved/
+    // onRefundApproved 的 markStatus 现在挂在 $transaction resolve 之后调
+    // NotificationsService——两处都是无条件调用（无早退），必须给真 mock。
+    const notificationsService = {
+      notifyOrderStatusChange: jest.fn(() => Promise.resolve()),
+    };
+
     const workflow = new SwapWorkflowService(
       prisma,
       {} as any, // swapQuoteService
@@ -3179,9 +3371,10 @@ describe('SwapWorkflowService — 波五 Task 3：FROZEN 执行侧', () => {
       {} as any, // materialRequestIssuer
       {} as any, // l1Gate
       approvalsService as any,
+      notificationsService as any,
     );
 
-    return { workflow, swapTransactionsService, auditLogsService, approvalsService, sumsubTxnClient, prisma, txUpdate };
+    return { workflow, swapTransactionsService, auditLogsService, approvalsService, sumsubTxnClient, prisma, txUpdate, notificationsService };
   }
 
   describe('onUnfreezeDecided / onUnfreezeApproved', () => {

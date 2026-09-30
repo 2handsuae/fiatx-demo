@@ -72,8 +72,11 @@ import { SwapSanctionRefundApprovalService } from './swap-sanction-refund-approv
     // 波五 Task 3：SwapWorkflowService 注入 ApprovalsService（initiateUnfreeze/
     // initiateRefund 走 maker-checker 正门），同 WithdrawTransactionsModule 的引法。
     ApprovalsModule,
-    // 战役丙波一 T7：SwapTransactionsService.markStatus 每次状态落地都调
-    // NotificationsService.notifyOrderStatusChange 通知客户（同 T5/T6 引法）。
+    // 战役丙波一 T7（fix round 1 后）：SwapWorkflowService 在每个 markStatus
+    // 调用点自己的 $transaction resolve 之后调 NotificationsService
+    // .notifyOrderStatusChange 通知客户——不挂在 SwapTransactionsService 上，
+    // 因为 markStatus 从不拥有事务边界（tx 恒由调用方传入），通知调用必须留在
+    // 真正控制事务生命周期的那一层（同 T5/T6 引法，但消费方是 workflow service）。
     NotificationsModule,
   ],
   controllers: [SwapTransactionsController, SwapTransactionsCustomerController],

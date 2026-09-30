@@ -7,6 +7,7 @@ import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { NotificationsService } from '../../../core/notifications/notifications.service';
 import {
   ApprovalActionTypes,
   ApprovalActorContext,
@@ -197,6 +198,11 @@ export class SwapWorkflowService {
     private readonly l1Gate: L1GateService,
     // 波五 Task 3：initiateUnfreeze/initiateRefund 走 maker-checker 正门。
     private readonly approvalsService: ApprovalsService,
+    // 战役丙波一 T7 修（fix round 1，T10 走查逮）：notifyOrderStatusChange 挂在
+    // 这一层而不是 SwapTransactionsService.markStatus 内部——markStatus 不拥有
+    // 事务边界，通知必须在真正控制 $transaction 生命周期的这一层、在 resolve
+    // 之后才调用，否则会在 tx 内自锁到 Prisma 默认超时、拖累外层事务回滚。
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private resolveLedger(currency: string): number {
@@ -569,6 +575,8 @@ export class SwapWorkflowService {
           }`,
         );
       });
+      // T7 修：$transaction 已经 resolve（提交完成），这里才通知。
+      await this.notifySwapStatusChange(swap, SwapTransactionStatus.COMPLIANCE_PENDING, SwapTransactionStatus.FROZEN);
       // 返回前重取视图：内存里的 `swap`（建单事务的落库结果）没有 fromAsset/
       // toAsset 关系（create() 建单时未 include），toCustomerSwapView 拼资产
       // 投影需要它们；findByIdInternal 带齐客户面需要的全部关系。status 收敛
@@ -819,9 +827,12 @@ export class SwapWorkflowService {
     }
 
     if (input.verdict === 'approved') {
+      // T7 修：approvedNext 提到事务外层作用域，$transaction resolve 之后才
+      // 用它调 notifySwapStatusChange——这条分支无早退，赋值恒发生。
+      let approvedNext: string | null = null;
       await this.prisma.$transaction(async (tx) => {
         await this.swapTransactionsService.saveSumsubVerdict(swapId, verdictEvidence, tx);
-        const approvedNext = await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_APPROVED, tx, { operator: 'SUMSUB_KYT' });
+        approvedNext = await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_APPROVED, tx, { operator: 'SUMSUB_KYT' });
         await this.swapAudit(swap, {
           action: 'SWAP_KYT_APPROVED',
           reason: 'Swap KYT verdict approved — proceeding to settlement',
@@ -832,6 +843,9 @@ export class SwapWorkflowService {
         const legSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
         await this.createLeg(swap, legSpecs[0]!, ctx, 1, 1, swap.traceId ?? undefined, tx);
       });
+      if (approvedNext) {
+        await this.notifySwapStatusChange(swap, swap.status, approvedNext);
+      }
       await this.submitSumsubTxnIn(swapId); // fire-and-forget，买入腿失败不阻断已放行的兑换
       return;
     }
@@ -859,10 +873,14 @@ export class SwapWorkflowService {
     const hasSanction = this.hasApplicantSanctionHit(input.sceneTag);
     const willFreeze = hasSanction || input.dispoTag === 'FROZEN_BY_MLRO';
 
+    // T7 修：rejectedNext 提到事务外层作用域——willFreeze 时事务内 `return`
+    // 跳过 markStatus，rejectedNext 留 null，事务外按 null 不通知（这次裁决
+    // 没有落到 REJECTED，没有迁移可通知）。
+    let rejectedNext: string | null = null;
     await this.prisma.$transaction(async (tx) => {
       await this.swapTransactionsService.saveSumsubVerdict(swapId, verdictEvidence, tx);
       if (willFreeze) return;
-      const rejectedNext = await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_REJECTED, tx, {
+      rejectedNext = await this.swapTransactionsService.markStatus(swapId, SwapTransactionAction.KYT_REJECTED, tx, {
         rejectReason: 'KYT_REJECTED',
         operator: 'SUMSUB_KYT',
       });
@@ -878,6 +896,9 @@ export class SwapWorkflowService {
         },
       }, tx);
     });
+    if (rejectedNext) {
+      await this.notifySwapStatusChange(swap, swap.status, rejectedNext);
+    }
     // 出生锁擦圈：拒绝=终局，卖出侧预占退还客户余额。
     // willFreeze 时不放——2026-09-14 裁定翻案：FROZEN 押锁不放，这次裁决没有
     // 落到 REJECTED（上面 $transaction 内 `if (willFreeze) return;` 跳过了
@@ -1250,6 +1271,10 @@ export class SwapWorkflowService {
                 }`,
               );
             });
+          // T7 修：只在 frozeHere（这次 FREEZE 真的是本调用落地的）才通知——
+          // 良性竞态分支（handler 侧先冻）已经由 handler 自己的调用点通知过，
+          // 这里再发一条就是重复假通知，和本修复要消灭的病同源。
+          await this.notifySwapStatusChange(swap, swap.status, SwapTransactionStatus.FROZEN);
         }
       }
 
@@ -1413,6 +1438,40 @@ export class SwapWorkflowService {
       );
       return null;
     }
+  }
+
+  /**
+   * 战役丙波一 T7 修（fix round 1，T10 走查逮，4 次独立 reset 100% 复现）：
+   * notifyOrderStatusChange 必须在 markStatus 所在的 `$transaction` **提交之后**
+   * 才调——NotificationsService.notifyOrderStatusChange 走独立 Prisma 连接写
+   * customerNotification，若在 tx 回调内调用，会在 SQLite 单写者下被本次未
+   * 提交的外层事务锁住，自锁到 Prisma 默认 5000ms 超时，外层事务因此回滚
+   * （订单卡回原状态），而通知已经"发出"——SLA sweep 每 30 秒重试同一迁移，
+   * 每轮再发一条，堆出重复假通知。调用处一律在对应 `$transaction` resolve
+   * 之后调用本方法，传该次迁移**真实**的 fromStatus/toStatus；不包
+   * try/catch——T2 NotificationsService 内部已经把失败吞成 console.error，
+   * 通知失败不该拖累已经提交成功的状态变更。
+   *
+   * 不自行预判 collapse 是否变化——去重在 T2 notifyOrderStatusChange 内部
+   * （collapsedFrom===collapsedTo 即短路）。amount/assetCode 不传，兑换两条
+   * 资产腿没有单一"这笔的资产"可填，SWAP_SUCCESS/REJECTED 模板正文也只用
+   * orderNo（notification-templates.constant.ts）——省略比传错好。
+   */
+  private async notifySwapStatusChange(
+    swap: { swapNo: string | null; ownerId: string },
+    fromStatus: string,
+    toStatus: string,
+  ): Promise<void> {
+    // swapNo 理论上可空（schema 列 String?，镜像 swapAudit 对同一列的既有
+    // 容错）——无业务号没有可寻址的订单，静默不发，不编造 orderNo。
+    if (!swap.swapNo) return;
+    await this.notificationsService.notifyOrderStatusChange({
+      domain: 'SWAP',
+      orderNo: swap.swapNo,
+      owner: { customerId: swap.ownerId },
+      collapsedFrom: this.swapTransactionsService.toCustomerSwapStatus(fromStatus),
+      collapsedTo: this.swapTransactionsService.toCustomerSwapStatus(toStatus),
+    });
   }
 
   /**
@@ -1763,6 +1822,9 @@ export class SwapWorkflowService {
       metadata: { orderRef },
     });
 
+    // T7 修：$transaction 已 resolve，这里才通知。
+    await this.notifySwapStatusChange(swap, SwapTransactionStatus.FROZEN, nextStatus);
+
     await this.triggerUnfreezeRescore(swap);
   }
 
@@ -1812,6 +1874,9 @@ export class SwapWorkflowService {
     });
 
     const releasedFromAmount = await this.releaseBirthLock(swap, 'Sanction refund approved (SWAP_SANCTION_REFUND)');
+
+    // T7 修：$transaction 已 resolve，这里才通知。
+    await this.notifySwapStatusChange(swap, SwapTransactionStatus.FROZEN, nextStatus);
 
     await this.swapAudit(swap, {
       action: 'SWAP_REFUNDED',
@@ -1994,11 +2059,18 @@ export class SwapWorkflowService {
       `Swap ${swapId} funds order ${event.fundsOrderNo} (leg ${event.legSeq} attempt ${event.attempt}) → ${newStatus}`,
     );
 
-    await this.prisma.$transaction(async (client: any) => {
+    // T7 修：onLegConfirmed 命中 SUCCESS（最后一腿清讫）时把该次迁移的真值
+    // 经事务回调的返回值带出——$transaction resolve 之后才通知，不在事务回调
+    // 内（onLegConfirmed 本身也在这个 client 事务里跑）调用 notificationsService
+    // （独立 Prisma 连接，tx 内调用会自锁）。回调显式 return 而不是闭包改写外层
+    // let——闭包捕获的可变绑定会让 TS 控制流分析在这类结构化类型上过度收窄。
+    const succeeded = await this.prisma.$transaction(async (
+      client: any,
+    ): Promise<{ swap: { swapNo: string | null; ownerId: string }; nextStatus: string } | null> => {
       const swap = await this.swapTransactionsService.findByIdInternal(swapId, client);
       if (!swap || swap.status !== 'PROCESSING') {
         // Already SUCCESS (idempotent replay) or gone — nothing to do.
-        return;
+        return null;
       }
       const ctx = this.swapLegAccounting.ctxFromSwap(swap);
       const allSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
@@ -2006,11 +2078,15 @@ export class SwapWorkflowService {
       if (!spec) throw new Error(`Spec not found for legSeq ${event.legSeq}`);
 
       if (newStatus === FundsOrderStatus.CONFIRMED) {
-        await this.onLegConfirmed(swap, spec, event, ctx, client);
-      } else {
-        await this.onLegFailedSelfHeal(swap, spec, event, ctx, client);
+        const nextStatus = await this.onLegConfirmed(swap, spec, event, ctx, client);
+        return nextStatus ? { swap, nextStatus } : null;
       }
+      await this.onLegFailedSelfHeal(swap, spec, event, ctx, client);
+      return null;
     });
+    if (succeeded) {
+      await this.notifySwapStatusChange(succeeded.swap, 'PROCESSING', succeeded.nextStatus);
+    }
   }
 
   /**
@@ -2020,6 +2096,11 @@ export class SwapWorkflowService {
    * simulation only needs to reach CONFIRMED), then either finalize SUCCESS
    * (last leg) or chain the next leg. The CLEARED event this advance emits
    * re-enters handleFundsOrderChanged and is a no-op (guarded out).
+   *
+   * 返回值（T7 修）：非 null 仅当本次调用把 swap 推进 SUCCESS（最后一腿），
+   * 携带该次迁移的 nextStatus，供调用方 handleFundsOrderChanged 在
+   * $transaction resolve 之后据此调用 notifySwapStatusChange；未到最后一腿
+   * （链下一条腿）返回 null——那不是一次客户可见的状态迁移。
    */
   private async onLegConfirmed(
     swap: any,
@@ -2027,9 +2108,9 @@ export class SwapWorkflowService {
     event: FundsOrderStatusChangedEvent,
     ctx: SwapSettleCtx,
     client: any,
-  ): Promise<void> {
+  ): Promise<string | null> {
     // Task 9：推下一腿之前查客户级能力闸。三域里兑换是唯一漏掉这道的。
-    if (!(await this.assertSwapCustomerAccessOrHalt(swap, 'leg-confirmed', client))) return;
+    if (!(await this.assertSwapCustomerAccessOrHalt(swap, 'leg-confirmed', client))) return null;
     const legSeq = event.legSeq;
     // The TB pending id is derived per-(swap, leg, attempt). Use THIS attempt so
     // post hits the right transfer (matches initiateLegPending's id).
@@ -2073,13 +2154,14 @@ export class SwapWorkflowService {
         (n) => this.stageOf(n),
         client,
       );
-      return;
+      return succeededNext;
     }
 
     // Progressively create the next leg (CREATED). createLeg recomputes projections (I2).
     const allSpecs = buildSwapLegPlan({ fromIsFiat: ctx.fromIsFiat });
     const nextSpec = allSpecs.find((s) => s.legSeq === legSeq + 1)!;
     await this.createLeg(swap, nextSpec, ctx, legSeq + 1, 1, swap.traceId ?? undefined, client);
+    return null;
   }
 
   /**
@@ -2283,6 +2365,10 @@ export class SwapWorkflowService {
                 }`,
               );
             });
+          // T7 修：$transaction 已 resolve，这里才通知——这次 FREEZE 确实是
+          // 本次循环迭代落地的（try 块跑到这里说明 markStatus 没抛），不是
+          // catch 分支判良性竞态的那种情况。
+          await this.notifySwapStatusChange(sw, SwapTransactionStatus.COMPLIANCE_PENDING, SwapTransactionStatus.FROZEN);
         } else {
           // PROCESSING；或 COMPLIANCE_PENDING 但 cause≠SANCTION（例如
           // ADMIN_SUSPENSION）：都只停腿/停单，不把单据推进零出边终态
