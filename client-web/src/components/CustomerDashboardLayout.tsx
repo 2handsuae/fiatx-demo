@@ -17,6 +17,8 @@ import {
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import NotificationBell from './NotificationBell';
+import { closeCustomerSocket } from '../utils/customerSocket';
 
 /* ────────────────────────────────────────────────────────────────
  *  FIATX member shell — Terminal dialect.
@@ -123,6 +125,7 @@ const CustomerDashboardLayout = () => {
   };
 
   const handleLogout = () => {
+    closeCustomerSocket();
     localStorage.removeItem('customer_token');
     navigate('/login');
   };
@@ -271,6 +274,7 @@ const CustomerDashboardLayout = () => {
           {/* Right cluster */}
           <div className="flex items-center gap-5">
             <DubaiClock />
+            <NotificationBell />
             <button
               onClick={toggleTheme}
               className="text-fx-dust hover:text-fx-brass transition-colors"
