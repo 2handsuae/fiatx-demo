@@ -159,8 +159,8 @@ describe('NotificationsService', () => {
   });
 
   describe('notifyComplaintStatus', () => {
-    it('to 命中 RESOLVED → 落库+审计+使用 complaintNo 作为主对象号', async () => {
-      const { service, prisma, auditLogs } = makeService();
+    it('to 命中 RESOLVED → 落库+审计+使用 complaintNo 作为主对象号+发信号', async () => {
+      const { service, prisma, auditLogs, gateway } = makeService();
 
       await service.notifyComplaintStatus({ complaintNo: 'CPL1', owner: { customerId: 'c1' }, to: 'RESOLVED' });
 
@@ -173,9 +173,27 @@ describe('NotificationsService', () => {
       const auditInput = auditLogs.recordSystem.mock.calls[0][0];
       expect(auditInput.primarySubjectType).toBe('COMPLAINT');
       expect(auditInput.primarySubjectNo).toBe('CPL1');
+
+      // 评审 Important 修：命中路径（真实落库+审计的通知）必须发信号，铃铛未读数靠它刷新。
+      expect(gateway.emitCustomerUpdated).toHaveBeenCalledTimes(1);
+      expect(gateway.emitCustomerUpdated).toHaveBeenCalledWith('c1');
     });
 
-    it('to 未命中（如 INVESTIGATING 中间态）→ 静默不动作', async () => {
+    it.each([
+      ['ACKNOWLEDGED', 'COMPLAINT_ACKNOWLEDGED'],
+      ['INVESTIGATING_EXTENDED', 'COMPLAINT_EXTENDED'],
+      ['RESOLVED', 'COMPLAINT_RESOLVED'],
+    ])('to=%s 命中 → 以正确 customerId 发信号（%s）', async (to, expectedTemplateCode) => {
+      const { service, prisma, gateway } = makeService();
+
+      await service.notifyComplaintStatus({ complaintNo: 'CPL2', owner: { customerId: 'c2' }, to });
+
+      expect(gateway.emitCustomerUpdated).toHaveBeenCalledTimes(1);
+      expect(gateway.emitCustomerUpdated).toHaveBeenCalledWith('c2');
+      expect(prisma.customerNotification.create.mock.calls[0][0].data.templateCode).toBe(expectedTemplateCode);
+    });
+
+    it('to 未命中（如 INVESTIGATING 中间态）→ 静默不动作，不发信号', async () => {
       const { service, prisma, auditLogs, gateway } = makeService();
 
       await service.notifyComplaintStatus({ complaintNo: 'CPL1', owner: { customerId: 'c1' }, to: 'INVESTIGATING' });

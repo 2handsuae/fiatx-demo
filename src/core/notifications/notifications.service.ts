@@ -75,12 +75,19 @@ export class NotificationsService {
     });
   }
 
-  /** to 命中登记表才动作；未命中（如 INVESTIGATING/RESOLUTION_PENDING 等中间态）静默跳过。 */
+  /**
+   * to 命中登记表才动作；未命中（如 INVESTIGATING/RESOLUTION_PENDING 等中间态）静默跳过。
+   * 评审 Important 修：命中即代表一次真实客户可见进展（方法签名不含 collapsedFrom，
+   * "是否变化"已由调用方前置判断），同订单路径的"变了恒发"时机，补齐信号——下游铃铛
+   * 未读数靠 customer.updated 刷新，不发信号=铃铛不亮。
+   */
   async notifyComplaintStatus(input: { complaintNo: string; owner: NotifyOwnerRef; to: string }): Promise<void> {
     const templateCode = COMPLAINT_TEMPLATE_BY_TO[input.to];
     if (!templateCode) return;
 
     const owner = await this.resolveOwner(input.owner);
+    this.gateway.emitCustomerUpdated(owner.customerId);
+
     const template = NOTIFICATION_TEMPLATES[templateCode];
 
     await this.send({
