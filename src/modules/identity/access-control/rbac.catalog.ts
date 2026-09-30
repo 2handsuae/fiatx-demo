@@ -435,7 +435,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // 波五 Task 3：FROZEN 解冻/拒退审批全链——逐字镜像 withdraw-transactions 的 :id/unfreeze、:id/refund
   route('POST', '/admin/swap-transactions/:id/unfreeze', 'Unfreeze a FROZEN swap transaction', ['SWAP_UNFREEZE_WRITE']),
   route('POST', '/admin/swap-transactions/:id/refund', 'Sanction-refund a FROZEN swap transaction', ['SWAP_REFUND_WRITE']),
-  route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/advance', 'Advance swap settlement leg', ['TRADING_SWAP_WRITE']),
+  route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/advance', 'Advance swap settlement leg', ['FUNDS_ORDER_ACT']),
   route('POST', '/admin/swap-transactions/:swapNo/legs/:legSeq/resume', 'Resume a stuck swap leg', ['TRADING_SWAP_WRITE']),
   // Task 6 (SLA 批次)：管理台「模拟超时」按钮 —— 演示用,把 slaDeadline 拨到过去
   route('POST', '/admin/swap-transactions/:swapNo/simulate-sla-timeout', 'Simulate SLA timeout for a swap transaction (demo only)', ['DEMO_CLOCK_WRITE']),
