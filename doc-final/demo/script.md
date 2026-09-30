@@ -502,7 +502,7 @@
 
 **造数**：`bash scripts/on-stack.sh self demo:all`（铺齐三域 29 笔标准场景数据，含若干笔真实客户兑换，先把三收入格垫上非零基线）+ 现场一笔客户兑换（Alice USDT→AED 300，看三收入格实时再涨一格）。
 
-**账号**：`treasury@fiatx.com`（看板 / 账本三列表）→ 客户端 `demo_alice`（现场兑换）→ `compliance_lead@`（KYT 裁决）→ 推资金单一步（见判据说明，本弧走 `admin@fiatx.com` 超管，非常规演示角色，缘由见判据）。
+**账号**：`treasury@fiatx.com`（看板 / 账本三列表 / 推资金单三腿——丙案已修后金库经面板正常推完，见判据说明）→ 客户端 `demo_alice`（现场兑换）→ `compliance_lead@`（KYT 裁决）。
 
 **走查**：
 ① 金库登录 Company Funds 看板，从上到下巡览五区：运营户水位（AED/USDT 两卡，阈值线 900,000 AED / 100,000 USDT，余额高于线显绿、低于线转红）；LP 在途待验收（读 F_LIQ 科目 203）；结算在途（读 F_SET 科目 201，仅法币有行）；三收入格（210/211/212，AED/USDT 分列，标题直读 API 下发的 `accountName`）；最近资金动态（最近 10 条流水，人话事件标签，场景 28/29 刚做的注资/付款两笔当场就在列表里）——`demo:all` 已铺过若干笔标准兑换，此刻 Trading Fee Income AED 格读到 20.00（非零基线）。
@@ -514,7 +514,7 @@
 
 **判据**：看板五区数字与账本三列表 AED 侧逐位同源同值；USDT 侧继承既有显示缺口（非本波复发，已有 BACKLOG 记录）；三收入格随现场客户兑换实时上涨，涨幅等于该笔手续费。
 
-**走查中发现的一处新账（未修，已登记）**：步骤④推腿动作，管理台「⚡ Simulation」面板对兑换单挂的资金单腿统一按 `FUNDS_ORDER_PUSH_WRITE` 权限门控面板可见性，但兑换单腿的真实推进端点（`POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance`）挂的是 `TRADING_SWAP_WRITE`——金库持前者不持后者（面板看得见、点了 403），运营持后者不持前者（面板本身不出现）：本仓现状下，兑换单的资金单腿在管理台没有任何非超管角色能推完整套。本弧为了拿到「利润体现」的真实截图借道 `admin@fiatx.com`（超管跳过 RBAC），非常规演示路径，已登记 `BACKLOG.md` §E，业主定谁来兜底这条腿（金库补 `TRADING_SWAP_WRITE`，还是运营补 `FUNDS_ORDER_ACT`）后再改本节讲词。
+**走查中曾发现的一处新账（已修）**：波二 T11 走查时，管理台「⚡ Simulation」面板对兑换单挂的资金单腿统一按 `FUNDS_ORDER_PUSH_WRITE` 权限门控面板可见性，但兑换单腿的真实推进端点（`POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance`）当时挂的是 `TRADING_SWAP_WRITE`——金库持前者不持后者（面板看得见、点了 403），运营持后者不持前者（面板本身不出现），本仓当时没有任何非超管角色能推完整套，本弧当时改用超管账号 `admin@fiatx.com`（该账号跳过 RBAC）临时取证。**战役乙波三丙案已修**（`rbac.catalog.ts:435` 该路由 groups 改挂 `FUNDS_ORDER_ACT`，commit `a11f284b`，决策见 `decisions.md` 2026-09-30 条）：面板可见性与端点权限自此同源，步骤④推腿动作现场走 `treasury@fiatx.com` 经资金单页面板正常推完即可，不必再用超管账号；`BACKLOG.md` §E 该条已销账。
 
 **期望**：观众看懂两件事——① 看板不是另建的一套真相，是既有账本数据换了个一屏能看完的排版；② 利润不是财务报表里的抽象数字，客户兑一笔、看板上那一格就当场跳一下。
 

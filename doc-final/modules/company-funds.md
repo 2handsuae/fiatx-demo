@@ -69,7 +69,7 @@ EXECUTING ──⚡推出款确认(回单先于落账)──▶ SUCCESS（落账
 - 表 `capital_injections` / `vendor_payments`（reset 登记已补）；admin-web 三页 `CapitalInjectionList/Detail`、`VendorPaymentList/Detail`（Treasury 导航组）、`CompanyFundsDashboard`（阈值常量单独文件 `companyFundsThresholds.ts`，AED 900,000 / USDT 100,000，实测线上方钉死）
 - 金额换算：看板独立实现 `companyFundsFormat.ts`（`currencyOf()` 统一收敛 `asset.code`/`asset.currency` 两种键形态，`formatMinorToMajor`/`isBelowThresholdMinor` 均 BigInt-safe，不经 `Number()`）——不复用、不复发 `LedgerAccountList.tsx` 的既有 decimals 显示缺口（见 §6 与 `BACKLOG.md` §M）
 - **审慎模块（战役乙波三）** `src/modules/asset-treasury/prudential/`（constants + service + controller）：`prudential.constants.ts` 定义 `MONTHLY_OPEX_BASE_MINOR`（月开支基数，1,000,000.00 AED）+ `NLA_FLOOR_COEFFICIENT=1.2`（不可配）；汇率单源 `binance-rate.provider.ts` 导出命名常量 `AED_USD_PEG_RATE=3.6725`，provider 原逻辑与审慎服务同源引用；`PrudentialService.computeStatus()` 纯读、`assertPostOutflowCompliant()` 供两个提单口调用
-- 审计：TREASURY 域再新增 2 码——`PRUDENTIAL_CHECK_PERFORMED`（巡检，PASS/BREACH 同码以 outcome 区分）、`PRUDENTIAL_GATE_BLOCKED`（门拒，outcome=DENIED，metadata 记三个数）
+- 审计：TREASURY 域再新增 2 码——`PRUDENTIAL_CHECK_PERFORMED`（巡检，PASS/BREACH 同码以 `reasonCode` 区分——`NLA_OK`/`NLA_BREACH`，`outcome` 恒 `SUCCESS`）、`PRUDENTIAL_GATE_BLOCKED`（门拒，outcome=DENIED，metadata 记三个数）
 - 权限：`treasury.prudential_check`（`PRUDENTIAL_CHECK_WRITE`，唯金库，Treasury 域 14→15 桶）；`GET /admin/prudential/status` 挂既有桶 `treasury.view_dashboard`，零权限扩张
 - 端点：`GET /admin/prudential/status`（只读，看板取数）、`POST /admin/prudential/check`（巡检，写审计+返回 status）
 - **兑换腿修复（丙案）**：`rbac.catalog.ts:435` 该路由 `groups` 从 `['TRADING_SWAP_WRITE']` 改挂 `['FUNDS_ORDER_ACT']`——「推资金单腿归金库」2026-09-10 定案的顺延，端点挂错组才是病根；面板可见性（`FUNDS_ORDER_PUSH_WRITE`）与端点权限自此同源，`BACKLOG.md` §E 该条销账
@@ -87,7 +87,7 @@ EXECUTING ──⚡推出款确认(回单先于落账)──▶ SUCCESS（落账
 
 **豁免立场（业务立场，非遗漏）**：内部划转（补款/垫款——对客户的义务性动作）与注资（进项）**刻意不插门**；既有余额闸各管各的、不叠加。这是场景 31/32 全程的成立前提——客户资金事故的补款划转、审慎事故自己的注资复原，均需要能在 NLA 已跌破红线的窗口内照常发起成功，"补偿客户的义务优先于公司自己的流动性缓冲"不是纸面条款，是这两笔单据在跌破窗口内真实发起成功这件事本身。
 
-**巡检（跌破检测形态）**：「每日核对」的演示替身——金库在看板点「Run prudential check」，`POST /admin/prudential/check` 实算 + 写 `PRUDENTIAL_CHECK_PERFORMED` 审计（PASS/BREACH 同码，outcome 区分），零新表，「每日核对有据可查」由审计日志承担。看板另有被动红横幅（全员可见，读 `GET /admin/prudential/status`，不依赖巡检按钮）。**事故不自动生成**——巡检抓红后由 CFO 亲手登记 `PRUDENTIAL_BREACH`，操作人留痕（铁律①）。
+**巡检（跌破检测形态）**：「每日核对」的演示替身——金库在看板点「Run prudential check」，`POST /admin/prudential/check` 实算 + 写 `PRUDENTIAL_CHECK_PERFORMED` 审计（PASS/BREACH 同码，以 `reasonCode`（`NLA_OK`/`NLA_BREACH`）区分，`outcome` 恒 `SUCCESS`），零新表，「每日核对有据可查」由审计日志承担。看板另有被动红横幅（全员可见，读 `GET /admin/prudential/status`，不依赖巡检按钮）。**事故不自动生成**——巡检抓红后由 CFO 亲手登记 `PRUDENTIAL_BREACH`，操作人留痕（铁律①）。
 
 **按钮修订注记**：波二 §5「看板本身不设操作按钮」的陈述本波修订——巡检按钮是真实业务动作（每日核对的替身），不挂 ⚡ simulation 门控。甲战役 E5 判语否决的是「NLA 每日核对 cron 引擎」本体，不是巡检本身；巡检按钮归属**金库**（新桶新组唯金库持有），形成「金库巡检发现红 → CFO 登记审慎事故」两人接力。
 
