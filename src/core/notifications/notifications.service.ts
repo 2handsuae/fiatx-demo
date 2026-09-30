@@ -192,7 +192,16 @@ export class NotificationsService {
     return this.prisma.customerNotification.count({ where: { ownerCustomerNo: customerNo, readAt: null } });
   }
 
-  /** 只许标自己的行；别人的号 / 不存在的号统一 404（不另建哨兵值，见 complaints 先例）。 */
+  /**
+   * 只许标自己的行；别人的号 / 不存在的号统一 404（不另建哨兵值，见 complaints 先例），
+   * 404 路径在落库前就 throw，走不到下面的 emitSignal。
+   *
+   * T8 评审 Important 修：此前只写 readAt 不发信号——Bell 与 Messages 无共享态，
+   * `CustomerDashboardLayout` 不随 Outlet 重挂，连续使用中铃铛恒偏高，要整页刷新
+   * 才纠正。复用既有的 emitSignal 信号通道（同 notifyOrderStatusChange/
+   * notifyComplaintStatus，尽力而为、内部自己兜错，不拖累已经写完的 readAt）。
+   * 标已读仍不审计（控制器裁定不变，见 notifications.client.controller.ts 头注）。
+   */
   async markReadForCustomer(customerId: string, notificationId: string): Promise<void> {
     const { customerNo } = await this.resolveOwner({ customerId });
     const row = await this.prisma.customerNotification.findFirst({
@@ -205,6 +214,8 @@ export class NotificationsService {
       where: { id: notificationId },
       data: { readAt: new Date() },
     });
+
+    this.emitSignal(customerId, `markReadForCustomer ${notificationId}`);
   }
 
   /** owner 至少给一半，查另一半补齐——customerId 用于 socket room，customerNo 是通知行的业务键。 */

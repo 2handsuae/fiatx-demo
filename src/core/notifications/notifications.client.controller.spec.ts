@@ -80,7 +80,7 @@ function build() {
   const gateway: any = { emitCustomerUpdated: jest.fn() };
   const service = new NotificationsService(prisma, auditLogs, gateway);
   const controller = new NotificationsClientController(service);
-  return { controller, service, prisma, auditLogs, rows };
+  return { controller, service, prisma, auditLogs, gateway, rows };
 }
 
 describe('客户端端点鉴权', () => {
@@ -170,5 +170,25 @@ describe('POST /client/me/notifications/:id/read', () => {
     const { controller, auditLogs } = build();
     await controller.markRead(CUSTOMER_REQ, 'n1');
     expect(auditLogs.recordSystem).not.toHaveBeenCalled();
+  });
+
+  // T8 评审 Important 修：markReadForCustomer 落库成功后要复用 emitSignal 通知
+  // 前端铃铛重拉未读数——此前只写 readAt、零信号，Bell 靠整页刷新才纠正。
+  it('标已读成功 → emitCustomerUpdated 被调用（本人 customerId，供铃铛重拉未读数）', async () => {
+    const { controller, gateway } = build();
+    await controller.markRead(CUSTOMER_REQ, 'n1');
+    expect(gateway.emitCustomerUpdated).toHaveBeenCalledWith('c1');
+  });
+
+  it('跨客户 404 路径不发信号（404 在落库前 throw，走不到 emitSignal）', async () => {
+    const { controller, gateway } = build();
+    await expect(controller.markRead(CUSTOMER_REQ, 'n3')).rejects.toThrow(NotFoundException);
+    expect(gateway.emitCustomerUpdated).not.toHaveBeenCalled();
+  });
+
+  it('不存在的 id 的 404 路径同样不发信号', async () => {
+    const { controller, gateway } = build();
+    await expect(controller.markRead(CUSTOMER_REQ, 'nope')).rejects.toThrow(NotFoundException);
+    expect(gateway.emitCustomerUpdated).not.toHaveBeenCalled();
   });
 });
