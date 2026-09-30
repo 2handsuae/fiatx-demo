@@ -4,6 +4,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AuditLogsModule } from '../../modules/audit-logging/audit-logs.module';
 import { NotificationsGateway } from './notifications.gateway';
 import { NotificationsService } from './notifications.service';
+import { NotificationsClientController } from './notifications.client.controller';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { NotificationsService } from './notifications.service';
       secret: process.env.JWT_SECRET || 'secretKey',
     }),
   ],
+  controllers: [NotificationsClientController],
   providers: [NotificationsGateway, NotificationsService],
   exports: [NotificationsGateway, NotificationsService],
 })

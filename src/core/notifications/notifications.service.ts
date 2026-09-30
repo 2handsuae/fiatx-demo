@@ -5,7 +5,7 @@
  * tipping-off 红线：模板键查无即沉默（notification-templates.constant.ts 头注释），
  * 本服务不为未登记的键加 default 分支、不拼兜底文案。
  */
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditLogsService } from '../../modules/audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../../modules/audit-logging/constants/audit-actions.constant';
@@ -16,6 +16,19 @@ import { NOTIFICATION_TEMPLATES, NotificationTemplate, NotificationTemplateParam
 export interface NotifyOwnerRef {
   customerId?: string;
   customerNo?: string;
+}
+
+/** T4 客户面出口形状（T8 前端按此调，见 task-4-brief 接口契约）。 */
+export interface ClientNotificationItem {
+  id: string;
+  templateCode: string;
+  title: string;
+  body: string;
+  channels: string[];
+  relatedOrderType: string;
+  relatedOrderNo: string;
+  readAt: Date | null;
+  createdAt: Date;
 }
 
 export interface OrderNotifyInput {
@@ -98,6 +111,60 @@ export class NotificationsService {
       entityType: AuditEntityTypes.COMPLAINT,
       relatedOrderType: 'COMPLAINT',
       relatedOrderNo: input.complaintNo,
+    });
+  }
+
+  /**
+   * 战役丙波一 T4：客户面三读写方法。customerId 一律是 JWT payload.sub（内部 UUID），
+   * 借 resolveOwner({customerId}) 查出 customerNo 再 where ownerCustomerNo——同一条查法，
+   * 不在这三个方法里另起一份 customerMain.findUnique。
+   */
+  async listForCustomer(customerId: string, skip: number, take: number): Promise<{ items: ClientNotificationItem[]; total: number }> {
+    const { customerNo } = await this.resolveOwner({ customerId });
+
+    const [rows, total] = await Promise.all([
+      this.prisma.customerNotification.findMany({
+        where: { ownerCustomerNo: customerNo },
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take,
+      }),
+      this.prisma.customerNotification.count({ where: { ownerCustomerNo: customerNo } }),
+    ]);
+
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        templateCode: row.templateCode,
+        title: row.title,
+        body: row.body,
+        channels: JSON.parse(row.channels),
+        relatedOrderType: row.relatedOrderType,
+        relatedOrderNo: row.relatedOrderNo,
+        readAt: row.readAt,
+        createdAt: row.createdAt,
+      })),
+      total,
+    };
+  }
+
+  async unreadCountForCustomer(customerId: string): Promise<number> {
+    const { customerNo } = await this.resolveOwner({ customerId });
+    return this.prisma.customerNotification.count({ where: { ownerCustomerNo: customerNo, readAt: null } });
+  }
+
+  /** 只许标自己的行；别人的号 / 不存在的号统一 404（不另建哨兵值，见 complaints 先例）。 */
+  async markReadForCustomer(customerId: string, notificationId: string): Promise<void> {
+    const { customerNo } = await this.resolveOwner({ customerId });
+    const row = await this.prisma.customerNotification.findFirst({
+      where: { id: notificationId, ownerCustomerNo: customerNo },
+      select: { id: true },
+    });
+    if (!row) throw new NotFoundException('Notification not found');
+
+    await this.prisma.customerNotification.update({
+      where: { id: notificationId },
+      data: { readAt: new Date() },
     });
   }
 
