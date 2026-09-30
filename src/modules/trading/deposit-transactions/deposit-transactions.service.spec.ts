@@ -830,6 +830,10 @@ describe('DepositTransactionsService', () => {
         ownerType: 'CUSTOMER',
         ownerId: 'U123',
         assetId: 'A123',
+        // 评审 Critical 修：真实 updateStatus 现在 include asset:{select:{code}}，
+        // updated.asset.code 才是 notify 传的展示码——mockRecord 必须带上，
+        // 否则 CUSTOMER 分支会在 updated.asset.code 上抛 TypeError。
+        asset: { code: 'USDT' },
         amount: '100',
         payinId: 'P123',
       };
@@ -858,7 +862,9 @@ describe('DepositTransactionsService', () => {
           collapsedFrom: 'COMPLIANCE_PENDING',
           collapsedTo: 'COMPLIANCE_PENDING',
           amount: '100',
-          assetCode: 'A123',
+          // 评审 Critical 修：assetCode 必须是可读资产码（asset.code），不是
+          // assetId（Asset.id 外键 uuid）。
+          assetCode: 'USDT',
         }),
       );
     });
@@ -880,20 +886,23 @@ describe('DepositTransactionsService', () => {
           collapsedFrom: 'COMPLIANCE_PENDING',
           collapsedTo: 'SUCCESS',
           amount: '100',
-          assetCode: 'A123',
+          // 评审 Critical 修：同上，assetCode 取 asset.code。
+          assetCode: 'USDT',
         }),
       );
     });
 
-    // FIRM 单（本行 ownerType 现役取值之一）跳过通知——不调用
-    // notifyOrderStatusChange。
-    it('ownerType=FIRM 的单不调用 notifyOrderStatusChange', async () => {
+    // 评审 Important 订正：本域非 CUSTOMER 的真实值是 PLATFORM（ownerType 继承自
+    // 入金钱包 Wallet.ownerType，schema.prisma:703 注释 `PLATFORM | CUSTOMER`；
+    // 'FIRM' 在本域从未出现过，运行时守卫仍是 `=== 'CUSTOMER'` 不变）。
+    // PLATFORM 单跳过通知——不调用 notifyOrderStatusChange。
+    it('ownerType=PLATFORM 的单不调用 notifyOrderStatusChange', async () => {
       const mockRecord = {
         id: mockId,
-        depositNo: 'DP-FIRM-1',
+        depositNo: 'DP-PLATFORM-1',
         status: DepositTransactionStatus.COMPLIANCE_PENDING,
-        ownerType: 'FIRM',
-        ownerId: 'FIRM123',
+        ownerType: 'PLATFORM',
+        ownerId: 'PLATFORM123',
         assetId: 'A123',
         amount: '100',
         payinId: 'P123',

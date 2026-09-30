@@ -3687,6 +3687,9 @@ describe('DepositWorkflowService', () => {
       ownerType: 'CUSTOMER',
       ownerId: 'cust-real-1',
       assetId: 'asset-usdt',
+      // 评审 Critical 修：真实 updateStatus 现在 include asset:{select:{code}}，
+      // ownerType=CUSTOMER 会真的调用 notify，updated.asset.code 必须存在。
+      asset: { code: 'USDT' },
       amount: '5',
       limitHoldReason: 'BELOW_MIN',
       traceId: 'trace-real-1',

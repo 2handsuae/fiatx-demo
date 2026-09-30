@@ -832,6 +832,10 @@ export class DepositTransactionsService {
     const updated = await (db as any).depositTransaction.update({
       where: { id },
       data: updateData,
+      // 评审 Critical：通知正文要给客户可读资产码（见下方 notify 调用），不能
+      // 沿 assetId（Asset.id 外键，@default(uuid())，与 toCustomerDepositView
+      // 用 toCustomerAssetView(item.asset).code 的既有惯例一致做法）。
+      include: { asset: { select: { code: true } } },
     });
 
     this.eventEmitter.emit(
@@ -847,9 +851,11 @@ export class DepositTransactionsService {
       ),
     );
 
-    // 战役丙波一 T5：FIRM 单（本行 ownerType 现役取值之一，见
-    // deposit-workflow.service.ts:1091）无客户可通知，跳过；CUSTOMER 单每次
-    // 状态落地都调，不自行预判 collapse 是否变化——去重在 T2
+    // 战役丙波一 T5（评审后订正）：非 CUSTOMER 单（本域 ownerType 继承自入金
+    // 钱包 Wallet.ownerType，见 detected() 的 `ownerType: wallet.ownerType`；
+    // 真实非客户取值是 PLATFORM——schema.prisma:703 Wallet.ownerType 注释
+    // `PLATFORM | CUSTOMER`，'FIRM' 在本域从未出现过）无客户可通知，跳过；
+    // CUSTOMER 单每次状态落地都调，不自行预判 collapse 是否变化——去重在 T2
     // notifyOrderStatusChange 内部（collapsedFrom===collapsedTo 即短路）。
     if (updated.ownerType === 'CUSTOMER') {
       await this.notificationsService.notifyOrderStatusChange({
@@ -863,7 +869,11 @@ export class DepositTransactionsService {
         // `.toString()` 只是把 Decimal 对象转成通知层要求的 string（events
         // emitter :844 同款写法），不改变数值。
         amount: updated.amount.toString(),
-        assetCode: updated.assetCode ?? updated.assetId,
+        // 评审 Critical 修：assetId 是 Asset.id 外键（uuid），不能直接进客户
+        // 通知正文；取法同 toCustomerDepositView 的既有惯例
+        // toCustomerAssetView(item.asset).code——上方 update() 已 include
+        // asset:{select:{code:true}}。
+        assetCode: updated.asset.code,
       });
     }
 

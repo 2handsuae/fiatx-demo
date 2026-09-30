@@ -143,6 +143,31 @@ describe('NotificationsService', () => {
     expect(Object.keys(NOTIFICATION_TEMPLATES)).toHaveLength(16);
   });
 
+  // 评审 Important（控制器裁定）：通知是主流程旁路副作用，内部失败（如落库
+  // 抛错）不能拖垮调用方——调用方在通知之后还有落账/审计要做（丙波一 T5
+  // 见 deposit-transactions.service.ts updateStatus）。方法整体 try/catch，
+  // 失败只 console.error，不再抛，Promise 必须 resolve。
+  it('内部抛错（如 prisma.customerNotification.create 挂）→ 方法 resolve 不 throw', async () => {
+    const { service, prisma } = makeService();
+    prisma.customerNotification.create.mockRejectedValueOnce(new Error('db unavailable'));
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(
+      service.notifyOrderStatusChange({
+        domain: 'DEPOSIT',
+        orderNo: 'DEP-ERR-1',
+        owner: { customerId: 'c1' },
+        collapsedFrom: 'PAYIN_PENDING',
+        collapsedTo: 'SUCCESS',
+        amount: '100',
+        assetCode: 'USDT',
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(consoleErrorSpy).toHaveBeenCalled();
+    consoleErrorSpy.mockRestore();
+  });
+
   it('owner 只给 customerNo 时补齐 customerId（供 gateway room 使用）', async () => {
     const { service, prisma, gateway } = makeService();
 

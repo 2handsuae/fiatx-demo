@@ -66,26 +66,37 @@ export class NotificationsService {
   /**
    * collapse 不变 → 不动作。collapse 变化 → 客户端信号恒发（哪怕没有具体消息，前端也要
    * 知道该刷新了）；命中模板才渲染落库 + 审计。
+   *
+   * 评审 Important（控制器裁定）：通知是交易主流程的旁路副作用，不得因为自己
+   * 抛错拖垮调用方——调用方（如 approveDeposit）在这句之后还有落账/审计要做，
+   * 通知层内部失败（resolveOwner 查无客户、prisma.create 挂等）不能让那些
+   * 后置动作丢失。修在边界：整方法 try/catch，失败只 console.error，不再抛。
+   * `notifyComplaintStatus` 同款处理，见下方——一处修护四域（充值/提现/兑换/
+   * 投诉），不在每个调用点各包一层。
    */
   async notifyOrderStatusChange(input: OrderNotifyInput): Promise<void> {
-    if (input.collapsedFrom === input.collapsedTo) return;
+    try {
+      if (input.collapsedFrom === input.collapsedTo) return;
 
-    const owner = await this.resolveOwner(input.owner);
-    this.gateway.emitCustomerUpdated(owner.customerId);
+      const owner = await this.resolveOwner(input.owner);
+      this.gateway.emitCustomerUpdated(owner.customerId);
 
-    const templateCode = `${input.domain}_${input.collapsedTo}`;
-    const template = NOTIFICATION_TEMPLATES[templateCode];
-    if (!template) return;
+      const templateCode = `${input.domain}_${input.collapsedTo}`;
+      const template = NOTIFICATION_TEMPLATES[templateCode];
+      if (!template) return;
 
-    await this.send({
-      ownerCustomerNo: owner.customerNo,
-      templateCode,
-      template,
-      params: { orderNo: input.orderNo, amount: input.amount, assetCode: input.assetCode },
-      entityType: ORDER_ENTITY_TYPE[input.domain],
-      relatedOrderType: input.domain,
-      relatedOrderNo: input.orderNo,
-    });
+      await this.send({
+        ownerCustomerNo: owner.customerNo,
+        templateCode,
+        template,
+        params: { orderNo: input.orderNo, amount: input.amount, assetCode: input.assetCode },
+        entityType: ORDER_ENTITY_TYPE[input.domain],
+        relatedOrderType: input.domain,
+        relatedOrderNo: input.orderNo,
+      });
+    } catch (err) {
+      console.error(`[NotificationsService] notifyOrderStatusChange failed for ${input.domain} ${input.orderNo}:`, err);
+    }
   }
 
   /**
@@ -95,23 +106,27 @@ export class NotificationsService {
    * 未读数靠 customer.updated 刷新，不发信号=铃铛不亮。
    */
   async notifyComplaintStatus(input: { complaintNo: string; owner: NotifyOwnerRef; to: string }): Promise<void> {
-    const templateCode = COMPLAINT_TEMPLATE_BY_TO[input.to];
-    if (!templateCode) return;
+    try {
+      const templateCode = COMPLAINT_TEMPLATE_BY_TO[input.to];
+      if (!templateCode) return;
 
-    const owner = await this.resolveOwner(input.owner);
-    this.gateway.emitCustomerUpdated(owner.customerId);
+      const owner = await this.resolveOwner(input.owner);
+      this.gateway.emitCustomerUpdated(owner.customerId);
 
-    const template = NOTIFICATION_TEMPLATES[templateCode];
+      const template = NOTIFICATION_TEMPLATES[templateCode];
 
-    await this.send({
-      ownerCustomerNo: owner.customerNo,
-      templateCode,
-      template,
-      params: { orderNo: input.complaintNo },
-      entityType: AuditEntityTypes.COMPLAINT,
-      relatedOrderType: 'COMPLAINT',
-      relatedOrderNo: input.complaintNo,
-    });
+      await this.send({
+        ownerCustomerNo: owner.customerNo,
+        templateCode,
+        template,
+        params: { orderNo: input.complaintNo },
+        entityType: AuditEntityTypes.COMPLAINT,
+        relatedOrderType: 'COMPLAINT',
+        relatedOrderNo: input.complaintNo,
+      });
+    } catch (err) {
+      console.error(`[NotificationsService] notifyComplaintStatus failed for ${input.complaintNo}:`, err);
+    }
   }
 
   /**
