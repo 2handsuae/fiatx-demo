@@ -281,27 +281,15 @@ const DashboardLayout = () => {
           icon: <ArrowLeftRight size={13} />,
           requiredPermissions: [PERMISSIONS.INTERNAL_TRANSFERS_READ],
         },
-        // 战役乙波一（Task 7）：LP 档案——金库注册 / CFO 批的流动性提供方登记册。
-        {
-          path: '/admin/lp-profiles',
-          label: 'LP Register',
-          icon: <Landmark size={13} />,
-          requiredPermissions: [PERMISSIONS.LP_PROFILES_READ],
-        },
-        // 战役乙波一（Task 8）：LP 兑换单——先款后货三腿，金库开单 / CFO 批。
-        {
-          path: '/admin/lp-exchanges',
-          label: 'LP Exchanges',
-          icon: <Repeat size={13} />,
-          requiredPermissions: [PERMISSIONS.LP_EXCHANGES_READ],
-        },
       ],
     },
-    // ─── Treasury（战役乙波二）────────────────────────────────────
-    // 公司自身资金动线——不是客户/LP 域。Task 6：注资单先落地；Task 7：付款单续补；
+    // ─── Treasury（战役乙波二 + 波三导航归并）────────────────────
+    // 公司自身资金动线——不是客户域。Task 6：注资单先落地；Task 7：付款单续补；
     // Task 8：公司资金全景看板——恰四职务（金库/CFO/高管/内审）可见，运营/技术官
     // 均不持 FUNDING_DASHBOARD_VIEW，导航无入口（同组的两条数据路由 OR 锚不改变这点，
     // 见 rbac.catalog.ts cap.treasury.funding_dashboard 注释）。
+    // 战役乙波三（T10，§0 裁定 9）：LP Register / LP Exchanges 从 Custody 组迁入本组——
+    // LP 是外部对手方财资活动，与注资/付款/看板同属 V7 财资域，归队同组。
     {
       label: 'Treasury',
       icon: <PiggyBank size={12} />,
@@ -324,6 +312,20 @@ const DashboardLayout = () => {
           label: 'Vendor Payments',
           icon: <Send size={13} />,
           requiredPermissions: [PERMISSIONS.VENDOR_PAYMENTS_READ],
+        },
+        // 战役乙波一（Task 7）：LP 档案——金库注册 / CFO 批的流动性提供方登记册。
+        {
+          path: '/admin/lp-profiles',
+          label: 'LP Register',
+          icon: <Landmark size={13} />,
+          requiredPermissions: [PERMISSIONS.LP_PROFILES_READ],
+        },
+        // 战役乙波一（Task 8）：LP 兑换单——先款后货三腿，金库开单 / CFO 批。
+        {
+          path: '/admin/lp-exchanges',
+          label: 'LP Exchanges',
+          icon: <Repeat size={13} />,
+          requiredPermissions: [PERMISSIONS.LP_EXCHANGES_READ],
         },
       ],
     },

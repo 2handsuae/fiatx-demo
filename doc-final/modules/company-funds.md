@@ -1,7 +1,7 @@
 # 公司资金（注资 · 供应商付款 · 全景看板）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-29（战役乙波二：注资·付款·全景看板落地）
-> 演示幕次：场景 28 / 29 / 30（暂编，战役乙收官定稿）｜ 验收：`demo/script.md` 场景 28/29/30 + 本篇 §4
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-30（战役乙波三：审慎红线与巡检 + 穿底主线收口，随第九幕定稿）
+> 演示幕次：第九幕「公司的钱」场景 28-32 ｜ 验收：`demo/script.md` 场景 28-32 + 本篇 §4
 
 ## 0. 一句话定位
 
@@ -55,7 +55,7 @@ EXECUTING ──⚡推出款确认(回单先于落账)──▶ SUCCESS（落账
 
 ## 4. 演示脚本
 
-场景 28（注资全弧：开单→CFO 批→⚡模拟打款→确认入账→看板 F_OPS 涨）、场景 29（付款全弧：选 HexTrust→CFO 批→⚡推出款→看板 F_OPS 降）、场景 30（看板五区巡览 + 账本三列表同源同值对照 + 现场客户兑换看三收入格实时涨）——步骤在 `demo/script.md`（暂编，战役乙收官定稿）。
+场景 28（注资全弧：开单→CFO 批→⚡模拟打款→确认入账→看板 F_OPS 涨）、场景 29（付款全弧：选 HexTrust→CFO 批→⚡推出款→看板 F_OPS 降）、场景 30（看板五区巡览 + 账本三列表同源同值对照 + 现场客户兑换看三收入格实时涨）、场景 31（⚡穿底：托管失窃→定性→定损→认损调账→补款划转→客户池复原，收尾双线齐红）、场景 32（审慎红线：巡检抓红→门拒付款单三个数→CFO 登记审慎事故→定损→报送 VARA→注资复原→巡检转绿→两事故结案→两报送单提交）——步骤在 `demo/script.md` 第九幕「公司的钱」，均已在 self 栈全程实走并留证。
 
 ## 5. 关键技术节点
 
@@ -68,8 +68,29 @@ EXECUTING ──⚡推出款确认(回单先于落账)──▶ SUCCESS（落账
 - 端点：`admin/capital-injections`（list/create/detail/cancel/simulate-contribution/confirm）、`admin/vendor-payments`（list/create/detail/cancel）；看板零新端点，纯前端组装既有 `GET /admin/tb/accounts`、`GET /admin/tb/account-flows`
 - 表 `capital_injections` / `vendor_payments`（reset 登记已补）；admin-web 三页 `CapitalInjectionList/Detail`、`VendorPaymentList/Detail`（Treasury 导航组）、`CompanyFundsDashboard`（阈值常量单独文件 `companyFundsThresholds.ts`，AED 900,000 / USDT 100,000，实测线上方钉死）
 - 金额换算：看板独立实现 `companyFundsFormat.ts`（`currencyOf()` 统一收敛 `asset.code`/`asset.currency` 两种键形态，`formatMinorToMajor`/`isBelowThresholdMinor` 均 BigInt-safe，不经 `Number()`）——不复用、不复发 `LedgerAccountList.tsx` 的既有 decimals 显示缺口（见 §6 与 `BACKLOG.md` §M）
+- **审慎模块（战役乙波三）** `src/modules/asset-treasury/prudential/`（constants + service + controller）：`prudential.constants.ts` 定义 `MONTHLY_OPEX_BASE_MINOR`（月开支基数，1,000,000.00 AED）+ `NLA_FLOOR_COEFFICIENT=1.2`（不可配）；汇率单源 `binance-rate.provider.ts` 导出命名常量 `AED_USD_PEG_RATE=3.6725`，provider 原逻辑与审慎服务同源引用；`PrudentialService.computeStatus()` 纯读、`assertPostOutflowCompliant()` 供两个提单口调用
+- 审计：TREASURY 域再新增 2 码——`PRUDENTIAL_CHECK_PERFORMED`（巡检，PASS/BREACH 同码以 outcome 区分）、`PRUDENTIAL_GATE_BLOCKED`（门拒，outcome=DENIED，metadata 记三个数）
+- 权限：`treasury.prudential_check`（`PRUDENTIAL_CHECK_WRITE`，唯金库，Treasury 域 14→15 桶）；`GET /admin/prudential/status` 挂既有桶 `treasury.view_dashboard`，零权限扩张
+- 端点：`GET /admin/prudential/status`（只读，看板取数）、`POST /admin/prudential/check`（巡检，写审计+返回 status）
+- **兑换腿修复（丙案）**：`rbac.catalog.ts:435` 该路由 `groups` 从 `['TRADING_SWAP_WRITE']` 改挂 `['FUNDS_ORDER_ACT']`——「推资金单腿归金库」2026-09-10 定案的顺延，端点挂错组才是病根；面板可见性（`FUNDS_ORDER_PUSH_WRITE`）与端点权限自此同源，`BACKLOG.md` §E 该条销账
 
 ## 6. 演示缺口（BACKLOG 有账）
 
 - 账本科目页（`LedgerAccountList.tsx`）`code≠currency` 资产（USDT-TRON 类）小数位显示错，根因是服务层接口命名误导（`assetCurrency` 参数实际收的是 `asset.code`）——本波新页 `CompanyFundsDashboard` 已自保不复发，旧页仍受影响，走查现场两页数字不一致可当场对照，登 `BACKLOG.md` §M
-- 兑换单资金单腿在管理台没有任何非超管角色能完整推完（前端面板门控组 `FUNDS_ORDER_PUSH_WRITE` 与后端真实端点所需 `TRADING_SWAP_WRITE` 不是同一组，金库/运营各持一半）——本波场景 30 走查现场实测发现，借道超管取证，登 `BACKLOG.md` §E，业主定谁来补齐
+- ~~兑换单资金单腿在管理台没有任何非超管角色能完整推完~~——**已修（战役乙波三丙案，见 §5）**，`BACKLOG.md` §E 该条已销账
+
+## 7. 审慎红线与巡检（战役乙波三，2026-09-30）
+
+**口径公式**：`NLA = F_OPS(AED) + F_OPS(USDT) × AED_USD_PEG_RATE 折 AED`；`红线 = NLA_FLOOR_COEFFICIENT(1.2) × MONTHLY_OPEX_BASE_MINOR`（候选月开支基数 1,000,000.00 AED → 红线 1,200,000.00 AED，写死常量，不建配置面）。`FIRM_SET`/`FIRM_LIQ` 在途**不计入 NLA**——保守口径：未验收落定的钱不算流动，LP 悬空期、结算在途期 NLA 会因此下探，这是真实的审慎细节而非疏漏；三收入科目**不计入**——损益口径不是钱包水位。这份公式照 Company Rulebook VI.C.1/C.2/C.4 一手核（`reference/research/2026-07-06-v7-treasury-research.md:16`）：NLA ≥ 1.2×月开支、只准现金等价物+锚定 VA。
+
+**门（算术门，L1 式拒建单+留痕）**：付款单发起、LP 兑换单发起两个提单口，创建时算「动后 NLA 还达标吗」，不达标 400 拒建单（单未建、无单号），拒单话术明说三个数——当前 NLA / 动后 NLA / 红线——并落 `PRUDENTIAL_GATE_BLOCKED` 审计。检查只在发起时算一次（单人顺序假设，审批时不复检）。
+
+**豁免立场（业务立场，非遗漏）**：内部划转（补款/垫款——对客户的义务性动作）与注资（进项）**刻意不插门**；既有余额闸各管各的、不叠加。这是场景 31/32 全程的成立前提——客户资金事故的补款划转、审慎事故自己的注资复原，均需要能在 NLA 已跌破红线的窗口内照常发起成功，"补偿客户的义务优先于公司自己的流动性缓冲"不是纸面条款，是这两笔单据在跌破窗口内真实发起成功这件事本身。
+
+**巡检（跌破检测形态）**：「每日核对」的演示替身——金库在看板点「Run prudential check」，`POST /admin/prudential/check` 实算 + 写 `PRUDENTIAL_CHECK_PERFORMED` 审计（PASS/BREACH 同码，outcome 区分），零新表，「每日核对有据可查」由审计日志承担。看板另有被动红横幅（全员可见，读 `GET /admin/prudential/status`，不依赖巡检按钮）。**事故不自动生成**——巡检抓红后由 CFO 亲手登记 `PRUDENTIAL_BREACH`，操作人留痕（铁律①）。
+
+**按钮修订注记**：波二 §5「看板本身不设操作按钮」的陈述本波修订——巡检按钮是真实业务动作（每日核对的替身），不挂 ⚡ simulation 门控。甲战役 E5 判语否决的是「NLA 每日核对 cron 引擎」本体，不是巡检本身；巡检按钮归属**金库**（新桶新组唯金库持有），形成「金库巡检发现红 → CFO 登记审慎事故」两人接力。
+
+**8 年安全港叙事收口**：注资单、付款单、LP 兑换单三类新单据（波一波二建表即带）的「审慎管理目的」字段 + 巡检审计记录，共同构成审慎管理决策留痕链——8 年留存本身是组织制度层（系统外，业主判定），系统面只负责产生这些可留存的记录，不建独立的留存/归档机制。
+
+**穿底主线（场景 31/32）**：见 §4；账实证据见 `demo/script.md` 场景 31/32 尾注（`verify:coa` 全程绿、TB 直读互证）。

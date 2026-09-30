@@ -1,7 +1,7 @@
 # LP 兑换台（找 LP 平盘：库存见底怎么补货）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-29（战役乙波一：LP 地基与调拨落地）
-> 演示幕次：场景 26 / 27（暂编，战役乙收官定稿）｜ 验收：`demo/script.md` 场景 26/27 + 本篇 §4
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-29（战役乙波一：LP 地基与调拨落地）；2026-09-30 战役乙波三随第九幕定稿（导航组迁 Treasury）
+> 演示幕次：第九幕「公司的钱」场景 26 / 27 ｜ 验收：`demo/script.md` 场景 26/27 + 本篇 §4
 
 ## 0. 一句话定位
 
@@ -57,7 +57,7 @@ DELIVERED ──accept(金库,验收=核数)──▶ SUCCESS（落验收转腿�
 
 ## 4. 演示脚本
 
-场景 26（正向全弧：卖 AED 买 USDT，含悬空期停点 + 验收）与场景 27（反向快演：卖 USDT 买 AED）——步骤在 `demo/script.md`（暂编，战役乙收官定稿）。
+场景 26（正向全弧：卖 AED 买 USDT，含悬空期停点 + 验收）与场景 27（反向快演：卖 USDT 买 AED）——步骤在 `demo/script.md` 第九幕「公司的钱」。
 
 ## 5. 关键技术节点
 
@@ -68,7 +68,7 @@ DELIVERED ──accept(金库,验收=核数)──▶ SUCCESS（落验收转腿�
 - 审计：TREASURY 域新增 16 码——档案族 8（`LPP_CREATED/APPROVED/REJECTED/CHANGE_PROPOSED/CHANGE_APPLIED/CHANGE_REJECTED/SUSPENDED/REACTIVATED`）、兑换族 8（`LPX_REQUESTED/CANCELLED/REJECTED/EXECUTION_STARTED/PAY_LEG_POSTED/DELIVERED/ACCEPTED/FAILED`）
 - 权限：`treasury.view_lp`（`LP_READ`，金库/CFO/内审三职务）、`treasury.act_lp`（`LP_WRITE`，金库独持）
 - 端点：`admin/lp-profiles`（list/create/detail/settlement-change/suspend/reactivate）、`admin/lp-exchanges`（list/create/detail/cancel/simulate-delivery/accept）
-- 表 `liquidity_providers` / `lp_exchanges`（reset 登记已补，见 `TOOLING-DEBT.md` 销账行）；admin-web 两组页面 `LpProfileList/Detail`、`LpExchangeList/Detail`（Custody 导航组，「LP Register」/「LP Exchanges」）
+- 表 `liquidity_providers` / `lp_exchanges`（reset 登记已补，见 `TOOLING-DEBT.md` 销账行）；admin-web 两组页面 `LpProfileList/Detail`、`LpExchangeList/Detail`（**Treasury 导航组**，「LP Register」/「LP Exchanges」——战役乙波三导航归并：与注资/付款/看板同属 V7 财资域，原挂 Custody 组已迁出）
 
 ## 6. 演示缺口（BACKLOG 有账）
 

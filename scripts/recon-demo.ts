@@ -711,10 +711,10 @@ async function assertTargetWalletsClean(
 // UNAUTHORIZED_OUTFLOW（本模式不写 manifest，成因由金库在案件行手动定性，
 // 见 demo/script.md 场景 31 步骤 3）。
 //
-// 失窃额校准（T6「先跑后选」方法论，spec §5 校准表；2026-09-30 reset 后实测，
-// 详细数字见 task-6-report.md）：
+// 失窃额校准（T6「先跑后选」方法论，spec §5 校准表；2026-09-30 demo:all 后实测）：
 //   F_OPS(AED) 当刻 946,089.35，NLA 当刻 1,364,752.25，红线 1,200,000.00，
-//   Bob（demo_bob@example.com）AED 托管钱包当刻实值 262,200.00（其 250,000
+//   Bob（demo_bob@example.com）AED 托管钱包当刻实值 262,200.00（含
+//   CLIENT_PAYABLE 257,100.00 + DEPOSIT_SUSPENSE 5,100.00；其 250,000
 //   在途提现单 PENDING_APPROVAL 只在 TB 记一笔 debitsPending 押注、尚未落
 //   account_flows，不占用这里的口径——planWallets 的 internalTotal 只认
 //   POSTED 流水）。五判据实测全过，候选 250,000.00 AED / Bob 未改动。
