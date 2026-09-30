@@ -511,3 +511,52 @@
 **走查中发现的一处新账（未修，已登记）**：步骤④推腿动作，管理台「⚡ Simulation」面板对兑换单挂的资金单腿统一按 `FUNDS_ORDER_PUSH_WRITE` 权限门控面板可见性，但兑换单腿的真实推进端点（`POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance`）挂的是 `TRADING_SWAP_WRITE`——金库持前者不持后者（面板看得见、点了 403），运营持后者不持前者（面板本身不出现）：本仓现状下，兑换单的资金单腿在管理台没有任何非超管角色能推完整套。本弧为了拿到「利润体现」的真实截图借道 `admin@fiatx.com`（超管跳过 RBAC），非常规演示路径，已登记 `BACKLOG.md` §E，业主定谁来兜底这条腿（金库补 `TRADING_SWAP_WRITE`，还是运营补 `FUNDS_ORDER_ACT`）后再改本节讲词。
 
 **期望**：观众看懂两件事——① 看板不是另建的一套真相，是既有账本数据换了个一屏能看完的排版；② 利润不是财务报表里的抽象数字，客户兑一笔、看板上那一格就当场跳一下。
+
+## 场景 31（暂编，归第九幕「公司的钱」，幕号 T10 统一定稿）· ⚡穿底：托管失窃与客户复原（V7 财资 · 公司资金 + V9 事件中心）
+
+> 战役乙波三交付（2026-09-30），衔接甲战役已建的事故通用机制（登记/调查/定损/善后/结案）与本波新立的 NLA 红线——场景本身不新增机制，只是把两条战线（客户资金安全、公司审慎合规）在同一条剧情里对撞一次。主篇文档 `modules/company-funds.md`、`modules/v9-incident-center.md`（若已建，未建则见事件中心相关篇）。本场景 2026-09-30 T8 在 self 栈全程实走一遍（真提交/真点击，非种子摆拍，金库/CFO 两账号来回切换），十八张截图留证。
+
+**造数（必须，不可省略/不可复用现场）**：本场景**不承接场景 28-30 留下的现场**——场景 28 那笔 150,000 注资会把 NLA 垫得更高，反而把失窃打不穿红线（判据前提，不是可选项）。开场必须从全新 `reset` 起跑：
+
+```bash
+bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash scripts/on-stack.sh self demo:all && bash scripts/on-stack.sh self recon:demo:crisis
+```
+
+（主树演出时把上面四条命令里的 `self` 全部换成 `main`。）`recon:demo:crisis` 只铺一条 AED 大额未授权转出外部账单行——不入 18 场景常规破口集，`recon:demo:break`/`pass` 与既有 baseline 零变动，重铺即消。
+
+**讲什么**：客户的钱从托管钱包里凭空少了一笔，没有任何我方单据、客户也没有发起——这是"未授权转出"事故的教科书形态。金库沿着甲战役已建的事故一生走一遍：差异行定性登记→调查→定损（公司认损）→认损调账（客户侧账先跟着外部账单走平）→补款划转（公司真金白银把客户的钱补回去）。客户池复原的同时，公司自己的运营户被这笔"先垫后追"的补款划穿了——运营户 AED 见底线、全公司 NLA 红线，两条线在同一个动作里一起被打穿，看板双线齐红。客户复原了，公司自己却撞了监管线——这正是场景 32 的钩子。
+
+**账号**：`treasury@fiatx.com`（金库，差异定性/事故登记/调查/定损/认损开单/发起补款/推资金单腿/重对账全程）→ `cfo@fiatx.com`（CFO，认损调账与补款划转两笔审批的唯一裁决人）。
+
+**走查**（case `REC20260930-001`，客户 Bob `CU2601017625`，AED 托管钱包 `WA2601014725`，失窃 250,000.00 AED）：
+
+① ⚡ 造数已在开场命令跑完——差异注入 `externalRef=CRISIS-2026-09-30-UNAUTHORIZED-OUTFLOW`，此刻 `GET /admin/prudential/status` 仍 `breached=false`（NLA 1,364,752.25 > 红线 1,200,000.00）：crisis 只动外部账单，账本/TB 尚未变化。
+
+② 金库登录 → 侧栏 Reconciliation → Cases → 打开 `REC20260930-001` → 案件页「BALANCE EXPLAINED」四格：INTERNAL 262,200.00 / EXTERNAL 12,200.00 / DIFFERENCE −250,000.00 / UNEXPLAINED −250,000.00（needs investigation）→「DIFFERENCES · 1 OPEN ROW」表格：External only / OUT / 250,000.00 / `CRISIS-202…FLOW`，行上处置按钮组 Supplement / Reattribute / **Register incident** / Hold · Next period / Hold · Investigating（新案已开，差异行等待定性）。
+
+③ 差异行点「Register incident」→ 弹层「Register incident · What caused this difference?」，唯一成因选项「Unauthorized outflow」（Clue: We hold no order for it, and the customer did not initiate it，单选已默认命中）→ 填 Finding note（查证说明：核对内部单据/提现/兑换记录，均无匹配，确系未授权转出）→「Continue」→ 定性落库（`sourceDispositionNo` 自动生成），差异行成因回填「Unauthorized outflow」。
+
+④ 提交后自动跳转事故登记表单 `/admin/governance/incidents?type=UNAUTHORIZED_OUTFLOW&…`——类型/标题/说明/来源案号/**定性行号**/客户号/资产/金额（250000.00）全部预填、`sourceDispositionNo` 已带上 → 同一账号点「Register」→ 事故 `INC260930949208` 落库，状态 `Registered`，右栏提示「Freeze via Customer page (not automatic — freezing goes through the separate customer restriction gate)」（登记不等于自动冻户）；差异行下方随即出现「Incident · INC260930949208」徽标。
+
+⑤ 事故详情页「Start Investigation」→ 状态转 `Investigating` → 「Add Investigation Note」填查证记录（钱包地址史/充值-提现-兑换日志核对无匹配单据，提现地址簿也查不到该目的地，未触发任何限额或 KYT 拦截，结论：外部幽灵转出）→「Add Note」→ 下滑到「Assessment」区：Assessed amount 填 `250000.00`、Assessment basis 选 **Loss recognized**（=`FIRM_LOSS`，公司认损）、勾选「Regulatory report required」→ 报送依据自动展开两个候选，勾 **CRM IV.E.5 — Material Client Money discrepancy**（唯一勾选，`CRM V.D.2` 不勾）→「Submit Assessment」→ 状态转 `Assessed`，页面顶部横幅「Regulatory filing opened: `FIL260930017382`」——提交定损联动自动开出的 `INCIDENT_REPORT` 报送单，本场景不展开、留到场景 32 起草送签。
+
+⑥ **认损调账**：回案件页，差异行按钮组收窄为一个「Recognize loss」（金额已被事故定损锁死）→ 点开「Recognize loss · Match the books to custody, firm compensates after」锁定视图——「Unlocked by」三行只读依据（Incident `INC260930949208` · loss assessed (FIRM_LOSS) / Amount locked = 250,000.00 AED / Small-amount threshold not applicable）、Reason 固定「[Recognize loss] Client loss recognition」、Direction `Reduce`、Amount 250,000.00 AED（锁定不可改）、Effective date 当日（免账龄线，不用等超期）→「Open & Submit」→ 调账单 `ADJ260930497277` 落 `Pending Approval`，Posting Preview：`DR L.CLIENT_PAYABLE / CR A.CLIENT_ASSET 250,000.00 AED` → 切 `cfo@` 打开审批 `APR260930081440`，Impact 摘要一句话读到"Client loss recognition (incident INC260930949208 assessed 250000.00 AED): debit client payable, credit client asset pool; customer CU2601017625 wallet WA2601014725 difference 250000.00 recognized as loss, customer balance reduced accordingly; … a compensation transfer will follow to restore the balance."→ Approve（二次确认）→ 调账单转 `Posted`，落账。
+
+⑦ **回事故详情页挂载认损单**（解锁补款入口的前置动作）：Remediation 区 Type 选 `Adjustment`、Reference No 填 `ADJ260930497277` →「Link」→ 事故状态转 `Resolving`，「Initiate Compensation」按钮出现 → 点开，跳回案件页并自动弹出「Initiate compensation · Firm compensates the customer after loss recognition」锁定视图：Customer/Wallet `CU2601017625 · WA2601014725`、Amount（locked）250,000.00 AED、Source loss recognition no `ADJ260930497277`、Route「Operating account → Settlement account → Customer vIBAN (2 flat legs)」→ 填 Reason → 「Submit to CFO」→ 补款划转单 `ITR260930393123` 落 `Pending Approval`（关联审批 `APR260930960724`）。
+
+> ⚠️ **剧本纪律（Bob 负可用窗口，纯讲台约束，系统不拦）**：从本帧（认损调账 ⑥ 已落账，Bob 客户侧余额已被扣减 250,000.00）到下一帧补款划转第二腿真正到账为止，Bob 的客户侧**可用余额在系统里为负**（认损已扣、补款未到）——这段窗口内**不展示 Bob 的客户余额页**、**也不批准他在册的 250,000 AED 在途提现单**（`WDR260930768402`，`#18 大额待审批`）。系统层面没有任何校验挡住这两个动作，纯粹是讲台纪律：观众此刻若看见负数或批出一笔提现，画面会失真。
+
+⑧ 切 `cfo@` 打开审批 `APR260930960724`，Impact 摘要「Pay customer CU2601017625 compensation of 250000.00 AED (adjustment ADJ260930497277, case REC20260930-001); the firm operating account decreases accordingly」→ Approve → 划转单转 `Executing`，腿 1 资金单自动建（`FDO260930636278`，F_OPS→结算户）→ 切回 `treasury@` 打开该腿 ⚡ **Submit** → ⚡ **Settle**（码 81 落账，运营户 AED 已减）→ 划转单自动建腿 2（`FDO260930667965`，结算户→Bob 钱包）→ 打开该腿 ⚡ **Submit** → ⚡ **Settle**（码 82+83 落账，客户侧复位——Bob 的 AED 托管余额补回 250,000.00）→ 划转单转 **`Success`**，两腿状态均 `Cleared`。
+
+⑨ 回案件页点「Re-reconcile」→ 案子转 **`Resolved`**（`RUN20260930-2 · closed`），差异行下方新增「Compensation `ITR260930393123` · Received」——案件愈合关闭。**收尾镜头**：切 Company Funds 看板——「Net Liquid Assets (Regulatory)」整区转红，红横幅「NLA below regulatory floor — shortfall AED 85,247.75. A prudential incident must be registered (Incident Register, CFO).」，三个数 NLA AED 1,114,752.25 / Floor AED 1,200,000.00 / Headroom **AED −85,247.75**；下方运营户水位卡 AED 696,089.35（低于见底线 900,000，转红）+ USDT 113,999.428189（未跌破）— 两条线（公司运营户见底线、全公司 NLA 红线）在同一笔补款划转里一起被打穿，红横幅在场——客户池已复原，公司自己撞了监管线，场景 32 的钩子在此挂上。
+
+**判据**：事故一生六步（登记/调查/定损/认损/补款/结案前挂载）除结案与通报（留场景 32）外全程 `treasury@` 一手完成，审批均 `cfo@` 单人；认损调账与补款划转两张单金额均锁死于定损额 250,000.00、不可编辑；补款划转在 NLA 已跌破的窗口内（划转发起时 NLA 尚未跌破，划完才跌破）照常发起成功——豁免生效的行为证明（裁定 1）；客户池 AED 复原到失窃前值、F_OPS(AED) 差额精确等于失窃额；收尾帧双线齐红（AED 见底线 + 全公司 NLA 红线）、红横幅在场。
+
+**账实证据**（走查后，self 栈，2026-09-30）：
+
+- `bash scripts/on-stack.sh self verify:coa` — 退出码 `0`，关键行：`✓ ledger 1 CLIENT 恒等 29612565` / `✓ ledger 1 FIRM 恒等 69620335` / `✓ ledger 2 CLIENT 恒等 4392571811` / `✓ ledger 2 FIRM 恒等 114013428189` / `✓ 负余额检查 通过 (67 个科目全部 ≥ 0)` / `ALL INVARIANTS PASS`（划转后时点，两恒等式 + 负余额全绿）。
+- TB 直读两数（`tigerbeetle-node` 直连账户，非 Prisma 镜像表）：Bob AED 托管两科目（`CLIENT_PAYABLE` + `DEPOSIT_SUSPENSE`）合计 `creditsPosted−debitsPosted` = 25,710,000 + 510,000 = **26,220,000 分（262,200.00 AED）**，回到失窃前值（`available` 口径此刻 710,000+510,000=1,220,000 分，因 Bob 在册的 250,000 提现单仍押着 `debitsPending`，与本场景无关，纯属该客户自身在途单）；F_OPS(AED) 科目 `creditsPosted−debitsPosted` = **69,608,935 分（696,089.35 AED）**，与看板运营户卡、`GET /admin/prudential/status` 的 `perAsset[0].balanceMinor` 逐位一致，差额 94,608,935−69,608,935=25,000,000 分，精确等于失窃额 250,000.00 AED。
+
+走查截图 `t8-01`～`t8-18` 入 `doc-final/superpowers/checkups/2026-09-30-campaign-b-wave3-evidence/`。
+
+**期望**：观众看懂三件事——① 事故一生（登记→调查→定损→善后→结案）不是抽象流程图，是同一个客户、同一笔钱，从"少了"到"补回来"全程留痕可查；② 认损与补款是两个不同的动作——认损让账跟着外部事实走平（公司认了这笔损失），补款才是对客户的实际交代（钱真的补回卡里），中间隔着一张锁死金额的调账单和一次 CFO 审批；③ 审慎红线不是纸面数字——客户资金安全事件真实发生时，补偿客户的义务优先于公司自己的流动性缓冲（豁免生效），但公司自己也会因此撞线，看板红横幅当场证明这不是走过场。
