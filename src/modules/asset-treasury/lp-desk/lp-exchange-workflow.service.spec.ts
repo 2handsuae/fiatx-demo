@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { LpExchangeWorkflowService } from './lp-exchange-workflow.service';
 import { LpExchangeStatus as S } from './dto/lp-exchange.dto';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
@@ -72,18 +73,43 @@ function makeWorkflow(o: Partial<Record<'exchangeRow' | 'buyLegs', any>> = {}) {
     }),
   };
   const custodianStatement: any = { recordLegMovement: jest.fn(async () => ({ outLineId: 'l1', inLineId: 'l2', cutoffDate: '2026-09-29' })) };
-  const wf = new LpExchangeWorkflowService(prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement);
-  return { wf, prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, exchangeRow };
+  // 乙波三 T2：NLA 门桩——默认放行，跌破场景用 mockRejectedValueOnce 单次拒绝（同余额闸先例）。
+  const prudential: any = { assertPostOutflowCompliant: jest.fn(async () => undefined) };
+  const wf = new LpExchangeWorkflowService(prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, prudential);
+  return { wf, prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, exchangeRow, prudential };
 }
 
 describe('LpExchangeWorkflowService (Task 5)', () => {
   describe('initiate — birth guards + happy path', () => {
     const dto = { lpNo: 'LPP1', sellAssetId: USDT.id, sellAmount: '20000', buyAssetId: AED.id, buyAmount: '73280', prudentialPurpose: 'Liquidity management', reason: 'Rebalance USDT into AED' };
 
-    it('operating account balance is not enough → 400 (guard comes from the entity)', async () => {
-      const { wf, exchanges } = makeWorkflow();
+    it('operating account balance is not enough → 400 (guard comes from the entity); NLA gate never reached — 余额闸独立运行', async () => {
+      const { wf, exchanges, prudential } = makeWorkflow();
       exchanges.assertFirmOpsBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in the operating account'));
       await expect(wf.initiate(dto, treasury)).rejects.toThrow(/Insufficient/);
+      expect(prudential.assertPostOutflowCompliant).not.toHaveBeenCalled();
+    });
+
+    it('NLA gate runs right after the balance check, by the SELL side only (sellAsset currency/sellAmountMinor) — buy side is not credited (未来进项不抵扣)', async () => {
+      const { wf, prudential } = makeWorkflow();
+      await wf.initiate(dto, treasury);
+      expect(prudential.assertPostOutflowCompliant).toHaveBeenCalledWith({
+        currency: 'USDT', amountMinor: 20_000_000_000n, orderKind: 'LP_EXCHANGE', counterpartyNo: 'LPP1', actor: treasury,
+      });
+      // 断言调用参数里没有任何买入边的痕迹（buyAmount/buyAssetId 均不出现在门的入参里）。
+      const call = prudential.assertPostOutflowCompliant.mock.calls[0][0];
+      expect(Object.keys(call)).toEqual(['currency', 'amountMinor', 'orderKind', 'counterpartyNo', 'actor']);
+    });
+
+    it('NLA gate blocks → initiate rejects with the gate\'s own 400, no row created, no wallets resolved, no approval submitted (拒建单)', async () => {
+      const { wf, prudential, exchanges, systemWallets, approvals } = makeWorkflow();
+      prudential.assertPostOutflowCompliant.mockRejectedValueOnce(
+        new BadRequestException('Blocked by prudential floor (Company Rulebook VI.C): this LP exchange would take Net Liquid Assets below the regulatory floor — NLA now 1500000.00 AED, after 1100000.00 AED, floor 1200000.00 AED.'),
+      );
+      await expect(wf.initiate(dto, treasury)).rejects.toThrow(/Blocked by prudential floor/);
+      expect(systemWallets.resolve).not.toHaveBeenCalled();
+      expect(approvals.createAndSubmit).not.toHaveBeenCalled();
+      expect(exchanges.create).not.toHaveBeenCalled();
     });
 
     it('happy path: resolves 3 wallets (F_OPS sell / F_LIQ buy / F_OPS buy), creates the row, submits to CFO approval, audit REQUESTED, snapshot has zero UUIDs', async () => {

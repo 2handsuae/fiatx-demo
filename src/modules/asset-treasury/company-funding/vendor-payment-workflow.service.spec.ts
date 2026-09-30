@@ -5,6 +5,7 @@
 // `capitalInjectionId` 现在测不出来；本文件用一份行为化内存 prisma 让 getView() 的
 // where 真过滤 vendorPaymentId，走了错字段会看到 legs 为空、断言失败。
 import { randomUUID } from 'node:crypto';
+import { BadRequestException } from '@nestjs/common';
 import { VendorPaymentWorkflowService } from './vendor-payment-workflow.service';
 import { VendorPaymentService } from './vendor-payment.service';
 import { VendorPaymentStatus as S } from './dto/vendor-payment.dto';
@@ -125,18 +126,40 @@ function makeWorkflow() {
   };
   const systemWallets: any = { resolve: jest.fn(async () => OPS_WALLET) };
   const custodianStatement: any = { recordLegMovement: jest.fn(async () => ({ outLineId: 'l1', inLineId: null, cutoffDate: '2026-09-29' })) };
-  const wf = new VendorPaymentWorkflowService(prisma, payments, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement);
-  return { wf, payments, prisma, vendors, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement };
+  // 乙波三 T2：NLA 门桩——默认放行，跌破场景用 mockRejectedValueOnce 单次拒绝（同余额闸先例）。
+  const prudential: any = { assertPostOutflowCompliant: jest.fn(async () => undefined) };
+  const wf = new VendorPaymentWorkflowService(prisma, payments, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, prudential);
+  return { wf, payments, prisma, vendors, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, prudential };
 }
 
 const decided = (decision: any, payNo: string) => ({ decision, actionType: 'VENDOR_PAYMENT_APPROVAL', entityRef: payNo, approvalId: 'uuid-apr', approvalNo: 'APR1', traceId: 'trace-1', workflowType: 'VENDOR_PAYMENT', metadata: {} });
 
 describe('VendorPaymentWorkflowService (Task 5)', () => {
   describe('initiate — birth guards + happy path', () => {
-    it('operating account balance is not enough → 400 (guard comes from the entity)', async () => {
-      const { wf, payments } = makeWorkflow();
+    it('operating account balance is not enough → 400 (guard comes from the entity); NLA gate never reached — 余额闸独立运行', async () => {
+      const { wf, payments, prudential } = makeWorkflow();
       jest.spyOn(payments, 'assertFirmOpsBalance').mockRejectedValueOnce(new Error('Insufficient AED balance in the operating account'));
       await expect(wf.initiate(baseInput, treasury)).rejects.toThrow(/Insufficient/);
+      expect(prudential.assertPostOutflowCompliant).not.toHaveBeenCalled();
+    });
+
+    it('NLA gate runs right after the balance check with the payment amount/currency, orderKind=VENDOR_PAYMENT, counterpartyNo=vendorNo', async () => {
+      const { wf, prudential } = makeWorkflow();
+      await wf.initiate(baseInput, treasury);
+      expect(prudential.assertPostOutflowCompliant).toHaveBeenCalledWith({
+        currency: 'AED', amountMinor: 1_200_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: activeVendor.vendorNo, actor: treasury,
+      });
+    });
+
+    it('NLA gate blocks → initiate rejects with the gate\'s own 400, no row created, no wallet resolved, no approval submitted (拒建单)', async () => {
+      const { wf, prudential, prisma, systemWallets, approvals } = makeWorkflow();
+      prudential.assertPostOutflowCompliant.mockRejectedValueOnce(
+        new BadRequestException('Blocked by prudential floor (Company Rulebook VI.C): this payment would take Net Liquid Assets below the regulatory floor — NLA now 1500000.00 AED, after 1100000.00 AED, floor 1200000.00 AED.'),
+      );
+      await expect(wf.initiate(baseInput, treasury)).rejects.toThrow(/Blocked by prudential floor/);
+      expect(systemWallets.resolve).not.toHaveBeenCalled();
+      expect(approvals.createAndSubmit).not.toHaveBeenCalled();
+      expect(prisma.vendorPayment.create).not.toHaveBeenCalled();
     });
 
     it('resolves the F_OPS wallet, creates the row, submits CFO approval, audit REQUESTED, snapshot has zero UUIDs, subjects mirror the vendor', async () => {

@@ -32,6 +32,7 @@ import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-res
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { FundsOrderAction, FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 import { SimulatedCustodianStatementService } from '../../clearing-settle/reconciliation/simulation/simulated-custodian-statement.service';
+import { PrudentialService } from '../prudential/prudential.service';
 import { LpExchangeService } from './lp-exchange.service';
 import { LpProfileService } from './lp-profile.service';
 import { LpExchangeStatus } from './dto/lp-exchange.dto';
@@ -72,6 +73,7 @@ export class LpExchangeWorkflowService {
     private readonly fundsOrders: FundsOrderService,
     private readonly systemWallets: SystemWalletResolver,
     private readonly custodianStatement: SimulatedCustodianStatementService,
+    private readonly prudential: PrudentialService,
   ) {}
 
   // ── 发起（金库，CFO 单步批）──────────────────────────────────────────
@@ -88,6 +90,11 @@ export class LpExchangeWorkflowService {
 
     const sellAmountMinor = majorToMinor(dto.sellAmount, sellAsset.decimals);
     await this.exchanges.assertFirmOpsBalance(sellAsset.currency, sellAmountMinor);
+    // 算术门（乙波三 T2 spec §3）：按卖出边金额折算——买入腿是未来进项，不抵扣（保守口径，
+    // 与「在途不计」同轴）。余额闸=付得起，NLA 门=付完还合规，两闸各管各的。
+    await this.prudential.assertPostOutflowCompliant({
+      currency: sellAsset.currency as 'AED' | 'USDT', amountMinor: sellAmountMinor, orderKind: 'LP_EXCHANGE', counterpartyNo: dto.lpNo, actor,
+    });
 
     const [sellFrom, buyVia, buyTo] = await Promise.all([
       this.systemWallets.resolve(dto.sellAssetId, 'F_OPS'),

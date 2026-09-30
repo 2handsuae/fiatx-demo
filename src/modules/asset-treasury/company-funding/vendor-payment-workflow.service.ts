@@ -30,6 +30,7 @@ import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-res
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { FundsOrderAction, FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 import { SimulatedCustodianStatementService } from '../../clearing-settle/reconciliation/simulation/simulated-custodian-statement.service';
+import { PrudentialService } from '../prudential/prudential.service';
 import { VendorPaymentService } from './vendor-payment.service';
 import { VendorPaymentStatus } from './dto/vendor-payment.dto';
 
@@ -67,6 +68,7 @@ export class VendorPaymentWorkflowService {
     private readonly fundsOrders: FundsOrderService,
     private readonly systemWallets: SystemWalletResolver,
     private readonly custodianStatement: SimulatedCustodianStatementService,
+    private readonly prudential: PrudentialService,
   ) {}
 
   // ── 发起（金库，CFO 单步批）──────────────────────────────────────────
@@ -79,6 +81,11 @@ export class VendorPaymentWorkflowService {
 
     const amountMinor = majorToMinor(dto.amount, asset.decimals);
     await this.payments.assertFirmOpsBalance(asset.currency, amountMinor);
+    // 算术门（乙波三 T2 spec §3）：余额闸=付得起，NLA 门=付完还合规，两闸各管各的，
+    // 顺序先余额后 NLA——插在同一层同一形制（紧邻既有前置检查之后，出生守卫尚未建行）。
+    await this.prudential.assertPostOutflowCompliant({
+      currency: asset.currency as 'AED' | 'USDT', amountMinor, orderKind: 'VENDOR_PAYMENT', counterpartyNo: dto.vendorNo, actor,
+    });
 
     const fromWallet = await this.systemWallets.resolve(dto.assetId, 'F_OPS');
 

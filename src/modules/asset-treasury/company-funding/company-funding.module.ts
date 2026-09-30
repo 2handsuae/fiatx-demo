@@ -7,6 +7,7 @@ import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { ReconciliationModule } from '../../clearing-settle/reconciliation/reconciliation.module';
 import { ComplianceOfficeModule } from '../../governance/compliance-office/compliance-office.module';
+import { PrudentialModule } from '../prudential/prudential.module';
 import { CapitalInjectionService } from './capital-injection.service';
 import { CapitalInjectionWorkflowService } from './capital-injection-workflow.service';
 import { CapitalInjectionApprovalService } from './capital-injection-approval.service';
@@ -26,9 +27,11 @@ import { VendorPaymentController } from './vendor-payment.controller';
  * OutsourcingVendorsService（铁律③，照 incidents.module.ts 横向拿服务同款先例，
  * 不重复声明该服务）。T5：付款单 workflow/审批/端点全套——单腿出项（码 87，先账后状态），
  * 批准即复核余额、建腿走正常 OUT 推进，同 T3 imports 清单（无新依赖）。
+ * 乙波三 T2：付款单 initiate 插 NLA 算术门，横向读 PrudentialModule 导出的
+ * PrudentialService（铁律③放行，照 OutsourcingVendorsService 先例）。
  */
 @Module({
-  imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, FundsLayerModule, ApprovalsModule, ReconciliationModule, ComplianceOfficeModule],
+  imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, FundsLayerModule, ApprovalsModule, ReconciliationModule, ComplianceOfficeModule, PrudentialModule],
   controllers: [CapitalInjectionController, VendorPaymentController],
   providers: [
     CapitalInjectionService, CapitalInjectionWorkflowService, CapitalInjectionApprovalService,

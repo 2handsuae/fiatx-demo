@@ -6,6 +6,7 @@ import { FundsOrdersModule } from '../../funds-orders/funds-orders.module';
 import { FundsLayerModule } from '../../funds-layer/funds-layer.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { ReconciliationModule } from '../../clearing-settle/reconciliation/reconciliation.module';
+import { PrudentialModule } from '../prudential/prudential.module';
 import { LpProfileService } from './lp-profile.service';
 import { LpProfileWorkflowService } from './lp-profile-workflow.service';
 import { LpProfileApprovalService, LpProfileChangeApprovalService } from './lp-profile-approval.service';
@@ -21,9 +22,11 @@ import { LpExchangeController } from './lp-exchange.controller';
  * workflow，依赖对账域的 SimulatedCustodianStatementService（同划转单先例：腿提交/到货
  * 时写模拟托管方回单），账本/资金单/审批三家照 internal-transfers.module 的 imports 清单。
  * T6：LpExchangeController 薄层，六端点全转发 workflow/服务，不加逻辑。
+ * 乙波三 T2：兑换单 initiate 按卖出边插 NLA 算术门，横向读 PrudentialModule 导出的
+ * PrudentialService（铁律③放行）。
  */
 @Module({
-  imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, FundsLayerModule, ApprovalsModule, ReconciliationModule],
+  imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, FundsLayerModule, ApprovalsModule, ReconciliationModule, PrudentialModule],
   controllers: [LpProfileController, LpExchangeController],
   providers: [
     LpProfileService, LpProfileWorkflowService, LpProfileApprovalService, LpProfileChangeApprovalService,
