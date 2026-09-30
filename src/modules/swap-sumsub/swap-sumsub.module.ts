@@ -7,6 +7,7 @@ import { SwapTransactionsModule } from '../trading/swap-transactions/swap-transa
 import { SumsubTxnClientModule } from '../sumsub-shared/sumsub-txn-client.module';
 import { CustomersModule } from '../identity/customers/customers.module';
 import { MaterialRequestsModule } from '../identity/material-requests/material-requests.module';
+import { NotificationsModule } from '../../core/notifications/notifications.module';
 
 /**
  * 兑换域的 Sumsub webhook 落地模块——mirror of Deposit/WithdrawSumsubModule。
@@ -27,6 +28,9 @@ import { MaterialRequestsModule } from '../identity/material-requests/material-r
     SumsubTxnClientModule,
     CustomersModule,
     MaterialRequestsModule,
+    // 战役丙波一 T7 修2（复审逮）：SwapSlaService.sweep 的 SLA_BREACH 拒单也要
+    // 通知客户，同 T7 fix round 1 的引法。
+    NotificationsModule,
   ],
   providers: [
     SwapWebhookRouter,

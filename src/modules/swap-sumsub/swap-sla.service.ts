@@ -10,6 +10,7 @@ import {
   AuditEntityTypes,
 } from '../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditSubjectRole } from '../audit-logging/dto/audit-log.dto';
+import { NotificationsService } from '../../core/notifications/notifications.service';
 import { randomUUID } from 'crypto';
 
 /**
@@ -48,6 +49,10 @@ export class SwapSlaService {
     private readonly swapService: SwapTransactionsService,
     private readonly workflow: SwapWorkflowService,
     private readonly auditLogsService: AuditLogsService,
+    // 战役丙波一 T7 修2（复审逮，第 9 个 markStatus 调用点）：sweep 打出的
+    // SLA_BREACH 拒单也是一次客户可见的状态迁移，必须通知——同 T7 fix
+    // round 1 的 8 个调用点一样，在本文件自己的 $transaction resolve 之后才调。
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   @Cron('*/30 * * * * *')
@@ -120,6 +125,19 @@ export class SwapSlaService {
             tx,
           );
         });
+        // T7 修2：$transaction 已经 resolve（提交完成），这里才通知——放在 tx
+        // 回调内会在 SQLite 单写者下被自己未提交的事务锁死自锁（同 T7 fix
+        // round 1 根因）。fromStatus 用 swap.status（查询候选时的真实前态，
+        // 不硬编码字面量）；breachedNext 是事务回调里 markStatus 的真实返回值。
+        if (breachedNext) {
+          await this.notificationsService.notifyOrderStatusChange({
+            domain: 'SWAP',
+            orderNo: swap.swapNo,
+            owner: { customerId: swap.ownerId },
+            collapsedFrom: this.swapService.toCustomerSwapStatus(swap.status),
+            collapsedTo: this.swapService.toCustomerSwapStatus(breachedNext),
+          });
+        }
         // 出生锁擦圈：SLA 破线=fail-closed 拒单终局（站3-β 接线时逮到的漏网出口）。
         await this.workflow.releaseBirthLock(swap, 'SLA breach reject');
         timedOut += 1;
