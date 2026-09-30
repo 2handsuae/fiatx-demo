@@ -6,6 +6,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { Injectable } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 
 @WebSocketGateway({
   cors: {
@@ -19,30 +20,39 @@ export class NotificationsGateway
   @WebSocketServer()
   server!: Server;
 
+  constructor(private readonly jwtService: JwtService) {}
+
+  // 铁律②门不可绕：入房必验签。握手带 auth.token（同源 JWT_SECRET），缺token/验签失败/
+  // 非 CUSTOMER 一律 disconnect，不做重试或降级兜底。
   handleConnection(client: Socket) {
-    // In a real app, we would verify the token here and join a room
-    // For now, clients can join rooms based on their customer ID manually
-    const customerId = client.handshake.query.customerId as string;
-    if (customerId) {
-      client.join(`customer_${customerId}`);
-      console.log(
-        `Client connected: ${client.id} joined customer_${customerId}`,
-      );
+    const token = client.handshake.auth?.token as string | undefined;
+    if (!token) {
+      client.disconnect(true);
+      return;
     }
+
+    let payload: any;
+    try {
+      payload = this.jwtService.verify(token, {
+        secret: process.env.JWT_SECRET || 'secretKey',
+      });
+    } catch {
+      client.disconnect(true);
+      return;
+    }
+
+    if (payload?.type !== 'CUSTOMER') {
+      client.disconnect(true);
+      return;
+    }
+
+    client.join(`customer_${payload.sub}`);
   }
 
   handleDisconnect(client: Socket) {
     console.log(`Client disconnected: ${client.id}`);
   }
 
-  notifyComplianceUpdated(customerId: string, payload: Record<string, any>) {
-    this.server.to(`customer_${customerId}`).emit('compliance_updated', {
-      ...payload,
-      timestamp: new Date(),
-    });
-  }
-
-  // 战役丙波一 T2：控制器裁定的最小加法——本任务只加这一个方法，gateway 整体改写留给下一任务。
   emitCustomerUpdated(customerId: string) {
     this.server.to(`customer_${customerId}`).emit('customer.updated', {});
   }
