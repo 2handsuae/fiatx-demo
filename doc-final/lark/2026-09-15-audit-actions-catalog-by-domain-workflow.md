@@ -304,6 +304,12 @@
 | `TIER_UPGRADE_ACCEPTANCE_DECIDED` | 高管裁决、tradingTier 翻 PREMIUM | N 单步 | approvalNo |  |
 | `CUSTOMER_LEDGER_PROVISIONED` | 客户首次 ACTIVE 时 TB 账本户静默开好（运行时开户钩子） | N 单步 | afterData |  |
 
+### 通知（战役丙波一 T2 新增）（1）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `NOTIFICATION_SENT` | 客户站内信（模拟邮件）：订单终态（充值/提现/兑换）+投诉三步里程碑发送一条 | N 单步 | templateCode, channels |  |
+
 ## DEPOSIT 域 —— V4 充值（47 码）
 
 一笔钱进来要闯几道门；闯不过去的钱四种下场（没收/退回/上缴/解冻）。CREATED 铸旅程号，一笔充值一段链。

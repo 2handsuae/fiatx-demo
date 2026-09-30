@@ -517,6 +517,8 @@ export const AuditActions = {
   // ── 战役乙波三 T1（2026-09-30）：审慎（NLA）状态两码（财资件，域 TREASURY）──────
   PRUDENTIAL_CHECK_PERFORMED: 'PRUDENTIAL_CHECK_PERFORMED',
   PRUDENTIAL_GATE_BLOCKED: 'PRUDENTIAL_GATE_BLOCKED',
+  // ── 战役丙波一 T2（2026-09-30）：客户通知一码（域 CUSTOMER）──────────────────
+  NOTIFICATION_SENT: 'NOTIFICATION_SENT',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1270,6 +1272,19 @@ export const CAMPAIGN_B_VENDOR_PAYMENT_AUDIT_ACTIONS: Record<string, AuditAction
 export const CAMPAIGN_B_PRUDENTIAL_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   PRUDENTIAL_CHECK_PERFORMED: { domain: 'TREASURY', correlationMode: N, requiredFields: ['reasonCode'], requiresCausation: false },
   PRUDENTIAL_GATE_BLOCKED:    { domain: 'TREASURY', correlationMode: N, requiredFields: ['reasonCode', 'reason'], requiresCausation: false },
+};
+
+/** 战役丙波一 T2（spec/plan Task2）：客户通知一码，域 CUSTOMER——actionDomain 取值集已有
+ * CUSTOMER（V2_CUSTOMER_AUDIT_ACTIONS 现役），故不落 GOVERNANCE（同 FILING_OVERDUE_MARKED
+ * 先例仅在 CUSTOMER 不存在时才退回）。NotificationsService 对每条落库的通知单步直接操作，
+ * 无旅程可继承，correlationMode 老实标 NONE；必填 templateCode+channels（顶层展开，同
+ * FILING_OVERDUE_MARKED 的 deadlineAt 先例，assertActionSpec 只查 input 顶层，不必进 DTO）。
+ * 主体信封：primarySubject=订单/投诉本体（DEPOSIT_TRANSACTION|WITHDRAW_TRANSACTION|
+ * SWAP_TRANSACTION|COMPLAINT），subjects 镜像 PRIMARY=该单据+OWNER=客户（同
+ * deposit-workflow.service.ts 既有写法）；requestId=通知行 id（customer_notifications
+ * 主键，天然唯一，不必再拼 randomUUID）。 */
+export const CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  NOTIFICATION_SENT: { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['templateCode', 'channels'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——

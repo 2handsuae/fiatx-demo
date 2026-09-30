@@ -41,4 +41,9 @@ export class NotificationsGateway
       timestamp: new Date(),
     });
   }
+
+  // 战役丙波一 T2：控制器裁定的最小加法——本任务只加这一个方法，gateway 整体改写留给下一任务。
+  emitCustomerUpdated(customerId: string) {
+    this.server.to(`customer_${customerId}`).emit('customer.updated', {});
+  }
 }

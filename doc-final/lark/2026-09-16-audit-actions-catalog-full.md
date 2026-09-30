@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-09-30 ｜ 基线 main `803105d3` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
-> 现役 **326 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
+> 生成于 2026-09-30 ｜ 基线 main `e8c61d21` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 现役 **327 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 29 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 37 ｜ RECON 9 ｜ GOVERNANCE 43 ｜ 合计 326
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 30 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 37 ｜ RECON 9 ｜ GOVERNANCE 43 ｜ 合计 327
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -239,7 +239,7 @@
 |---|---|---|---|---|---|
 | `AUDIT_LOG_QUERIED` | 每次查询审计列表自动记一条（重铺后 Q6 靠它转绿） | N 单步 | — |  |  |
 
-## CUSTOMER 域 —— V2 客户与合规（29 码）
+## CUSTOMER 域 —— V2 客户与合规（30 码）
 
 客户主档、限制便签（含制裁冻人）、材料请求账、现场开户（CDD/EDD）、档位升级。客户级件无订单旅程，全册单步。
 
@@ -301,6 +301,12 @@
 | `TIER_UPGRADE_ACCEPTANCE_SUBMITTED` | 运营提验收核准（进高管审批） | N 单步 | approvalNo, reason |  |  |
 | `TIER_UPGRADE_ACCEPTANCE_DECIDED` | 高管裁决、tradingTier 翻 PREMIUM | N 单步 | approvalNo |  |  |
 | `CUSTOMER_LEDGER_PROVISIONED` | 客户首次 ACTIVE 时 TB 账本户静默开好（运行时开户钩子） | N 单步 | afterData |  |  |
+
+### 通知（战役丙波一 T2 新增）（1）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `NOTIFICATION_SENT` | 客户站内信（模拟邮件）：订单终态（充值/提现/兑换）+投诉三步里程碑发送一条 | N 单步 | templateCode, channels |  |  |
 
 ## DEPOSIT 域 —— V4 充值（47 码）
 
