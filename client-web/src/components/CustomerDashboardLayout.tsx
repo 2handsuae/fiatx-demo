@@ -131,8 +131,10 @@ const CustomerDashboardLayout = () => {
   };
 
   const currentItem = NAV.find((item) => item.path === location.pathname);
+  // /messages 只走铃铛入口，故意不进 NAV（不造侧栏新条目）——面包屑回落分支特判它，
+  // 免得铃铛点进来显示误导性的 "ACCOUNT › Dashboard"（终审 Minor）。
   const currentGroup = currentItem?.group || 'ACCOUNT';
-  const currentLabel = currentItem?.label || 'Dashboard';
+  const currentLabel = currentItem?.label || (location.pathname === '/messages' ? 'Messages' : 'Dashboard');
 
   // Member chip
   const fullName =
