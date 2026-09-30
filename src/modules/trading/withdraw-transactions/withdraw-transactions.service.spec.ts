@@ -15,6 +15,7 @@ import { AccountingService } from '../../accounting/tigerbeetle/accounting.servi
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { NotificationsService } from '../../../core/notifications/notifications.service';
 
 describe('WithdrawTransactionsService', () => {
   let service: WithdrawTransactionsService;
@@ -28,6 +29,7 @@ describe('WithdrawTransactionsService', () => {
   let accountingService: any;
   let auditLogsService: any;
   let approvalsService: Record<string, jest.Mock>;
+  let notificationsService: Record<string, jest.Mock>;
   let module: TestingModule;
 
   const mockTx: any = {
@@ -46,12 +48,19 @@ describe('WithdrawTransactionsService', () => {
     approvalsService = {
       list: jest.fn().mockResolvedValue({ total: 0, items: [] }),
     };
+    notificationsService = {
+      notifyOrderStatusChange: jest.fn().mockResolvedValue(undefined),
+    };
     module = await Test.createTestingModule({
       providers: [
         WithdrawTransactionsService,
         {
           provide: ApprovalsService,
           useValue: approvalsService,
+        },
+        {
+          provide: NotificationsService,
+          useValue: notificationsService,
         },
         {
           provide: PrismaService,
@@ -659,6 +668,7 @@ describe('WithdrawTransactionsService', () => {
       netAmount: new Prisma.Decimal(10),
       feeAmount: new Prisma.Decimal(0),
       withdrawNo: 'WD0003',
+      asset: { code: 'BTC' },
     });
     mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-3' });
 
@@ -1219,7 +1229,8 @@ describe('WithdrawTransactionsService', () => {
       withdrawNo: 'WD-1',
       ownerType: 'CUSTOMER',
       ownerId: 'c1',
-      asset: { type: 'CRYPTO' },
+      amount: new Prisma.Decimal(10),
+      asset: { type: 'CRYPTO', code: 'BTC' },
       statusHistory: '[]',
       approvedAt: null,
       payoutRequestedAt: null,
@@ -1346,6 +1357,99 @@ describe('WithdrawTransactionsService', () => {
     });
 
     expect(result.status).toBe(WithdrawTransactionStatus.FAILED);
+  });
+
+  // 战役丙波一 T6：提现域接通知——每次状态落地都调
+  // NotificationsService.notifyOrderStatusChange，收敛用本域自己的
+  // toCustomerWithdrawStatus（同 T5 充值域形状）。去重在 T2 服务内部
+  // （collapsedFrom===collapsedTo 即短路），本处只断言传参正确。
+  describe('战役丙波一 T6：updateStatus → notifyOrderStatusChange', () => {
+    const mockId = 'wd-notify-1';
+
+    function setupMock(status: WithdrawTransactionStatus, overrides: Record<string, any> = {}) {
+      mockTx.withdrawTransaction.findUnique.mockResolvedValue({
+        id: mockId,
+        withdrawNo: 'WD-NOTIFY-1',
+        ownerType: 'CUSTOMER',
+        ownerId: 'cust-notify',
+        assetId: 'asset-notify',
+        status,
+        statusHistory: '[]',
+        approvedAt: null,
+        payoutRequestedAt: null,
+        completedAt: null,
+        asset: { type: 'CRYPTO' },
+        ...overrides,
+      });
+      mockTx.withdrawTransaction.update.mockImplementation(({ data }: any) =>
+        Promise.resolve({
+          id: mockId,
+          withdrawNo: 'WD-NOTIFY-1',
+          ownerType: overrides.ownerType ?? 'CUSTOMER',
+          ownerId: 'cust-notify',
+          amount: new Prisma.Decimal('50'),
+          asset: { code: 'USDT' },
+          ...data,
+        }),
+      );
+    }
+
+    it('COMPLIANCE_PENDING --action_pending--> ACTION_PENDING（补料）：收敛态 collapsedTo=ACTION_PENDING', async () => {
+      setupMock(WithdrawTransactionStatus.COMPLIANCE_PENDING);
+
+      const result = await service.updateStatus(mockId, { action: WithdrawTransactionAction.ACTION_PENDING });
+
+      expect(result.status).toBe(WithdrawTransactionStatus.ACTION_PENDING);
+      expect(notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith({
+        domain: 'WITHDRAW',
+        orderNo: 'WD-NOTIFY-1',
+        owner: { customerId: 'cust-notify' },
+        collapsedFrom: 'COMPLIANCE_PENDING',
+        collapsedTo: 'ACTION_PENDING',
+        amount: '50',
+        assetCode: 'USDT',
+      });
+    });
+
+    it('MANUAL_CHECKING --reject_refund--> REJECTED：collapsedFrom 收敛为 COMPLIANCE_PENDING（白名单外兜底），collapsedTo=REJECTED', async () => {
+      setupMock(WithdrawTransactionStatus.MANUAL_CHECKING);
+
+      const result = await service.updateStatus(mockId, { action: WithdrawTransactionAction.REJECT_REFUND });
+
+      expect(result.status).toBe(WithdrawTransactionStatus.REJECTED);
+      expect(notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          collapsedFrom: 'COMPLIANCE_PENDING',
+          collapsedTo: 'REJECTED',
+        }),
+      );
+    });
+
+    it('冻结迁移 COMPLIANCE_PENDING --freeze--> FROZEN：服务侧仍调用，collapsedFrom/To 均收敛为 COMPLIANCE_PENDING（FROZEN 不在客户面白名单内，去重留给 T2 内部短路）', async () => {
+      setupMock(WithdrawTransactionStatus.COMPLIANCE_PENDING);
+
+      const result = await service.updateStatus(mockId, { action: WithdrawTransactionAction.FREEZE });
+
+      expect(result.status).toBe(WithdrawTransactionStatus.FROZEN);
+      expect(notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          collapsedFrom: 'COMPLIANCE_PENDING',
+          collapsedTo: 'COMPLIANCE_PENDING',
+        }),
+      );
+    });
+
+    // ownerType 非 CUSTOMER 跳过：本域 WithdrawOwnerType 枚举声明 CUSTOMER|LP
+    // （dto/withdraw-transaction.dto.ts），LP 是本域自己声明的值，不是虚构；
+    // 运行时 createWithdrawal 唯一入口从不传第三参，恒为 CUSTOMER，LP 当前零
+    // 施用（死码），此处仅验证守卫本身不误发，不代表 LP 在生产路径可达。
+    it('ownerType=LP 的单不调用 notifyOrderStatusChange（本域自己声明的非 CUSTOMER 值，非虚构）', async () => {
+      setupMock(WithdrawTransactionStatus.COMPLIANCE_PENDING, { ownerType: 'LP' });
+
+      await service.updateStatus(mockId, { action: WithdrawTransactionAction.ACTION_PENDING });
+
+      expect(notificationsService.notifyOrderStatusChange).not.toHaveBeenCalled();
+    });
   });
 
   describe('real-time 1:1 TB accounting on create()', () => {
@@ -1663,12 +1767,13 @@ describe('WithdrawTransactionsService', () => {
         ownerType: 'CUSTOMER',
         ownerId: 'cust-sla',
         assetId: 'asset-sla',
+        amount: new Prisma.Decimal(10),
         status,
         statusHistory: '[]',
         approvedAt: null,
         payoutRequestedAt: null,
         completedAt: null,
-        asset: { type: 'CRYPTO' },
+        asset: { type: 'CRYPTO', code: 'BTC' },
       };
       mockTx.withdrawTransaction.findUnique.mockResolvedValue(mockRecord);
       mockTx.withdrawTransaction.update.mockImplementation(({ data }: any) =>

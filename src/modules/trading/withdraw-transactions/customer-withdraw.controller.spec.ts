@@ -98,6 +98,7 @@ function buildController(rawRow: any) {
     {} as any, // eventEmitter — not touched by findOneForCustomer
     {} as any, // auditLogsService — not touched
     {} as any, // approvalsService — not touched
+    {} as any, // notificationsService — not touched by findOneForCustomer
   );
   const workflow = { createWithdrawal: jest.fn(() => Promise.resolve(rawRow)) };
   const customerAccess = { assertTradingIntake: jest.fn(() => Promise.resolve({ fold: rawRow.status === 'FROZEN' })) };

@@ -21,6 +21,7 @@ import { MaterialRequestsModule } from '../../identity/material-requests/materia
 import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
 import { ReconciliationModule } from '../../clearing-settle/reconciliation/reconciliation.module';
 import { WithdrawReturnClaimApprovalService } from './withdraw-return-claim-approval.service';
+import { NotificationsModule } from '../../../core/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -45,6 +46,9 @@ import { WithdrawReturnClaimApprovalService } from './withdraw-return-claim-appr
     // 平账 B 批③：initiateReturnClaim/onReturnClaimDecided 要用 SupplementEvidenceService
     // + DispositionService（对账域）。
     ReconciliationModule,
+    // 战役丙波一 T6：updateStatus 每次状态落地都调
+    // NotificationsService.notifyOrderStatusChange 通知客户（同 T5 充值域接法）。
+    NotificationsModule,
   ],
   controllers: [WithdrawTransactionsController, CustomerWithdrawController],
   providers: [

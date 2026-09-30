@@ -22,6 +22,7 @@ import {
   AuditEntityTypes,
 } from '../../audit-logging/constants/audit-actions.constant';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { NotificationsService } from '../../../core/notifications/notifications.service';
 import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { toCustomerAssetView } from '../shared/customer-view.util';
 import { resolveSlaFields as resolveSlaFieldsShared } from '../shared/sla-fields.util';
@@ -192,6 +193,7 @@ export class WithdrawTransactionsService {
     private readonly eventEmitter: EventEmitter2,
     private readonly auditLogsService: AuditLogsService,
     private readonly approvalsService: ApprovalsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private normalizeStatusUpdateContext(
@@ -844,6 +846,10 @@ export class WithdrawTransactionsService {
           ...this.resolveSlaFields(nextStatus),
           ...(context?.extraData || {}),
         },
+        // 战役丙波一 T6：通知正文要给客户可读资产码（见下方 notify 调用），不能
+        // 沿 assetId（Asset.id 外键，@default(uuid())）——取法同既有
+        // toCustomerWithdrawView 用 toCustomerAssetView(item.asset).code 的惯例。
+        include: { asset: { select: { code: true } } },
       });
 
       const eventSource = updated;
@@ -873,6 +879,8 @@ export class WithdrawTransactionsService {
           type: withdrawType,
         },
         postCommitEvents,
+        previousStatus: currentStatus,
+        nextStatus,
       };
     };
 
@@ -882,17 +890,43 @@ export class WithdrawTransactionsService {
       }
     };
 
+    // 战役丙波一 T6：CUSTOMER 单每次状态落地都调 NotificationsService 通知客户——
+    // 去重在 T2 notifyOrderStatusChange 内部（collapsedFrom===collapsedTo 即短路），
+    // 这里不自行预判。与 emitEvents 同一收口点（executeUpdate 返回之后才发，不在
+    // 事务提交前抢跑）；两个调用分支（调用方传入 tx / 内部自开 $transaction）
+    // 共用同一份 finalize，行为不漂移。
+    const finalize = async (result: {
+      updated: any;
+      postCommitEvents: Array<{ eventName: string; payload: any }>;
+      previousStatus: WithdrawTransactionStatus;
+      nextStatus: WithdrawTransactionStatus;
+    }) => {
+      emitEvents(result.postCommitEvents);
+      if (result.updated.ownerType === 'CUSTOMER') {
+        await this.notificationsService.notifyOrderStatusChange({
+          domain: 'WITHDRAW',
+          orderNo: result.updated.withdrawNo,
+          owner: { customerId: result.updated.ownerId },
+          collapsedFrom: this.toCustomerWithdrawStatus(result.previousStatus),
+          collapsedTo: this.toCustomerWithdrawStatus(result.nextStatus),
+          // 展示层口径同 toCustomerWithdrawView（:445 `amount: item.amount`）——DB
+          // Decimal 无最小单位换算，这里只是把 Decimal 转成通知层要求的 string。
+          amount: result.updated.amount.toString(),
+          assetCode: result.updated.asset.code,
+        });
+      }
+      return result.updated;
+    };
+
     if (tx) {
       const result = await executeUpdate(tx);
-      emitEvents(result.postCommitEvents);
-      return result.updated;
+      return finalize(result);
     }
 
     const result = await (this.prisma as any).$transaction(
       async (client: Prisma.TransactionClient) => executeUpdate(client),
     );
-    emitEvents(result.postCommitEvents);
-    return result.updated;
+    return finalize(result);
   }
 
 

@@ -4,6 +4,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { NotificationsService } from '../../../core/notifications/notifications.service';
 
 describe('WithdrawTransactionsService customer view enrichment (Task 3)', () => {
   let service: WithdrawTransactionsService;
@@ -22,6 +23,8 @@ describe('WithdrawTransactionsService customer view enrichment (Task 3)', () => 
         { provide: EventEmitter2, useValue: {} },
         { provide: AuditLogsService, useValue: {} },
         { provide: ApprovalsService, useValue: {} },
+        // 本 spec 只测 toCustomerWithdrawView，不触发 updateStatus——不需要真实行为。
+        { provide: NotificationsService, useValue: {} },
       ],
     }).compile();
 
