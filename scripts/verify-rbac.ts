@@ -883,6 +883,58 @@ function runStaticChecks(): void {
       ? vendorRegisterRoutes.map((d) => `${d.method} ${d.path}: groups=[${d.groups.join(',')}]`).join('；')
       : `不符: 路由数 ${vendorRegisterRoutes.length}（期望 2）｜groups 不含两者的: ${vendorRegisterOrGateBad.map((d) => `${d.method} ${d.path}=[${d.groups.join(',')}]`).join(', ')}`,
   );
+
+  // ── S15：审慎巡检单组「四处齐」+ 唯一持有断言 + 兑换腿 advance 组回归钉死（战役乙波三 T3/T5/T7）──
+  // 同 S10-S14 范式：单个新组（PRUDENTIAL_CHECK_WRITE）核验 route() 挂载 /
+  // ACTION_BUCKET_CATALOG 桶挂载 / 职务持有均 >=1（联合类型成员由 tsc 收口，同 S10-S14
+  // 头注释）；桶挂既有 Treasury 域（treasury.prudential_check，T3 域注释），域数不变仍
+  // 15——桶/组总数已由 S13d 顺延到 81/89 并断言 PRUDENTIAL_CHECK_WRITE 在册，本判据不
+  // 重复算总数，只核这一个新组本身「登记齐全」。再加一条精确持有断言——
+  // PRUDENTIAL_CHECK_WRITE 唯金库持有（T3 定案：运营/合规官/高管均不加，同
+  // LP_WRITE/FUNDING_WRITE「maker≠checker」反向先例）。再加一条丙案钉死判据（brief
+  // Step1 明点）——T5 把兑换腿 advance route 的 groups 改回 FUNDS_ORDER_ACT（推单归
+  // 金库定案顺延，面板与端点同源），本判据钉死 groups 恰为单元素 [FUNDS_ORDER_ACT]，
+  // 防未来有人错改回别的组或叠加。
+  const PRUDENTIAL_GROUPS: PermissionGroup[] = ['PRUDENTIAL_CHECK_WRITE'];
+  const prudentialCoverage = PRUDENTIAL_GROUPS.map((g) => {
+    const groupRoutes = RBAC_PERMISSION_DEFINITIONS.filter((d) => d.groups.includes(g));
+    const groupBuckets = ACTION_BUCKET_CATALOG.flatMap((domain) => domain.buckets).filter((b) => b.groups.includes(g));
+    const groupHolders = Object.entries(RBAC_ROLE_GROUP_BINDINGS)
+      .filter(([, groups]) => (groups as PermissionGroup[]).includes(g))
+      .map(([role]) => role);
+    return { group: g, routes: groupRoutes.length, buckets: groupBuckets.length, holders: groupHolders };
+  });
+  const uncoveredPrudentialGroups = prudentialCoverage.filter((c) => c.routes < 1 || c.buckets < 1 || c.holders.length < 1);
+  check(
+    'S15a 审慎巡检单组四处齐（route() / ACTION_BUCKET_CATALOG 桶 / 职务持有；联合类型由 tsc 收口）',
+    uncoveredPrudentialGroups.length === 0,
+    uncoveredPrudentialGroups.length === 0
+      ? prudentialCoverage.map((c) => `${c.group}: route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length}`).join('；')
+      : `未齐全: ${uncoveredPrudentialGroups.map((c) => `${c.group}(route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length})`).join(', ')}`,
+  );
+
+  const prudentialHoldersOf = (g: PermissionGroup) => prudentialCoverage.find((c) => c.group === g)!.holders;
+  const prudentialCheckWriteHolders = prudentialHoldersOf('PRUDENTIAL_CHECK_WRITE');
+  check(
+    'S15b PRUDENTIAL_CHECK_WRITE 唯金库持有',
+    prudentialCheckWriteHolders.length === 1 && prudentialCheckWriteHolders[0] === 'TREASURY_OFFICER',
+    prudentialCheckWriteHolders.length === 1 && prudentialCheckWriteHolders[0] === 'TREASURY_OFFICER'
+      ? '持有职务集合恰为 {TREASURY_OFFICER}'
+      : `持有职务集合为 {${prudentialCheckWriteHolders.join(',') || '空'}}，期望恰为 {TREASURY_OFFICER}`,
+  );
+
+  const swapLegAdvanceRoute = RBAC_PERMISSION_DEFINITIONS.find(
+    (d) => d.method === 'POST' && d.path === '/admin/swap-transactions/:swapNo/legs/:legSeq/advance',
+  );
+  const swapLegAdvanceGroupsExact = !!swapLegAdvanceRoute &&
+    swapLegAdvanceRoute.groups.length === 1 && swapLegAdvanceRoute.groups[0] === 'FUNDS_ORDER_ACT';
+  check(
+    'S15c 兑换腿 advance route 的 groups 恰为 [FUNDS_ORDER_ACT]（丙案钉死防回退）',
+    swapLegAdvanceGroupsExact,
+    swapLegAdvanceRoute
+      ? `groups=[${swapLegAdvanceRoute.groups.join(',')}]`
+      : '路由 POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance 未找到',
+  );
 }
 
 // ══════════════════════ S6：前后端权限码表差集 ══════════════════════
@@ -1565,6 +1617,51 @@ const PROBES: DirectionalProbe[] = [
     section: '公司资金三组门(T10)', name: '金库 可以 看外包商名册（OR 粗门正例，FUNDING_WRITE 一侧放行）', method: 'GET',
     routePattern: '/admin/outsourcing-vendors', path: '/admin/outsourcing-vendors',
     role: 'treasury', expect: 'ALLOW',
+  },
+
+  // ── 审慎巡检唯金库 + 兑换腿 advance 组回归钉死（战役乙波三 T7，brief Step 2）────────────
+  // 七条纯权限闸探针，同「公司资金三组门」先例：POST /admin/prudential/check 真跑
+  // PrudentialService.performCheck——无副作用纯读汇总（computeStatus）+ 落一条真实审计
+  // 行（见 prudential.controller.ts 头注释），重复跑不脏演示数据，不需要 cleanup，同
+  // 「金库可以看外包商名册」这类纯读 ALLOW 先例。GET /admin/prudential/status 走既有
+  // FUNDING_DASHBOARD_VIEW（T1 零权限扩张先例，四职务本就持有）——这里只探金库侧已被
+  // check 探针覆盖，改探高管正例 + 运营反例两条。兑换腿 advance 用占位 swapNo（T5 把
+  // 该 route 改回 FUNDS_ORDER_ACT 之后，唯金库能推）——ALLOW 判据只验权限闸，占位
+  // swapNo 必然 404/400，同「LP 台仅金库写」suspend 先例。
+  {
+    section: '审慎巡检唯金库(T7)', name: '金库 可以 手动触发巡检', method: 'POST',
+    routePattern: '/admin/prudential/check', path: '/admin/prudential/check',
+    role: 'treasury', expect: 'ALLOW',
+  },
+  {
+    section: '审慎巡检唯金库(T7)', name: '运营 不得 手动触发巡检（无 PRUDENTIAL_CHECK_WRITE）', method: 'POST',
+    routePattern: '/admin/prudential/check', path: '/admin/prudential/check',
+    role: 'ops_officer', expect: 'DENY',
+  },
+  {
+    section: '审慎巡检唯金库(T7)', name: '合规官 不得 手动触发巡检（无 PRUDENTIAL_CHECK_WRITE）', method: 'POST',
+    routePattern: '/admin/prudential/check', path: '/admin/prudential/check',
+    role: 'compliance_lead', expect: 'DENY',
+  },
+  {
+    section: '审慎巡检唯金库(T7)', name: '高管 可以 看审慎巡检现状（FUNDING_DASHBOARD_VIEW 正例）', method: 'GET',
+    routePattern: '/admin/prudential/status', path: '/admin/prudential/status',
+    role: 'sm', expect: 'ALLOW',
+  },
+  {
+    section: '审慎巡检唯金库(T7)', name: '运营 不得 看审慎巡检现状（无 FUNDING_DASHBOARD_VIEW）', method: 'GET',
+    routePattern: '/admin/prudential/status', path: '/admin/prudential/status',
+    role: 'ops_officer', expect: 'DENY',
+  },
+  {
+    section: '兑换腿 advance 组回归钉死(T7)', name: '金库 可以 推进兑换腿（占位 swapNo，FUNDS_ORDER_ACT 正例）', method: 'POST',
+    routePattern: '/admin/swap-transactions/:swapNo/legs/:legSeq/advance', path: `/admin/swap-transactions/${NOPE}/legs/1/advance`,
+    role: 'treasury', expect: 'ALLOW',
+  },
+  {
+    section: '兑换腿 advance 组回归钉死(T7)', name: '运营 不得 推进兑换腿（无 FUNDS_ORDER_ACT）', method: 'POST',
+    routePattern: '/admin/swap-transactions/:swapNo/legs/:legSeq/advance', path: `/admin/swap-transactions/${NOPE}/legs/1/advance`,
+    role: 'ops_officer', expect: 'DENY',
   },
 ];
 
