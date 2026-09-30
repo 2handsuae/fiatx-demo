@@ -21,6 +21,7 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
 import { ReconciliationModule } from '../../clearing-settle/reconciliation/reconciliation.module';
 import { DepositSupplementApprovalService } from './deposit-supplement-approval.service';
 import { DepositClawbackApprovalService } from './deposit-clawback-approval.service';
+import { NotificationsModule } from '../../../core/notifications/notifications.module';
 
 @Module({
   imports: [
@@ -47,6 +48,9 @@ import { DepositClawbackApprovalService } from './deposit-clawback-approval.serv
     // 平账 B 批 ①：initiateSupplement 要靠 SupplementEvidenceService 查证账单行、
     // onSupplementDecided 批准后要靠 DispositionService 回挂/改写补单号。
     ReconciliationModule,
+    // 战役丙波一 T5：updateStatus 每次状态落地都调
+    // NotificationsService.notifyOrderStatusChange 通知客户。
+    NotificationsModule,
   ],
   controllers: [DepositTransactionsController],
   providers: [

@@ -11,6 +11,7 @@ import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { NotificationsService } from '../../../core/notifications/notifications.service';
 import { Prisma } from '@prisma/client';
 
 describe('DepositTransactionsService', () => {
@@ -21,6 +22,7 @@ describe('DepositTransactionsService', () => {
   let limitRules: Record<string, jest.Mock>;
   let approvalsService: Record<string, jest.Mock>;
   let auditLogsService: AuditLogsService;
+  let notificationsService: Record<string, jest.Mock>;
   let module: TestingModule;
 
   beforeEach(async () => {
@@ -36,6 +38,9 @@ describe('DepositTransactionsService', () => {
     };
     approvalsService = {
       list: jest.fn().mockResolvedValue({ total: 0, items: [] }),
+    };
+    notificationsService = {
+      notifyOrderStatusChange: jest.fn().mockResolvedValue(undefined),
     };
     module = await Test.createTestingModule({
       providers: [
@@ -90,6 +95,10 @@ describe('DepositTransactionsService', () => {
         {
           provide: ApprovalsService,
           useValue: approvalsService,
+        },
+        {
+          provide: NotificationsService,
+          useValue: notificationsService,
         },
       ],
     }).compile();
@@ -829,6 +838,77 @@ describe('DepositTransactionsService', () => {
         Promise.resolve({ ...mockRecord, ...data }),
       );
     };
+
+    // 战役丙波一 T5：COMPLIANCE_PENDING --FREEZE--> FROZEN——toCustomerStatus
+    // 把 FROZEN 收敛回 COMPLIANCE_PENDING（不在白名单），collapsedFrom/To 相等；
+    // 服务侧仍要调用（去重短路在 NotificationsService 内部，见 T2），本测只断言
+    // 调用方传参正确，不断言"发没发"。
+    it('COMPLIANCE_PENDING → FROZEN via freeze：调用 notifyOrderStatusChange，collapsedFrom/To 均收敛为 COMPLIANCE_PENDING', async () => {
+      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.FREEZE,
+      });
+
+      expect(notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domain: 'DEPOSIT',
+          orderNo: 'DP001',
+          owner: { customerId: 'U123' },
+          collapsedFrom: 'COMPLIANCE_PENDING',
+          collapsedTo: 'COMPLIANCE_PENDING',
+          amount: '100',
+          assetCode: 'A123',
+        }),
+      );
+    });
+
+    // COMPLIANCE_PENDING --APPROVE--> SUCCESS：SUCCESS 在白名单里原样透传，
+    // collapsedFrom/To 真变化。
+    it('COMPLIANCE_PENDING → SUCCESS via approve：调用 notifyOrderStatusChange，collapsedTo=SUCCESS', async () => {
+      setupMock(DepositTransactionStatus.COMPLIANCE_PENDING);
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.APPROVE,
+      });
+
+      expect(notificationsService.notifyOrderStatusChange).toHaveBeenCalledWith(
+        expect.objectContaining({
+          domain: 'DEPOSIT',
+          orderNo: 'DP001',
+          owner: { customerId: 'U123' },
+          collapsedFrom: 'COMPLIANCE_PENDING',
+          collapsedTo: 'SUCCESS',
+          amount: '100',
+          assetCode: 'A123',
+        }),
+      );
+    });
+
+    // FIRM 单（本行 ownerType 现役取值之一）跳过通知——不调用
+    // notifyOrderStatusChange。
+    it('ownerType=FIRM 的单不调用 notifyOrderStatusChange', async () => {
+      const mockRecord = {
+        id: mockId,
+        depositNo: 'DP-FIRM-1',
+        status: DepositTransactionStatus.COMPLIANCE_PENDING,
+        ownerType: 'FIRM',
+        ownerId: 'FIRM123',
+        assetId: 'A123',
+        amount: '100',
+        payinId: 'P123',
+      };
+      ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue(mockRecord);
+      ((prisma as any).depositTransaction.update as jest.Mock).mockImplementation(({ data }) =>
+        Promise.resolve({ ...mockRecord, ...data }),
+      );
+
+      await service.updateStatus(mockId, {
+        action: DepositTransactionAction.APPROVE,
+      });
+
+      expect(notificationsService.notifyOrderStatusChange).not.toHaveBeenCalled();
+    });
 
     it('PAYIN_PENDING → COMPLIANCE_PENDING via payin_confirmed', async () => {
       setupMock(DepositTransactionStatus.PAYIN_PENDING);

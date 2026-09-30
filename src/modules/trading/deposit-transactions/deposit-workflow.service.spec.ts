@@ -28,6 +28,7 @@ import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-res
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
+import { NotificationsService } from '../../../core/notifications/notifications.service';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
@@ -3729,6 +3730,7 @@ describe('DepositWorkflowService', () => {
             provide: TransactionLimitRulesService,
             useValue: { getSingleRule: jest.fn().mockResolvedValue(null) },
           },
+          { provide: NotificationsService, useValue: { notifyOrderStatusChange: jest.fn().mockResolvedValue(undefined) } },
         ],
       }).compile();
 

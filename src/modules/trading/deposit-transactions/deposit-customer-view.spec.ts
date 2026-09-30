@@ -6,6 +6,7 @@ import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { NotificationsService } from '../../../core/notifications/notifications.service';
 
 describe('DepositTransactionsService.toCustomerDepositView', () => {
   let service: DepositTransactionsService;
@@ -20,6 +21,7 @@ describe('DepositTransactionsService.toCustomerDepositView', () => {
         { provide: AuditLogsService, useValue: {} },
         { provide: TransactionLimitRulesService, useValue: {} },
         { provide: ApprovalsService, useValue: {} },
+        { provide: NotificationsService, useValue: {} },
       ],
     }).compile();
 

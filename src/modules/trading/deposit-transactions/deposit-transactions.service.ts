@@ -26,6 +26,7 @@ import {
 import { AuditCategory, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
+import { NotificationsService } from '../../../core/notifications/notifications.service';
 import { toCustomerAssetView } from '../shared/customer-view.util';
 import { resolveSlaFields as resolveSlaFieldsShared } from '../shared/sla-fields.util';
 import { freezeScanQueryArgs } from '../shared/freeze-scan.util';
@@ -189,6 +190,7 @@ export class DepositTransactionsService {
     private readonly auditLogsService: AuditLogsService,
     private readonly limitRulesService: TransactionLimitRulesService,
     private readonly approvalsService: ApprovalsService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
@@ -844,6 +846,26 @@ export class DepositTransactionsService {
         updated.amount.toString(),
       ),
     );
+
+    // 战役丙波一 T5：FIRM 单（本行 ownerType 现役取值之一，见
+    // deposit-workflow.service.ts:1091）无客户可通知，跳过；CUSTOMER 单每次
+    // 状态落地都调，不自行预判 collapse 是否变化——去重在 T2
+    // notifyOrderStatusChange 内部（collapsedFrom===collapsedTo 即短路）。
+    if (updated.ownerType === 'CUSTOMER') {
+      await this.notificationsService.notifyOrderStatusChange({
+        domain: 'DEPOSIT',
+        orderNo: updated.depositNo,
+        owner: { customerId: updated.ownerId },
+        collapsedFrom: this.toCustomerStatus(currentStatus),
+        collapsedTo: this.toCustomerStatus(nextStatus),
+        // 展示层口径同 toCustomerDepositView（:430 `amount: item.amount`）——
+        // DB Decimal 本身即人类可读十进制串，无最小单位换算，这里显式
+        // `.toString()` 只是把 Decimal 对象转成通知层要求的 string（events
+        // emitter :844 同款写法），不改变数值。
+        amount: updated.amount.toString(),
+        assetCode: updated.assetCode ?? updated.assetId,
+      });
+    }
 
     return updated;
   }
