@@ -152,7 +152,7 @@
 （⚠️ 不要点 demo:all 预铺的 #19——那张单 `demo:all` 铺场时已经被驱到 **FROZEN** 终态，SimulationPanel 对 FROZEN 单据的裁决按钮会置灰点不动；#19 留着当"现成的冻结单+审计链"范例翻给观众看即可，现场喂裁决要用本站新建的这张）
 
 **站 5.3 反面步 · 消息中心零新增**（战役丙波一，2026-09-30 T10 现场实走，验的是"没有"）
-走查：延续本站新建的这笔单——冻结落地前先切客户端 `/messages` 记一遍当前条数（2026-09-30 T10 现场基线 3 条）→ 喂完「⑨ Rejected · MLRO freeze」回客户端 `/messages`（不刷新、不重新登录）→ 仍是那 3 条，零新增（截图对照 `evidence/11`）→ 回管理台该单详情「Frozen Disposition → Initiate Unfreeze」（填理由）提交 → 切 `mlro@` 审批中心批准（单转回 COMPLIANCE_PENDING）→ 再切客户端 `/messages`——仍是那 3 条，解冻回中性态同样零新增
+走查：延续本站新建的这笔单——冻结落地**前**先切客户端 `/messages` 截图记一遍当前条数（现场基线 4 条，`WDR261001027818` 建单前）→ 喂完「⑨ Rejected · MLRO freeze」回客户端 `/messages`（不刷新、不重新登录）再截一张——仍是那 4 条，零新增，两图逐行对照唯一差异是右上角时钟走了 67 秒（`evidence/11a` 冻结前 vs `11b` 冻结后）→ 回管理台该单详情「Frozen Disposition → Initiate Unfreeze」（填理由）提交 → 切 `mlro@` 审批中心批准（单转回 COMPLIANCE_PENDING）→ 再切客户端 `/messages` 截第三张——仍是那 4 条，解冻回中性态同样零新增（`evidence/11c`）
 判据：FROZEN 与 RESUME 两次状态落地，`toCustomerWithdrawStatus` 收敛前后客户可见状态都还是 COMPLIANCE_PENDING（无变化），`notifyOrderStatusChange` 的 `collapsedFrom===collapsedTo` 短路直接跳过，不调用/不落库、也不发信号——tipping-off 第三层防线（不只是文案中性，是连"有过一条通知"这件事本身都不存在）。同一机制也覆盖 Carol（SILENT 制裁创建即冻）与 Frank（制裁前垫本金、制裁后创建即冻）：本轮实测 Frank 名下一笔 SUCCESS 充值正常收到 `DEPOSIT_SUCCESS` 通知，而他被冻结/没收的另外两笔（FROZEN/SEIZED）customer_notifications 表零行——冻单不冻走通知系统本身，是冻单的那条收敛边压根不触发它
 
 **站 5.4 · Frank（SANCTION）创建即冻**
