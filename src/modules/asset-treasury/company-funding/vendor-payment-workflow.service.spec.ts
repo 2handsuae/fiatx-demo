@@ -14,7 +14,7 @@ import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-tra
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 
-const AED = { id: 'asset-aed', code: 'AED', currency: 'AED', decimals: 2, type: 'FIAT' };
+const AED = { id: 'asset-aed', assetNo: 'ASAED0001', code: 'AED', currency: 'AED', decimals: 2, type: 'FIAT' };
 const treasury = { actorType: 'ADMIN' as const, userId: 'uuid-tre', userNo: 'ADM-TRE', roleCodes: ['TREASURY_OFFICER'] };
 const OPS_WALLET = { id: 'w-ops-aed', walletNo: 'WAL-OPS-AED', address: null, iban: 'AE-OPS-AED' };
 const activeVendor = { id: 'vendor-1', vendorNo: 'VEN2609290001', name: 'HexTrust Custody Ltd', status: 'ACTIVE' };
@@ -147,7 +147,7 @@ describe('VendorPaymentWorkflowService (Task 5)', () => {
       const { wf, prudential } = makeWorkflow();
       await wf.initiate(baseInput, treasury);
       expect(prudential.assertPostOutflowCompliant).toHaveBeenCalledWith({
-        currency: 'AED', amountMinor: 1_200_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: activeVendor.vendorNo, actor: treasury,
+        currency: 'AED', amountMinor: 1_200_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: activeVendor.vendorNo, assetNo: AED.assetNo, actor: treasury,
       });
     });
 

@@ -93,7 +93,7 @@ export class LpExchangeWorkflowService {
     // 算术门（乙波三 T2 spec §3）：按卖出边金额折算——买入腿是未来进项，不抵扣（保守口径，
     // 与「在途不计」同轴）。余额闸=付得起，NLA 门=付完还合规，两闸各管各的。
     await this.prudential.assertPostOutflowCompliant({
-      currency: sellAsset.currency as 'AED' | 'USDT', amountMinor: sellAmountMinor, orderKind: 'LP_EXCHANGE', counterpartyNo: dto.lpNo, actor,
+      currency: sellAsset.currency as 'AED' | 'USDT', amountMinor: sellAmountMinor, orderKind: 'LP_EXCHANGE', counterpartyNo: dto.lpNo, assetNo: sellAsset.assetNo, actor,
     });
 
     const [sellFrom, buyVia, buyTo] = await Promise.all([

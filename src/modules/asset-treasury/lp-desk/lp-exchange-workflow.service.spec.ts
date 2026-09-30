@@ -5,7 +5,7 @@ import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-tra
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 
-const USDT = { id: 'a-usdt', code: 'USDT-TRON', currency: 'USDT', decimals: 6, type: 'CRYPTO' };
+const USDT = { id: 'a-usdt', assetNo: 'ASUSDT0001', code: 'USDT-TRON', currency: 'USDT', decimals: 6, type: 'CRYPTO' };
 const AED = { id: 'a-aed', code: 'AED', currency: 'AED', decimals: 2, type: 'FIAT' };
 const treasury = { actorType: 'ADMIN' as const, userId: 'uuid-tre', userNo: 'ADM-TRE', roleCodes: ['TREASURY_OFFICER'] };
 const profile = { lpNo: 'LPP1', name: 'Acme LP', fiatBankName: 'Bank', fiatIban: 'AE-LP-IBAN', cryptoNetwork: 'TRON', cryptoAddress: 'TLP-ADDR', agreementRef: 'AGR1', status: 'ACTIVE' };
@@ -94,11 +94,11 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       const { wf, prudential } = makeWorkflow();
       await wf.initiate(dto, treasury);
       expect(prudential.assertPostOutflowCompliant).toHaveBeenCalledWith({
-        currency: 'USDT', amountMinor: 20_000_000_000n, orderKind: 'LP_EXCHANGE', counterpartyNo: 'LPP1', actor: treasury,
+        currency: 'USDT', amountMinor: 20_000_000_000n, orderKind: 'LP_EXCHANGE', counterpartyNo: 'LPP1', assetNo: USDT.assetNo, actor: treasury,
       });
       // 断言调用参数里没有任何买入边的痕迹（buyAmount/buyAssetId 均不出现在门的入参里）。
       const call = prudential.assertPostOutflowCompliant.mock.calls[0][0];
-      expect(Object.keys(call)).toEqual(['currency', 'amountMinor', 'orderKind', 'counterpartyNo', 'actor']);
+      expect(Object.keys(call)).toEqual(['currency', 'amountMinor', 'orderKind', 'counterpartyNo', 'assetNo', 'actor']);
     });
 
     it('NLA gate blocks → initiate rejects with the gate\'s own 400, no row created, no wallets resolved, no approval submitted (拒建单)', async () => {

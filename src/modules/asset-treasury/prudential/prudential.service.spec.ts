@@ -3,7 +3,7 @@
 // 若实现把 AED/USDT 的 ledger 传错或余额查错账户，断言会对不上，能真的抓到跨 ledger 错误）。
 // 战役乙波三 T2：assertPostOutflowCompliant 单测半（mock computeStatus 控制水位，spec §10.2）。
 import { BadRequestException } from '@nestjs/common';
-import { PrudentialService } from './prudential.service';
+import { PrudentialService, PrudentialStatus } from './prudential.service';
 import { AED_USD_PEG_RATE, MONTHLY_OPEX_BASE_AED_MINOR, NLA_FLOOR_AED_MINOR, usdtMinorToAedMinor } from './prudential.constants';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
@@ -188,7 +188,16 @@ describe('PrudentialService.assertPostOutflowCompliant（乙波三 T2 · 算术�
   it('passes silently when the outflow leaves NLA at/above the floor (no audit write)', async () => {
     const { service, auditLogs } = makeService(150_000_000n); // 1,500,000.00 AED, floor 1,200,000.00
     await expect(
-      service.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 10_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', actor }),
+      service.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 10_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', assetNo: 'AS-AED-1', actor }),
+    ).resolves.toBeUndefined();
+    expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+  });
+
+  it('passes when the outflow leaves NLA exactly at the floor — 并入项②（R3）：钉住 >=，改成 > 会把这条测红', async () => {
+    // NLA 恰比出款额高出一个「floor」，动后 NLA 恰等于 NLA_FLOOR_AED_MINOR（120,000,000n）。
+    const { service, auditLogs } = makeService(NLA_FLOOR_AED_MINOR + 10_000_000n);
+    await expect(
+      service.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 10_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', assetNo: 'AS-AED-1', actor }),
     ).resolves.toBeUndefined();
     expect(auditLogs.recordByActor).not.toHaveBeenCalled();
   });
@@ -196,7 +205,7 @@ describe('PrudentialService.assertPostOutflowCompliant（乙波三 T2 · 算术�
   it('blocks (400) when the outflow would cross the floor — message carries the three figures (current/after/floor)', async () => {
     const { service } = makeService(150_000_000n); // 150M - 40M = 110M < 120M floor
     const err: any = await service
-      .assertPostOutflowCompliant({ currency: 'AED', amountMinor: 40_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', actor })
+      .assertPostOutflowCompliant({ currency: 'AED', amountMinor: 40_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', assetNo: 'AS-AED-1', actor })
       .catch((e) => e);
     expect(err).toBeInstanceOf(BadRequestException);
     expect(err.message).toContain('1500000.00 AED'); // 当前 NLA
@@ -209,7 +218,7 @@ describe('PrudentialService.assertPostOutflowCompliant（乙波三 T2 · 算术�
   it('blocks an LP exchange with its own label in the message ("this LP exchange")', async () => {
     const { service } = makeService(50_000_000n); // 已经低于红线，任何出款都拦
     const err: any = await service
-      .assertPostOutflowCompliant({ currency: 'AED', amountMinor: 1_000_000n, orderKind: 'LP_EXCHANGE', counterpartyNo: 'LPP1', actor })
+      .assertPostOutflowCompliant({ currency: 'AED', amountMinor: 1_000_000n, orderKind: 'LP_EXCHANGE', counterpartyNo: 'LPP1', assetNo: 'AS-AED-1', actor })
       .catch((e) => e);
     expect(err.message).toContain('this LP exchange');
   });
@@ -217,7 +226,7 @@ describe('PrudentialService.assertPostOutflowCompliant（乙波三 T2 · 算术�
   it('passes a payment within headroom (does not block, no audit write — 正常期小额付款照常过)', async () => {
     const { service, auditLogs } = makeService(150_000_000n);
     await expect(
-      service.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 1_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', actor }),
+      service.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 1_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', assetNo: 'AS-AED-1', actor }),
     ).resolves.toBeUndefined();
     expect(auditLogs.recordByActor).not.toHaveBeenCalled();
   });
@@ -227,7 +236,7 @@ describe('PrudentialService.assertPostOutflowCompliant（乙波三 T2 · 算术�
     // 50,000 USDT (6dp) 经折算 ≈183,625.00 AED，动后 NLA ≈1,816,375.00 仍远高于红线——
     // 若实现忘记转换、直接拿 50_000_000_000n(µUSDT) 当 AED 分比较，会被判定跌破而误拦。
     await expect(
-      service.assertPostOutflowCompliant({ currency: 'USDT', amountMinor: 50_000_000_000n, orderKind: 'LP_EXCHANGE', counterpartyNo: 'LPP1', actor }),
+      service.assertPostOutflowCompliant({ currency: 'USDT', amountMinor: 50_000_000_000n, orderKind: 'LP_EXCHANGE', counterpartyNo: 'LPP1', assetNo: 'AS-USDT-1', actor }),
     ).resolves.toBeUndefined();
     expect(auditLogs.recordByActor).not.toHaveBeenCalled();
   });
@@ -236,7 +245,7 @@ describe('PrudentialService.assertPostOutflowCompliant（乙波三 T2 · 算术�
     const { service } = makeService(150_000_000n); // 1,500,000.00 AED
     // 113,600,000,000 µUSDT → 41,719,600 fils（既有换算用例）；after = 108,280,400 < 120,000,000 floor。
     const err: any = await service
-      .assertPostOutflowCompliant({ currency: 'USDT', amountMinor: 113_600_000_000n, orderKind: 'LP_EXCHANGE', counterpartyNo: 'LPP1', actor })
+      .assertPostOutflowCompliant({ currency: 'USDT', amountMinor: 113_600_000_000n, orderKind: 'LP_EXCHANGE', counterpartyNo: 'LPP1', assetNo: 'AS-USDT-1', actor })
       .catch((e) => e);
     expect(err).toBeInstanceOf(BadRequestException);
     expect(err.message).toContain('1082804.00 AED');
@@ -246,7 +255,7 @@ describe('PrudentialService.assertPostOutflowCompliant（乙波三 T2 · 算术�
   it('writes PRUDENTIAL_GATE_BLOCKED (DENIED, reasonCode=NLA_FLOOR, explicit requestId, non-empty reason) before throwing', async () => {
     const { service, auditLogs } = makeService(50_000_000n);
     const err: any = await service
-      .assertPostOutflowCompliant({ currency: 'AED', amountMinor: 1_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', actor })
+      .assertPostOutflowCompliant({ currency: 'AED', amountMinor: 1_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', assetNo: 'AS-AED-1', actor })
       .catch((e) => e);
     expect(err).toBeInstanceOf(BadRequestException); // 断言写审计先于抛异常这件事本身发生过（走到了这一行）
     expect(auditLogs.recordByActor).toHaveBeenCalledTimes(1);
@@ -262,27 +271,85 @@ describe('PrudentialService.assertPostOutflowCompliant（乙波三 T2 · 算术�
     expect(actorEnvelope).toMatchObject({ actorType: 'ADMIN', actorNo: 'ADM-TRE', actorDisplayName: 'ADM-TRE', actorRolesAtTime: ['TREASURY_OFFICER'] });
   });
 
-  it('subjects use OUTSOURCING_VENDOR for VENDOR_PAYMENT and LIQUIDITY_PROVIDER for LP_EXCHANGE — counterpartyNo mirrored, role RELATED', async () => {
+  it('subjects use OUTSOURCING_VENDOR for VENDOR_PAYMENT and LIQUIDITY_PROVIDER for LP_EXCHANGE — counterpartyNo mirrored, role RELATED — 并入项①（R3）：外加出款资产 ASSET RELATED 主体', async () => {
     const { service: vendorSvc, auditLogs: vendorAudit } = makeService(50_000_000n);
-    await vendorSvc.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 1_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', actor }).catch(() => {});
+    await vendorSvc.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 1_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', assetNo: 'AS-AED-1', actor }).catch(() => {});
     expect(vendorAudit.recordByActor.mock.calls[0][0].subjects).toEqual([
       expect.objectContaining({ subjectType: 'OUTSOURCING_VENDOR', subjectNo: 'VEN1', subjectRole: 'RELATED' }),
+      expect.objectContaining({ subjectType: 'ASSET', subjectNo: 'AS-AED-1', subjectRole: 'RELATED' }),
     ]);
 
     const { service: lpSvc, auditLogs: lpAudit } = makeService(50_000_000n);
-    await lpSvc.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 1_000_000n, orderKind: 'LP_EXCHANGE', counterpartyNo: 'LPP1', actor }).catch(() => {});
+    await lpSvc.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 1_000_000n, orderKind: 'LP_EXCHANGE', counterpartyNo: 'LPP1', assetNo: 'AS-AED-2', actor }).catch(() => {});
     expect(lpAudit.recordByActor.mock.calls[0][0].subjects).toEqual([
       expect.objectContaining({ subjectType: 'LIQUIDITY_PROVIDER', subjectNo: 'LPP1', subjectRole: 'RELATED' }),
+      expect.objectContaining({ subjectType: 'ASSET', subjectNo: 'AS-AED-2', subjectRole: 'RELATED' }),
     ]);
   });
 
   it('metadata carries the three figures + currency/orderKind/counterpartyNo (amountMinor as the minor-unit string)', async () => {
     const { service, auditLogs } = makeService(150_000_000n);
-    await service.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 40_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', actor }).catch(() => {});
+    await service.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 40_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', assetNo: 'AS-AED-1', actor }).catch(() => {});
     const audit = auditLogs.recordByActor.mock.calls[0][0];
     expect(audit.metadata).toMatchObject({
       orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', currency: 'AED', amountMinor: '40000000',
       nlaBeforeAedMinor: '150000000', nlaAfterAedMinor: '110000000', floorAedMinor: '120000000',
     });
+  });
+});
+
+describe('PrudentialService.performCheck（乙波三 T3 · 巡检）', () => {
+  const actor = { actorType: 'ADMIN' as const, userId: 'uuid-tre', userNo: 'ADM-TRE', roleCodes: ['TREASURY_OFFICER'] };
+
+  /** 同 T2 的 makeService 先例：performCheck 只依赖 computeStatus 的返回值——直接
+   *  spyOn 控水位，prisma/systemWallets/accounting 三个依赖本身不会被调用。 */
+  function makeService(nlaAedMinor: bigint, floorAedMinor: bigint = NLA_FLOOR_AED_MINOR) {
+    const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
+    const service = new PrudentialService({} as any, {} as any, {} as any, auditLogs);
+    const status: PrudentialStatus = {
+      perAsset: [], nlaAedMinor: nlaAedMinor.toString(), floorAedMinor: floorAedMinor.toString(),
+      headroomAedMinor: (nlaAedMinor - floorAedMinor).toString(), breached: nlaAedMinor < floorAedMinor,
+      monthlyOpexBaseAedMinor: MONTHLY_OPEX_BASE_AED_MINOR.toString(), coefficient: '1.2', pegRate: AED_USD_PEG_RATE,
+    };
+    jest.spyOn(service, 'computeStatus').mockResolvedValue(status);
+    return { service, auditLogs, status };
+  }
+
+  it('PASS 分支：写 PRUDENTIAL_CHECK_PERFORMED（outcome=SUCCESS, reasonCode=NLA_OK），metadata 是 status 的全量快照，requestId 显式，返回值即 status', async () => {
+    const { service, auditLogs, status } = makeService(150_000_000n); // 高于红线
+    const result = await service.performCheck(actor);
+
+    expect(result).toEqual(status);
+    expect(auditLogs.recordByActor).toHaveBeenCalledTimes(1);
+    const audit = auditLogs.recordByActor.mock.calls[0][0];
+    expect(audit).toMatchObject({
+      action: 'PRUDENTIAL_CHECK_PERFORMED', actionDomain: 'TREASURY', outcome: 'SUCCESS',
+      reasonCode: 'NLA_OK', primarySubjectType: 'PRUDENTIAL_STATUS', primarySubjectNo: 'NLA',
+    });
+    expect(audit.requestId).toMatch(/^PRUDENTIAL_CHECK_PERFORMED_NLA_/);
+    expect(audit.metadata).toEqual(status); // 全量快照——键一个不多一个不少
+    const actorEnvelope = auditLogs.recordByActor.mock.calls[0][1];
+    expect(actorEnvelope).toMatchObject({ actorType: 'ADMIN', actorNo: 'ADM-TRE', actorDisplayName: 'ADM-TRE', actorRolesAtTime: ['TREASURY_OFFICER'] });
+  });
+
+  it('BREACH 分支：reasonCode=NLA_BREACH，outcome 仍是 SUCCESS——破线是巡检查出的业务结果，不是「这条记录没写成」', async () => {
+    const { service, auditLogs, status } = makeService(50_000_000n); // 低于红线
+    const result = await service.performCheck(actor);
+
+    expect(result.breached).toBe(true);
+    expect(auditLogs.recordByActor).toHaveBeenCalledTimes(1);
+    const audit = auditLogs.recordByActor.mock.calls[0][0];
+    expect(audit).toMatchObject({ action: 'PRUDENTIAL_CHECK_PERFORMED', outcome: 'SUCCESS', reasonCode: 'NLA_BREACH' });
+    expect(audit.metadata).toEqual(status);
+  });
+
+  it('二连跑写两条审计——无去重语义，每次核对都各自留痕，requestId 各自独立', async () => {
+    const { service, auditLogs } = makeService(150_000_000n);
+    await service.performCheck(actor);
+    await service.performCheck(actor);
+
+    expect(auditLogs.recordByActor).toHaveBeenCalledTimes(2);
+    const [first, second] = auditLogs.recordByActor.mock.calls.map((c: any[]) => c[0]);
+    expect(first.requestId).not.toBe(second.requestId);
   });
 });

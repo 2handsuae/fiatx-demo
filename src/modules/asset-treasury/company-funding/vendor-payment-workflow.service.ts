@@ -84,7 +84,7 @@ export class VendorPaymentWorkflowService {
     // 算术门（乙波三 T2 spec §3）：余额闸=付得起，NLA 门=付完还合规，两闸各管各的，
     // 顺序先余额后 NLA——插在同一层同一形制（紧邻既有前置检查之后，出生守卫尚未建行）。
     await this.prudential.assertPostOutflowCompliant({
-      currency: asset.currency as 'AED' | 'USDT', amountMinor, orderKind: 'VENDOR_PAYMENT', counterpartyNo: dto.vendorNo, actor,
+      currency: asset.currency as 'AED' | 'USDT', amountMinor, orderKind: 'VENDOR_PAYMENT', counterpartyNo: dto.vendorNo, assetNo: asset.assetNo, actor,
     });
 
     const fromWallet = await this.systemWallets.resolve(dto.assetId, 'F_OPS');

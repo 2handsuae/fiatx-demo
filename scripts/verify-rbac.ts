@@ -801,16 +801,18 @@ function runStaticChecks(): void {
   const totalDomains = ACTION_BUCKET_CATALOG.length;
   check(
     // 战役乙波二 T10：本判据是「当前总数」快照，非累加历史——上一次校准是波一 T10
-    // （75→77 桶、83→85 组，LP_READ/LP_WRITE 两个新成员）；本次校准把桶/组两个数字
-    // 顺延到波二 T8 落地后的终态（77→80 桶、85→88 组），新增三个 FUNDING_* 成员一并
-    // 收进 has() 断言。数字来源=运行时直接数，非手抄：失效验证见 task-10-report.md
-    // （改动前先跑一次，S13d 在 77/85 门槛下确认落红，再改成 80/88 转绿）。
-    'S13d 波前→波后计数（域 15→15 不变、桶 77→80、组 85→88；FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW 三个新成员都在册）',
-    totalDomains === 15 && totalBuckets === 80 && declaredPermissionGroups.size === 88 &&
+    // （75→77 桶、83→85 组，LP_READ/LP_WRITE 两个新成员）；波二 T10 把桶/组两个数字
+    // 顺延到波二 T8 落地后的终态（77→80 桶、85→88 组，FUNDING_* 三个新成员）。
+    // 战役乙波三 T3（主会话裁定 R1）：本任务新增 treasury.prudential_check 一桶、
+    // PRUDENTIAL_CHECK_WRITE 一组，数字再顺延一格（80→81 桶、88→89 组）——数字来源=
+    // 运行时直接数，非手抄：先跑一次在 80/88 门槛下确认落红（本任务实测复现），再改成
+    // 81/89 转绿。
+    'S13d 波前→波后计数（域 15→15 不变、桶 80→81、组 88→89；PRUDENTIAL_CHECK_WRITE 新成员在册）',
+    totalDomains === 15 && totalBuckets === 81 && declaredPermissionGroups.size === 89 &&
       declaredPermissionGroups.has('FUNDING_READ') && declaredPermissionGroups.has('FUNDING_WRITE') &&
-      declaredPermissionGroups.has('FUNDING_DASHBOARD_VIEW'),
-    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 80）｜` +
-      `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 88，含 FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW）`,
+      declaredPermissionGroups.has('FUNDING_DASHBOARD_VIEW') && declaredPermissionGroups.has('PRUDENTIAL_CHECK_WRITE'),
+    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 81）｜` +
+      `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 89，含 FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW/PRUDENTIAL_CHECK_WRITE）`,
   );
 
   // ── S14：公司资金三组「四处齐」+ 唯一持有断言 + OR 粗门登记（战役乙波二 T3/T5/T8/T10）──

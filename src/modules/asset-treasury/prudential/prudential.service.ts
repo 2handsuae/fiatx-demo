@@ -1,6 +1,7 @@
 // 战役乙波三 T1 · 审慎地基：只读 NLA 状态计算——查两资产（AED/USDT）的 F_OPS 运营户余额，
 // USDT 经汇率单源折算 AED，汇总对比红线。纯读零写：computeStatus 本身不写审计。
-// 战役乙波三 T2 · 算术门：assertPostOutflowCompliant 是本文件唯一的写点（拦截当场留痕）。
+// 战役乙波三 T2 · 算术门：assertPostOutflowCompliant 是本文件写点之一（拦截当场留痕）。
+// 战役乙波三 T3 · 巡检：performCheck 是本文件另一写点（每日监控任务的手动触发替身）。
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -21,6 +22,9 @@ export interface AssertPostOutflowCompliantInput {
   amountMinor: bigint;
   orderKind: PrudentialOrderKind;
   counterpartyNo: string;
+  /** 出款资产业务键（付款单=付款资产、LP 单=卖出资产）——拦截审计挂一个 ASSET RELATED
+   *  主体，照 withdraw-workflow.service.ts:417 先例（第七幕按资产号能拉出被它拦下的单）。 */
+  assetNo: string;
   actor: ApprovalActorContext;
 }
 
@@ -146,6 +150,9 @@ export class PrudentialService {
       reason: `${input.orderKind} to ${input.counterpartyNo} blocked: NLA after outflow would fall below the regulatory floor`,
       subjects: [
         { subjectType: counterpartySubjectType(input.orderKind), subjectNo: input.counterpartyNo, subjectRole: AuditSubjectRole.RELATED },
+        // 并入项①（主会话裁定 R3）：挂出款资产 RELATED 主体，照 withdraw-workflow
+        // .service.ts:417 先例。
+        { subjectType: AuditEntityTypes.ASSET, subjectNo: input.assetNo, subjectRole: AuditSubjectRole.RELATED },
       ],
       metadata: {
         orderKind: input.orderKind, counterpartyNo: input.counterpartyNo, currency: input.currency,
@@ -162,5 +169,42 @@ export class PrudentialService {
       `Blocked by prudential floor (Company Rulebook VI.C): this ${orderLabel(input.orderKind)} would take Net Liquid Assets below the regulatory floor — `
         + `NLA now ${fmtAed(status.nlaAedMinor)}, after ${fmtAed(after)}, floor ${fmtAed(status.floorAedMinor)}.`,
     );
+  }
+
+  /** 巡检（T3，演示站「每日监控任务」的手动触发替身）：算一次 → 写一条留痕
+   *  （PRUDENTIAL_CHECK_PERFORMED，reasonCode 按当次结果二选一，metadata 是 status 的
+   *  全量快照）→ 把同一份 status 原样吐回给调用方展示。outcome 恒为 SUCCESS——PASS/BREACH
+   *  是巡检查出的业务结果，不是「这次记录没写成」，破线不代表这条审计写失败。
+   *
+   *  **不自动生成事故**：即便本次判定 breached=true，本方法也只负责测出并留痕，绝不
+   *  顺手 new 一个 Incident。理由两条都是硬约束，不是「懒得写」：
+   *  ① 事件登记须有操作人——巡检可能是无人值守的定时任务触发，这里没有一个「发现问题的
+   *     人」可以落进事件的 operator 字段（甲波五判例）；
+   *  ② PRUDENTIAL_BREACH（审慎缺口）这一事故族的经办固定由 CFO 族独占——巡检服务若代为
+   *     立案，等于越权抢了 CFO 族的经办位。是否立案、由谁去办，留给人在事件登记页手动开。
+   *  二连跑没有去重语义：每次核对本身就是一次业务动作，都要各写各的一条，不因短时间内
+   *  重复调用而合并或跳过。 */
+  async performCheck(actor: ApprovalActorContext): Promise<PrudentialStatus> {
+    const status = await this.computeStatus();
+    const display = actor.userNo ?? actor.userId;
+    const breached = status.breached;
+    const auditInput: any = {
+      action: AuditActions.PRUDENTIAL_CHECK_PERFORMED,
+      actionDomain: 'TREASURY',
+      category: AuditCategory.BUSINESS,
+      primarySubjectType: AuditEntityTypes.PRUDENTIAL_STATUS,
+      primarySubjectNo: 'NLA',
+      outcome: AuditOutcome.SUCCESS,
+      reasonCode: breached ? 'NLA_BREACH' : 'NLA_OK',
+      reason: breached
+        ? `Prudential check: NLA ${fmtAed(status.nlaAedMinor)} is below the regulatory floor ${fmtAed(status.floorAedMinor)}`
+        : `Prudential check: NLA ${fmtAed(status.nlaAedMinor)} is at/above the regulatory floor ${fmtAed(status.floorAedMinor)}`,
+      metadata: { ...status },
+      requestId: `PRUDENTIAL_CHECK_PERFORMED_NLA_${randomUUID()}`,
+    };
+    await this.auditLogs.recordByActor(auditInput, {
+      actorType: 'ADMIN', actorNo: display, actorDisplayName: display, actorRolesAtTime: actor.roleCodes ?? [],
+    });
+    return status;
   }
 }

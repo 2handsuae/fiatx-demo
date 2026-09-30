@@ -114,7 +114,10 @@ export type PermissionGroup =
   | 'FUNDING_WRITE'
   // 战役乙波二 T8：公司资金全景看板——独立可见性门控（金库/CFO/高管/内审恰四职务，
   // spec §7），非 FUNDING_READ 的别名（SENIOR_MANAGEMENT_OFFICER 不持 FUNDING_READ）。
-  | 'FUNDING_DASHBOARD_VIEW';
+  | 'FUNDING_DASHBOARD_VIEW'
+  // 战役乙波三 T3：巡检（NLA 审慎检查）手动触发——演示站「每日监控任务」的替身，
+  // 唯金库能戳（T7 判据）。
+  | 'PRUDENTIAL_CHECK_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -520,6 +523,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // 战役乙波三 T1：审慎（NLA）只读状态端点——归既有桶 treasury.view_dashboard 的组
   // FUNDING_DASHBOARD_VIEW（金库/CFO/高管/内审四职务本就持有，零权限扩张，零新桶）。
   route('GET', '/admin/prudential/status', 'Get the current NLA prudential status', ['FUNDING_DASHBOARD_VIEW']),
+  // 战役乙波三 T3：巡检手动触发——新桶 treasury.prudential_check，新组
+  // PRUDENTIAL_CHECK_WRITE，唯金库持有（T7 判据）。
+  route('POST', '/admin/prudential/check', 'Run prudential (NLA) check', ['PRUDENTIAL_CHECK_WRITE']),
   // 平账 A 批：⚡拨钟——把案件账龄截止拨到过去（演示件，挂现有拨钟组，桶 demo.act_clock 已涵盖 SLA timers）
   route('POST', '/admin/reconciliation/cases/:caseNo/simulate-aging-timeout', 'Fast-forward a reconciliation case past its aging line (demo only)', ['DEMO_CLOCK_WRITE']),
 
@@ -1030,6 +1036,11 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
         description: 'One-screen view of firm liquidity: operating balances vs low-water thresholds, in-transit, settlement and income accounts',
         groups: ['FUNDING_DASHBOARD_VIEW'],
       },
+      {
+        key: 'treasury.prudential_check', label: 'Run daily prudential check',
+        description: 'Compute Net Liquid Assets against the regulatory floor on demand and log the result — the demo stand-in for the daily monitoring job',
+        groups: ['PRUDENTIAL_CHECK_WRITE'],
+      },
     ],
   },
   // ─── Domain: Customer ────────────────────────────────
@@ -1432,6 +1443,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'FUNDING_READ', 'FUNDING_WRITE',
     // 战役乙波二 T8：公司资金全景看板——金库/CFO/高管/内审恰四职务（spec §7 裁定 6）。
     'FUNDING_DASHBOARD_VIEW',
+    // 战役乙波三 T3：巡检（NLA 审慎检查）手动触发——唯金库，运营/CFO/合规官等一律不加
+    // （T7 判据）。
+    'PRUDENTIAL_CHECK_WRITE',
     'INCIDENT_WRITE',
     // 对账平账两角色定案（2026-09-10）：DEMO_CLOCK_WRITE 随本组整体迁入——案件页 ⚡Fast-forward
     // aging 按钮，以及充值/提现/兑换 SLA 超时与审批超时的演示拨钟，运营不再持有。
