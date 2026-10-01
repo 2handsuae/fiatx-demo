@@ -33,6 +33,7 @@ Last Updated: 2026-08-26 ｜ 取代 backend-platform.md（生产宪法版）。�
 - 判断：**触发方不知道谁在乎 → 发事件（广播）；知道找谁 → 直调那个模块的 service 正门。**
 - 事件命名 `[模块].[主体].[过去式动词]`（如 `customer.restriction.opened`、`deposit.status.changed`）；**必须先登记**在 `src/common/events/domain-events.constants.ts` 才能使用——每条带发出方 / 订阅方 / 载荷说明，一处看全全部事件。
 - 新代码**不再新增** `forwardRef()` 环；存量 67 处暂不追究，**Phase 4 按模块回收时随模块清理、逐步清零**（业主 2026-08-26 定）。真遇到环优先靠分层调整解。
+- **客户通知接入**（丙波一起，判例三原则见 `decisions.md` 2026-10-01 / delivery D-24）：各域在状态落地处**直调** `NotificationsService.notifyOrderStatusChange`（不走事件订阅——三域 `*_STATUS_CHANGED` 载荷不对称）；每次落地都调、不预判（收敛判据在服务内短路）；调用**必须在 `$transaction` resolve 之后**；调用点不包 try/catch（服务边界已吞错）。发信点 = 收敛后状态变化且模板登记处（`notification-templates.constant.ts`）有键——查无即沉默，禁 default 分支。
 
 ## API 的业务脸面
 

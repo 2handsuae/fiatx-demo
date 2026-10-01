@@ -4,7 +4,7 @@
 
 ## 承接上一波
 
-波一「让客户听得见」（16 发信点 / 消息中心 / gateway 复活 / 三页信号刷新）已收官于分支 `worktree-c-wave1-notifications`，合并记录见 `CHANGELOG.md`；`2026-09-30-campaign-c-wave1-notifications-spec.md`（含"执行订正"节）为现状真相；以下为波一收尾时坐实的偏差与新事实，波二立 spec 时直接继承，不再重新论证：
+波一「让客户听得见」（16 发信点 / 消息中心 / gateway 复活 / 三页信号刷新）已于 2026-10-01 收官合 main（快进 `2f0a5c6e`）；波一 spec（含"执行订正"节，已归档 `archive/superpowers/specs/2026-09-30-campaign-c-wave1-notifications-spec.md`）为波一现状真相；以下为波一收尾时坐实的偏差与新事实，波二立 spec 时直接继承，不再重新论证：
 
 1. **兑换域的通知接线落点是 workflow 层 + SLA 服务的事务后置调用，不是状态落地处同步直调**——T7 首版把 `NotificationsService` 调用放进 `markStatus` 所在的 `$transaction` 回调内，因该服务走独立 Prisma 连接写 `customer_notifications`，SQLite 单写者下被外层未提交事务自锁到 5000ms 超时、外层事务回滚但通知已落库发出，还被 SLA sweep（`@Cron` 每 30 秒）反复重试同一死路、每轮再发一条重复假通知（完整复现记录见 `BACKLOG.md:106`、根因报告 `task-10-report.md`）。修法：私有方法在对应 `$transaction` resolve **之后**调用，兑换域最终落到 `SwapWorkflowService` 8 处调用点 + `SwapSlaService` 超时拒单 1 处，共 9 个事务后置调用点。**判例**：任何"横切服务挂在状态迁移点上"的新接线，若该服务走独立数据库连接，都要先问"这次调用是否可能还在外层事务里"——波二若有报价/确认单落库挂在兑换成交事件上，同样要过这道检查。
 2. **FROZEN 收敛口径订正**：`toCustomerSwapStatus(FROZEN)` = `'COMPLIANCE_PENDING'`，不是字面的 `PROCESSING`；FROZEN 唯一入边来自 `COMPLIANCE_PENDING --FREEZE-->`，两端收敛值恒等——冻结落地前后连信号/通知的判据都不成立（零通知、零信号），这不是遗漏是设计意图。波一 spec §1 原文"处理中"是口语措辞，波二若引用同一收敛函数的文字描述，直接写字面状态码，不要沿用"处理中"这类可能被误读成 `PROCESSING` 的口语。

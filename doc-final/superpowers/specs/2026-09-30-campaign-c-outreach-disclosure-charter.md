@@ -1,6 +1,6 @@
 # 战役丙「客户触达与披露」总纲
 
-> 立纲 2026-09-30 ｜ 状态：**波一待展开（骨架已立）** ｜ 体检：`checkups/2026-09-30-campaign-c-outreach-disclosure-checkup.md`（上游：同日 BD 参照系盘点 `checkups/2026-09-30-bd-landscape-vs-modules.md`）
+> 立纲 2026-09-30 ｜ 状态：**波一已收官合 main（2026-10-01 快进 2f0a5c6e；spec/plan/骨架已归档 `archive/superpowers/`）；波二待展开（骨架已立）** ｜ 体检：`checkups/2026-09-30-campaign-c-outreach-disclosure-checkup.md`（上游：同日 BD 参照系盘点 `checkups/2026-09-30-bd-landscape-vs-modules.md`）
 > 波次执行按 CLAUDE.md §6：spec 只写细当前波；每波收尾按 `rules/delivery-checklist.md` 写承接记录进下一波骨架；**本纲活到最后一波**。
 
 ## §0 目标与判准
@@ -36,7 +36,7 @@
 
 ## §3 波内待裁岔口（立各波 spec 时脑暴，此处只挂不裁）
 
-- **波一**：见 `2026-09-30-campaign-c-wave1-skeleton.md`（骨架已立）。
+- **波一**：已收官（2026-10-01 合 main）；骨架与 spec（含「执行订正」节：FROZEN 收敛真值、兑换 9 事务点后置）已随波归档 `archive/superpowers/specs/`。
 - **波二**：冷静期做不做；确认单要不要覆盖充值/提现（参照系只点名兑换）；风险提示文案的位置与密度。
 - **波三**：月结单定版形态——快照 or 按月重查（⚠️判例在案：实时快照不可批量补拍，乙波三 t11-05）；DSR 三种请求（查/改/删）各自结局——"删"演"因监管留存义务部分拒绝"（条款原文 `CustomerRegister.tsx:93` 写着 subject to retention obligations，是现成的戏）；DSR 请求经不经审批链（DPO 独办 or maker-checker）。
 
