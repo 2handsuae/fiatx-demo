@@ -18,6 +18,7 @@ import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { SwapTransactionsService } from './swap-transactions.service';
+import { TradeConfirmationsService } from './trade-confirmations.service';
 import { computeSpreadAmount } from '../shared/spread-amount.util';
 import { SwapTransactionAction, SwapTransactionStatus } from './dto/swap-transaction.dto';
 import { SwapLegAccounting, SwapSettleCtx } from './swap-leg-accounting';
@@ -204,6 +205,9 @@ export class SwapWorkflowService {
     // 事务边界，通知必须在真正控制 $transaction 生命周期的这一层、在 resolve
     // 之后才调用，否则会在 tx 内自锁到 Prisma 默认超时、拖累外层事务回滚。
     private readonly notificationsService: NotificationsService,
+    // 战役丙波二 T3：成交确认单出具挂在同一个事务后置漏斗（notifySwapStatusChange）里，
+    // 9 个调用点零改动——见该方法内的次序注释。
+    private readonly tradeConfirmationsService: TradeConfirmationsService,
   ) {}
 
   private resolveLedger(currency: string): number {
@@ -1462,6 +1466,10 @@ export class SwapWorkflowService {
     // swapNo 理论上可空（schema 列 String?，镜像 swapAudit 对同一列的既有
     // 容错）——无业务号没有可寻址的订单，静默不发，不编造 orderNo。
     if (!swap.swapNo) return;
+    // 战役丙波二 T3：SUCCESS 时先落成交确认单（+CONFIRMATION_ISSUED 审计），再发通知——
+    // 丙波一三原则①"持久物先于信号"的延伸：客户点开通知里的深链时确认单必须已存在。
+    // 本方法内部吞错（非 SUCCESS 立即返回），不拖累已提交的成交；仍在事务之外（同上文铁则）。
+    await this.tradeConfirmationsService.issueForSwapIfSuccess(swap.swapNo, toStatus);
     await this.notificationsService.notifyOrderStatusChange({
       domain: 'SWAP',
       orderNo: swap.swapNo,

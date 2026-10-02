@@ -519,6 +519,8 @@ export const AuditActions = {
   PRUDENTIAL_GATE_BLOCKED: 'PRUDENTIAL_GATE_BLOCKED',
   // ── 战役丙波一 T2（2026-09-30）：客户通知一码（域 CUSTOMER）──────────────────
   NOTIFICATION_SENT: 'NOTIFICATION_SENT',
+  // ── 战役丙波二 T3（2026-10-02）：成交确认单出具一码（域 SWAP）──────────────────
+  CONFIRMATION_ISSUED: 'CONFIRMATION_ISSUED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1274,7 +1276,7 @@ export const CAMPAIGN_B_PRUDENTIAL_AUDIT_ACTIONS: Record<string, AuditActionSpec
   PRUDENTIAL_GATE_BLOCKED:    { domain: 'TREASURY', correlationMode: N, requiredFields: ['reasonCode', 'reason'], requiresCausation: false },
 };
 
-/** 战役丙波一 T2（spec/plan Task2）：客户通知一码，域 CUSTOMER——actionDomain 取值集已有
+/** 战役丙波一 T2（spec/plan Task2）：客户通知一码（波二 T3 又入册 CONFIRMATION_ISSUED，见表内注释），域 CUSTOMER——actionDomain 取值集已有
  * CUSTOMER（V2_CUSTOMER_AUDIT_ACTIONS 现役），故不落 GOVERNANCE（同 FILING_OVERDUE_MARKED
  * 先例仅在 CUSTOMER 不存在时才退回）。NotificationsService 对每条落库的通知单步直接操作，
  * 无旅程可继承，correlationMode 老实标 NONE；必填 templateCode+channels（顶层展开，同
@@ -1285,6 +1287,13 @@ export const CAMPAIGN_B_PRUDENTIAL_AUDIT_ACTIONS: Record<string, AuditActionSpec
  * 主键，天然唯一，不必再拼 randomUUID）。 */
 export const CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   NOTIFICATION_SENT: { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['templateCode', 'channels'], requiresCausation: false },
+  // 战役丙波二 T3：成交确认单出具（actor=system）。兑换成交 SUCCESS 事务后置漏斗里先落
+  // trade_confirmations 行、再写本码、最后才发通知；domain=SWAP（确认单挂在兑换单上，
+  // 同 NOTIFICATION_SENT 以订单为主体的信封）。与 NOTIFICATION_SENT 同册——本册自此是
+  // 「战役丙·客户触达」册（通知 + 确认单），不另开新册，故词表导出器/closure 守则/
+  // audit-logs 查表三处登记点零新增。单步动作无旅程可继承，correlationMode=N；必填
+  // confirmationNo（顶层展开，assertActionSpec 只查 input 顶层）；requestId=确认单行 id。
+  CONFIRMATION_ISSUED: { domain: 'SWAP', correlationMode: N, requiredFields: ['confirmationNo'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——

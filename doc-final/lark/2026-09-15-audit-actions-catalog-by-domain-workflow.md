@@ -468,7 +468,7 @@
 | `WITHDRAW_SLA_TIMEOUT_SIMULATED` | ⚡ 拨钟模拟 SLA 超时 | I 继承 | — |  |
 | `WITHDRAW_DEMO_SCENARIO_RUN` | ⚡ 喂裁决按钮被按下 | I 继承 | — |  |
 
-## SWAP 域 —— V6 兑换（26 码）
+## SWAP 域 —— V6 兑换（27 码）
 
 拿报价换币、四腿原子记账、大额过合规；下单即上出生锁。FROZEN 自 2026-09-14 起是押锁待处置的中间态（解冻续走 / 拒退两条出边）。
 
@@ -532,6 +532,12 @@
 | `SWAP_SLA_BREACHED` | 处理时限软破线 | I 继承 | fromStatus |  |
 | `SWAP_SLA_TIMEOUT_SIMULATED` | ⚡ 拨钟模拟 SLA 超时 | I 继承 | — |  |
 | `SWAP_DEMO_SCENARIO_RUN` | ⚡ 喂裁决按钮被按下 | I 继承 | — |  |
+
+### 成交确认单（战役丙波二 T3 新增）（1）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `CONFIRMATION_ISSUED` | 兑换成交（SUCCESS）后系统出具成交确认单（一单一张，先于通知落库） | N 单步 | confirmationNo |  |
 
 ## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（37 码）
 

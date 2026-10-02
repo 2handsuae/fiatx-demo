@@ -737,7 +737,7 @@ export class SwapTransactionsService {
   }
 
   /** feeBreakdown 原包含 fx 技术字段（endpoint/symbol/bid/ask），只拆业务事实下发（spec §2.3）。 */
-  private toCustomerPricingFacts(rawFeeBreakdown: string | null): {
+  toCustomerPricingFacts(rawFeeBreakdown: string | null): {
     feeLines: Array<{ itemCode: string; amount: string; currency: string }>;
     marketRate: string | null;
     spreadPercent: number | null;

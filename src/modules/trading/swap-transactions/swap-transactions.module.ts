@@ -21,6 +21,7 @@ import { ApprovalsModule } from '../../governance/approvals/approvals.module';
 import { NotificationsModule } from '../../../core/notifications/notifications.module';
 import { SwapUnfreezeApprovalService } from './swap-unfreeze-approval.service';
 import { SwapSanctionRefundApprovalService } from './swap-sanction-refund-approval.service';
+import { TradeConfirmationsService } from './trade-confirmations.service';
 
 @Module({
   imports: [
@@ -86,6 +87,8 @@ import { SwapSanctionRefundApprovalService } from './swap-sanction-refund-approv
     SwapLegAccounting,
     SwapUnfreezeApprovalService,
     SwapSanctionRefundApprovalService,
+    // 战役丙波二 T3：成交确认单出具（SwapWorkflowService 的事务后置漏斗里调用）。
+    TradeConfirmationsService,
   ],
   exports: [SwapTransactionsService, SwapWorkflowService],
 })

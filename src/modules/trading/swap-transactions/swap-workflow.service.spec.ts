@@ -269,6 +269,7 @@ function makeService(mocks: ReturnType<typeof buildMocks>) {
     mocks.l1Gate as any,
     {} as any, // approvalsService — not on this path (initiateSwap never opens FROZEN unfreeze/refund)
     mocks.notificationsService as any,
+    { issueForSwapIfSuccess: jest.fn(() => Promise.resolve()) } as any, // tradeConfirmationsService — 战役丙波二 T3：漏斗 SUCCESS 分支出具确认单；本组用例不断言它
   );
 }
 
@@ -939,6 +940,12 @@ function buildAdvanceLegMocks(opts: {
     notifyOrderStatusChange: jest.fn(() => Promise.resolve()),
   };
 
+  // 战役丙波二 T3：漏斗 SUCCESS 分支出具确认单——与 notificationsService 同理，最后一腿
+  // 用例必经 notifySwapStatusChange，不能省略。
+  const tradeConfirmationsService = {
+    issueForSwapIfSuccess: jest.fn(() => Promise.resolve()),
+  };
+
   return {
     swapNo,
     swapRow,
@@ -955,6 +962,7 @@ function buildAdvanceLegMocks(opts: {
     legAccounting,
     customerAccessService,
     notificationsService,
+    tradeConfirmationsService,
   };
 }
 
@@ -981,6 +989,7 @@ function makeAdvanceLegService(mocks: ReturnType<typeof buildAdvanceLegMocks>) {
     {} as any, // l1Gate — not on this path (advanceLeg 不建单)
     {} as any, // approvalsService — not on this path
     mocks.notificationsService as any,
+    mocks.tradeConfirmationsService as any, // 战役丙波二 T3：漏斗 SUCCESS 分支出具确认单（最后一腿用例断言次序）
   );
 }
 
@@ -1170,6 +1179,34 @@ describe('SwapWorkflowService.handleFundsOrderChanged — CONFIRMED chaining', (
       collapsedFrom: 'PROCESSING',
       collapsedTo: 'SUCCESS',
     });
+  });
+
+  // 战役丙波二 T3：漏斗 SUCCESS 分支。出具与通知同在 notifySwapStatusChange（事务 resolve 之后），
+  // 次序：先出具确认单、再发通知——客户点开通知深链时确认单必须已存在（持久物先于信号）。
+  it('T3·last-leg CONFIRMED→SUCCESS：事务回调期间未出具，resolve 后出具一次(swapNo,SUCCESS)，且先于 notifyOrderStatusChange', async () => {
+    const mocks = buildAdvanceLegMocks({
+      legs: [
+        { legSeq: 1, status: FundsOrderStatus.CLEARED },
+        { legSeq: 2, status: FundsOrderStatus.CLEARED },
+        { legSeq: 3, status: FundsOrderStatus.CLEARED },
+        { legSeq: 4, status: FundsOrderStatus.CONFIRMED },
+      ],
+    });
+    (mocks.swapTransactionsService.markStatus as jest.Mock).mockResolvedValue('SUCCESS');
+    mocks.prisma.$transaction = jest.fn(async (cb: any) => {
+      const result = await cb(mocks.txClient);
+      expect(mocks.tradeConfirmationsService.issueForSwapIfSuccess).not.toHaveBeenCalled();
+      return result;
+    });
+    const svc = makeAdvanceLegService(mocks);
+
+    await svc.handleFundsOrderChanged(evt({ legSeq: 4, attempt: 1 }) as any);
+
+    expect(mocks.tradeConfirmationsService.issueForSwapIfSuccess).toHaveBeenCalledTimes(1);
+    expect(mocks.tradeConfirmationsService.issueForSwapIfSuccess).toHaveBeenCalledWith('SWP0001', 'SUCCESS');
+    const issueOrder = (mocks.tradeConfirmationsService.issueForSwapIfSuccess as jest.Mock).mock.invocationCallOrder[0];
+    const notifyOrder = (mocks.notificationsService.notifyOrderStatusChange as jest.Mock).mock.invocationCallOrder[0];
+    expect(issueOrder).toBeLessThan(notifyOrder);
   });
 
   it('no-op when the swap is already SUCCESS (idempotent replay)', async () => {
@@ -1749,6 +1786,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
       {} as any, // l1Gate — not on this path (applyKytVerdict 不建单)
       {} as any, // approvalsService — not on this path
       mocks.notificationsService as any,
+      { issueForSwapIfSuccess: jest.fn(() => Promise.resolve()) } as any, // tradeConfirmationsService — 战役丙波二 T3：漏斗 SUCCESS 分支出具确认单；本组用例不断言它
     );
   }
 
@@ -2950,6 +2988,7 @@ describe('SwapWorkflowService.onCustomerRestrictionOpened (Task 9 — FROZEN 落
       {} as any, // l1Gate — not on this path (限制便签监听器不建单)
       {} as any, // approvalsService — not on this path
       mocks.notificationsService as any,
+      { issueForSwapIfSuccess: jest.fn(() => Promise.resolve()) } as any, // tradeConfirmationsService — 战役丙波二 T3：漏斗 SUCCESS 分支出具确认单；本组用例不断言它
     );
   }
 
@@ -3120,6 +3159,7 @@ describe('SwapWorkflowService.initiateUnfreeze / initiateRefund（波五 Task 3�
       {} as any, // l1Gate
       approvalsService as any,
       {} as any, // notificationsService — initiateUnfreeze/initiateRefund只开审批件，不调 markStatus
+      {} as any, // tradeConfirmationsService — initiateUnfreeze/initiateRefund只开审批件，不调 markStatus
     );
 
     return { workflow, swapTransactionsService, auditLogsService, approvalsService, prisma };
@@ -3372,6 +3412,7 @@ describe('SwapWorkflowService — 波五 Task 3：FROZEN 执行侧', () => {
       {} as any, // l1Gate
       approvalsService as any,
       notificationsService as any,
+      { issueForSwapIfSuccess: jest.fn(() => Promise.resolve()) } as any, // tradeConfirmationsService — 战役丙波二 T3：漏斗 SUCCESS 分支出具确认单；本组用例不断言它
     );
 
     return { workflow, swapTransactionsService, auditLogsService, approvalsService, sumsubTxnClient, prisma, txUpdate, notificationsService };
