@@ -4,6 +4,11 @@
 > **本任务做**：兑换确认弹窗三句话 +「平台留存」行 ｜ 成交确认单主体（`trade_confirmations` 表 + `CONFIRMATION_ISSUED` 审计 + 详情页区块 + 打印）｜ 报价响应补点差金额（公共函数与建单同源）｜ 充值/提现风险提示 ｜ 披露文案登记处 ｜ 剧本与文档同步。
 > **本任务不做**（对照 CLAUDE.md §2 与总纲）：报价成交链行为改动（出具是 SUCCESS 后置副作用，照波一通知先例）｜ best-exec 比价闸 ｜ 冷静期 ｜ 充值/提现确认单 ｜ "确认单已出"独立通知 ｜ 条款同意（移丙波三）｜ 真 PDF 生成（浏览器打印即够）｜ 确认单补发/重出/修正流（生产债登 PRODUCTION-NOTES）｜ 管理台新页。
 
+## 执行订正（2026-10-02，T8 文档收口，spec 原文不改只追记）
+
+1. **§2.1 字段表漏列 `toAssetCode`，已补列**：原表只列 `fromAssetCode`，买入侧币种没有落列，确认单页面就得回读兑换单才知道「You received」是什么币——违背本 spec 自己立的「确认单是自包含原件、页面不再现拼订单字段」原则。T3 评审逮到，裁决补列（修复提交 `64b1e627`）：schema 加 `toAssetCode String`、本波新建的迁移 `20261002122630_wave2_trade_confirmations` 同步补该列（未另开迁移）、出具服务 `issueForSwapIfSuccess` 写入、详情响应白名单与客户端区块读它。落地后 `trade_confirmations` = id + 21 业务列，客户详情 `confirmation` 子对象 19 键（比表少 `swapNo` / `ownerCustomerNo` 两个内部列，`id` 本就不外露）。字段表其余各列、`@unique` 约束与「只写一次」语义不变。
+2. **§2.1 `confirmationNo` 的 `CNF-…` 写法，实际形态是 `CNF` + 12 位数字、无连字符**（如 `CNF261002576568`）：`generateReferenceNo('CNF')` 沿用系统全部单号的既有形态（`SWP…`、`WDR…`、`SQT…` 同款），裁决：以系统惯例为准，不为确认单单开连字符特例。凡文档与剧本里的示例一律按无连字符写；审计中心关键字框按 CNF 号可检索，Entity / Related No 筛选框不认 CNF 号。
+
 ## §0 脑暴裁定台账（2026-10-02）
 
 **五拍板**（岔口编号对应骨架）：

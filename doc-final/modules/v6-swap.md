@@ -1,6 +1,6 @@
 # V6 · 兑换（钱怎么换）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-14（波五：FROZEN 终态→中间态 + 新单创建即冻 + 硬/软线便签退役，见 §2/§3/§6 与 `decisions.md` 2026-09-14 条）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-10-02（战役丙波二：成交前披露 + 成交后确认单上线，见 §1「披露与确认单」/§4 第 9–11 步/§5 确认单条）；此前 2026-09-14（波五：FROZEN 终态→中间态 + 新单创建即冻 + 硬/软线便签退役，见 §2/§3/§6 与 `decisions.md` 2026-09-14 条）
 > 演示幕次：第四幕「钱换」 ｜ 验收：第四幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -20,6 +20,8 @@
 **冻结对客户必须零痕迹。** 客户端把冻结显示成"Processing"（2026-09-14 翻案：此前收敛成与 KYT 拒绝逐字相同的"未成功"；FROZEN 改判押锁不放的中间态后，钱还押着、结局未定，"处理中"才是诚实的说法，也与充值/提现"状态跟钱走"的口径对齐）；连筛选器都按"客户看到的值"展开查询——客户拿 `?status=FROZEN` 探测不到自己被冻（tipping-off 三层防线）。
 
 **超时不迁怒客户。** 兑换只有一格 SLA：等裁决 5 分钟。超时单转"未成功"，但**不做客户处置**——超时说明 Sumsub 没回话，不说明客户可疑；把平台的技术问题算到客户头上是被明令禁止的。
+
+**成交前讲明利益，成交后给凭据（2026-10-02 丙波二）。** 平台在兑换里是**本金方**（客户直接和 FIATX 对手交易，不是和另一位客户撮合），且点差与手续费就是平台的收入——所以客户点 Confirm 之前，弹窗明细多一行「Retained by FIATX」（手续费+点差的绝对金额，点差金额由报价响应带出、与建单同一个公共函数算，两处不会不一致）和一块「Before you confirm」三句话：本金声明、定价来源（汇率源与取价时刻、点差百分比取当前报价真值）、利益冲突声明。成交（SUCCESS）之后，系统**出具一张成交确认单并留存**：不是详情页现拼的订单字段，而是成交那一刻定格入库的原件（`trade_confirmations`，一单一张、只写一次、无任何修改入口）；客户在兑换详情页看到的 Trade Confirmation 区块读的就是这份原件，同样带一行「Retained by FIATX」（留存金额在成交前弹窗与成交后确认单各披露一次，落 VARA Market Conduct Rulebook BD II.A.6「成交前与 trade confirmation 中各披露一次」；点差算不算 fees/commission 原文未明说，保守起见手续费+点差都披露），并附本金声明、「Figures were fixed when you confirmed and will not change.」与 Print / Save as PDF 按钮（浏览器打印，打印样式自动翻浅色）。**确认单只给成交单**：冻结单对客户收敛成「处理中」，同样没有确认单、与普通在途单不可区分——有没有确认单反推不出冻结（tipping-off 同一道防线）；拒绝/超时单也没有。确认单不另发通知——波一的「兑换成功」通知深链已直达详情页，一笔一条。
 
 **卡住是旗不是状态。** 记账腿失败自动重试，耗尽后单子留在"处理中"+ 红旗（needsReview）等运营 resume；兑换刻意没有"失败"终态。
 
@@ -62,6 +64,9 @@ COMPLIANCE_PENDING（出生态，零记账；SILENT-only 客户新单也从这�
 6. FROZEN 两出口各演一笔：**解冻**（合规官发起 → 换 MLRO 账号批准 → 单回炉 `COMPLIANCE_PENDING`，重新过一轮 KYT 裁决）；**拒退**（运营发起 → 换 MLRO 账号批准 → 出生圈擦除、金额退回可用余额、单落 `REJECTED`）——两条弧的开案人碰不到钱，与充值/提现冻结处置同律
 7. 缺收款账户预检：用没有买入侧账户的客户试兑换 → 提交被禁 + 引导去开户
 8. 制裁客户（SILENT 便签）试兑换：报价与建单均放行 → 建单入库后立即转 FROZEN（不再是中性 403 拦截）；客户端全程只见 PROCESSING，横幅不亮——「新单创建即冻」，见 `decisions.md` 2026-09-14 条 1
+9. **成交前披露**（丙波二）：第 1 步拿报价后、点 Confirm 之前，指读弹窗——明细里的「Retained by FIATX」行（`Fee … · Spread …`，手续费+点差各一笔绝对数）与按钮上方的「Before you confirm」三句话（本金声明 / 定价来源与取价时刻 / 利益冲突），占位值全部是这张报价的真值
+10. **成交确认单**（丙波二）：第 3 步成交后，客户端进该单详情页 → Trade Confirmation 区块（Confirmation No `CNF…` + 成交事实 + 三个时刻 + 本金声明 + 「数字已定格」句）→ 点 Print / Save as PDF，预览是浅色单页只含确认单；管理台审计中心按该兑换单号检索可见一条 `CONFIRMATION_ISSUED`（系统动作，metadata 带 confirmationNo）
+11. **反面：冻结单没有确认单**（丙波二）：第 5 步被冻结的单，客户端详情页与「审核中」的普通单同样只显示处理中的样子，**没有** Trade Confirmation 区块——不可区分是设计，不是漏了
 
 ## 5. 关键技术节点（≤30 行）
 
@@ -69,6 +74,7 @@ COMPLIANCE_PENDING（出生态，零记账；SILENT-only 客户新单也从这�
 - 状态机 `swap-transactions.service.ts → transitions`（7 边穷举，FROZEN 两条出边 `RESUME`/`REJECT_REFUND`）；四个 FROZEN 判据常量**答案刻意不同**（2026-09-14 起 FROZEN 从零出边终态改押锁不放的中间态，四处各自随之调整，"同一问题四处四答"结构不变）：迁移表里 FROZEN **不再零出边**（新增两条出边）；材料请求终态集合仍**不含** FROZEN（防撕材料卡片=tipping-off，未变）；冻结扫描排除集仍**含** FROZEN（理由从"零出边终态"改成"已冻无需再捞"，答案不变理由变了）；客户面白名单仍**不含** FROZEN，但收敛目标从 REJECTED 改成 **COMPLIANCE_PENDING**（钱押着显示处理中，不再是"未成功"）——是本域最易做错处
 - 客户面防线 `toCustomerSwapStatus()` 白名单收敛 + 筛选按收敛值反向展开（派生自收敛函数，无平行表）
 - **客户端详情页**（`SwapDetail.tsx`，2026-09-15 详情增强）：Amounts 区块按 `status===SUCCESS` 切换标签措辞——成交单用断言句 You sold/Gross receive/Net received，未成交（处理中/冻结/拒绝）单一律降级中性词 Sell amount/Quoted gross/Quoted amount（钱没到账不能断言"已收到"）+ Exchange rate/Market·Spread/Submitted/Completed；Pricing 区块 Quote No(SQT) + `feeLines` 费用明细行（服务端 `toCustomerPricingFacts()` 已拆净 fx 技术字段，见文件头白名单注释）；Timeline 走三域共用机制——`buildCustomerTimeline()` 服务端收敛去重 + 客户端展示层 `timelineDisplay.ts` 同词连续去重。**FROZEN 先经上面 §1 的白名单收敛成与 PROCESSING 逐字相同的值，两层去重叠加下，冻结单与普通在途单在客户面时间线上完全不可区分**——这是本域 tipping-off 三层防线（渲染层/字段层/时间线）里对时间线的延伸，充值/提现详情页复用同一套时间线机制（见 `modules/v4-deposit.md`/`v5-withdraw.md` 各 §5）
+- **成交确认单与披露（丙波二，2026-10-02）**：主体表 `trade_confirmations`（迁移 `20261002122630_wave2_trade_confirmations`；id + 21 业务列，含 `toAssetCode`——确认单自包含原件，不回读兑换单拼卖/买两侧币种；`confirmationNo`（`CNF`+12 位数字，无连字符，系统单号惯例）与 `swapNo` 各自唯一，一单恰一张是 schema 结构保证、非去重逻辑；无 FK，swapNo 是业务键；`reset-business-data.ts` 已登记）。**只写一次**：`TradeConfirmationsService` 只有 `issueForSwapIfSuccess()` 一个写方法、零 update 入口。**出具链**：挂 `SwapWorkflowService.notifySwapStatusChange` 事务后置漏斗（9 个事务后置调用点的唯一汇合处，调用点零改动）——to-status 落 `SUCCESS` 时 **先落确认单 → 再记审计 `CONFIRMATION_ISSUED` → 再发「兑换成功」通知**（丙波一三原则①持久物先于信号的延伸：客户点开通知时确认单已在）；出具在 `$transaction` 之外、整体吞错（demo 尽力而为，不阻断已提交的成交，生产债见 `PRODUCTION-NOTES.md`）。**审计码**：`CONFIRMATION_ISSUED`（域 SWAP，actor=system，`correlationMode=N`，必填 `confirmationNo`，`requestId`=确认单行 id）入册 `CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS`（与 `NOTIFICATION_SENT` 同册，三处登记点零新增），现役码 327→**328**；管理台零新页，审计中心按兑换单号或 CNF 号关键字可检索（Entity/Related No 筛选不中 CNF 号，别用）。**客户面**：`findOneForCustomer` 响应附 `confirmation` 子对象——`toCustomerConfirmation()` 逐键显式映射 **19 键白名单**（去掉内部列 `swapNo`/`ownerCustomerNo`/`id`，全是定价事实与时刻，零合规信息），判据用 `toCustomerSwapView` 收敛后的 status === SUCCESS（FROZEN 收敛成 COMPLIANCE_PENDING，恒为 null），列表响应不带。**报价响应** `spreadAmount` 由 `trading/shared/spread-amount.util.ts → computeSpreadAmount()`（四参）算，报价响应与 `initiateSwap` 建单两处同源。**客户端**：披露文案集中登记 `client-web/src/utils/disclosureCopy.ts`（九键 + `fillRateDisclosure()`，页面禁散写 JSX 句子）；`Swap.tsx` 确认弹窗加留存行与三句话；`SwapDetail.tsx` SUCCESS 单 Trade Confirmation 区块读 `confirmation` 原件（显示条件抽纯函数 `confirmationDisplay.ts`），打印样式 `index.css` `@media print` 用 `position: fixed` + 页底翻白（`color-scheme: light`）——`absolute` 在 `relative`+`overflow` 壳层里打印会偏移，真实打印渲染逮到、纯 CSS 也必须真打印预览验证；`Withdraw.tsx` 确认弹窗按资产类型二择一显示链上不可逆/银行不可召回提示，`Deposit.tsx` 仅 crypto 语境显示波动提示（法币充值页刻意不放）。文档订正：spec §2.1 字段表原漏列 `toAssetCode`，见 spec 头部「执行订正」
 - FROZEN 解冻 / 拒退审批（Task 3，2026-09-14）：`SWAP_UNFREEZE`（合规官提，权限 `SWAP_UNFREEZE_WRITE`）/`SWAP_SANCTION_REFUND`（运营提，权限 `SWAP_REFUND_WRITE`）两条策略，`approval.constants.ts` 均 `steps:[{roles:['MLRO']}]`、`timeoutHours:48`、`allowCancel:true`，镜像提现同名先例；`scripts/verify-rbac.ts` 的 `MAKER_GROUP_BY_POLICY` 已补两行；`rbac.catalog.ts`：`PermissionGroup` 联合类型新增两个键、两条 `route()`（`POST /admin/swap-transactions/:id/unfreeze`/`:id/refund`）、`ACTION_BUCKET_CATALOG` Trading 域新增两桶（`Request swap unfreeze`/`Request swap sanction refund`）、`COMPLIANCE_OFFICER`/`OPS_OFFICER` 两职务各持一组
 - ⚡ 模拟裁决按钮：三域共享表 `sumsub-shared/verdict-buttons.shared.ts`（11 键）的 8 键子集（`swap-sumsub/fixtures/verdict-buttons.ts`）；缺的三键各有真实理由——④/⑧ PEP·Sanctions 对手方（兑换是账内换币，没有对手方）、⑩ 处置标签（驱动的是 KYT 拒绝落地时**自动**附带的处置标签，如充值 `RETURN_TO_SENDER`／提现 `FINAL_REJECTED`；兑换的解冻/拒退是冻结**之后**单独发起的 maker-checker 审批，不是拒绝裁决自带的标签，两者不是一回事，⑩ 依旧不适用（该 fixture 头注理由已随 2026-09-14 翻案同步订正））。**材料审核（认证复核 GREEN/RED）不在这张表里**：那是另一个 webhook（`applicantActionReviewed`），入口在客户详情页 Verification Requests 区块，收 `requestNo` 不收订单 id，三域共用同一入口，不属交易面板——2026-08-29 前兑换域曾在这张表里另开⑦⑧两键直接投材料复核（缺"先交材料"前置，真按会 500），本轮已删
 - 记账 `swap-leg-accounting.ts`（四腿实时逐腿 post）；腿=挂 swapTransactionId 的资金单（见 funds-orders 篇）；腿 1 特殊：圈在下单时已画（createLeg 对 legSeq=1&attempt=1 跳过画圈只落笔），重试 attempt≥2 恢复按次画圈

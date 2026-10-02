@@ -4,7 +4,20 @@
 
 ## 承接上一波
 
-（波二收尾时按 `rules/delivery-checklist.md` 写入。）
+> 波二（确认单 + 披露）T8 收尾写入，按 `rules/delivery-checklist.md` 承接行：实际偏差 / 新事实 / 前提变化。只记承接，不展开本波 spec。
+
+**实际偏差**
+1. **波二 spec 字段清单漏列 `toAssetCode`**（判例）：「确认单是自包含原件」原则逼出——页面要显示「You received … 币」就得有买入侧币种列，spec §2.1 只列了 `fromAssetCode`。T3 评审逮到、裁决补列（`64b1e627`），spec 头部「执行订正」已追记。**对波三的启示**：协议版本表若也要「自包含原件」（版本号 / 生效日 / 正文哈希 / 同意时刻等），字段清单须从「页面要显示什么」反推，不从「订单表有什么」正推。
+2. **单号形态 `CNF` + 12 位数字、无连字符**（如 `CNF261002576568`）：沿用系统全部单号惯例，spec 里写的 `CNF-…` 是笔误。岔口 4（版本业务键形态）若取 `TC-V2` 这类，须先核它与 `generateReferenceNo` 惯例是否同形——要么走惯例，要么明说为何破例。
+
+**新事实**
+3. **打印样式判例**：纯 CSS 的打印样式也必须**真实打印渲染验证**（浏览器打印预览，含「背景图形」开/关两态），不能只看屏幕。T7 逮到：`absolute` 定位在 `relative` + `overflow` 的客户端壳层（`CustomerDashboardLayout`）里会被侧栏/顶栏推偏、被窄宽度挤得换行；修法 = `position: fixed` + `html { color-scheme: light }` + `html, body` 页底翻白（`4640357c`，`client-web/src/index.css` `@media print`）。若波三的协议阅读页要支持打印/另存，直接沿用这套，别重踩；证据 `checkups/2026-10-02-campaign-c-wave2-evidence/03`/`03a`/`03b`。
+4. **可复用地基**（波三协议阅读页 / 同意弹窗 / 版本横幅的文案与展示同模式）：① 披露文案登记处 `client-web/src/utils/disclosureCopy.ts`（`DISCLOSURE_COPY` 九键 + `fillRateDisclosure()` 占位填充；页面禁散写句子，红线文案只许从登记处引用）——协议相关的客户端固定文案进登记处（可同文件追加键，或同目录并列文件，展开时定）；② Trade Confirmation 区块 + `confirmationDisplay.ts` 纯函数（「显示条件抽纯函数供 vitest，渲染靠截图闸」的套路，客户端测不了渲染）；③ 审计册：`CONFIRMATION_ISSUED` 与 `NOTIFICATION_SENT` 同入 `CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS`（本册实质已是「战役丙·客户触达」册），协议发布链/客户同意的新码可入同册，词表导出器 / closure 守则 / audit-logs 查表三处登记点不必新增；④ 事务后置漏斗模式：先落持久物 → 再记审计 → 再发通知，`$transaction` 内禁调横切写服务（SQLite 单写者自锁），出具/发信整体吞错。
+5. **走查法**：T7 为对数字，曾在 self 栈**手驱一单兑换到 SUCCESS**，取得真实确认单后再截图——波三走查「客户同意 / 暂不同意 / 快进生效」同法可用，不必为截图另造假数据；注意手驱会在 `audit_log_events` 留孤行（`stack.sh reset self` 不清审计表，已登记 `TOOLING-DEBT.md` 第 89 行；本波 T8 实测：reset 后表里仍留 4 条旧 `CONFIRMATION_ISSUED`，`rm dev.db` 再 reset 才干净），要审计表判据干净的收尾闸前先 `rm dev.db` 重铺。
+
+**前提变化**
+6. **无实质变化，已逐条核**：① 通知表 `customer_notifications.relatedOrderType` 仍只认 `DEPOSIT|WITHDRAW|SWAP|COMPLAINT`（`prisma/schema.prisma:1972`，波二未触动，`src/core/notifications/` 零改动）——已定事实 9 的「需扩一种协议类通知」前提原样成立；② 客户闸 `customer-access.service.ts` / `src/modules/identity` 波二零改动，已定事实 4 的接入点不变；③ 审计现役码基线由 327 → **328**（波三再加码在 328 上递增）；④ 波二确认单只给兑换成交单（拍板 2），与协议同意**互不依赖**——协议场景不需要等确认单。
+7. **岔口 9（⚡快进生效 × 演示剧本）的补充参照**：波二新增的剧本站 4.7（成交确认单）依赖 alice 在站 4.6 刚成交的那笔；若波三协议场景把 v2 快进到生效，全库客户同时被拦兑换 → 站 4.1/4.6/4.7 当场演不动，**协议场景仍须排整场最后或演后重铺**，该裁决不因波二改变，只是多了一条要避开的站。
 
 ## 已定事实（2026-10-02 业主在波二脑暴中已拍，展开时直接引用，不再论证）
 

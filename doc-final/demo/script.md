@@ -60,7 +60,7 @@
 
 **站 3.1 · 充值起步**（进 KYT 筛查）
 账号：客户端 `demo_alice`
-走查：客户端发起充值 → 切管理台看单
+走查：客户端发起充值 → 切管理台看单（战役丙波二：客户端 crypto 充值页收款信息下方有一行风险小字「Virtual assets are volatile and can lose part or all of their value.」，指读一句即可；法币充值页**刻意不放**——钱仍是法币，波动风险在兑换披露点覆盖；证据 `05`/`05b`）
 判据：单据进入 KYT 筛查态（COMPLIANCE_PENDING）
 
 **站 3.2 · 裁决通过入账**
@@ -104,8 +104,8 @@
 
 **站 4.1 · 拿报价下单即上锁**
 账号：客户端 `demo_alice`
-走查：Swap 页拿一次报价（费率来自第一幕配的等级）→ Confirm
-判据：卖出金额下单瞬间即上锁——切账本页看画圈（与提现同律）
+走查：Swap 页拿一次报价（费率来自第一幕配的等级）→ 点 Confirm and Swap 打开确认弹窗——**先指读弹窗再确认**（战役丙波二）：明细里的「Retained by FIATX」行（`Fee … · Spread …`，平台留存的手续费与点差各一笔绝对数）＋ 按钮上方「Before you confirm」三句话（FIATX 是本金方 / 汇率=市场参考价（价源与取价时刻）加我方点差 % / 平台赚点差和手续费、利益可能与你不一致）→ 确认
+判据：卖出金额下单瞬间即上锁——切账本页看画圈（与提现同律）；弹窗三句话与留存行的数字全取这张报价的真值（点差 % 与金额随等级/报价变，不是写死的；证据 `superpowers/checkups/2026-10-02-campaign-c-wave2-evidence/01`）
 
 **站 4.2 · 管理台看单**（四腿资金单）
 走查：切管理台该笔换汇详情
@@ -114,6 +114,10 @@
 **站 4.3 · 合规裁决冻结**（押锁待处置）
 走查：⚡ 模拟面板喂「⑦ Rejected · Sanctions（客户本人）」
 判据：单转 **FROZEN**——2026-09-14 裁定翻案后，FROZEN 是**押锁待处置的中间态**，不再是"零出边终态、冻结当场擦锁退回余额"：切该客户 Overview，卖出金额仍算 locked（出生锁没放），要等解冻续走或拒退才真正动锁
+
+**站 4.3 反面步 · 冻结单没有确认单**（战役丙波二，验的是"没有"）
+走查：承接站 4.3 冻住的那张单 → 切该客户的客户端，打开该单详情页，再与另一位客户一张处于 COMPLIANCE_PENDING 的普通在途单详情页并排对照
+判据：两张单都显示 PROCESSING，页面是同一套 Amounts / Pricing / Timeline 区块与措辞（只有单号、金额、时间这些数据不同），**都没有** Trade Confirmation 区块——冻结单对客户收敛成与在途单同值，确认单只给成交（SUCCESS）单，所以"有没有确认单"反推不出冻结（tipping-off 同一道防线）；管理台审计中心按该兑换单号检索，**无** `CONFIRMATION_ISSUED`。证据：`superpowers/checkups/2026-10-02-campaign-c-wave2-evidence/` 的 `06`（冻结单）与 `06b`（在途参照）
 
 **站 4.4 · ⑨ 调查扣审 vs ⑦ 制裁冻结**（两制度讲词）
 走查：对照本幕站 4.3 用的「⑦ Rejected · Sanctions」与第五幕站 5.3（Grace 提现）用的「⑨ Rejected · MLRO freeze」两个按钮，分别打开各自客户的详情页
@@ -129,7 +133,12 @@
 走查：客户端 Swap 页 USDT-TRON → AED 拿一次报价（金额随意）→ Confirm and Swap 建单（COMPLIANCE_PENDING）→ 切管理台该笔详情 ⚡ 喂「① Approved」→ 转 PROCESSING，四条腿依次建出（卖出腿 3 步 Broadcast/Seen in Mempool/Confirm、结算腿与买入腿各 2 步 Submit/Settle、费腿 2 步 Submit/Settle）→ 逐腿推完 → 单转 **SUCCESS** → 切回客户端（不刷新、不重新登录）铃铛即时亮、`/messages` 顶部出现「Exchange completed」→ 点开该条，深链落地该笔兑换详情页（SUCCESS，净收金额与 Swap 页一致）
 判据：客户端全程零手动刷新；该单消息中心与审计页**各恰好一条** `NOTIFICATION_SENT`（`templateCode=SWAP_SUCCESS`），不再重复——`2026-09-30` T10 走查曾逮到此路径 100% 复现"事务嵌套自锁→假通知+SLA sweep 每 30 秒重发"（见 `BACKLOG.md` :106 行），`2067648e`（随 `70d119ac` 一并）把通知调用移出 `$transaction`、放到 `markStatus` 所在事务 resolve 之后的 workflow 层（含 SLA 超时拒单这第 9 个调用点），T10 复验：同日 `demo:all` 整跑 0 次 `Transaction already closed`、4 条兑换花名册全部按预期终态落地，现场新建一笔复走同样零故障。证据见 `superpowers/checkups/2026-09-30-campaign-c-wave1-evidence/`（`14`~`17`）
 
-**期望**：观众看懂"一次兑换 = 卖出腿+买入腿+费腿的原子记账；报价费率与客户等级挂钩"。
+**站 4.7 · 成交确认单：出具、留存、打印**（战役丙波二）
+账号：客户端 `demo_alice`（承接站 4.6 刚成交的那笔）→ 管理台 `admin@`（看审计）
+走查：客户端该笔兑换详情页（SUCCESS）→ Trade Confirmation 区块——Confirmation No（`CNF` 开头）、卖出/买入/手续费/汇率/市场价·点差、「Retained by FIATX」一行、成交与出具三个时刻、「FIATX acted as principal in this trade.」与「Figures were fixed when you confirmed and will not change.」两句 → 点 Print / Save as PDF 看打印预览（浅色单页、只含确认单、按钮不进纸面；深色主题也可读）→ 切管理台审计中心按该兑换单号检索
+判据：区块里是出具当时留存的**原件**，不是页面现拼——话术"你看到的就是成交那一刻定格的单据，之后行情、费率怎么改都不会变"；审计页该单有一条 `CONFIRMATION_ISSUED`（系统动作，metadata 带 confirmationNo），记录先于同单的 `NOTIFICATION_SENT`（先落单、再记审计、再发通知，所以客户点开通知时确认单已经在；列表按时间倒序，通知在上、确认单在下）；按 CNF 号当关键字也检得到（Entity / Related No 筛选框不认 CNF 号）。证据见 `superpowers/checkups/2026-10-02-campaign-c-wave2-evidence/`（`02` 确认单区块、`03` 打印预览、`07`/`07b` 审计检索）
+
+**期望**：观众看懂"一次兑换 = 卖出腿+买入腿+费腿的原子记账；报价费率与客户等级挂钩"；成交前讲明"平台是本金方、赚点差"，成交后拿得到一张定格留存的确认单。
 
 ## 第五幕 · 钱出（V5 提现）
 
@@ -138,7 +147,7 @@
 
 **站 5.1 · 正常提现放行到账**
 账号：客户端 `demo_bob`（⚠️ alice 在本幕站 4.3 已被「⑦ Rejected · Sanctions」连坐打上客户级 SANCTION 限制，她的新提现会被同一限制折叠冻结、演不出"正常放行"——勿用 alice，换 bob）
-走查：提现到已绑定地址
+走查：提现到已绑定地址（战役丙波二：确认弹窗按钮上方有一行风险小字，指读一句——链上资产「Blockchain transfers are irreversible — funds sent to a wrong address or network cannot be recovered.」，法币提现换成「Bank transfers cannot be recalled once sent.」，按所选资产类型二择一；证据 `04`）
 判据：单正常放行、余额到账
 
 **站 5.2 · 补料闭环**
