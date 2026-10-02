@@ -810,12 +810,16 @@ function runStaticChecks(): void {
     // PRUDENTIAL_CHECK_WRITE 一组，数字再顺延一格（80→81 桶、88→89 组）——数字来源=
     // 运行时直接数，非手抄：先跑一次在 80/88 门槛下确认落红（本任务实测复现），再改成
     // 81/89 转绿。
-    'S13d 波前→波后计数（域 15→15 不变、桶 80→81、组 88→89；PRUDENTIAL_CHECK_WRITE 新成员在册）',
-    totalDomains === 15 && totalBuckets === 81 && declaredPermissionGroups.size === 89 &&
+    // 战役丙波三 T9：新增 compliance-office.agreements 一桶、AGREEMENT_WRITE 一组，数字再顺延
+    // 一格（81→82 桶、89→90 组）——同样先在 81/89 门槛下落红（本任务实测：82 桶/90 组），
+    // 再改成 82/90 转绿。
+    'S13d 波前→波后计数（域 15→15 不变、桶 81→82、组 89→90；AGREEMENT_WRITE 新成员在册）',
+    totalDomains === 15 && totalBuckets === 82 && declaredPermissionGroups.size === 90 &&
       declaredPermissionGroups.has('FUNDING_READ') && declaredPermissionGroups.has('FUNDING_WRITE') &&
-      declaredPermissionGroups.has('FUNDING_DASHBOARD_VIEW') && declaredPermissionGroups.has('PRUDENTIAL_CHECK_WRITE'),
-    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 81）｜` +
-      `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 89，含 FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW/PRUDENTIAL_CHECK_WRITE）`,
+      declaredPermissionGroups.has('FUNDING_DASHBOARD_VIEW') && declaredPermissionGroups.has('PRUDENTIAL_CHECK_WRITE') &&
+      declaredPermissionGroups.has('AGREEMENT_WRITE'),
+    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 82）｜` +
+      `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 90，含 FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW/PRUDENTIAL_CHECK_WRITE/AGREEMENT_WRITE）`,
   );
 
   // ── S14：公司资金三组「四处齐」+ 唯一持有断言 + OR 粗门登记（战役乙波二 T3/T5/T8/T10）──
@@ -891,7 +895,7 @@ function runStaticChecks(): void {
   // 同 S10-S14 范式：单个新组（PRUDENTIAL_CHECK_WRITE）核验 route() 挂载 /
   // ACTION_BUCKET_CATALOG 桶挂载 / 职务持有均 >=1（联合类型成员由 tsc 收口，同 S10-S14
   // 头注释）；桶挂既有 Treasury 域（treasury.prudential_check，T3 域注释），域数不变仍
-  // 15——桶/组总数已由 S13d 顺延到 81/89 并断言 PRUDENTIAL_CHECK_WRITE 在册，本判据不
+  // 15——桶/组总数由 S13d 持续顺延（丙波三 T9 后为 82/90）并断言 PRUDENTIAL_CHECK_WRITE 在册，本判据不
   // 重复算总数，只核这一个新组本身「登记齐全」。再加一条精确持有断言——
   // PRUDENTIAL_CHECK_WRITE 唯金库持有（T3 定案：运营/合规官/高管均不加，同
   // LP_WRITE/FUNDING_WRITE「maker≠checker」反向先例）。再加一条丙案钉死判据（brief

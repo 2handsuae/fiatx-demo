@@ -12,6 +12,7 @@ import { CustomersService } from './customers.service';
 import { Prisma } from '@prisma/client';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
+import { AgreementsReadService } from '../agreements/agreements-read.service';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -33,7 +34,10 @@ const buildCustomerStatusWhere = (status?: string): Prisma.CustomerMainWhereInpu
 @Controller('customers')
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 export class CustomersController {
-  constructor(private readonly customersService: CustomersService) {}
+  constructor(
+    private readonly customersService: CustomersService,
+    private readonly agreementsRead: AgreementsReadService,
+  ) {}
 
   private ensureAdmin(req: any) {
     if (req.user?.type !== 'ADMIN') {
@@ -120,6 +124,8 @@ export class CustomersController {
   async findOne(@Request() req: any, @Param('customerNo') customerNo: string) {
     this.ensureAdmin(req);
     const id = await this.resolveCustomerId(customerNo);
-    return this.customersService.findOne(id);
+    const customer = await this.customersService.findOne(id);
+    // 战役丙波三 T9：详情档案区的协议行（已同意 vX / pending response / declined）——五键直通。
+    return customer && { ...customer, agreement: await this.agreementsRead.consentStateFor(id) };
   }
 }

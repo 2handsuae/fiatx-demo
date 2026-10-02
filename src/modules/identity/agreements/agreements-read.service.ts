@@ -27,6 +27,8 @@ export interface AgreementVersionView {
   summary: string;
   effectiveAt: Date | null;
   publishedAt: Date | null;
+  /** 在途审批单号（仅 PENDING_APPROVAL 版有值；管理台详情链到审批页）。客户端视图不取此键。 */
+  pendingApprovalNo: string | null;
   sections: AgreementSection[];
 }
 
@@ -108,6 +110,13 @@ export class AgreementsReadService {
     await this.tickEffective();
     const row = await this.prisma.customerAgreementVersion.findFirst({ where: { status: 'PUBLISHED' } });
     return row ? this.toView(row) : null;
+  }
+
+  /** 管理台版本列表：全部版本（含 DRAFT / 在途），按 versionKey 升序；读口惯例先懒翻。 */
+  async listVersions(): Promise<AgreementVersionView[]> {
+    await this.tickEffective();
+    const rows = await this.prisma.customerAgreementVersion.findMany({ orderBy: { versionKey: 'asc' } });
+    return rows.map((row) => this.toView(row));
   }
 
   /** 按版本取视图（管理台版本详情 / 阅读页对照用）；查无即 404。 */
@@ -226,6 +235,7 @@ export class AgreementsReadService {
     summary: string;
     effectiveAt: Date | null;
     publishedAt: Date | null;
+    pendingApprovalNo: string | null;
   }): AgreementVersionView {
     return {
       versionKey: row.versionKey,
@@ -233,6 +243,7 @@ export class AgreementsReadService {
       summary: row.summary,
       effectiveAt: row.effectiveAt,
       publishedAt: row.publishedAt,
+      pendingApprovalNo: row.pendingApprovalNo,
       sections: AGREEMENT_BODIES[row.versionKey],
     };
   }

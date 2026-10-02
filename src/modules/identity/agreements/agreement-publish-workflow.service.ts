@@ -144,6 +144,49 @@ export class AgreementPublishWorkflowService {
   }
 
   /**
+   * ⚡快进（演示装置）：把通知期内的 PUBLISHED 版本拨到"今天生效"。仅 PUBLISHED 可快进——
+   * 铁律④：出发态 where（versionKey + status=PUBLISHED）的 updateMany，命中不是 1 行即显式拒。
+   *
+   * 两码分记（spec §3）：⚡是模拟器动作，由本方法记 AGREEMENT_FASTFORWARDED（操作者）；
+   * "协议生效"是业务事实，由读服务 tickEffective 翻转时自己记 AGREEMENT_EFFECTIVE（system）——
+   * 本方法只改日期、留痕、再调 tickEffective，不替它写生效审计，也不直写 EFFECTIVE。
+   * 次序：先改日 → 再留痕 → 最后翻转（翻转的前提 effectiveAt<=now 由第一步造出）。
+   */
+  async simulateEffective(versionKey: string, actor: ApprovalActorContext): Promise<{ versionKey: string; effectiveAt: string }> {
+    const row = await this.prisma.customerAgreementVersion.findUnique({ where: { versionKey } });
+    if (!row) throw new NotFoundException(`Customer agreement version ${versionKey} not found`);
+
+    const now = new Date();
+    const { count } = await this.prisma.customerAgreementVersion.updateMany({
+      where: { versionKey, status: 'PUBLISHED' },
+      data: { effectiveAt: now },
+    });
+    if (count !== 1) {
+      throw new BadRequestException(
+        `Only PUBLISHED agreement versions (in their notice period) can be fast-forwarded to effective (${versionKey} is ${row.status}).`,
+      );
+    }
+
+    const display = actor.userNo ?? actor.userId;
+    await this.auditLogs.recordByActor(
+      {
+        ...this.buildAuditInput(
+          AuditActions.AGREEMENT_FASTFORWARDED,
+          versionKey,
+          `Fast-forwarded customer agreement ${versionKey} to effective now (demo clock)`,
+          { effectiveAt: now.toISOString() },
+        ),
+        sourcePlatform: 'ADMIN',
+      },
+      { actorType: 'ADMIN', actorNo: display, actorDisplayName: display, actorRolesAtTime: actor.roleCodes ?? [] },
+    );
+
+    await this.agreementsRead.tickEffective();
+
+    return { versionKey, effectiveAt: now.toISOString() };
+  }
+
+  /**
    * 裁决落地。APPROVED → 批准时刻复核 30 天，过则翻 PUBLISHED 并发信，不过则退 DRAFT；
    * DECLINED/CANCELLED/EXPIRED → 退 DRAFT。退回的版本回到可再次提交的起点。
    */

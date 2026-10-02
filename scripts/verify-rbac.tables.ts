@@ -70,4 +70,7 @@ export const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
   CAPITAL_INJECTION_APPROVAL: 'FUNDING_READ', // → /admin/capital-injections/:cinNo（CFO 持 FUNDING_READ）
   // 战役乙波二 Task 7：付款单，唯一裁决人 CFO 同样持 FUNDING_READ（同上行先例）。
   VENDOR_PAYMENT_APPROVAL: 'FUNDING_READ', // → /admin/vendor-payments/:payNo（CFO 持 FUNDING_READ）
+  // 战役丙波三 T9（T3 遗留，approvalEntityRoutes.ts 同批加行）：协议发布（entityRef = versionKey），
+  // 唯一裁决人高管持 COMPLIANCE_OFFICE_VIEW（rbac.catalog.ts 高管绑定区；协议版本读端点挂该组）。
+  AGREEMENT_PUBLISH: 'COMPLIANCE_OFFICE_VIEW', // → /admin/governance/compliance-office/agreements（高管持 COMPLIANCE_OFFICE_VIEW）
 };

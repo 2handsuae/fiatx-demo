@@ -103,6 +103,9 @@ export type PermissionGroup =
   | 'OBLIGATION_WRITE'
   | 'VENDOR_REGISTER_WRITE'
   | 'RI_REGISTER_WRITE'
+  // 战役丙波三 T9（spec §2）：客户协议发布提单——合规官独占，一组一门（路由门即精确门）；
+  // 裁决走 AGREEMENT_PUBLISH 审批策略的角色路由（高管），不经这张写权限组。
+  | 'AGREEMENT_WRITE'
   // 战役甲波五 T5（spec §7）：投诉工作流——桶挂事件登记域，不新增域。运营受理调查
   // （COMPLAINT_WRITE，绑 INCIDENT_OPS_WRITE 现持有职务）；裁决走 maker-checker（合规官批，
   // 审批走角色路由不占本组）、但合规官要看得见列表/详情，COMPLAINT_READ 单独一组。
@@ -616,6 +619,14 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // 事前审批——高管是 RI_REPLACEMENT 的唯一裁决人，不持 RI_REGISTER_WRITE（maker/checker
   // 天然不相交，见 scripts/verify-rbac.ts MAKER_GROUP_BY_POLICY）。
   route('POST', '/admin/responsible-individuals/:riNo/replacement', 'Propose a responsible individual replacement (opens an approval)', ['RI_REGISTER_WRITE']),
+
+  // 战役丙波三 T9（spec §2/§3）：客户协议——版本列表/详情只读（正文代码内登记、管理台不可编辑），
+  // 提交发布走高管单步审批（生效日 ≥ 提交时刻+30 日）。⚡快进挂 Demo Instruments 组（金库），
+  // 非 AGREEMENT_WRITE——合规官不是自己的裁决人，快进是演示者操作，同 obligations/报送单⚡先例。
+  route('GET', '/admin/customer-agreements', 'List customer agreement versions', ['COMPLIANCE_OFFICE_VIEW']),
+  route('GET', '/admin/customer-agreements/:versionKey', 'Customer agreement version detail (read-only body)', ['COMPLIANCE_OFFICE_VIEW']),
+  route('POST', '/admin/customer-agreements/:versionKey/submit-publish', 'Submit an agreement version for publication (senior management approves; effective date >= +30d)', ['AGREEMENT_WRITE']),
+  route('POST', '/admin/customer-agreements/:versionKey/simulate-effective', 'Fast-forward an announced agreement version to effective (demo only)', ['DEMO_CLOCK_WRITE']),
 
   // 战役甲波三 T6：cap.filing.* 服务层门标记码——不是路由，是 RegulatoryFilingService.
   // assertFamily 的服务层门标记（照 cap.incident.* 先例，Ruling-6；码本身由 T1 在
@@ -1194,6 +1205,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       { key: 'compliance-office.obligations', label: 'Manage periodic obligations', description: 'Register, update, enable/disable periodic regulatory obligations — the compliance calendar', groups: ['OBLIGATION_WRITE'] },
       { key: 'compliance-office.vendors', label: 'Manage the outsourcing register', description: 'Register, update and terminate outsourcing vendors', groups: ['VENDOR_REGISTER_WRITE'] },
       { key: 'compliance-office.ri', label: 'Manage the responsible individual register', description: 'Register seats and propose replacements (senior management approves)', groups: ['RI_REGISTER_WRITE'] },
+      { key: 'compliance-office.agreements', label: 'Manage customer agreements', description: 'Submit agreement versions for publication (senior management approves); body is code-registered and read-only', groups: ['AGREEMENT_WRITE'] },
     ],
   },
   // ─── Domain: Pricing ─────────────────────────────────
@@ -1363,6 +1375,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役甲波四 T5（spec §5）：合规办公室骨架三写面全归合规官独占——闹钟墙/合规日历/
     // 两册（外包商/RI）全部由合规官经办，RI 换人事前审批也由合规官提单（高管裁决）。
     'COMPLIANCE_OFFICE_VIEW', 'OBLIGATION_WRITE', 'VENDOR_REGISTER_WRITE', 'RI_REGISTER_WRITE',
+    // 战役丙波三 T9（spec §2）：客户协议发布提单唯合规官（裁决唯高管，不持本组，maker/checker 不相交）。
+    'AGREEMENT_WRITE',
     // 战役甲波五 T5（spec §7）：投诉裁决人——COMPLAINT_READ 恰绑合规官/MLRO/内审三职务，
     // 让合规官看得见列表/详情；不持 COMPLAINT_WRITE（不是受理调查的经办人，maker=运营/
     // checker=合规官，裁决走 ComplaintResolutionWorkflowService 提交给 ApprovalsService 的

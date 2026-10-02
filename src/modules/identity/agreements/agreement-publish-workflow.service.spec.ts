@@ -67,7 +67,8 @@ function makeHarness(rows: VersionRow[], approvals: ApprovalCase[] = []) {
       updateMany: jest.fn(async ({ where, data }: any) => {
         const hit = versions.filter((r) => rowMatches(r, where));
         hit.forEach((r) => Object.assign(r, data));
-        if (hit.length > 0) events.push(`flip:${data.status}`);
+        // 改状态的边记 flip:<目标态>；只改字段的补丁（⚡快进改写 effectiveAt）记 patch:<字段>，两者不混。
+        if (hit.length > 0) events.push(data.status ? `flip:${data.status}` : `patch:${Object.keys(data).join(',')}`);
         return { count: hit.length };
       }),
     },
@@ -524,5 +525,118 @@ describe('submitPublish → 裁决 → onDecided 往返', () => {
       'audit:AGREEMENT_PUBLISHED',
       'notify',
     ]);
+  });
+});
+
+// 战役丙波三 T9：⚡快进。仅 PUBLISHED（通知期内）可快进；effectiveAt 改写为当下 → 留痕
+// FASTFORWARDED（操作者）→ 调读服务 tickEffective 完成翻转（读服务自己记 EFFECTIVE=system，
+// 本 workflow 不替它记）。两码分记：⚡是模拟器动作，生效是业务事实（spec §3）。
+describe('AgreementPublishWorkflowService.simulateEffective', () => {
+  const DEMO_ACTOR = {
+    actorType: 'ADMIN' as const,
+    userId: 'uuid-demo',
+    userNo: 'ADM-DEMO',
+    role: 'SUPER_ADMIN',
+    roleCodes: ['SUPER_ADMIN'],
+  };
+
+  /** 读服务 tick 行为化到真实形状：到点的 PUBLISHED 翻 EFFECTIVE、旧 EFFECTIVE 退位 SUPERSEDED，并记一条 tick 事件（真实现在此处写 EFFECTIVE 审计）。 */
+  function withRealisticTick(h: ReturnType<typeof makeHarness>) {
+    h.agreementsRead.tickEffective.mockImplementation(async () => {
+      const due = h.versions.find((r) => r.status === 'PUBLISHED' && r.effectiveAt && r.effectiveAt.getTime() <= Date.now());
+      if (!due) return;
+      h.versions.filter((r) => r.status === 'EFFECTIVE').forEach((r) => { r.status = 'SUPERSEDED'; });
+      due.status = 'EFFECTIVE';
+      h.events.push('tick:EFFECTIVE');
+    });
+    return h;
+  }
+
+  function announced() {
+    return withRealisticTick(
+      makeHarness([version('v1', 'EFFECTIVE', new Date(NOW.getTime() - 90 * DAY)), version('v2', 'PUBLISHED', new Date(NOW.getTime() + 40 * DAY))]),
+    );
+  }
+
+  it('PUBLISHED v2：effectiveAt 改写为当下，随即翻 EFFECTIVE、旧 v1 退位 SUPERSEDED；返回 versionKey+新生效时刻', async () => {
+    const h = announced();
+
+    const result = await h.svc.simulateEffective('v2', DEMO_ACTOR);
+
+    expect(result).toEqual({ versionKey: 'v2', effectiveAt: NOW.toISOString() });
+    expect(h.row('v2')).toEqual(expect.objectContaining({ status: 'EFFECTIVE', effectiveAt: NOW }));
+    expect(h.row('v1').status).toBe('SUPERSEDED');
+  });
+
+  it('留痕 FASTFORWARDED 恰一次（操作者）：顶层 versionKey+effectiveAt、metadata 镜像、显式 requestId；EFFECTIVE 不由本 workflow 记（recordSystem 零次）', async () => {
+    const h = announced();
+
+    await h.svc.simulateEffective('v2', DEMO_ACTOR);
+
+    expect(h.auditLogs.recordByActor).toHaveBeenCalledTimes(1);
+    expect(h.auditLogs.recordSystem).not.toHaveBeenCalled();
+    const [input, actor] = h.auditLogs.recordByActor.mock.calls[0];
+    expect(input).toEqual(
+      expect.objectContaining({
+        action: AuditActions.AGREEMENT_FASTFORWARDED,
+        actionDomain: 'GOVERNANCE',
+        workflowType: AuditBusinessWorkflowTypes.CUSTOMER_AGREEMENT,
+        primarySubjectType: 'AGREEMENT_VERSION',
+        primarySubjectNo: 'v2',
+        versionKey: 'v2',
+        effectiveAt: NOW.toISOString(),
+        requestId: expect.stringMatching(/^AGREEMENT_FASTFORWARDED_v2_/),
+        metadata: expect.objectContaining({ versionKey: 'v2', effectiveAt: NOW.toISOString() }),
+      }),
+    );
+    expect(actor).toEqual(expect.objectContaining({ actorType: 'ADMIN', actorNo: 'ADM-DEMO', actorRolesAtTime: ['SUPER_ADMIN'] }));
+  });
+
+  it('次序：先改日（patch effectiveAt）、再留痕 FASTFORWARDED、最后翻转（tick）——不是先翻后补', async () => {
+    const h = announced();
+
+    await h.svc.simulateEffective('v2', DEMO_ACTOR);
+
+    expect(h.events).toEqual(['patch:effectiveAt', 'audit:AGREEMENT_FASTFORWARDED', 'tick:EFFECTIVE']);
+  });
+
+  it('快进走出发态 where：updateMany 的条件含 versionKey 与 status=PUBLISHED（铁律④，非直 update）', async () => {
+    const h = announced();
+
+    await h.svc.simulateEffective('v2', DEMO_ACTOR);
+
+    expect(h.prisma.customerAgreementVersion.updateMany).toHaveBeenCalledWith({
+      where: { versionKey: 'v2', status: 'PUBLISHED' },
+      data: { effectiveAt: NOW },
+    });
+  });
+
+  it.each(['DRAFT', 'PENDING_APPROVAL', 'EFFECTIVE', 'SUPERSEDED'])(
+    '%s 版显式拒：BadRequest，行不动、零留痕、不触发翻转',
+    async (status) => {
+      const originalEffectiveAt = status === 'DRAFT' ? null : new Date(NOW.getTime() - 5 * DAY);
+      const h = withRealisticTick(makeHarness([version('v1', 'EFFECTIVE', new Date(NOW.getTime() - 90 * DAY)), version('v2', status, originalEffectiveAt)]));
+      await expect(h.svc.simulateEffective('v2', DEMO_ACTOR)).rejects.toThrow(BadRequestException);
+
+      expect(h.row('v2')).toEqual(expect.objectContaining({ status, effectiveAt: originalEffectiveAt }));
+      expect(h.auditLogs.recordByActor).not.toHaveBeenCalled();
+      expect(h.auditLogs.recordSystem).not.toHaveBeenCalled();
+      expect(h.agreementsRead.tickEffective).not.toHaveBeenCalled();
+    },
+  );
+
+  it('报错信息点明当前状态与前置（PUBLISHED）', async () => {
+    const h = withRealisticTick(makeHarness([version('v1', 'EFFECTIVE'), version('v2', 'DRAFT')]));
+
+    await expect(h.svc.simulateEffective('v2', DEMO_ACTOR)).rejects.toThrow(/PUBLISHED[\s\S]*DRAFT|DRAFT[\s\S]*PUBLISHED/);
+  });
+
+  it('版本不存在 → NotFound，零留痕零翻转', async () => {
+    const h = announced();
+
+    await expect(h.svc.simulateEffective('v9', DEMO_ACTOR)).rejects.toThrow(NotFoundException);
+
+    expect(h.auditLogs.recordByActor).not.toHaveBeenCalled();
+    expect(h.agreementsRead.tickEffective).not.toHaveBeenCalled();
   });
 });

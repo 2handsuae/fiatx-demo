@@ -43,7 +43,7 @@ function sortRows<T>(rows: T[], orderBy?: any): T[] {
   if (!orderBy) return rows;
   const [[field, dir]] = Object.entries(orderBy) as [string, 'asc' | 'desc'][];
   return [...rows].sort((a: any, b: any) => {
-    const d = a[field].getTime() - b[field].getTime();
+    const d = typeof a[field] === 'string' ? a[field].localeCompare(b[field]) : a[field].getTime() - b[field].getTime();
     return dir === 'desc' ? -d : d;
   });
 }
@@ -70,6 +70,7 @@ function makeService(opts: { versions: VersionRow[]; consents?: ConsentRow[] }) 
     customerAgreementVersion: {
       findFirst: jest.fn(async ({ where, orderBy }: any = {}) => sortRows(versions.filter((r) => rowMatches(r, where)), orderBy)[0] ?? null),
       findUnique: jest.fn(async ({ where }: any) => versions.find((r) => rowMatches(r, where)) ?? null),
+      findMany: jest.fn(async ({ where, orderBy }: any = {}) => sortRows(versions.filter((r) => rowMatches(r, where)), orderBy)),
       update: jest.fn(async ({ where, data }: any) => {
         const row = versions.find((r) => rowMatches(r, where));
         if (!row) throw new Error('mock: update target not found');
@@ -161,6 +162,7 @@ describe('AgreementsReadService 懒翻生效', () => {
       summary: 'summary of v1',
       effectiveAt: PAST,
       publishedAt: PAST,
+      pendingApprovalNo: null,
       sections: AGREEMENT_BODIES.v1,
     });
     expect(auditLogs.recordSystem).not.toHaveBeenCalled();
@@ -255,6 +257,44 @@ describe('AgreementsReadService 懒翻生效', () => {
     const v1 = await service.getVersionView('v1');
     expect(v1).toMatchObject({ versionKey: 'v1', status: 'SUPERSEDED', sections: AGREEMENT_BODIES.v1 });
     await expect(service.getVersionView('v9')).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  // 战役丙波三 T9：管理台详情要把在途审批单号链到审批页，视图须带 pendingApprovalNo。
+  it('getVersionView 带出在途审批单号：PENDING_APPROVAL 版有值，其余为 null', async () => {
+    const pending = { ...version('v2', 'PENDING_APPROVAL', FUTURE), pendingApprovalNo: 'APR-AGR-7' };
+    const { service } = makeService({ versions: [version('v1', 'EFFECTIVE', PAST), pending] });
+
+    expect((await service.getVersionView('v2')).pendingApprovalNo).toBe('APR-AGR-7');
+    expect((await service.getVersionView('v1')).pendingApprovalNo).toBeNull();
+  });
+});
+
+// 战役丙波三 T9：管理台列表——全部版本（含 DRAFT / 在途），按 versionKey 升序；读口惯例先懒翻。
+describe('AgreementsReadService.listVersions', () => {
+  it('返回全部版本视图（含 DRAFT），按 versionKey 升序，每项带 pendingApprovalNo 与登记处正文', async () => {
+    const pending = { ...version('v2', 'PENDING_APPROVAL', FUTURE), pendingApprovalNo: 'APR-AGR-7' };
+    // 库内故意倒序存放，断言排序真由 listVersions 的 orderBy 产生。
+    const { service, prisma } = makeService({ versions: [pending, version('v1', 'EFFECTIVE', PAST)] });
+
+    const list = await service.listVersions();
+
+    expect(prisma.customerAgreementVersion.findMany).toHaveBeenCalledWith({ orderBy: { versionKey: 'asc' } });
+    expect(list.map((v) => [v.versionKey, v.status, v.pendingApprovalNo])).toEqual([
+      ['v1', 'EFFECTIVE', null],
+      ['v2', 'PENDING_APPROVAL', 'APR-AGR-7'],
+    ]);
+    expect(list[1].sections).toEqual(AGREEMENT_BODIES.v2);
+  });
+
+  it('列表前先懒翻：到点的 v2（PUBLISHED）以 EFFECTIVE 现身、旧 v1 以 SUPERSEDED 现身', async () => {
+    const { service } = makeService({ versions: [version('v1', 'EFFECTIVE', PAST), version('v2', 'PUBLISHED', PAST)] });
+
+    const list = await service.listVersions();
+
+    expect(list.map((v) => [v.versionKey, v.status])).toEqual([
+      ['v1', 'SUPERSEDED'],
+      ['v2', 'EFFECTIVE'],
+    ]);
   });
 });
 
