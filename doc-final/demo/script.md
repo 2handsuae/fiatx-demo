@@ -116,7 +116,7 @@
 判据：单转 **FROZEN**——2026-09-14 裁定翻案后，FROZEN 是**押锁待处置的中间态**，不再是"零出边终态、冻结当场擦锁退回余额"：切该客户 Overview，卖出金额仍算 locked（出生锁没放），要等解冻续走或拒退才真正动锁
 
 **站 4.3 反面步 · 冻结单没有确认单**（战役丙波二，验的是"没有"）
-造数：`demo:all` 名册里兑换只有 3 笔 SUCCESS + 1 笔 FROZEN，没有 COMPLIANCE_PENDING 的在途单——先用 `demo_bob` 在 Swap 页取报价并确认建单、**不喂裁决**，单就停在 COMPLIANCE_PENDING，留作并排对照
+造数：`demo:all` 名册里兑换只有 3 笔 SUCCESS + 1 笔 FROZEN，没有 COMPLIANCE_PENDING 的在途单——先用 `demo_bob` 在 Swap 页取报价并确认建单、**不喂裁决**，单就停在 COMPLIANCE_PENDING，留作并排对照；⚠️ 建单后 **5 分钟内**完成并排对照，否则该单会被 SLA（5 分钟窗口、后端每 30 秒一轮 cron）判超时自动拒掉（REJECTED），就不再是 PROCESSING 在途单了
 走查：承接站 4.3 冻住的那张单 → 切该客户的客户端，打开该单详情页，再与 bob 那张在途单详情页并排对照
 判据：两张单都显示 PROCESSING，页面是同一套 Amounts / Pricing / Timeline 区块与措辞（只有单号、金额、时间这些数据不同），**都没有** Trade Confirmation 区块——冻结单对客户收敛成与在途单同值，确认单只给成交（SUCCESS）单，所以"有没有确认单"反推不出冻结（tipping-off 同一道防线）；管理台审计中心按该兑换单号检索，**无** `CONFIRMATION_ISSUED`。证据：`superpowers/checkups/2026-10-02-campaign-c-wave2-evidence/` 的 `06`（冻结单）与 `06b`（在途参照）
 

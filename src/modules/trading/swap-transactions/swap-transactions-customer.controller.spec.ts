@@ -30,7 +30,7 @@ describe('SwapTransactionsCustomerController.createQuote 报价响应（丙波�
         findUnique: jest.fn().mockImplementation(({ where }) =>
           Promise.resolve(where.id === 'a-btc'
             ? { id: 'a-btc', currency: 'BTC', decimals: 8 }
-            : { id: 'a-usdt', currency: 'USDT', decimals: 6 }),
+            : { id: 'a-usdt', currency: 'USDT', decimals: 2 }),
         ),
       },
     };

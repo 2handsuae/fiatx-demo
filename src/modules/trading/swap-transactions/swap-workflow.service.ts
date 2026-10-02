@@ -206,7 +206,8 @@ export class SwapWorkflowService {
     // 之后才调用，否则会在 tx 内自锁到 Prisma 默认超时、拖累外层事务回滚。
     private readonly notificationsService: NotificationsService,
     // 战役丙波二 T3：成交确认单出具挂在同一个事务后置漏斗（notifySwapStatusChange）里，
-    // 9 个调用点零改动——见该方法内的次序注释。
+    // 8 个调用点零改动（第 9 个 SWAP 发信点 swap-sla 直调 notifyOrderStatusChange、
+    // 不经漏斗，只产 REJECTED、不涉出具）——见该方法内的次序注释。
     private readonly tradeConfirmationsService: TradeConfirmationsService,
   ) {}
 

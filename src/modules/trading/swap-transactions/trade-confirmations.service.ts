@@ -10,7 +10,8 @@ import { SwapTransactionsService } from './swap-transactions.service';
 /**
  * 战役丙波二 T3：成交确认单出具。
  *
- * 挂在 SwapWorkflowService.notifySwapStatusChange（9 个事务后置调用点的唯一汇合处）里，
+ * 挂在 SwapWorkflowService.notifySwapStatusChange（漏斗共 8 个调用点；第 9 个 SWAP 发信点
+ * swap-sla.service.ts 直调 notifyOrderStatusChange、不经漏斗，只产 REJECTED、不涉出具）里，
  * 不进任何 `$transaction`——横切写服务不得在事务内调用（SQLite 单写者自锁判例），
  * 与通知同一边界：事务提交之后才出具。
  */

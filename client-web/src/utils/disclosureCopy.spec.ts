@@ -6,6 +6,6 @@ it('第二句填入来源/时刻/点差', () => {
 });
 
 it('登记处五族文案齐全', () => {
-  for (const k of ['principal', 'rateTemplate', 'conflict', 'retainedLabel', 'figuresFixed', 'riskChain', 'riskFiat', 'riskDeposit'] as const)
+  for (const k of ['principal', 'rateTemplate', 'conflict', 'retainedLabel', 'principalPast', 'figuresFixed', 'riskChain', 'riskFiat', 'riskDeposit'] as const)
     expect(DISCLOSURE_COPY[k]).toBeTruthy();
 });

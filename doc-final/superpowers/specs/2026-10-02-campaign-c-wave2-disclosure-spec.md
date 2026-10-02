@@ -8,6 +8,7 @@
 
 1. **§2.1 字段表漏列 `toAssetCode`，已补列**：原表只列 `fromAssetCode`，买入侧币种没有落列，确认单页面就得回读兑换单才知道「You received」是什么币——违背本 spec 自己立的「确认单是自包含原件、页面不再现拼订单字段」原则。T3 评审逮到，裁决补列（修复提交 `64b1e627`）：schema 加 `toAssetCode String`、本波新建的迁移 `20261002122630_wave2_trade_confirmations` 同步补该列（未另开迁移）、出具服务 `issueForSwapIfSuccess` 写入、详情响应白名单与客户端区块读它。落地后 `trade_confirmations` = id + 21 业务列，客户详情 `confirmation` 子对象 19 键（比表少 `swapNo` / `ownerCustomerNo` 两个内部列，`id` 本就不外露）。字段表其余各列、`@unique` 约束与「只写一次」语义不变。
 2. **§2.1 `confirmationNo` 的 `CNF-…` 写法，实际形态是 `CNF` + 12 位数字、无连字符**（如 `CNF261002576568`）：`generateReferenceNo('CNF')` 沿用系统全部单号的既有形态（`SWP…`、`WDR…`、`SQT…` 同款），裁决：以系统惯例为准，不为确认单单开连字符特例。凡文档与剧本里的示例一律按无连字符写；审计中心关键字框按 CNF 号可检索，Entity / Related No 筛选框不认 CNF 号。
+3. **出具漏斗的调用点是 8 个，不是 9 个**：T3 落地时的代码注释与 `modules/v6-swap.md` 沿用丙波一收官口径"9 个事务后置调用点"（`SwapWorkflowService` 8 + `SwapSlaService` 1），把"漏斗调用点"与"事务后置调用点总数"混为一谈（本 spec 正文无此说法，仅作订正记录）。`a699e162` 时点实测（`grep -n notifySwapStatusChange src/modules/trading/swap-transactions/swap-workflow.service.ts`，行号以该提交为准）：漏斗 `SwapWorkflowService.notifySwapStatusChange` 共 **8 个调用点**（`:580` `:848` `:901` `:1278` `:1831` `:1884` `:2093` `:2376`）；第 9 个 SWAP 发信点 `swap-sumsub/swap-sla.service.ts:133`（SLA 超时拒单）**直调** `notificationsService.notifyOrderStatusChange`、不经漏斗，只产 REJECTED，与出具无关（确认单只在落 SUCCESS 时出具）。出具逻辑零影响；订正落点：`modules/v6-swap.md` §5 确认单条、`swap-workflow.service.ts` 构造器注释、`trade-confirmations.service.ts` 类注释。
 
 ## §0 脑暴裁定台账（2026-10-02）
 
