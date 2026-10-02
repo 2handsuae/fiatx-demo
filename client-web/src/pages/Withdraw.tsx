@@ -15,6 +15,7 @@ import { resolveSubmitErrorInfo, TIER_UPGRADE_HINT_CODES } from '../utils/limitE
 import { getWithdrawStatusView } from '../utils/withdrawStatusView';
 import { onCustomerUpdated } from '../utils/customerSocket';
 import { StatusBadge } from '../components/StatusBadge';
+import { DISCLOSURE_COPY } from '../utils/disclosureCopy';
 
 interface Asset {
   id: string;
@@ -1066,6 +1067,10 @@ const Withdraw = () => {
                       )}
                     </div>
                   )}
+
+                  <p className="mx-6 mb-4 text-xs text-fx-dune">
+                      {selectedAsset?.type === 'CRYPTO' ? DISCLOSURE_COPY.riskChain : DISCLOSURE_COPY.riskFiat}
+                  </p>
 
                   <div className="flex items-center justify-end gap-3 border-t border-fx-rule px-6 py-5">
                       <button

@@ -15,6 +15,7 @@ import { onCustomerUpdated } from '../utils/customerSocket';
 import { RestrictionBanner } from '../components/RestrictionBanner';
 import { PendingActionBanner } from '../components/PendingActionBanner';
 import { StatusBadge } from '../components/StatusBadge';
+import { DISCLOSURE_COPY } from '../utils/disclosureCopy';
 
 interface Asset {
   id: string;
@@ -1073,6 +1074,10 @@ const Deposit = () => {
                     <p className="text-xs text-fx-dust font-mono">
                       Network: {depositWallet.network} · Contract: {selectedAsset.contractAddress ?? 'Native'}
                     </p>
+                  )}
+
+                  {activeTab === 'crypto' && (
+                    <p className="text-xs text-fx-dune">{DISCLOSURE_COPY.riskDeposit}</p>
                   )}
                 </div>
                             ) : (
