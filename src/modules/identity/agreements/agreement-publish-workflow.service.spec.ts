@@ -358,7 +358,7 @@ describe('AgreementPublishWorkflowService.onDecided', () => {
         effectiveAt: effectiveAt.toISOString(),
         approvalNo: 'APR-AGR-1',
         requestId: expect.stringMatching(/^AGREEMENT_PUBLISHED_v2_/),
-        metadata: expect.objectContaining({ versionKey: 'v2', effectiveAt: effectiveAt.toISOString() }),
+        metadata: expect.objectContaining({ versionKey: 'v2', effectiveAt: effectiveAt.toISOString(), approvedBy: 'ADM-SM' }),
       }),
     );
     expect(notifications.notifyAgreementPublished).toHaveBeenCalledTimes(1);
@@ -366,6 +366,16 @@ describe('AgreementPublishWorkflowService.onDecided', () => {
     expect(events).toEqual(['flip:PUBLISHED', 'audit:AGREEMENT_PUBLISHED', 'notify']);
     // 批准路径不得误记驳回码。
     expect(auditLogs.recordSystem.mock.calls.map((c: any[]) => c[0].action)).not.toContain(AuditActions.AGREEMENT_PUBLISH_REJECTED);
+  });
+
+  it('PUBLISHED 审计的批准人入 metadata：事件缺 decisionByUserNo 时 approvedBy 为 null（键仍在）', async () => {
+    const effectiveAt = new Date(NOW.getTime() + 31 * DAY);
+    const { svc, auditLogs } = pendingHarness(effectiveAt);
+
+    await svc.onDecided(makeDecidedEvent({ decisionByUserNo: undefined }));
+
+    const metadata = auditLogs.recordSystem.mock.calls[0][0].metadata;
+    expect(metadata).toHaveProperty('approvedBy', null);
   });
 
   // 双锚之二：批准锚 29 / 30 各一

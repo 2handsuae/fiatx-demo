@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流
 
 > 生成于 2026-09-15 ｜ 基线 main `8a6390fa` ｜ 来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（8 份名册程序化导出，分组清单与名册双向校验通过）
-> 现役 **263 码**，另有退役 113 码进拒写闸（附录仅列名）。
+> 现役 **335 码**，另有退役 113 码进拒写闸（附录仅列名）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 28 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 26 ｜ TREASURY 7 ｜ RECON 9 ｜ GOVERNANCE 11 ｜ 合计 263
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 32 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 27 ｜ TREASURY 37 ｜ RECON 9 ｜ GOVERNANCE 48 ｜ 合计 335
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -645,7 +645,7 @@
 | `RECON_CASE_AGING_BREACHED` | 账龄到线（系统通道，actor=AGING_TIMER，核销/认损按钮由此解锁） | N 单步 | — |  |
 | `RECON_AGING_TIMEOUT_SIMULATED` | ⚡ 拨钟：把账龄截止拨到过去（拨钟一条、到线一条，各说各的事） | N 单步 | — |  |
 
-## GOVERNANCE 域 —— 事故登记（平账三期）（11 码）
+## GOVERNANCE 域 —— 事故登记（平账三期）（48 码）
 
 性质严重的差异正式立「事故」：登记 / 调查 / 定损 / 通报 / 善后 / 结案，全程零账务；动钱挂调账单与划转单引用。
 

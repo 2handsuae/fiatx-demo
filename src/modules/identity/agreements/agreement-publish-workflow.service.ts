@@ -224,6 +224,7 @@ export class AgreementPublishWorkflowService {
         versionKey,
         `Customer agreement ${versionKey} approved and published, effective ${effectiveAt.toISOString()}`,
         { effectiveAt: effectiveAt.toISOString(), approvalNo: event.approvalNo },
+        { approvedBy: event.decisionByUserNo ?? null },
       ),
       sourcePlatform: 'SYSTEM',
     });
