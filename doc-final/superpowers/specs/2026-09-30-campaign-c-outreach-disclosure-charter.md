@@ -1,6 +1,6 @@
 # 战役丙「客户触达与披露」总纲
 
-> 立纲 2026-09-30 ｜ **2026-10-02 改纲：三波 → 四波**（客户协议从波二拆出独立成波三，原波三「月结单与 DSR」顺延为波四，理由见 §1.1）｜ 状态：**波一已收官合 main（2026-10-01 快进 2f0a5c6e）；波二已收官合 main（2026-10-02 快进 6cc473f4；spec 含执行订正三条，spec/plan/骨架已归档 `archive/superpowers/`）；波三待展开（骨架已立，含波二承接）** ｜ 体检：`checkups/2026-09-30-campaign-c-outreach-disclosure-checkup.md`（上游：同日 BD 参照系盘点 `checkups/2026-09-30-bd-landscape-vs-modules.md`）
+> 立纲 2026-09-30 ｜ **2026-10-02 改纲：三波 → 四波**（客户协议从波二拆出独立成波三，原波三「月结单与 DSR」顺延为波四，理由见 §1.1）｜ 状态：**波一已收官合 main（2026-10-01 快进 2f0a5c6e）；波二已收官合 main（2026-10-02 快进 6cc473f4；spec 含执行订正三条，spec/plan/骨架已归档 `archive/superpowers/`）；波三已收官（2026-10-03 T12 收口，合并 main 哈希待控制者填：`________`；spec 含执行订正 9 条，spec/plan/骨架随合并归档）；波四待展开（骨架已立 `2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md`，含波三承接）** ｜ 体检：`checkups/2026-09-30-campaign-c-outreach-disclosure-checkup.md`（上游：同日 BD 参照系盘点 `checkups/2026-09-30-bd-landscape-vs-modules.md`）
 > 波次执行按 CLAUDE.md §6：spec 只写细当前波；每波收尾按 `rules/delivery-checklist.md` 写承接记录进下一波骨架；**本纲活到最后一波**。
 
 ## §0 目标与判准
@@ -47,8 +47,8 @@
 
 - **波一**：已收官（2026-10-01 合 main）；骨架与 spec（含「执行订正」节：FROZEN 收敛真值、兑换 9 事务点后置）已随波归档 `archive/superpowers/specs/`。
 - **波二**：已收官（2026-10-02 合 main 6cc473f4）；骨架与 spec（含「执行订正」节：toAssetCode 补列 / CNF 无连字符 / 漏斗 8 调用点+SLA 直调第 9 发信点）已随波归档 `archive/superpowers/`。
-- **波三**：见 `2026-10-02-campaign-c-wave3-agreement-skeleton.md`（骨架已立，四条已拍 + 余下待定岔口）。
-- **波四**：监管依据（2026-10-02 一手核实）：CRM **IV.D.2** 客户资金月结单须于结单日后 25 天内出具；Custody III.D.4 有月度虚拟资产对账单（本司仅 BD 牌照，是否适用波内裁）。月结单定版形态——快照 or 按月重查（⚠️判例在案：实时快照不可批量补拍，乙波三 t11-05）；DSR 三种请求（查/改/删）各自结局——"删"演"因监管留存义务部分拒绝"（条款原文 `CustomerRegister.tsx:93` 写着 subject to retention obligations，是现成的戏）；DSR 请求经不经审批链（DPO 独办 or maker-checker）。
+- **波三**：已收官（2026-10-03 T12 收口，合并哈希待填）；骨架与 spec（含「执行订正」9 条：种子 13 非 11 / `intakeDecision` 改前置拦 / 强制弹窗补查看全文 / 打印改流式 + 叠层修 / `/me` 四键含 `previous` / 通知本地日口径 / S16 判据补 / 零协议动作互链 / 幕号落第十幕）与 plan 随合并归档 `archive/superpowers/`。
+- **波四**：骨架已立 `2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md`（含波三承接；下列已定事实已搬运进骨架，此处原文保留）。监管依据（2026-10-02 一手核实）：CRM **IV.D.2** 客户资金月结单须于结单日后 25 天内出具；Custody III.D.4 有月度虚拟资产对账单（本司仅 BD 牌照，是否适用波内裁）。月结单定版形态——快照 or 按月重查（⚠️判例在案：实时快照不可批量补拍，乙波三 t11-05）；DSR 三种请求（查/改/删）各自结局——"删"演"因监管留存义务部分拒绝"（条款原文 `CustomerRegister.tsx:93` 写着 subject to retention obligations，是现成的戏）；DSR 请求经不经审批链（DPO 独办 or maker-checker）。
 
 ## §4 设计红线（全战役）
 
@@ -66,7 +66,8 @@
 - CRS/CARF：归属已记 §1 岔口 8，丁立纲时收编。
 - 2026-10-02 改四波：本纲 §1.1/§2/§3/§4/§6 同步；新立波三骨架；波二骨架补"脑暴已拍"节；`decisions.md` 2026-10-01 判例行里"波三月结单"改称波四。
 - 2026-10-02 波二收官同步：波二 spec/plan/骨架归档；delivery decision-log +D-26（确认单三性）；本纲状态与 §3 波二行更新。
+- 2026-10-03 波三收官同步：本纲状态与 §3 波三行更新；立波四骨架（含波三承接）；delivery decision-log +D-27（协议三性；触碰检查命中状态机 / 审计集 / 业务键 `versionKey` 破例，语义合同条目为指针式、无需改）；`decisions.md` +3 条（费率与协议零联动 / 30 天通知期锚批准时刻 / 未同意拦充兑放提现且显式拒绝）。
 
 ## §6 演示承接点
 
-通知类场景承接三幕（钱进）/四幕（钱换）/五幕（钱出）既有客户端环节；披露+确认单承接四幕报价/Confirm and Swap；客户协议自开新场景（挂哪幕波三 spec 定）；月结单承接六幕（账对）客户端流水场景；DSR 自开新场景（挂第八/九幕后，波四 spec 定）。tipping-off 反面走查现场在二/三/五幕（Carol/Jack/Grace/Frank"客户面看不出来"）——通知上线后这些场景补"不发通知/发中性通知"验证步。
+通知类场景承接三幕（钱进）/四幕（钱换）/五幕（钱出）既有客户端环节；披露+确认单承接四幕报价/Confirm and Swap；客户协议自开新场景（**已落第十幕 · 场景 33**——第九幕早被战役乙「公司的钱」占用）；月结单承接六幕（账对）客户端流水场景；DSR 自开新场景（第十幕已被协议占用，波四应排第十一幕，波四 spec 定）。tipping-off 反面走查现场在二/三/五幕（Carol/Jack/Grace/Frank"客户面看不出来"）——通知上线后这些场景补"不发通知/发中性通知"验证步。

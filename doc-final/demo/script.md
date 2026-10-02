@@ -1,6 +1,6 @@
 # 演示总剧本（script）
 
-> 九幕主线：**开店 → 迎客 → 钱进 → 钱换 → 钱出 → 账对 → 事后说得清 → 异常与监管 → 公司的钱**（第九幕 2026-09-30 战役乙收官定稿，收编场景 26–32，零改号、零动既有八幕——业主拍板总纲 §0 裁定 8，见 `decisions.md`）。
+> 十幕主线：**开店 → 迎客 → 钱进 → 钱换 → 钱出 → 账对 → 事后说得清 → 异常与监管 → 公司的钱 → 客户协议**（第九幕 2026-09-30 战役乙收官定稿，收编场景 26–32，零改号、零动既有八幕——业主拍板总纲 §0 裁定 8，见 `decisions.md`；**第十幕 2026-10-03 战役丙波三新增，场景 33，必须排整场最后、演完重铺**——⚡快进生效会让全库客户当场被拦充值/兑换，且演员 Kate 是第六幕对账场景当事人，见本幕「造数」）。
 > 本文件是**人读的剧本，不是测试**——永远不会"挂"。
 > 运行三原则：① 剧本不跑，造数脚本只在模块收尾闸跑；② 脚本挂了 = 代码删多了 → 改代码，**禁止改脚本迁就**；③ 造数一律走真实流程重放（模拟按钮同一套端点），**禁止直接插表**——直插中间态会把账本扣负、对账全是假破口（实证教训）。
 
@@ -642,3 +642,39 @@ bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash script
 走查截图 `t9-01`～`t9-27` 入 `doc-final/superpowers/checkups/2026-09-30-campaign-b-wave3-evidence/`。
 
 **期望**：观众看懂三件事——① 审慎红线不是报表脚注，是金库真的开不出付款单的现场（门拒三个数在屏）；② 客户资金安全与公司自身审慎合规是两条不同的监管义务、两起独立的事故，但共享同一套登记/调查/定损/报送/结案机制，同一场戏里两条线各走各的门（CFO 单步 vs MLRO→CFO 两步）却收在同一次复原里；③ 补偿客户与补充公司自己的流动性，两者都不受跌破红线阻拦——义务优先于自身缓冲的豁免不是纸面条款，是补款划转与注资单在跌破窗口内真实发起成功这件事本身。
+
+---
+
+## 第十幕 · 客户协议（V2 客户与合规 · 协议版本 + V1 治理发布链）
+
+**讲什么**：前九幕讲的是客户的钱和公司的钱；这一幕讲**客户签的那份条款本身**——它有版本可查、变更有人批、系统强制提前 30 天通知、客户有选择、选了留痕，选"暂不同意"不会锁住客户的钱（只拦充值和兑换，**提现照走**）。
+**造数**：不用种子造数，v2 本来就以 DRAFT 躺在库里（`demo:all` 零协议动作，v2 全程保持 DRAFT——否则前九幕现场所有客户登录都会弹新版弹窗，第十幕也就无单可发）；开演前状态：v1 `EFFECTIVE`、v2 `DRAFT`、13 位种子客户各一行已同意 v1（`baseline.md` 协议种子三断言）。
+**范围**：场景 33，战役丙波三（2026-10-03 交付并全程实走，证据 50 件+补测 3 件）。⚠️ **排序与重铺**：① 本幕排整场最后——⚡快进把 v2 切为生效版后，**全库 13 位客户都只同意过 v1**，对充值/兑换当场被拦，前九幕任何一幕此后都演不动；② 演员 **Kate Trader**（`demo_kate@`，CU2601016170）是第六幕对账场景 8「记错客户」对端、场景 14「入金被退汇」主角（AED 5200 / USDT 350 是那两场景的前提），本幕走完她的余额已被改（提现 100 AED、兑换 50 AED）——**演完必须 `stack.sh reset` 重铺**，不得回头接着演第六幕；③ 第九幕场景 31 同样要求从全新重铺起跑，故顺序固定为：…→ 第九幕 → **重铺** → 第十幕 → 再重铺。
+
+## 场景 33 · 新版客户协议：发布 → 通知 → 生效 → 暂不同意 → 拦充值/兑换·放提现 → 同意解锁（V2 客户与合规 · 客户协议 + V1 治理发布链）
+
+> 战役丙波三交付（2026-10-03）。主篇文档 `modules/v2-customer-compliance.md` §7。本场景 2026-10-03 T11 在 self 栈全程实走一遍（真提交/真点击，三次全新重铺后取最后一次整条线入档，合规官/高管/超管/客户四账号轮转），证据 `doc-final/superpowers/checkups/2026-10-02-campaign-c-wave3-evidence/`（01–13 号）；演示步按实走 12 步精简。
+
+**演员点名（先查后挑，三条件缺一不可）**：**Kate Trader**（`demo_kate@example.com`，CU2601016170，客户端登录页 Quick login 面板内）——① **干净**：ACTIVE、`customer_restrictions` 零行、无投诉（排除 Carol/Mona 静默制裁便签、Leo 确认命中、Ivy 材料过期明示便签）；② **有余额**：`demo:all` 后 AED 可用 5200.00、USDT-TRON 350.000000（"放行提现"要演得出——排除 Dave/Eve 零余额的在途客户、Henry Acme 无便签但余额 0）；③ **非主角**：不用 Alice（三条交易流程主角）、不借 Bob（投诉三条 + 大额待审批提现锁 250,000 AED 的主角，借他会污染其他幕）、不用 Frank/Grace/Jack（专属制裁/冻结/限额人设）。
+
+**账号**：`compliance_lead@fiatx.com`（合规官，提交发布）→ `sm@fiatx.com`（高管，批准）→ `admin@fiatx.com`（超管，开 Simulation 后点 ⚡快进；金库 `treasury@` 同样持 `DEMO_CLOCK_WRITE`）→ 客户端 `demo_kate@example.com`（密码 123456）。
+
+**走查**：
+① **合规官提交发布**：Compliance Office → Customer Agreements：v1 `EFFECTIVE` / v2 `DRAFT` 双卡 → v2「Submit for publication」，弹窗默认生效日 = 今天 +31 天（带 30 天提示）。**指读 30 天校验（反面）**：故意填今天 +29 天 → 400，页内原样显示 "Effective date must be at least 30 days from now (VARA Market Conduct II.A.7 notice period); earliest allowed is …"（监管要求变更提前 30 个日历日通知，系统强制）；改回默认日期提交 → 成功条带审批单号，v2 → `PENDING_APPROVAL`。
+② **高管批准**：`sm@` 审批中心出现 `AGREEMENT_PUBLISH`（PENDING；列表/详情里类型显示原始码，人话标签只在审批策略页，口头带过，已登 BACKLOG）→ 详情：快照=版本号+生效日，实体回链到 v2 → Approve（二次确认）→ v2 → `PUBLISHED`。**讲清**：批准即发布即通知；批准那一刻系统**再复核一次**生效日 ≥ 批准时刻 +30 天——提交后拖延几天才批，通知期被挤穿会被退回 DRAFT（30 天锚的是批准时刻，不是提交时刻）。
+③ **通知期，客户登录**：切客户端 Kate 登录 → **可关弹窗**（Accept / View full terms / Remind me later，文案 "takes effect on <生效日>"）——**先别点 Accept**，点 Remind me later 关掉 → 顶栏铃铛徽标 +1 → 消息列表第一条 "Customer agreement update"（带 Email 徽章 = 邮件模拟留痕，不真发）→ 点击深链落 `/agreement`。**13 位客户各收一条**，生效时不再发第二条。
+④ **两版对照**：`/agreement` 切换 V2·UPCOMING / V1·IN EFFECT，各滚到第 V 节——v2 比 v1 多第三段投诉时限（确认 ≤7 天、裁决 ≤28 天可延一次至 56 天，与第八幕投诉双钟逐字对得上）。（⚡生效后切换组变 `V1 · SUPERSEDED` / `V2 · IN EFFECT`，旧版仍可读——"同意前可取副本"，VARA II.A.5/6。）
+⑤ **预备一张兑换报价**（可选，演"提交步拦截"需要）：通知期内在 Swap 页拿一张 AED→USDT 报价，**确认弹窗不关**留着。
+⑥ **⚡快进生效**：超管登录管理台 → 同一版本详情页：Simulation 开关**关着时没有 ⚡ 钮**；顶栏打开 Simulation → ⚡「Fast-forward to effective」出现 → 点击 → "v2 fast-forwarded — it is now the effective agreement"：v1 → `SUPERSEDED`、v2 → `EFFECTIVE`。（合规官看得见页面但点不动 ⚡，与投诉拨钟同款 RBAC 交叉，非缺陷。）
+⑦ **强制弹窗 → 暂不同意**：回 Kate 页（若备了⑤：点 Confirm and Swap → 确认弹窗收起，主卡片红条 "Please review and accept the current customer agreement…" + Review & accept 链）→ 重新登录 → **强制弹窗**（Accept / Not now + View full terms 链，**无关闭钮**，Esc、点遮罩都不关）→ 点 View full terms 进 `/agreement`（弹窗让位、可读全文，此时尚未落任何表态）→ 回 Swap 页弹窗回来 → 点 **Not now** → 弹窗收起、**横幅常驻**，落一行 DECLINED。
+⑧ **拦与放（指读报错文案）**：新会话登录，只见横幅无弹窗。充值页 → Fiat → Simulate Deposit 100 AED → 403，弹窗内显式红字 + Review & accept 链；兑换**在报价步就被拦**；**提现照常**——页面可进、Review Withdrawal 出报价、Confirm and Submit 建单（WDR…，PROCESSING）。**指读**：拒绝文案明说"请先同意现行客户协议"，**不是**中性拒绝——这是客户自己的选择、零合规信息，与 tipping-off 无关（对照 Carol 那种静默制裁便签——客户面完全看不出被限制，两者刻意相反）；放行提现是因为硬拦等于锁住客户的钱。
+⑨ **管理台看得见**：超管 → Customer Management → CU2601016170 → `Agreement` 行 `Accepted v1 · <时刻>` + 红色 `declined` 徽章；审计中心按 Entity Owner No=客户号 + Action Code=`AGREEMENT_DECLINED` → 1 条 Agreement Declined（owner/actor 均为客户号，entity=v2）。
+⑩ **同意解锁**：Kate 在 `/agreement` 点 Accept version v2 → **不刷新页面横幅即消**，状态头变 "You accepted version v2 on …" → 再做一笔兑换：报价通过、建单通过（进 `COMPLIANCE_PENDING`，⚡面板裁决 ① Approved 后转 `PROCESSING`）——拦截解除。
+⑪ **审计补一行**：审计中心按 Related No=v2 + owner=客户号 → 时间线 Agreement Accepted / Agreement Declined / Notification Sent 共 3 条——同意台账**只追加**，先拒后同意两行并存。
+⑫ **打印**（收尾，可选）：`/agreement` 点打印 → 浏览器打印预览，**「背景图形」开/关两态都要看**（关是默认）——四页写全七节、白底深字。注册页条款抽屉同样取这份正文，页眉随生效版动态（Effective · 日期 · Version vX）。
+
+**判据**：① 30 天校验——+29 天 400 / 默认 +31 天成功，批准时刻再复核；② 版本状态流 `DRAFT→PENDING_APPROVAL→PUBLISHED→EFFECTIVE`，旧版 `SUPERSEDED`；③ 13 位客户各一条 `AGREEMENT` 通知（email 模拟）；④ 暂不同意后 DEPOSIT/SWAP 显式 403 `AGREEMENT_NOT_ACCEPTED`、WITHDRAW 201；同意后全部解锁；⑤ **库内终态**（T11 实测）：v1 `SUPERSEDED` / v2 `EFFECTIVE`；consents 共 15（13 + Kate 两行：v1 ACCEPTED、v2 DECLINED、v2 ACCEPTED，其余客户对 v2 零行）；`AGREEMENT` 通知 13 条；审计 `AGREEMENT_PUBLISH_SUBMITTED`/`AGREEMENT_PUBLISHED`/`AGREEMENT_FASTFORWARDED`/`AGREEMENT_EFFECTIVE`/`AGREEMENT_DECLINED`/`AGREEMENT_ACCEPTED` 各 1 条（`AGREEMENT_PUBLISH_REJECTED` 为 0——+29 天是提交时的前置校验 400，不进状态机边、不审计）；后端日志零 ERROR。
+
+**期望**：观众看懂三件事——① 条款变更不是改一句话就生效：版本登记、合规官提、高管批、批准时再复核 30 天、一条通知、到点生效，每一步有人有痕；② "暂不同意"是客户的权利而不是惩罚：拦的是新增风险敞口（充值、兑换），放行的是客户拿回自己的钱（提现），拒绝文案诚实、不伪装；③ 同意与拒绝都是**追加的台账**，管理台客户详情一行 + 审计中心两条检索就能把"这个客户为什么被拦"讲完。
+
+**演完收场**：Kate 余额与 v2 生效态都已改动——`bash scripts/stack.sh reset` 重铺后才可回头演其他幕。

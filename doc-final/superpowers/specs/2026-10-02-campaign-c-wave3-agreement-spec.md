@@ -5,6 +5,18 @@
 > **本任务不做**（对照 CLAUDE.md §2 与总纲）：管理台正文编辑器 ｜ 重大/一般变更分类 ｜ 同意率计数与未同意名单（登 BACKLOG）｜ 独立"通知时间"字段（批准即通知，脑暴修订 B）｜ 生效时第二条通知 ｜ **费率/限时活动与协议任何联动**（原则见 §0）｜ 真发邮件（沿波一模拟留痕）｜ 协议真 PDF（浏览器打印即够）｜ 多语言 ｜ 法务角色与定稿工作流（定稿发生在代码层）｜ 月结单与 DSR（波四）。
 > **档位**：动交易能力闸（三域入口），**plan 点名评审升档**（总纲已定）。
 
+## 执行订正（2026-10-03，T12 收口，spec 原文不改只追记）
+
+1. **种子 consents 是 13 行，不是 11 行**：spec/plan 三处写"11"系沿用客户端 Quick login 子集数的笔误；库内 demo 客户实为 13 位（`prisma/seed.business.ts` DEMO_CUSTOMERS），种子给全部 13 位各铺一行 ACCEPTED v1。T1 当场直改正文（`801ac9c7`），此处补记缘由；`demo/baseline.md` 断言按 13。
+2. **§4.3「`intakeDecision` 里返回 DENY」实作为 `assertTradingIntake` 前置显式拦，语义等价**（T5）：协议拒绝是显式 `AGREEMENT_NOT_ACCEPTED`、不折叠，而 `intakeDecision` 本体只管限制账语义（ACCEPT / ACCEPT_FREEZE / DENY 三值服务于 SILENT 合规限制）——把协议拦截塞进去会污染它的返回契约；生产无人直调 `intakeDecision`（实证见 T5 报告），故在其上游 `assertTradingIntake` 前置拦截，调用方行为一致。**口径补一句**：冻结客户走 intake 路径会先吃 `AGREEMENT_NOT_ACCEPTED`、同意后仍被中性拒——客户端文案一律用中性的 "Review & accept"，不许承诺"同意即可交易"。
+3. **§4.2 强制弹窗补 "View full terms" 链，并在 `/agreement` 路由上让位**（T8 修 1）：原表生效后行只写"同意 / 暂不同意"，漏写查看全文——客户被迫先落一行 DECLINED 才能读条款，违背"同意前可取副本"（VARA II.A.5）。落地：弹窗多一条纯链（离页回弹，不是表态）、`/agreement` 页上强制弹窗不显示，consents 零新增。可关弹窗（通知期）的 "View full terms" 行为仍是 dismiss 语义，两弹窗差异保留。
+4. **§4.4 打印版式弃 `position: fixed`、改流式 + 颗粒叠层摘除**：波二确立的 `fixed` 版式只能印一页，协议七节需四页（T7 无头打印实证 1 页截断 vs 4 页全出），改为 `body:has(.print-agreement)` 域隔离的流式分页；T11 真实 printToPDF 又逮到「背景图形」关态（Chrome 打印默认）下深色主题的 `body::before` 颗粒叠层盖白整页、三页全空，补一条 `body:has(.print-agreement)::before { display: none }`（`0501d3db`）。证据 `checkups/2026-10-02-campaign-c-wave3-evidence/10-*`；同日 T12 对波二确认单补测关态（`13-confirmation-print-bgoff.*`，暗像素 8611 = 开态 8611，无缺陷）。
+5. **§5 `GET /client/agreements/me` 响应三键扩为四键**（T11 修复波）：`{ current, pending, previous, consent }`，新增 `previous` = 最近一版 SUPERSEDED 全文（无则 null）。原因：⚡快进生效后 v1 变 SUPERSEDED、`pending=null`，客户再也读不到旧版，§7 剧本"回 `/agreement` 对照两版"演不出，且违总纲"可查可追"；阅读页切换组据此在三态间切（`V1 · SUPERSEDED` / `V2 · IN EFFECT` / `Upcoming`）。**只补可读，不做全量历史列表**（记 PRODUCTION-NOTES）。
+6. **§4.1 通知 `{effectiveAt}` 口径 = 服务进程本地日**（T11）：原实现 `toISOString().slice(0,10)` 取 UTC 日，迪拜 00:00 的生效日会被写成前一天，站内信与弹窗/管理台差一天；改 `Intl.DateTimeFormat('en-CA')` 本地日（`630db1b4`）。**云端须钉 `TZ=Asia/Dubai`**——`deploy/demo.env.template` 已加（T12，`7ff3525b`），否则云端 UTC 机上差一天照旧；系统另有迪拜业务日函数 `toBusinessDate`（S20），客户面日期两套口径并存的取舍记 PRODUCTION-NOTES。
+7. **§8/§6 S16 判据补**（T9 修 1）：`verify-rbac` 在 S5/S9/S13d 之外加 **S16a/b/c** 三条——`AGREEMENT_WRITE` 唯合规官持有、桶 `compliance-office.agreements` 的 groups 恰为 `[AGREEMENT_WRITE]`、两条写路由分挂 `AGREEMENT_WRITE`/`DEMO_CLOCK_WRITE`（五变异证据在 T9 报告）。原因：S5 只验自批死锁，管不到「提单权被悄悄多发给别的职务」。
+8. **§7 `demo:all` 零协议动作与 `AGREEMENT_PUBLISH_REJECTED` 码，已在 plan 期订正正文**（见 §0/§6/§7，此处仅互链）。**连带几处尾差**：§7 末句、§9 overview 行写"审计码 334"，§8 ⑦写"审计 6 码四属性"，§9 触碰检查写"审计集（+6）"，都是补 `AGREEMENT_PUBLISH_REJECTED` 前的旧数——现役终值 **335 / 7 码**（`npm run audit:vocab` 合计 335 码，T12 实跑；§6/§10 本就写 335）。
+9. **幕号：第九幕已被战役乙「公司的钱」占用，客户协议实落「第十幕 · 场景 33」**：本 spec、骨架、plan、T11 走查报告与证据说明里的"第九幕"均指客户协议，但 `demo/script.md` 的第九幕（2026-09-30 战役乙收官定稿，场景 26–32）早已是「公司的钱」；剧本以 script.md 编号为准，故落**第十幕**、场景编号接 33。本 spec 内凡"第九幕"读作"第十幕"；排序约束不变——仍排整场最后（⚡快进后全库客户被拦充值/兑换），且第九幕场景 31 须从全新重铺起跑，故先演九幕再演十幕、演完重铺。
+
 ## §0 脑暴裁定台账（2026-10-02）
 
 **七岔口**（编号对应骨架"待定岔口"）：

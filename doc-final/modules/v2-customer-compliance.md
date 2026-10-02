@@ -1,6 +1,6 @@
 # V2 · 客户与合规（开户 / 生命周期 / 限制 / 持续尽调）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-26（战役甲波三：制裁定性裁决三出口联动限制账与报送台、限制因由扩至 8 条、⚡ EOCN 存量客户命中入口，见 §1/§3/§5；此前 2026-09-08 第二幕客户域波三「档位升级」后逐段核对）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-10-03（战役丙波三：新增「客户协议」一节 §7——协议版本主体 + 合规官提高管批的发布链 + 通知 + 客户表态 + DEPOSIT/SWAP 能力闸新条件，零新增生命周期边，见 §7）；此前 2026-09-26（战役甲波三：制裁定性裁决三出口联动限制账与报送台、限制因由扩至 8 条、⚡ EOCN 存量客户命中入口，见 §1/§3/§5；此前 2026-09-08 第二幕客户域波三「档位升级」后逐段核对）
 > 演示幕次：第二幕「迎客」 ｜ 验收：第二幕走查（`demo/script.md`）+ 本篇 §4
 > 范围：仅个人客户；机构客户显式禁用（`CorporateProfile`/`UboProfile` 表已随站6拆除，customerType 仍可选 CORPORATE 但零配套数据模型，入口禁用）。
 
@@ -66,6 +66,8 @@ RED-RETRY 不算边——停留 `IN_REVIEW`，清 `materialsSubmittedAt` 重开�
 
 演示口径：机构客户入口仍是禁用的（讲"当前版本只服务个人客户"）；定期风评（CRA）/ 高风险升级案不演（业主拍板永久不做，见 §0）。
 
+客户协议（战役丙波三，§7）不在第二幕演——它要把全库客户快进到"新版生效"，会让后续幕的充值/兑换当场被拦，所以单开**第十幕 · 场景 33**排整场最后、演完重铺，见 `demo/script.md`；注册那一步的条款同意（落库 + 审计）在第二幕「现场开户」自然经过，不另设步骤。
+
 ## 5. 关键技术节点（≤30 行）
 
 - 关系轴 `identity/customers/customer-lifecycle.service.ts → applyAction()`（**驱动已接（波二 2026-09-07）**，唯一写入口；套 `identity/constants/customer-lifecycle.constant.ts → nextLifecycle()`，9 动作 10 边，非法边显式抛；新增低风险直通边 `CDD_CLEARED`）
@@ -87,3 +89,54 @@ RED-RETRY 不算边——停留 `IN_REVIEW`，清 `materialsSubmittedAt` 重开�
 - **销户只落了轴上位置**：OFFBOARDED 态在，完整销户流程（余额清退等）没做；高管拒收滞留 REJECTED（客户未再重申）的清退承接同归此缺口
 - **材料终拒 → 离场清退流程未接**（原「REJECTED 便签长挂无人清理」缺口并入）：材料请求终拒后管理台已展示「尽调未完成 · 待离场处理」，但没有实际的销户清退动作承接，归 BACKLOG 销户缺口一并解决
 - **机构客户全线 stub**：`CorporateProfile`/`UboProfile` 表已随站6拆除（非本波动作），customerType 仍可选 CORPORATE 但零配套数据模型，入口禁用
+
+## 7. 客户协议（战役丙波三，2026-10-03）
+
+> 总纲 `superpowers/specs/2026-09-30-campaign-c-outreach-disclosure-charter.md` §1.1/§2 波三行；spec 随合并归档（含执行订正 9 条）。管客户签的条款**有版本可查、变更有人批、客户有得选、选了留痕**。与上文 lifecycle / 限制账**正交**：不新增 lifecycle 边、不贴便签，只是 DEPOSIT / SWAP 两个能力门多一个条件。
+
+**为什么有这一节。** 现行条款末节原承诺"重大变更至少提前 14 天通知"，系统无版本概念、无从兑现，条款同意还是纯前端闸（注册页自认）。2026-10-02 核 VARA Market Conduct Rulebook **II.A.7** 原文：协议任何变更须提前 **30 个日历日**通知客户（同节 II.A.8 保留单方变更权须写明、II.A.9 须保留历次版本、II.A.5/6 提供服务前取得接受并给客户副本）——14 天本身不合规。于是：协议成为**有版本的登记物**，发布走审批，通知期系统强制 ≥ 30 天。
+
+**两表**（迁移 + reset 登记）：
+
+| 表 | 内容 |
+|---|---|
+| `customer_agreement_versions` | `versionKey` @unique（`v1`/`v2`；**版本非单据，破例不走单号惯例**）+ `status` + `summary`（一句话摘要，通知/弹窗引用，随种子预置、无编辑入口）+ `effectiveAt` + `publishedAt`（= 批准时刻）+ `pendingApprovalNo`。**正文不落库**，住代码登记处 `identity/agreements/agreement-versions.constant.ts`（单一来源：注册页、阅读页、管理台三处同源取接口，客户端零正文硬编码）。v1 = 原七节 + 两处 14→30 天订正，**以订正后文案收录为基线、"不可变"自入库起算**；v2 = v1 + 第 V 节追加一段投诉时限（确认 ≤7 天、裁决 ≤28 天可延一次至 56 天，与投诉双钟逐字对齐）。管理台**不做正文编辑器**（改字 = 改代码 + 新增一版） |
+| `customer_agreement_consents` | `customerId` / `customerNo` / `versionKey` / `action`（`ACCEPTED`｜`DECLINED`）/ `actedAt`。**只追加不改写**：同一客户对同一版本可先拒后同意，各一行；判定一律取"该客户对**当前生效版**是否有 ACCEPTED 行" |
+
+**版本状态机**（`DRAFT → PENDING_APPROVAL → PUBLISHED → EFFECTIVE → SUPERSEDED`，**五态五边**，每条边 `updateMany({ where: { versionKey, status: <出发态> } })`，非法跃迁 0 行即显式抛）：
+
+| 边 | 触发 |
+|---|---|
+| DRAFT → PENDING_APPROVAL | 合规官提交发布（填生效日，预检 ≥ 提交时刻 +30 天） |
+| PENDING_APPROVAL → PUBLISHED | 高管单步批准，**批准时刻复核**生效日 ≥ 批准时刻 +30 天；批准即发布即通知 |
+| PENDING_APPROVAL → DRAFT | 驳回 / 撤单 / 过期，或批准时 30 天复核不过（记 `AGREEMENT_PUBLISH_REJECTED`，`decision` 带 `NOTICE_PERIOD_SHORTFALL` 与审批裁决原值并列） |
+| PUBLISHED → EFFECTIVE | 到点懒翻（读"当前生效版"的路径发现 `effectiveAt<=now` 即翻，actor=system），或 ⚡快进；同事务把旧 EFFECTIVE 翻 SUPERSEDED |
+| EFFECTIVE → SUPERSEDED | 随新版进 EFFECTIVE |
+
+同一时刻至多一版在途（PENDING_APPROVAL / PUBLISHED）。
+
+**发布链**（铁律②③）：合规官（`AGREEMENT_WRITE`，**合规官独占**）在管理台 Compliance Office → Customer Agreements 提交 → 审批策略 `AGREEMENT_PUBLISH`（高管单步、48h 超时可撤，照 `RI_REPLACEMENT` 先例）→ 批准落地漏斗（波一三原则：版本行翻转 → 审计 → 全员通知；通知在事务 resolve 后调、边界吞错）。**30 天锚的是批准时刻，不是提交时刻**：监管的钟从"通知客户"起算，本系统批准即通知，所以"生效 ≥ 批准 +30 天"一条校验即可；业主曾提议另设"通知时间"字段（三时刻），agent 建议合并、业主采纳，决策见 `decisions.md`。**⚡快进到生效**挂 `DEMO_CLOCK_WRITE` + Simulation 开关（金库/超管持有，合规官看得见页面点不动，与投诉拨钟同款 RBAC 交叉，非缺陷），审计 `AGREEMENT_FASTFORWARDED`（actor=操作者）与生效事实 `AGREEMENT_EFFECTIVE`（actor=system）分记——⚡是模拟器动作，生效是业务事实。
+
+**通知。** `customer_notifications.relatedOrderType` 扩第五值 `AGREEMENT`（`relatedOrderNo` = versionKey），模板登记处第 17 条 "Customer agreement update"（email 模拟留痕），深链 → `/agreement`。**只发一条**（批准时）；生效时零通知——生效日的告知就是强制弹窗本身。日期口径是服务进程本地日（云端钉 `TZ=Asia/Dubai`）。
+
+**客户表态与能力闸**（客户端 `GET /client/agreements/{current,me}` + `POST /client/agreements/:versionKey/consent`；`me` 返回 `{ current, pending, previous, consent }` 四键，`previous` = 最近一版 SUPERSEDED 全文，使生效后仍可读旧版）：
+
+| 时段 | 触点 | 行为 |
+|---|---|---|
+| 通知期（PUBLISHED 未生效） | **可关弹窗**（Accept / View full terms / Remind me later） | 可提前同意（落 ACCEPTED 新版行，生效后静默）；"稍后再说"不落库，仅本次会话不再弹 |
+| 生效后未对生效版 ACCEPTED | **强制弹窗**（不可关，Accept / Not now + View full terms 链） | 同意 → 落 ACCEPTED 解锁；暂不同意 → 落 DECLINED、弹窗收起、**横幅常驻**；在 `/agreement` 页弹窗让位（先读后表态） |
+| 已 DECLINED | 横幅常驻（"查看并同意"链 `/agreement`） | 页面照常浏览 |
+
+能力闸接在既有 `CustomerAccessService`（`assertCapability` + `assertTradingIntake` 前置，六个调用文件零改动）：未同意现行协议 → **拦 DEPOSIT、拦 SWAP、放行 WITHDRAW**（硬拦提现等于锁住客户的钱——条款给 30 天正是留出走的时间；软处理"继续使用视为同意"则无同意记录）。**拒绝是显式的**：403 `code=AGREEMENT_NOT_ACCEPTED` + 人话 message，**不用 `NEUTRAL_DENIAL`**——这是客户自己的选择、零合规信息，不属 tipping-off（与钱的去向无关）；客户端拦截引导链到 `/agreement`（`customerFetch` 对该一码不再当会话过期踢登录，其余 403 旧行为不变）。充值入口的链上语义：demo 里入金一律经客户信号口 `createForCustomer`，拦截在信号提交口即生效、显式报错，不存在"已到账再处置"分支；兑换在**报价步**即被拦，提交步 403 仅在"拿着生效前的报价"时可达。**注册**时勾选即落 ACCEPTED（source=REGISTER，版本 = 注册时刻的生效版；注册时有在途新版也只同意生效版，登录后由弹窗引导）。**种子**：13 位 demo 客户各一行 ACCEPTED v1（actedAt = 各自注册时间），v1 EFFECTIVE、v2 DRAFT；**`demo:all` 零协议动作**（发布→审批→通知→快进→表态整条链是第十幕现场戏，v2 全程保持 DRAFT，前九幕客户闸零影响）。
+
+**阅读页与打印。** `/agreement`（通知深链与横幅落点）：版本状态头（你同意的版本与时刻 / 在途新版与生效日 / 待表态状态与同意按钮）+ 正文（V1·SUPERSEDED / V2·IN EFFECT / Upcoming 三态切换对照）+ 打印。同意动作弹窗与本页同走一个端点，同意后壳层 Gate 事件重取、横幅不刷新即消。打印走流式分页（七节远超一页，波二 `fixed` 版式只出一页），且必须在「背景图形」**开/关两态**真实渲染验证——关态是 Chrome 默认，T11 逮到颗粒叠层盖白整页（已修）。
+
+**管理台可见面**：Compliance Office → Customer Agreements（版本列表 + 详情只读正文 + 提交发布弹窗 + ⚡快进钮 + 审批单链）；客户详情页一行 `Agreement`（"Accepted vX · 时刻"；生效版未同意时旁标 `declined`（有拒绝记录）/ `pending response`（尚未表态）徽章）；明细走审计中心按客户号 / 版本号检索。**不做**同意率计数与未同意名单（登 BACKLOG）。
+
+**审计**（328 → **335**，+7，入"触达册"）：发布链五码域 GOVERNANCE（`AGREEMENT_PUBLISH_SUBMITTED` 合规官 / `AGREEMENT_PUBLISHED` 批准落地 / `AGREEMENT_PUBLISH_REJECTED` system / `AGREEMENT_FASTFORWARDED` ⚡操作者 / `AGREEMENT_EFFECTIVE` system）+ 客户表态两码域 CUSTOMER（`AGREEMENT_ACCEPTED` / `AGREEMENT_DECLINED`，metadata 带 source = REGISTER｜MODAL｜PAGE）；全部单步动作 `correlationMode=N`，主体信封 = 版本（`AGREEMENT_VERSION`·versionKey），表态两码另带 OWNER=客户。
+
+**权限与判据**：Compliance Office 域 4→**5** 桶（`compliance-office.agreements` / `AGREEMENT_WRITE`，15 域 81→**82** 桶、89→**90** 组）；读挂既有 `compliance-office.view`（零新增读组）；`verify:rbac` S16a/b/c 钉死"提单权唯合规官 / 桶 groups 精确 / 两写路由分挂"，S5 的 `MAKER_GROUP_BY_POLICY` 加 `AGREEMENT_PUBLISH` 一行。
+
+**与费率零联动**（防翻案，见 `decisions.md`）：日常调费率、限时活动费率动的是费率表，协议正文第 IV 节本就是引用式条款（"fees … are published on our fee schedule"）——协议只在**条款本身**变更时发布，该判断是法务人工判断，不是系统逻辑；费率模块与协议模块互不认识。
+
+**关键技术节点**：`identity/agreements/`（`agreements-read.service.ts` 读 + 懒翻 + `recordConsent` 唯一表态写点 + 状态读；`agreement-publish-workflow.service.ts` 提交/批准落地/⚡快进三动作；`agreement-publish-approval.service.ts` 薄 handler（约 20 行）接 `workflow.customer-agreement.decided`；两个 controller 薄壳）；客户端 `AgreementGate.tsx`（弹窗/横幅）+ `agreementGate.ts` / `agreementView.ts`（四态纯函数，vitest）+ `AgreementPage.tsx` + 注册页条款抽屉取接口；管理台 `CustomerAgreementsPage.tsx`。

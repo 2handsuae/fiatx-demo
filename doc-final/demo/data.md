@@ -197,6 +197,17 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 
 **种子后（`stack.sh reset self`，`demo:all` 跑之前）的期望余额**（实测坐实）：F_OPS(AED) 从 LP 卖出腿之后的 950,000 再减至 **947,500**（−2,500，即码 87 一条出账）；F_OPS(USDT) 不动（本任务零 USDT 出账）。三张种子表没有 operator，不写审计（同其余种子表先例——LP 兑换单本身也是零审计，仅 LP 档案登记写审计）。
 
+## 客户协议种子（business seed，两版本 + 13 条同意，2026-10-03 战役丙波三 Task 1）
+
+`seedCustomerAgreements()`（`prisma/seed.business.ts`）直铺，不经 `AgreementsReadService`（没有 operator、不写审计，同上方各种子节先例）。正文**不落库**，住代码登记处 `src/modules/identity/agreements/agreement-versions.constant.ts`。
+
+| 表 | 行数 | 内容 |
+|---|---|---|
+| `customer_agreement_versions` | **2** | `v1` = `EFFECTIVE`（`effectiveAt` 取早于最早种子客户注册日的固定日，不相对运行时；原七节 + 两处 14→30 天订正）／`v2` = `DRAFT`（v1 + 第 V 节追加投诉时限 7/28/56 天；第十幕现场由合规官提交发布） |
+| `customer_agreement_consents` | **13** | 13 位 demo 客户（上方客户矩阵全员）各一行 `ACCEPTED v1`，`actedAt` = 各自注册时间——**种子客户全部只同意过 v1**，所以第十幕⚡快进 v2 后全库被拦 DEPOSIT/SWAP（演完须重铺，见 `script.md` 第十幕） |
+
+`demo:all` **零协议动作**，v2 全程 DRAFT；`customer_notifications` 无 `AGREEMENT` 行、审计无 `AGREEMENT_*` 行。判据见 `baseline.md` 协议种子三断言。第十幕演员 Kate Trader（`demo_kate@`）的点名依据见 `script.md` 场景 33。
+
 ## 各脚本造什么
 
 | 命令 | 产出 |

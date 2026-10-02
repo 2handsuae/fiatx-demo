@@ -145,6 +145,8 @@ Q6 谁查过审计日志：重铺后恒红，管理员真查一次审计页当�
 
 ## e2e（单独口径，收官起入基线）
 
+> ⚠️ **2026-10-03 起本节口径在本机不可复现**——审批事件监听器数超过 e2e 文件里的 `setMaxListeners(50)`，起 `AppModule` 即抛，详见 `TOOLING-DEBT.md` 同日条目与本文末「同日订正（e2e 口径）」；下文三要素与 83/83 是收官当时（Node 与监听器数更少时）的实测，修好前不得援引为现状。
+
 全量 11 套件 **83/83**（收官在 main 实测）。跑法三要素，缺一必假红：
 
 1. **私库先铺**：六个自带独立库的套件（kyt-verdict-landing / sanction-subject-split / deposit-sumsub-verdicts / material-requests / customer-restrictions / sla）在每次 `stack.sh reset` 后库被清空，须逐库 `DATABASE_URL=file:/tmp/exchange_js_main/<e2e-库名>.db` 依次 `prisma migrate deploy` + `db:base:sync` + `db:biz:init`；
@@ -284,3 +286,25 @@ DATABASE_URL="file:/tmp/exchange_js_wt_campaign_b_wave2_funding/dev.db" TB_ADDRE
 - **红线**：`NLA_FLOOR_AED_MINOR = 1.2 × MONTHLY_OPEX_BASE_AED_MINOR(100,000,000 分)` = **120,000,000 分 = 1,200,000.00 AED**（reset 后 headroom 16,469,600 分 = 164,696.00，恒不破线）。
 - **crisis（场景 31）+ 补款划转后期望**：`recon:demo:crisis` 本身只写外部账单幽灵行，不动 TB/`F_OPS`——crisis 后 `nlaAedMinor=136475225`（1,364,752.25 AED）、`breached=false`（demo:all 后数值不变，2026-09-30 T6 实测）。场景 31 步骤 7 补款划转落地后（F_OPS(AED) 真实出 250,000.00 = `CRISIS_THEFT_AED_MINOR`，`scripts/recon-demo.ts`）NLA 实测降至 **1,114,752.25 AED < 红线 1,200,000.00** → `breached=true`（T8 场景 31 实测坐实）；场景 32 注资 300,000.00 落账后回升至 **1,414,752.25 AED**、`breached=false`（T9 场景 32 实测坐实）。
 
+## 战役丙波三客户协议种子断言（reset 判据，2026-10-03 Task 12 起）
+
+`bash scripts/stack.sh reset self` 从零建库重铺后（`seedBusiness()` 随 `db:seed:business` 落地，打印 `Seeded customer agreements: v1 EFFECTIVE + v2 DRAFT + 13 ACCEPTED-v1 consent rows.`），**三条断言**，`demo:all` 跑完后**原样不变**（`demo:all` 零协议动作，v2 全程保持 DRAFT——协议整条链是第十幕现场戏，见 `demo/script.md` 场景 33）：
+
+1. **版本两行**：`customer_agreement_versions` 恰 2 行——v1 `EFFECTIVE`、v2 `DRAFT`。
+2. **同意 13 行**：`customer_agreement_consents` 恰 **13** 行，全为 v1 `ACCEPTED`（13 位 demo 客户各一行，actedAt = 各自注册时间；**不是 11**——Quick login 子集数是笔误源，库内 demo 客户实为 13）。
+3. **demo:all 后不变**：版本两行同 1、consents 仍 13、`customer_notifications` 里 `relatedOrderType='AGREEMENT'` 为 0、`audit_log_events` 里 `action like 'AGREEMENT_%'` 为 0。
+
+查法（`<栈库>` = self 栈 `DATABASE_URL` 指向的 `dev.db`；审计列名是 `action`，不是 `actionCode`）：
+
+```bash
+sqlite3 <栈库> "select versionKey, status from customer_agreement_versions order by versionKey;"            # v1|EFFECTIVE  v2|DRAFT
+sqlite3 <栈库> "select count(*), sum(versionKey='v1' and action='ACCEPTED') from customer_agreement_consents;"  # 13|13
+sqlite3 <栈库> "select count(*) from customer_notifications where relatedOrderType='AGREEMENT';"             # 0（demo:all 后）
+sqlite3 <栈库> "select count(*) from audit_log_events where \"action\" like 'AGREEMENT_%';"                    # 0（demo:all 后，干净库）
+```
+
+⚠️ 审计表判据要**干净库**：`stack.sh reset` 不清 `audit_log_events`（`TOOLING-DEBT.md` 第 89 行），手驱过第十幕后审计表留有 `AGREEMENT_*` 孤行——跑第 3 条前先 `rm -f <栈库>` 再 reset。
+
+**实测口径**（2026-10-03，self 栈 `c3_agreement`，Node 20.20.2）：`bash scripts/stack.sh down` → `rm -f /tmp/exchange_js_wt_c3_agreement/dev.db` → `bash scripts/stack.sh reset`（exit 0，`verify:demo-data ALL PASS`）→ 断言 1、2 实测 `v1|EFFECTIVE` / `v2|DRAFT`、`13|13` → `bash scripts/stack.sh up`（exit 0，`GET /client/agreements/current` 200）→ `bash scripts/on-stack.sh self demo:all`（exit 0：花名册 29/29、`asserts: 5/5 PASS`、`demo:all DONE`；`git status` 仅有本任务改动，`data.md` 生成区零 diff）→ 断言 3 实测版本两行不变、consents 13、`AGREEMENT` 通知 0、`AGREEMENT_*` 审计 0 → `API_BASE=http://localhost:3100 bash scripts/on-stack.sh self verify:rbac`：**2 FAIL，均为波前既有红、红集与甲波四基线恒等**——`S7 catalog 字典真实性`（`TOOLING-DEBT.md` 已登记的三域 demo 裁决按钮 4 行扫描器盲区）+ `V2 改角色不丢权限 · COMPLIANCE_OFFICER`（`BACKLOG.md` 已登记的 `CUSTOMER_WRITE` 孤儿权限组）；**本波新增判据全绿**：S5（51 条策略无未登记自批死锁）/S5b-d/S9（42 条带回链策略）/S13d（15 域、**82 桶**、**90 组**）/S16a·b·c（`AGREEMENT_WRITE` 唯合规官、桶 groups 精确、两写路由分挂）；`verify:rbac` 共 161 项 ✓。`verify:coa` 不触发（本波不动钱）。
+
+**同日订正（e2e 口径）**：本机 Node 20.20.2 下，起完整 `AppModule` 的 jest 在 `app.init()` 即抛 `TypeError`——审批事件监听器 52 个 > 各文件 `setMaxListeners(50)`（`test/` 下 25 个 e2e 文件全带这行上限，`customer-restrictions` / `incident-register` 两份实测同红，其余按机理同红未逐个跑；`invite-expiry.service.spec.ts` 同红，基线 `8e9e2ed2` 上同命令同红，监听器当时 51 个），下方 e2e 节的 83/83 口径当前**不可复现**；另有三份 e2e 的直插客户夹具缺协议同意行。两条均已登 `TOOLING-DEBT.md`，修好前 e2e 不得称绿。
