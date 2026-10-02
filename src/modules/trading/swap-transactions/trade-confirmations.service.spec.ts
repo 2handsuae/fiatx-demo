@@ -32,6 +32,7 @@ const SWAP = {
   fromAmount: '100',
   fromAssetCode: 'USDT',
   toAmount: '99.4',
+  toAssetCode: 'USDC',
   netToAmount: '97.65',
   feeAmount: '1.75',
   feeCurrency: 'USDT',
@@ -95,6 +96,7 @@ describe('TradeConfirmationsService.issueForSwapIfSuccess', () => {
     expect(data.fromAmount).toBe('100');
     expect(data.fromAssetCode).toBe('USDT');
     expect(data.toAmount).toBe('99.4');
+    expect(data.toAssetCode).toBe('USDC');
     expect(data.netToAmount).toBe('97.65');
     expect(data.feeAmount).toBe('1.75');
     expect(data.feeCurrency).toBe('USDT');
@@ -149,7 +151,7 @@ describe('TradeConfirmationsService.issueForSwapIfSuccess', () => {
     expect(arg.ownerCustomerNo).toBe('CUS00001');
     expect(arg.subjects).toEqual([
       { subjectType: AuditEntityTypes.SWAP_TRANSACTION, subjectNo: 'SWP261002000001', subjectRole: AuditSubjectRole.PRIMARY },
-      { subjectType: 'CUSTOMER', subjectNo: 'CUS00001', subjectRole: AuditSubjectRole.OWNER },
+      { subjectType: AuditEntityTypes.CUSTOMER, subjectNo: 'CUS00001', subjectRole: AuditSubjectRole.OWNER },
     ]);
     // requiredFields=['confirmationNo'] 顶层展开 + metadata 另镜像
     expect(arg.confirmationNo).toBe(created.confirmationNo);

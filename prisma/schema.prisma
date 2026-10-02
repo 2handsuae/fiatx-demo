@@ -2068,6 +2068,7 @@ model TradeConfirmation {
   fromAmount      Decimal
   fromAssetCode   String
   toAmount        Decimal
+  toAssetCode     String
   netToAmount     Decimal?
   feeAmount       Decimal?
   feeCurrency     String?

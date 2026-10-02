@@ -43,6 +43,8 @@ export class TradeConfirmationsService {
           // swap_transactions.fromAssetCode 列可空（建单恒由报价写入），确认单列非空——`?? ''` 仅满足类型。
           fromAssetCode: swap.fromAssetCode ?? '',
           toAmount: swap.toAmount,
+          // 同 fromAssetCode：swap 表列可空（建单恒由报价写入），确认单列非空——`?? ''` 仅满足类型。
+          toAssetCode: swap.toAssetCode ?? '',
           netToAmount: swap.netToAmount,
           feeAmount: swap.feeAmount,
           feeCurrency: swap.feeCurrency,
@@ -66,7 +68,7 @@ export class TradeConfirmationsService {
         ownerCustomerNo: swap.ownerNo,
         subjects: [
           { subjectType: AuditEntityTypes.SWAP_TRANSACTION, subjectNo: swapNo, subjectRole: AuditSubjectRole.PRIMARY },
-          { subjectType: 'CUSTOMER', subjectNo: swap.ownerNo, subjectRole: AuditSubjectRole.OWNER },
+          { subjectType: AuditEntityTypes.CUSTOMER, subjectNo: swap.ownerNo, subjectRole: AuditSubjectRole.OWNER },
         ],
         reason: `Trade confirmation ${created.confirmationNo} issued for ${swapNo}`,
         // requiredFields=['confirmationNo']（CONFIRMATION_ISSUED 词表声明）——assertActionSpec 只查

@@ -8,6 +8,7 @@ CREATE TABLE "trade_confirmations" (
     "fromAmount" DECIMAL NOT NULL,
     "fromAssetCode" TEXT NOT NULL,
     "toAmount" DECIMAL NOT NULL,
+    "toAssetCode" TEXT NOT NULL,
     "netToAmount" DECIMAL,
     "feeAmount" DECIMAL,
     "feeCurrency" TEXT,
