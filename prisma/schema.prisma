@@ -2058,3 +2058,30 @@ model ExternalStatementLine {
   @@index([subAccount])
   @@map("external_statement_lines")
 }
+
+model TradeConfirmation {
+  id              String    @id @default(uuid())
+  confirmationNo  String    @unique
+  swapNo          String    @unique // 一单恰一张：结构保证，非幂等工程
+  quoteNo         String?
+  ownerCustomerNo String
+  fromAmount      Decimal
+  fromAssetCode   String
+  toAmount        Decimal
+  netToAmount     Decimal?
+  feeAmount       Decimal?
+  feeCurrency     String?
+  feeLines        String    @default("[]") // JSON，口径=toCustomerPricingFacts
+  exchangeRate    Decimal
+  marketRate      Decimal?
+  rateSource      String?
+  fetchedAt       DateTime?
+  spreadPercent   Decimal?
+  spreadAmount    Decimal?
+  tradedAt        DateTime  // = 兑换单 createdAt
+  settledAt       DateTime? // = completedAt
+  issuedAt        DateTime  @default(now())
+
+  @@index([ownerCustomerNo])
+  @@map("trade_confirmations")
+}
