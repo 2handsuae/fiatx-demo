@@ -224,4 +224,9 @@
   .print-agreement * { color: #111 !important; background: transparent !important;
     border-color: #bbb !important; }
   .print-agreement button { display: none !important; }
+  /* body::before 是深色主题的颗粒叠层（position: fixed; z-index: 0）。上面把 #root（z-index: 1 的
+     定位祖先）压成 static 后它的 z-index 失效，叠层反而盖到正文之上——「背景图形」关态（Chrome 打印
+     默认）下被画成整页白，印出来整份空白（T11 真实 printToPDF 实测：关态 3 页全空、开态正常）。
+     叠层纯装饰，打印协议页时摘掉。 */
+  body:has(.print-agreement)::before { display: none !important; }
 }
