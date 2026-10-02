@@ -23,7 +23,7 @@
 
 **费率零联动原则（业主 2026-10-02 质询后立）**：现行条款第 IV 节本就是引用式费率条款（"fees … are published on our fee schedule"）——日常调费率、限时活动费率动的是**费率表**，协议正文零变化，不触发、不校验、不提醒协议发布，费率模块与协议模块互不认识。只有**条款本身**（费用的游戏规则）变更才走协议发布，且该判断是法务人工判断，不是系统逻辑。
 
-**三坑对策（编号对应骨架）**：坑 9 → 第九幕排最后 + `demo:all` 不快进（见 §7）；坑 10 → 未同意客户拦在充值信号提交口（见 §4）；坑 11 → **v1 以订正后文案收录为基线，"不可变"约束自入库起算**（订正 = 正文两处 "14 days" 均改 "30 days"：第 IV 节费率表通知期、第 VII 节条款变更通知期——依据同 VARA MC II.A.7 / II.B.1.e，两处不同改会自相矛盾）。
+**三坑对策（编号对应骨架）**：坑 9 → 第九幕排最后 + `demo:all` 零协议动作（v2 保持 DRAFT，见 §7；plan 期订正：原"跑到发布为止"与现场剧本冲突——demo:all 先发布则前八幕客户登录全弹新版弹窗、第九幕也无单可发）；坑 10 → 未同意客户拦在充值信号提交口（见 §4）；坑 11 → **v1 以订正后文案收录为基线，"不可变"约束自入库起算**（订正 = 正文两处 "14 days" 均改 "30 days"：第 IV 节费率表通知期、第 VII 节条款变更通知期——依据同 VARA MC II.A.7 / II.B.1.e，两处不同改会自相矛盾）。
 
 ## §1 协议版本主体（新模块 `src/modules/identity/agreements/`）
 
@@ -63,7 +63,7 @@
 ```
 DRAFT ──提交发布(合规官,填生效日,预检≥今天+30)──► PENDING_APPROVAL
 PENDING_APPROVAL ──高管批准(复核生效日≥批准时刻+30,不足则批准失败退回)──► PUBLISHED   ← 批准即发布即通知
-PENDING_APPROVAL ──驳回──► DRAFT
+PENDING_APPROVAL ──驳回(或批准时 30 天复核不过的退回)──► DRAFT   ← 记 AGREEMENT_PUBLISH_REJECTED
 PUBLISHED ──到点或⚡快进──► EFFECTIVE
 EFFECTIVE ──新版本进 EFFECTIVE──► SUPERSEDED
 ```
@@ -123,30 +123,31 @@ PUBLISHED 版详情页 ⚡按钮：`effectiveAt` 改写为当前时刻并立即�
 - `POST /client/agreements/{versionKey}/consent`（登录）：body `{action: ACCEPTED|DECLINED}`；仅接受 versionKey ∈ {当前生效版, 在途 PUBLISHED 版}（在途版只收 ACCEPTED——通知期没有"拒绝"语义，生效前不表态即是）；DECLINED 仅对生效版可落。
 - 管理台：版本列表/详情/提交发布/⚡快进，挂 §2 桶；客户详情响应补协议行字段。
 
-## §6 审计（328 → **334**，+6，全部走五处登记 + 出生即冻结四属性 + `assertActionSpec`，入波二确立的触达审计册）
+## §6 审计（328 → **335**，+7，全部走五处登记 + 出生即冻结四属性 + `assertActionSpec`，入波二确立的触达审计册）
 
 | 码 | actor | 时机 |
 |---|---|---|
 | `AGREEMENT_PUBLISH_SUBMITTED` | 合规官 | 提交发布（metadata: versionKey/effectiveAt） |
 | `AGREEMENT_PUBLISHED` | 批准落地（approvedBy 入 metadata，照审批载荷时序判例拆步） | 翻 PUBLISHED + 发信前 |
+| `AGREEMENT_PUBLISH_REJECTED` | system（decision 入 metadata） | 驳回/撤/过期、或批准时 30 天复核不过的退回——PENDING_APPROVAL→DRAFT 边留痕（plan 期补：原 6 码漏了这条边，违铁律①） |
 | `AGREEMENT_FASTFORWARDED` | ⚡操作者 | 改写 effectiveAt |
 | `AGREEMENT_EFFECTIVE` | system | PUBLISHED→EFFECTIVE 翻转（含旧版翻 SUPERSEDED，metadata 两键） |
 | `AGREEMENT_ACCEPTED` | customer | 落 ACCEPTED 行（注册/弹窗/阅读页三口同码，metadata 带 source） |
 | `AGREEMENT_DECLINED` | customer | 落 DECLINED 行 |
 
-`audit:vocab` 入库 334；审计中心按 customerNo / versionKey 可检索（演示动线：搜演员客户号 → 拒绝与同意两行白纸黑字）。
+`audit:vocab` 入库 335；审计中心按 customerNo / versionKey 可检索（演示动线：搜演员客户号 → 拒绝与同意两行白纸黑字）。
 
 ## §7 演示与 demo:all（坑 9 对策落地）
 
 - **第九幕（新开，排整场最后）**：合规官提交发布 v2（填生效日，指读 30 天校验）→ 高管批准 → 切客户端：铃铛 + 站内信 + email 留痕 → 演员客户登录见可关弹窗（提前同意先不点）→ 切管理台 ⚡快进生效 → 演员再登录强制弹窗 → **暂不同意** → 充值/兑换入口显式拦（指读报错文案）、提现照常可走 → 管理台客户详情见"未同意 v2" → 审计中心搜 DECLINED → 演员回 `/agreement` 对照两版（指读第 V 节新段）→ 同意 → 解锁 → 审计补一行 ACCEPTED。收场。
-- **`demo:all`**：协议场景断言追加在全部既有断言**之后**，且**只跑到"发布+通知落库"为止，不快进**——v2 保持未生效，全库客户闸零影响，既有各幕断言前提不变（骨架前提变化 7 已核）；判据写明"跑在未快进态"前提。⚡快进 + 表态 + 拦/放是现场戏（手驱走查法照波二 T7 先例，收尾闸前 `rm dev.db` 重铺防审计孤行，TOOLING-DEBT:89 在案）。
+- **`demo:all`：零协议动作**（plan 期订正，原"跑到发布为止"作废：demo:all 先发布则 ①前八幕现场走查时全库客户登录都弹新版弹窗，②第九幕现场再无"提交发布"可演——v2 只有一张）。v2 全程保持 DRAFT，全库客户闸零影响，既有各幕断言前提不变（骨架前提变化 7 已核）；发布→审批→通知→快进→表态整条链是第九幕现场戏，栈级证据来自走查截图（手驱走查法照波二 T7 先例，收尾闸前 `rm dev.db` 重铺防审计孤行，TOOLING-DEBT:89 在案）。`demo/baseline.md` 判据断言种子态：版本 2 行（v1 EFFECTIVE / v2 DRAFT）+ consents 11 行，且跑完交易日后协议态不变。
 - `demo/baseline.md` 判据同步（新表计数、审计码 334、通知 +1 条）。
 
 ## §8 测试与闸
 
 - **jest**（agreements + customer-access + 通知相关目录）：①状态机全边 + 非法跃迁拒（含 PENDING_APPROVAL 并行在途拒）；②30 天双锚校验（提交预检 + 批准复核，边界 29/30 天各一）；③批准落地漏斗次序（版本行→审计→全员通知落库，逐客户一行）；④闸：未同意 → DEPOSIT 信号/SWAP 建单显式拒（code 断言）、WITHDRAW 放行；ACCEPTED 后三域全放；提前同意 v2 → 生效后静默放行；⑤注册落 ACCEPTED 行 + 版本=当时生效版；⑥consents append-only（先拒后同两行并存，判定取生效版 ACCEPTED）；⑦审计 6 码四属性。
 - **vitest**：弹窗/横幅四态显示条件纯函数。
-- **闸**：tsc×3 ｜ 相关 jest + `npm run test:client` 全绿 ｜ `audit:vocab` 334 ｜ ⑤preview 截图 ≥9（管理台提交/审批/⚡/客户详情行 ｜ 客户端通知/可关弹窗/强制弹窗/拦截报错+横幅+提现可走/阅读页两版对照+打印预览）｜ 动 schema+seed → 收尾重铺闸⑧（`stack.sh reset` + `demo:all` 全绿对照 baseline）｜ 不动钱 → ⑦ `verify:coa` 不触发 ｜ `verify:rbac` 全绿（新桶/组/策略三处登记）｜ 禁文本扫描型断言。
+- **闸**：tsc×3 ｜ 相关 jest + `npm run test:client` 全绿 ｜ `audit:vocab` 335 ｜ ⑤preview 截图 ≥9（管理台提交/审批/⚡/客户详情行 ｜ 客户端通知/可关弹窗/强制弹窗/拦截报错+横幅+提现可走/阅读页两版对照+打印预览）｜ 动 schema+seed → 收尾重铺闸⑧（`stack.sh reset` + `demo:all` 全绿对照 baseline）｜ 不动钱 → ⑦ `verify:coa` 不触发 ｜ `verify:rbac` 全绿（新桶/组/策略三处登记）｜ 禁文本扫描型断言。
 
 ## §9 文档与剧本同步（收尾按 `rules/delivery-checklist.md` 逐触发行过）
 
@@ -159,8 +160,8 @@ PUBLISHED 版详情页 ⚡按钮：`effectiveAt` 改写为当前时刻并立即�
 
 ## §10 数量表（终审逐条可点）
 
-新表 2（迁移 +1，reset 登记 +1）｜ 新模块 1（`identity/agreements/`）｜ 审计 328→**334**（+6）｜ 权限桶 81→**82**（Compliance Office 域 +1）｜ 权限组 89→**90**（`AGREEMENT_WRITE` 合规官独占）｜ 审批策略 +1（`AGREEMENT_PUBLISH`，verify-rbac 登记 +1）｜ 通知模板 +1、`relatedOrderType` +1 值 ｜ 客户端：新页 1（`/agreement`）+ 弹窗/横幅组件 + 注册页正文改取接口 ｜ 管理台：新页 1 + 客户详情 +1 行 ｜ 能力闸改 1 处（`CustomerAccessService` 内部，6 个调用文件零改动）｜ 种子：consents +11 行、versions +2 行。
+新表 2（迁移 +1，reset 登记 +1）｜ 新模块 1（`identity/agreements/`）｜ 审计 328→**335**（+7）｜ 权限桶 81→**82**（Compliance Office 域 +1）｜ 权限组 89→**90**（`AGREEMENT_WRITE` 合规官独占）｜ 审批策略 +1（`AGREEMENT_PUBLISH`，verify-rbac 登记 +1）｜ 通知模板 +1、`relatedOrderType` +1 值 ｜ 客户端：新页 1（`/agreement`）+ 弹窗/横幅组件 + 注册页正文改取接口 ｜ 管理台：新页 1 + 客户详情 +1 行 ｜ 能力闸改 1 处（`CustomerAccessService` 内部，6 个调用文件零改动）｜ 种子：consents +11 行、versions +2 行。
 
 ## §11 验收口径（总纲波三行展开）
 
-第九幕一条线截图走通：发布 → 审批 → 通知 → ⚡快进生效 → 强制弹窗暂不同意 → 充值/兑换显式拦 + 提现可走 + 详情行 + 审计可查 → 两版对照 → 同意解锁；`demo:all` 未快进态全绿；重铺后全部复现。
+第九幕一条线截图走通：发布 → 审批 → 通知 → ⚡快进生效 → 强制弹窗暂不同意 → 充值/兑换显式拦 + 提现可走 + 详情行 + 审计可查 → 两版对照 → 同意解锁；`demo:all`（协议零动作，v2 保持 DRAFT）全绿；重铺后全部复现。
