@@ -322,6 +322,9 @@ function runStaticChecks(): void {
     // 战役甲波五 T3：客户族结案：运营提、合规官批。maker 组复用既有 INCIDENT_OPS_WRITE
     // （运营经办桶），checker 为 COMPLIANCE_OFFICER，两者不相交。
     INCIDENT_CLOSE_CUSTOMER: 'INCIDENT_OPS_WRITE',
+    // 战役丙波三 T3：协议发布——提单唯合规官（AGREEMENT_WRITE，T9 登记进 catalog，合规官独占），
+    // 裁决唯高管（SENIOR_MANAGEMENT_OFFICER，不持 AGREEMENT_WRITE），maker/checker 天然不相交。
+    AGREEMENT_PUBLISH: 'AGREEMENT_WRITE',
   };
 
   // 有意不进上表的策略——maker 组本身不可判定（不是某个角色权限组闸住的，是系统自己在

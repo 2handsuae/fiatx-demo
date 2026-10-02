@@ -106,6 +106,9 @@ export const ApprovalActionTypes = {
   // 战役乙波二 T5（2026-09-29）：付款单发起——金库提、CFO 单步批，复刻
   // CAPITAL_INJECTION_APPROVAL 同形状。挂在 VendorPayment 主体（entityRef=payNo）。
   VENDOR_PAYMENT_APPROVAL: 'VENDOR_PAYMENT_APPROVAL',
+  // 战役丙波三 T3（2026-10-03）：客户协议发布——合规官提（版本 + 生效日）、高管单步批。
+  // 挂在 CustomerAgreementVersion 主体（entityRef=versionKey）。
+  AGREEMENT_PUBLISH: 'AGREEMENT_PUBLISH',
 } as const;
 
 export const ApprovalStatuses = {
@@ -469,6 +472,13 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   [ApprovalActionTypes.VENDOR_PAYMENT_APPROVAL]: {
     steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true,
   },
+  // 战役丙波三 T3（2026-10-03）：协议发布——合规官提、高管单步批，照 RI_REPLACEMENT 同款档位
+  // （48h 超时可撤）。批准落地另有 30 天通知期复核（见 AgreementPublishWorkflowService）。
+  [ApprovalActionTypes.AGREEMENT_PUBLISH]: {
+    steps: [{ stepNo: 1, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
 };
 
 /**
@@ -528,6 +538,8 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.CAPITAL_INJECTION_APPROVAL,
   // 战役乙波二 T5：付款单——同上漏白名单教训，一并登记。
   ApprovalActionTypes.VENDOR_PAYMENT_APPROVAL,
+  // 战役丙波三 T3：协议发布——同上漏白名单教训，一并登记。
+  ApprovalActionTypes.AGREEMENT_PUBLISH,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

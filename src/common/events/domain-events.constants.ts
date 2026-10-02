@@ -131,6 +131,19 @@ export const DOMAIN_EVENTS = {
       'ApprovalDecidedEvent — { decision, actionType, entityRef(complaintNo), approvalNo, ' +
       'decisionByUserId, decisionByUserNo, decisionByRole, decisionReason, traceId }',
   },
+
+  // ── Agreement Publish（战役丙波三 T3，2026-10-03）──
+  // ApprovalHandlerBase 派生的二级事件（AGREEMENT_PUBLISH 审批裁决后）——workflowType 复用
+  // AuditBusinessWorkflowTypes.CUSTOMER_AGREEMENT（T2 已登记），派生事件名照
+  // buildSecondaryEventName 的 kebab 规则算出 'workflow.customer-agreement.decided'。
+  AGREEMENT_PUBLISH_DECIDED: {
+    name: 'workflow.customer-agreement.decided',
+    emitter: 'AgreementPublishApprovalService',
+    subscribers: ['AgreementPublishWorkflowService'],
+    payload:
+      'ApprovalDecidedEvent — { decision, actionType, entityRef(versionKey), approvalNo, ' +
+      'decisionByUserId, decisionByUserNo, decisionByRole, decisionReason, decidedAt, traceId }',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -157,4 +170,6 @@ export const DomainEventNames = {
   RI_REPLACEMENT_DECIDED: DOMAIN_EVENTS.RI_REPLACEMENT_DECIDED.name,
   // Complaint Resolution
   COMPLAINT_RESOLUTION_DECIDED: DOMAIN_EVENTS.COMPLAINT_RESOLUTION_DECIDED.name,
+  // Agreement Publish
+  AGREEMENT_PUBLISH_DECIDED: DOMAIN_EVENTS.AGREEMENT_PUBLISH_DECIDED.name,
 } as const;
