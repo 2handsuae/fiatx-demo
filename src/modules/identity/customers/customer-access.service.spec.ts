@@ -44,6 +44,8 @@ function build(opts: {
   openRows?: any[];
   /** assertTradingReady 内 withdrawalAddress.count 的返回值；不传默认 1（有激活地址）。 */
   withdrawalAddressCount?: number;
+  /** AgreementsReadService.hasAcceptedCurrent 的返回值；不传默认 true（既有用例语义不变）。 */
+  agreementAccepted?: boolean;
 } = {}) {
   const prisma = {
     customerMain: {
@@ -58,8 +60,11 @@ function build(opts: {
     },
   } as any;
   const restrictions = { listOpen: jest.fn().mockResolvedValue(opts.openRows ?? []) } as any;
-  const svc = new CustomerAccessService(prisma, restrictions);
-  return { svc, prisma, restrictions };
+  const agreements = {
+    hasAcceptedCurrent: jest.fn().mockResolvedValue(opts.agreementAccepted ?? true),
+  } as any;
+  const svc = new CustomerAccessService(prisma, restrictions, agreements);
+  return { svc, prisma, restrictions, agreements };
 }
 
 async function catchForbidden(p: Promise<unknown>): Promise<any> {
@@ -228,5 +233,102 @@ describe('CustomerAccessService.assertTradingIntake', () => {
     const { svc, prisma } = build({ openRows: [SANCTION_ROW] });
     await expect(svc.assertTradingIntake('cust-1', 'DEPOSIT')).resolves.toEqual({ fold: true });
     expect(prisma.withdrawalAddress.count).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * 战役丙波三 T5：协议能力闸。未同意现行客户协议 → DEPOSIT / SWAP 显式拒（AGREEMENT_NOT_ACCEPTED），
+ * WITHDRAW 放行（业务语义本体）。这是客户自己的选择、零合规信息，**绝不复用 NEUTRAL_DENIAL**。
+ */
+const AGREEMENT_DENIAL = 'Please review and accept the current customer agreement before continuing.';
+
+describe('CustomerAccessService — 协议能力闸（丙波三 T5）', () => {
+  describe('assertCapability', () => {
+    it.each(['DEPOSIT', 'SWAP'] as const)(
+      '①未同意 → %s 显式拒：code=AGREEMENT_NOT_ACCEPTED，响应体恰好 {code,message}，且不是中性话术',
+      async (capability) => {
+        const { svc, agreements } = build({ agreementAccepted: false });
+        const body = await catchForbidden(svc.assertCapability('cust-1', capability));
+
+        expect(body).toEqual({ code: 'AGREEMENT_NOT_ACCEPTED', message: AGREEMENT_DENIAL });
+        // 禁中性话术封条：协议拦截与合规限制必须可区分，不许借 NEUTRAL_DENIAL 的壳
+        expect(body.code).not.toBe('CAPABILITY_RESTRICTED');
+        expect(body.code).not.toBe('LIFECYCLE_NOT_ACTIVE');
+        expect(body.message).not.toBe(NEUTRAL_DENIAL);
+        expect(agreements.hasAcceptedCurrent).toHaveBeenCalledWith('cust-1');
+      },
+    );
+
+    it('②未同意 + WITHDRAW → 不因协议拒，且根本不查协议台账（放行提现是业务语义本体）', async () => {
+      const { svc, agreements } = build({ agreementAccepted: false });
+      await expect(svc.assertCapability('cust-1', 'WITHDRAW')).resolves.toBeUndefined();
+      expect(agreements.hasAcceptedCurrent).not.toHaveBeenCalled();
+    });
+
+    it('②b未同意 + WITHDRAW 被限制账卡住 → 仍按既有路径报 CAPABILITY_RESTRICTED（其余检查照旧）', async () => {
+      const { svc } = build({ agreementAccepted: false, openRows: [MATERIAL_ROW] });
+      const body = await catchForbidden(svc.assertCapability('cust-1', 'WITHDRAW'));
+      expect(body).toEqual({ code: 'CAPABILITY_RESTRICTED', message: NEUTRAL_DENIAL });
+    });
+
+    it('④已同意 → 三能力全走既有路径放行', async () => {
+      const { svc } = build({ agreementAccepted: true });
+      for (const capability of ['DEPOSIT', 'SWAP', 'WITHDRAW'] as const) {
+        await expect(svc.assertCapability('cust-1', capability)).resolves.toBeUndefined();
+      }
+    });
+
+    it('④b已同意但被限制账卡住 → 仍是 CAPABILITY_RESTRICTED + 中性话术（协议检查不吞既有拒绝）', async () => {
+      const { svc } = build({ agreementAccepted: true, openRows: [SANCTION_ROW] });
+      const body = await catchForbidden(svc.assertCapability('cust-1', 'DEPOSIT'));
+      expect(body).toEqual({ code: 'CAPABILITY_RESTRICTED', message: NEUTRAL_DENIAL });
+    });
+
+    it('⑤次序：lifecycle 非 ACTIVE 时先报 LIFECYCLE_NOT_ACTIVE，协议台账不被查', async () => {
+      const { svc, agreements } = build({ lifecycle: 'IN_VERIFICATION', agreementAccepted: false });
+      const body = await catchForbidden(svc.assertCapability('cust-1', 'DEPOSIT'));
+      expect(body.code).toBe('LIFECYCLE_NOT_ACTIVE');
+      expect(agreements.hasAcceptedCurrent).not.toHaveBeenCalled();
+    });
+
+    it('⑤b次序：协议检查先于限制账——未同意 + SANCTION 卡 DEPOSIT → 报协议而非 CAPABILITY_RESTRICTED', async () => {
+      const { svc } = build({ agreementAccepted: false, openRows: [SANCTION_ROW] });
+      const body = await catchForbidden(svc.assertCapability('cust-1', 'DEPOSIT'));
+      expect(body.code).toBe('AGREEMENT_NOT_ACCEPTED');
+    });
+  });
+
+  describe('assertTradingIntake', () => {
+    it.each(['DEPOSIT', 'SWAP'] as const)(
+      '③未同意 → %s 显式拒 AGREEMENT_NOT_ACCEPTED，响应体恰好 {code,message}，不是中性话术',
+      async (capability) => {
+        const { svc } = build({ agreementAccepted: false });
+        const body = await catchForbidden(svc.assertTradingIntake('cust-1', capability));
+        expect(body).toEqual({ code: 'AGREEMENT_NOT_ACCEPTED', message: AGREEMENT_DENIAL });
+        expect(body.code).not.toBe('CAPABILITY_RESTRICTED');
+        expect(body.message).not.toBe(NEUTRAL_DENIAL);
+      },
+    );
+
+    it('③b协议拦截不折叠：SILENT-only 制裁客户 + 未同意 + DEPOSIT → 显式拒，不返回 {fold:true}', async () => {
+      const { svc } = build({ agreementAccepted: false, openRows: [SANCTION_ROW] });
+      const body = await catchForbidden(svc.assertTradingIntake('cust-1', 'DEPOSIT'));
+      expect(body.code).toBe('AGREEMENT_NOT_ACCEPTED');
+    });
+
+    it('②未同意 + WITHDRAW → 照常放行 {fold:false}，且不查协议台账', async () => {
+      const { svc, agreements } = build({ agreementAccepted: false, withdrawalAddressCount: 1 });
+      await expect(svc.assertTradingIntake('cust-1', 'WITHDRAW')).resolves.toEqual({ fold: false });
+      expect(agreements.hasAcceptedCurrent).not.toHaveBeenCalled();
+    });
+
+    it('④已同意 → DEPOSIT / SWAP 走既有路径：无便签 {fold:false}，SILENT-only 仍折叠 {fold:true}', async () => {
+      const clean = build({ agreementAccepted: true, withdrawalAddressCount: 1 });
+      await expect(clean.svc.assertTradingIntake('cust-1', 'DEPOSIT')).resolves.toEqual({ fold: false });
+      await expect(clean.svc.assertTradingIntake('cust-1', 'SWAP')).resolves.toEqual({ fold: false });
+
+      const silent = build({ agreementAccepted: true, openRows: [SANCTION_ROW], withdrawalAddressCount: 1 });
+      await expect(silent.svc.assertTradingIntake('cust-1', 'DEPOSIT')).resolves.toEqual({ fold: true });
+    });
   });
 });

@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AgreementsReadService } from '../agreements/agreements-read.service';
 import { CustomerLifecycle } from '../constants/customer-lifecycle.constant';
 import {
   RESTRICTION_CAUSE_POLICY,
@@ -90,6 +91,7 @@ export class CustomerAccessService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly restrictionsService: CustomerRestrictionsService,
+    private readonly agreementsRead: AgreementsReadService,
   ) {}
 
   async resolve(customerId: string, tx?: Prisma.TransactionClient): Promise<CustomerAccess> {
@@ -184,6 +186,7 @@ export class CustomerAccessService {
         message: NEUTRAL_DENIAL,
       });
     }
+    await this.assertAgreementAccepted(customerId, capability);
     if (access.blocked.has(capability)) {
       // 响应体只有 code + message —— 客户能看到它，多一个字段就是一次泄密
       throw new ForbiddenException({
@@ -191,6 +194,23 @@ export class CustomerAccessService {
         message: NEUTRAL_DENIAL,
       });
     }
+  }
+
+  /**
+   * 战役丙波三：协议能力闸。未同意现行客户协议 → DEPOSIT / SWAP 显式拒；WITHDRAW 直接放行
+   * （放行提现是本波的业务语义本体，不查台账）。
+   *
+   * 拒绝**刻意不用** NEUTRAL_DENIAL / CAPABILITY_RESTRICTED：这是客户自己的选择、零合规信息，
+   * 客户端须凭显式 code 引导去阅读并同意协议；若与合规限制共用中性话术，客户就分不清「该去点同意」
+   * 还是「账户被限制」。响应体只有 code + message，不夹带任何限制账字段。
+   */
+  private async assertAgreementAccepted(customerId: string, capability: Capability): Promise<void> {
+    if (capability === 'WITHDRAW') return;
+    if (await this.agreementsRead.hasAcceptedCurrent(customerId)) return;
+    throw new ForbiddenException({
+      code: 'AGREEMENT_NOT_ACCEPTED',
+      message: 'Please review and accept the current customer agreement before continuing.',
+    });
   }
 
   /**
@@ -228,6 +248,9 @@ export class CustomerAccessService {
     customerId: string,
     capability: Capability,
   ): Promise<{ fold: boolean }> {
+    // 协议拦截显式拒、不折叠（折叠只给 SILENT 合规限制用），故在 intakeDecision 之前判；
+    // intakeDecision 本体不动——它只管限制账语义。
+    await this.assertAgreementAccepted(customerId, capability);
     const decision = await this.intakeDecision(customerId, capability);
     if (decision === 'DENY') {
       throw new ForbiddenException({

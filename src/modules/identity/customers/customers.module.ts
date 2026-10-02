@@ -14,6 +14,7 @@ import { SanctionDispositionWorkflowService } from './sanction-disposition-workf
 import { SanctionDispositionApprovalService } from './sanction-disposition-approval.service';
 import { MaterialRequestsModule } from '../material-requests/material-requests.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
+import { AgreementsModule } from '../agreements/agreements.module';
 import { RegulatoryFilingsModule } from '../../governance/regulatory-filings/regulatory-filings.module';
 import { CustomerRestrictionsAdminController } from './customer-restrictions.admin.controller';
 import { CustomerRestrictionsClientController } from './customer-restrictions.client.controller';
@@ -31,6 +32,9 @@ import { CustomerRestrictionsClientController } from './customer-restrictions.cl
     RegulatoryFilingsModule,
     PrismaModule,
     NotificationsModule,
+    // 丙波三：能力闸（CustomerAccessService）要查协议同意台账。AgreementsModule 依赖只向下
+    // （Approvals / Notifications / AuditLogs，均不回指本模块），零环，无需 forwardRef。
+    AgreementsModule,
   ],
   providers: [
     CustomerRestrictionWorkflowService,
