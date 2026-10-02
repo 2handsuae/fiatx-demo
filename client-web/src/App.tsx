@@ -24,6 +24,7 @@ const WithdrawalAddresses = lazy(() => import('./pages/WithdrawalAddresses'));
 const Complaints = lazy(() => import('./pages/Complaints'));
 const ComplaintDetail = lazy(() => import('./pages/ComplaintDetail'));
 const Messages = lazy(() => import('./pages/Messages'));
+const AgreementPage = lazy(() => import('./pages/AgreementPage'));
 
 const RouteLoading = () => (
   <div className="min-h-screen bg-gray-50 flex items-center justify-center px-6">
@@ -63,6 +64,7 @@ function App() {
                  <Route path="/complaints" element={<AuthGuard><Complaints /></AuthGuard>} />
                  <Route path="/complaints/:complaintNo" element={<AuthGuard><ComplaintDetail /></AuthGuard>} />
                  <Route path="/messages" element={<AuthGuard><Messages /></AuthGuard>} />
+                 <Route path="/agreement" element={<AuthGuard><AgreementPage /></AuthGuard>} />
 
                  {/* Public Dashboard Routes */}
                  <Route path="/profile" element={<CustomerProfile />} />

@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye, EyeOff, X } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import AgreementSections from '../components/AgreementSections';
+import { customerFetch } from '../utils/customerFetch';
+import type { AgreementSection, AgreementVersion } from '../utils/agreementView';
 
 /* ────────────────────────────────────────────────────────────────
  *  Open account — FIATX
@@ -35,74 +38,6 @@ function MiniMasthead() {
 
 const MIN_PASSWORD_LENGTH = 6;
 
-/* ─── Terms & data protection content (client-side) ─────────────── */
-
-type Section = {
-  no: string;
-  title: string;
-  body: string[];
-};
-
-const TERMS_SECTIONS: Section[] = [
-  {
-    no: 'I',
-    title: 'About FIATX',
-    body: [
-      'FIATX Financial Services Ltd is a virtual asset service provider licensed in Dubai by the Virtual Assets Regulatory Authority ("VARA") as a Category 2 VASP. The services described in these terms are provided under VARA Rulebook authorisation, and are governed exclusively by the laws of the Dubai International Financial Centre and the supervision of VARA.',
-      'By opening an individual account, you are entering into a contract with FIATX. These terms, together with the Privacy Notice that appears as Part II of this document, form the entire agreement between you and us.',
-    ],
-  },
-  {
-    no: 'II',
-    title: 'Eligibility & Identity Verification',
-    body: [
-      'You must be at least 21 years of age, a natural person acting on your own behalf, and not a resident of a sanctioned jurisdiction. We may decline any application at our sole discretion, including in response to risk signals from our sanctions and adverse-media screening providers.',
-      'Customer due diligence is performed under VARA Compliance and Risk Management Rulebook Part D. Level-1 verification is required for every account; Level-2 (enhanced due diligence) is required for politically exposed persons, large inbound transfers, and accounts flagged by our risk engine.',
-    ],
-  },
-  {
-    no: 'III',
-    title: 'Accepted Activities',
-    body: [
-      'You may use FIATX to: (a) convert UAE dirhams into supported virtual assets and back, (b) hold balances in the safeguarded client-asset account, and (c) instruct on-chain and domestic IBAN payouts subject to our travel-rule and sanctions-screening procedures.',
-      'You may not use FIATX to: (a) move funds for any third party, (b) structure transactions to avoid reporting thresholds, (c) interact with services appearing on the OFAC, EU or UN consolidated sanctions lists, or (d) any activity prohibited by the FATF Recommendations.',
-    ],
-  },
-  {
-    no: 'IV',
-    title: 'Fees, Settlement & Client Money',
-    body: [
-      'All applicable fees and spreads are published on our fee schedule and are updated with 14 days\' written notice. Settlement windows for dirham-denominated transactions are intraday (T+0) subject to UAE banking cut-off times.',
-      'Client money is held under segregated safeguarding arrangements at VARA-approved banking partners. Daily reconciliation and monthly statement warehousing are performed under CRM Rulebook Part F. We do not rehypothecate client assets.',
-    ],
-  },
-  {
-    no: 'V',
-    title: 'Liability & Dispute Resolution',
-    body: [
-      'Our liability to you is limited to direct losses caused by our own negligence or wilful default. We are not liable for losses arising from price movement, third-party custodians, network outages, or instructions we execute in accordance with your account authentication.',
-      'Disputes are resolved through the VARA complaints procedure followed by arbitration under the DIFC-LCIA Arbitration Rules, seated in Dubai, conducted in English. Nothing in this clause limits your statutory rights under UAE federal consumer protection law.',
-    ],
-  },
-  {
-    no: 'VI',
-    title: 'Privacy & Data Protection',
-    body: [
-      'Personal data is processed under the UAE Federal Personal Data Protection Law (PDPL) and CRM Rulebook Part E. Lawful bases for processing are: (i) performance of this contract, (ii) compliance with our regulatory obligations as a VASP, and (iii) legitimate interests in preventing financial crime.',
-      'Categories of data collected: identity documents, biometric data (liveness video), transaction metadata, device and IP data, and communications with our support team. We retain these records for eight years after the end of our relationship, as required by the CRM Rulebook.',
-      'Your rights: access, rectification, erasure (subject to retention obligations), portability, and objection to processing not based on consent. Data subject requests are handled by our Data Protection Officer at dpo@fiatx.ae within 30 days.',
-    ],
-  },
-  {
-    no: 'VII',
-    title: 'How to Contact Us',
-    body: [
-      'Operations and account support: support@fiatx.ae · Compliance and MLRO: compliance@fiatx.ae · Data protection enquiries: dpo@fiatx.ae · Registered office: Level 41, Emirates Towers, Sheikh Zayed Road, Dubai.',
-      'A printable PDF of these terms is available on request. We will notify you of any material change to these terms at least 14 days before the change takes effect.',
-    ],
-  },
-];
-
 /* ─── The Terms Drawer — the interaction ──────────────────────── */
 
 function TermsDrawer({
@@ -118,6 +53,32 @@ function TermsDrawer({
   const [progress, setProgress] = useState(0);
   const [activeSection, setActiveSection] = useState('I');
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
+  // 正文单一来源：打开抽屉时取 GET /client/agreements/current（公开端点，注册页未登录可取）。
+  const [bodySections, setBodySections] = useState<AgreementSection[] | null>(null);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoadError('');
+    (async () => {
+      try {
+        const res = await customerFetch(
+          `${import.meta.env.VITE_API_URL}/client/agreements/current`,
+          {},
+          { requireAuth: false },
+        );
+        if (!res.ok) throw new Error('bad status');
+        const data = (await res.json()) as AgreementVersion;
+        if (!cancelled) setBodySections(data.sections);
+      } catch {
+        if (!cancelled) setLoadError('Could not load the terms. Please close and try again.');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   // Esc key closes
   useEffect(() => {
@@ -250,32 +211,13 @@ function TermsDrawer({
               className="flex-1 overflow-y-auto px-8 md:px-12 py-10"
             >
               <div className="space-y-12 max-w-2xl">
-                {TERMS_SECTIONS.map((section) => (
-                  <section
-                    key={section.no}
-                    data-section={section.no}
-                    className="scroll-mt-6"
-                  >
-                    <div className="flex items-baseline gap-6 mb-6 pb-4 border-b border-fx-rule">
-                      <span className="fx-display font-light text-[40px] leading-none text-fx-brass/60 tabular-nums">
-                        {section.no}
-                      </span>
-                      <h3 className="fx-display text-[22px] leading-tight text-fx-sand">
-                        {section.title}
-                      </h3>
-                    </div>
-                    <div className="space-y-5">
-                      {section.body.map((para, i) => (
-                        <p
-                          key={i}
-                          className="fx-serif text-[15px] leading-[1.75] text-fx-dune"
-                        >
-                          {para}
-                        </p>
-                      ))}
-                    </div>
-                  </section>
-                ))}
+                {bodySections ? (
+                  <AgreementSections sections={bodySections} />
+                ) : (
+                  <p className="fx-serif italic text-[13px] text-fx-dust/70 leading-relaxed">
+                    {loadError || 'Loading the terms…'}
+                  </p>
+                )}
 
                 {/* End-of-document colophon */}
                 <div className="pt-8 border-t border-fx-rule">

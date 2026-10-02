@@ -201,3 +201,27 @@
     border-color: #bbb !important; }
   .print-confirmation button { display: none !important; }
 }
+
+/* 客户协议阅读页打印（战役丙波三 T7）：版式沿波二判例（只印 .print-agreement 区块 + html 切 light +
+   html/body 翻白 + 按钮不进纸面），唯独定位方式不同——协议七节远超一页，而 position: fixed 的区块
+   只会印一页、其余被截（真实打印实测：同款壳层结构下 fixed 版 1 页且文本断在第 2 节，本版 4 页写全）。
+   所以这里不用 fixed，改为把壳层从版面里摘掉让正文自然分页：
+   - 非祖先、非本区块内部的元素一律 display:none（不占版面；visibility:hidden 仍占位会把正文推偏）
+   - 本区块的祖先链（壳层 h-screen/overflow、main 滚动容器）压回普通文档流，否则整页被截在一屏高。
+   全部限定在 body:has(.print-agreement) 之下，不碰波二 .print-confirmation 的打印路径。 */
+@media print {
+  html { color-scheme: light !important; }
+  html, body { background: #fff !important; }
+  body * { visibility: hidden; }
+  .print-agreement, .print-agreement * { visibility: visible; }
+  body:has(.print-agreement) *:not(.print-agreement, .print-agreement *, :has(.print-agreement)) {
+    display: none !important; }
+  body:has(.print-agreement) *:has(.print-agreement) { display: block !important;
+    position: static !important; width: auto !important; max-width: none !important;
+    height: auto !important; overflow: visible !important; margin: 0 !important;
+    padding: 0 !important; border: 0 !important; background: #fff !important; }
+  .print-agreement { background: #fff !important; border-color: #bbb !important; }
+  .print-agreement * { color: #111 !important; background: transparent !important;
+    border-color: #bbb !important; }
+  .print-agreement button { display: none !important; }
+}
