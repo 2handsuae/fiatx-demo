@@ -3,6 +3,8 @@ import { useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { CustomerSessionError, customerFetch } from '../utils/customerFetch';
 import { getSwapStatusView } from '../utils/swapStatusView';
+import { shouldShowConfirmation } from '../utils/confirmationDisplay';
+import { DISCLOSURE_COPY } from '../utils/disclosureCopy';
 import { formatAssetAmount, formatRate8 } from '../utils/number-format';
 import Field from '../components/detail/Field';
 import { useGoBack } from '../components/detail/useGoBack';
@@ -32,7 +34,27 @@ import { Timeline } from '../components/detail/Timeline';
  *   详情页只是把它留痕，不是新泄漏面；
  * timeline——buildCustomerTimeline() 的收敛产物，逐条状态已经过 toCustomerSwapStatus()
  *   同一条 tipping-off 防线映射，不是原始 statusHistory。
+ *
+ * 战役丙波二 T6：SUCCESS 单附 `confirmation` 子对象（出具当时留存的成交确认单原件）。
+ * 显示条件见 shouldShowConfirmation（只认已收敛的 status，不另判别的字段）。条件成立时
+ * Amounts/Pricing 两区块合并为 Trade Confirmation 区块，**数据全读 confirmation**，
+ * 不再现拼订单字段；非 SUCCESS 原区块一字不变。confirmation 里 Decimal 序列化后是
+ * 字符串、日期是 ISO 字符串，所以接口全按 string 声明（与顶层 spreadPercent: number 不同）。
+ * 披露句子一律取自 DISCLOSURE_COPY 登记处，不在 JSX 里写死。
  */
+interface SwapConfirmation {
+  confirmationNo: string; quoteNo: string | null;
+  fromAmount: string; fromAssetCode: string;
+  toAmount: string; toAssetCode: string;
+  netToAmount: string | null;
+  feeAmount: string | null; feeCurrency: string | null;
+  feeLines: { itemCode: string; amount: string; currency: string }[];
+  exchangeRate: string;
+  marketRate: string | null; rateSource: string | null; fetchedAt: string | null;
+  spreadPercent: string | null; spreadAmount: string | null;
+  tradedAt: string; settledAt: string | null; issuedAt: string;
+}
+
 interface SwapDetailData {
   swapNo: string; status: string;
   fromAmount: string; toAmount: string;
@@ -44,6 +66,7 @@ interface SwapDetailData {
   marketRate: string | null; spreadPercent: number | null;
   createdAt: string; completedAt: string | null;
   timeline: { status: string; at: string }[];
+  confirmation: SwapConfirmation | null;
   fromAsset: { code: string; currency: string; network: string | null; decimals: number } | null;
   toAsset: { code: string; currency: string; network: string | null; decimals: number } | null;
 }
@@ -115,6 +138,13 @@ const SwapDetail = () => {
         ? tx.fromAsset?.decimals
         : undefined;
 
+  // 成交确认单：条件成立才有值（判据只读已收敛的 tx.status）。
+  const conf = shouldShowConfirmation(tx.status, tx.confirmation) ? tx.confirmation : null;
+  // 确认单的费用文本（Fee 行与 Retained by FIATX 行共用同一口径）。
+  const confFee = conf?.feeAmount
+    ? `${formatAssetAmount(conf.feeAmount, conf.feeCurrency ? feeLineDecimals(conf.feeCurrency) : undefined)} ${conf.feeCurrency ?? ''}`.trim()
+    : null;
+
   return (
     <div className="max-w-4xl mx-auto">
       <button onClick={goBack} className="flex items-center gap-2 text-sm text-fx-dust hover:text-fx-brass mb-6">
@@ -136,56 +166,127 @@ const SwapDetail = () => {
         </span>
       </div>
 
-      <section className="mt-8">
-        <h2 className="text-sm font-semibold text-fx-sand mb-3">Amounts</h2>
-        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Field
-            label={settled ? 'You sold' : 'Sell amount'}
-            value={`${formatAssetAmount(tx.fromAmount, tx.fromAsset?.decimals)} ${tx.fromAsset?.currency ?? ''}`.trim()}
-          />
-          <Field
-            label={settled ? 'Gross receive' : 'Quoted gross'}
-            value={`${formatAssetAmount(tx.toAmount, tx.toAsset?.decimals)} ${tx.toAsset?.currency ?? ''}`.trim()}
-          />
-          <Field
-            label="Fee"
-            value={tx.feeAmount ? `− ${formatAssetAmount(tx.feeAmount, feeDecimals)} ${tx.feeCurrency ?? ''}`.trim() : '—'}
-          />
-          <Field
-            label={settled ? 'Net received' : 'Quoted amount'}
-            value={`${formatAssetAmount(tx.netToAmount ?? tx.toAmount, tx.toAsset?.decimals)} ${tx.toAsset?.currency ?? ''}`.trim()}
-          />
-          <Field
-            label="Exchange rate"
-            value={
-              tx.exchangeRate
-                ? `1 ${tx.fromAsset?.currency ?? ''} = ${formatRate8(tx.exchangeRate)} ${tx.toAsset?.currency ?? ''}`.trim()
-                : '—'
-            }
-            mono
-          />
-          {tx.marketRate && (
-            <Field label="Market · Spread" value={`${formatRate8(tx.marketRate)} · ${tx.spreadPercent}%`} />
-          )}
-          <Field label="Submitted" value={new Date(tx.createdAt).toLocaleString()} />
-          {tx.completedAt && <Field label="Completed" value={new Date(tx.completedAt).toLocaleString()} />}
-        </dl>
-      </section>
-
-      {tx.quoteNo && (
-        <section className="mt-8">
-          <h2 className="text-sm font-semibold text-fx-sand mb-3">Pricing</h2>
+      {conf ? (
+        // 成交确认单：数据全读出具当时留存的原件（confirmation），币种标签取留存的 *AssetCode，
+        // 精度只借本单两条腿的资产元数据（确认单不存小数位）。打印样式见 index.css .print-confirmation。
+        <section className="print-confirmation mt-8 rounded-2xl border border-fx-rule p-5">
+          <div className="flex items-center justify-between gap-4 mb-3">
+            <h2 className="text-sm font-semibold text-fx-sand">Trade Confirmation</h2>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="rounded-xl px-3 py-1 text-xs font-semibold border border-fx-rule text-fx-sand hover:text-fx-brass"
+            >
+              Print / Save as PDF
+            </button>
+          </div>
           <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Quote No" value={tx.quoteNo} mono />
-            {tx.feeLines.map((f, i) => (
+            <Field label="Confirmation No" value={conf.confirmationNo} mono />
+            <Field label="Order" value={tx.swapNo} mono />
+            {conf.quoteNo && <Field label="Quote No" value={conf.quoteNo} mono />}
+            <Field label="Trade time" value={new Date(conf.tradedAt).toLocaleString()} />
+            {conf.settledAt && <Field label="Settled" value={new Date(conf.settledAt).toLocaleString()} />}
+            <Field
+              label="You sold"
+              value={`${formatAssetAmount(conf.fromAmount, tx.fromAsset?.decimals)} ${conf.fromAssetCode}`.trim()}
+            />
+            <Field
+              label="You received"
+              value={`${formatAssetAmount(conf.netToAmount ?? conf.toAmount, tx.toAsset?.decimals)} ${conf.toAssetCode}`.trim()}
+            />
+            <Field
+              label="Fee"
+              value={confFee ? `− ${confFee}` : '—'}
+            />
+            {conf.feeLines.map((f, i) => (
               <Field
                 key={`${f.itemCode}-${i}`}
                 label={formatFeeLineLabel(f.itemCode)}
                 value={`${formatAssetAmount(f.amount, feeLineDecimals(f.currency))} ${f.currency}`.trim()}
               />
             ))}
+            <Field
+              label="Executed rate"
+              value={`1 ${conf.fromAssetCode} = ${formatRate8(conf.exchangeRate)} ${conf.toAssetCode}`.trim()}
+              mono
+            />
+            {conf.marketRate && (
+              <Field
+                label="Market reference"
+                value={`${formatRate8(conf.marketRate)} (${conf.rateSource ?? '—'}${conf.fetchedAt ? `, ${new Date(conf.fetchedAt).toLocaleTimeString()}` : ''}) · Spread ${conf.spreadPercent ?? '—'}%`}
+                wide
+              />
+            )}
+            {conf.spreadAmount != null && (
+              <Field
+                label={DISCLOSURE_COPY.retainedLabel}
+                value={`Fee ${confFee ?? '—'} · Spread ${formatAssetAmount(conf.spreadAmount, tx.toAsset?.decimals)} ${conf.toAssetCode}`}
+                wide
+              />
+            )}
           </dl>
+          <div className="mt-4 space-y-1">
+            <p className="text-[11px] text-fx-dust">{DISCLOSURE_COPY.principalPast}</p>
+            <p className="text-[11px] text-fx-dust">{DISCLOSURE_COPY.figuresFixed}</p>
+          </div>
+          <div className="mt-3 text-right text-[11px] text-fx-dust">
+            Issued at {new Date(conf.issuedAt).toLocaleString()}
+          </div>
         </section>
+      ) : (
+        <>
+          <section className="mt-8">
+            <h2 className="text-sm font-semibold text-fx-sand mb-3">Amounts</h2>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field
+                label={settled ? 'You sold' : 'Sell amount'}
+                value={`${formatAssetAmount(tx.fromAmount, tx.fromAsset?.decimals)} ${tx.fromAsset?.currency ?? ''}`.trim()}
+              />
+              <Field
+                label={settled ? 'Gross receive' : 'Quoted gross'}
+                value={`${formatAssetAmount(tx.toAmount, tx.toAsset?.decimals)} ${tx.toAsset?.currency ?? ''}`.trim()}
+              />
+              <Field
+                label="Fee"
+                value={tx.feeAmount ? `− ${formatAssetAmount(tx.feeAmount, feeDecimals)} ${tx.feeCurrency ?? ''}`.trim() : '—'}
+              />
+              <Field
+                label={settled ? 'Net received' : 'Quoted amount'}
+                value={`${formatAssetAmount(tx.netToAmount ?? tx.toAmount, tx.toAsset?.decimals)} ${tx.toAsset?.currency ?? ''}`.trim()}
+              />
+              <Field
+                label="Exchange rate"
+                value={
+                  tx.exchangeRate
+                    ? `1 ${tx.fromAsset?.currency ?? ''} = ${formatRate8(tx.exchangeRate)} ${tx.toAsset?.currency ?? ''}`.trim()
+                    : '—'
+                }
+                mono
+              />
+              {tx.marketRate && (
+                <Field label="Market · Spread" value={`${formatRate8(tx.marketRate)} · ${tx.spreadPercent}%`} />
+              )}
+              <Field label="Submitted" value={new Date(tx.createdAt).toLocaleString()} />
+              {tx.completedAt && <Field label="Completed" value={new Date(tx.completedAt).toLocaleString()} />}
+            </dl>
+          </section>
+
+          {tx.quoteNo && (
+            <section className="mt-8">
+              <h2 className="text-sm font-semibold text-fx-sand mb-3">Pricing</h2>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Quote No" value={tx.quoteNo} mono />
+                {tx.feeLines.map((f, i) => (
+                  <Field
+                    key={`${f.itemCode}-${i}`}
+                    label={formatFeeLineLabel(f.itemCode)}
+                    value={`${formatAssetAmount(f.amount, feeLineDecimals(f.currency))} ${f.currency}`.trim()}
+                  />
+                ))}
+              </dl>
+            </section>
+          )}
+        </>
       )}
 
       <section className="mt-8">

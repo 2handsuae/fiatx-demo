@@ -184,3 +184,15 @@
   background: rgb(var(--fx-brass));
   color: rgb(var(--fx-obsidian));
 }
+
+/* 成交确认单打印（战役丙波二 T6）：只印 .print-confirmation 区块，整体翻浅色——
+   页面是深色主题，直接打印不可读。打印按钮自身不进纸面。 */
+@media print {
+  body * { visibility: hidden; }
+  .print-confirmation, .print-confirmation * { visibility: visible; }
+  .print-confirmation { position: absolute; inset: 0 auto auto 0; width: 100%;
+    background: #fff !important; }
+  .print-confirmation * { color: #111 !important; background: transparent !important;
+    border-color: #bbb !important; }
+  .print-confirmation button { display: none !important; }
+}
