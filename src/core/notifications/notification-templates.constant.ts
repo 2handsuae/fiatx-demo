@@ -1,5 +1,5 @@
 /**
- * 战役丙波一 T2：通知模板登记处——16 条全量，键 = `${domain}_${collapsedTo}` / 投诉码。
+ * 战役丙波一 T2：通知模板登记处——16 条全量（丙波三 T4 增 AGREEMENT_PUBLISHED 为 17 条），键 = `${domain}_${collapsedTo}` / 投诉码。
  * tipping-off 红线：文案是终稿，不含执法/合规/冻结类词；键查无即沉默——服务侧禁止为
  * 未登记的键加 default 分支（查不到模板 = 不发这条消息，不是"发一条兜底消息"）。
  */
@@ -8,6 +8,7 @@ export interface NotificationTemplateParams {
   orderNo: string;
   amount?: string;
   assetCode?: string;
+  effectiveDate?: string;
 }
 
 export interface NotificationTemplate {
@@ -37,4 +38,6 @@ export const NOTIFICATION_TEMPLATES: Record<string, NotificationTemplate> = {
   COMPLAINT_ACKNOWLEDGED: { title: 'Complaint received',          body: (p) => `Your complaint ${p.orderNo} has been received and is being looked into.`, simulateEmail: true },
   COMPLAINT_EXTENDED:     { title: 'Complaint review extended',   body: (p) => `The review period for your complaint ${p.orderNo} has been extended. A final response will follow.`, simulateEmail: true },
   COMPLAINT_RESOLVED:     { title: 'Complaint resolved',          body: (p) => `Your complaint ${p.orderNo} has been resolved. Please open it to view the outcome.`, simulateEmail: true },
+  // 战役丙波三 T4：协议发布全员通知（orderNo 复用为协议版本键 versionKey，深链键同值）。
+  AGREEMENT_PUBLISHED:    { title: 'Customer agreement update',   body: (p) => `Our customer agreement will be updated on ${p.effectiveDate}. Please review version ${p.orderNo} and accept it before it takes effect.`, simulateEmail: true },
 };

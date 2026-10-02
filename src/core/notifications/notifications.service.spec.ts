@@ -14,6 +14,14 @@ function makeService() {
 
   const prisma: any = {
     customerMain: {
+      // 战役丙波三 T4：findMany 行为化——尊重 select（只回选中的键），不无视 select 假绿。
+      findMany: jest.fn(async ({ select }: any = {}) =>
+        CUSTOMERS.map((c) =>
+          select
+            ? Object.fromEntries(Object.keys(select).filter((k) => select[k]).map((k) => [k, (c as any)[k]]))
+            : { ...c },
+        ),
+      ),
       findUnique: jest.fn(async ({ where }: any) => {
         if (where.id) {
           const row = CUSTOMERS.find((c) => c.id === where.id);
@@ -139,8 +147,8 @@ describe('NotificationsService', () => {
     expect(createInput.data.body).toBe('Your withdrawal WDR1 of 50 AED has been completed.');
   });
 
-  it('16 个模板全量登记（判据自点，非 spec 的 16 减一算漏）', () => {
-    expect(Object.keys(NOTIFICATION_TEMPLATES)).toHaveLength(16);
+  it('17 个模板全量登记（丙波三 T4 新增 AGREEMENT_PUBLISHED，判据自点）', () => {
+    expect(Object.keys(NOTIFICATION_TEMPLATES)).toHaveLength(17);
   });
 
   // 评审 Important（控制器裁定）：通知是主流程旁路副作用，内部失败（如落库
@@ -274,6 +282,110 @@ describe('NotificationsService', () => {
       expect(prisma.customerNotification.create.mock.calls[0][0].data.templateCode).toBe('COMPLAINT_RESOLVED');
       expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
       expect(consoleErrorSpy).toHaveBeenCalled();
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
+  // 战役丙波三 T4：协议发布 → 全员 fanout（协议当事人不分 lifecycle，故 findMany 无 where）。
+  describe('notifyAgreementPublished', () => {
+    const EFFECTIVE_AT = new Date('2026-11-02T00:00:00.000Z');
+
+    it('① 逐客户落一行 AGREEMENT_PUBLISHED（AGREEMENT 深链键 + 邮件模拟）+ 每行 NOTIFICATION_SENT 审计 + 每客户信号一次', async () => {
+      const { service, prisma, auditLogs, gateway, notificationRows } = makeService();
+
+      await service.notifyAgreementPublished('v2', EFFECTIVE_AT);
+
+      // 全量客户：findMany 只取 id/customerNo，不带 where（不分 lifecycle）
+      expect(prisma.customerMain.findMany).toHaveBeenCalledTimes(1);
+      const findInput = prisma.customerMain.findMany.mock.calls[0][0];
+      expect(findInput.select).toEqual({ id: true, customerNo: true });
+      expect(findInput.where).toBeUndefined();
+
+      // 落库行（断言的是 mock 里累积的实际行，不是 create 的调用次数自说自话）
+      expect(notificationRows).toHaveLength(CUSTOMERS.length);
+      expect(notificationRows.map((r) => r.ownerCustomerNo)).toEqual(['CUS00001', 'CUS00002']);
+      for (const row of notificationRows) {
+        expect(row.templateCode).toBe('AGREEMENT_PUBLISHED');
+        expect(row.relatedOrderType).toBe('AGREEMENT');
+        expect(row.relatedOrderNo).toBe('v2');
+        expect(row.title).toBe('Customer agreement update');
+        expect(JSON.parse(row.channels)).toEqual(['IN_APP', 'EMAIL_SIMULATED']);
+        expect(row.body).toBe(
+          'Our customer agreement will be updated on 2026-11-02. Please review version v2 and accept it before it takes effect.',
+        );
+      }
+
+      // 每行一条审计：既有 send 信封——templateCode/channels 顶层 + metadata 镜像，主体=AGREEMENT_VERSION·versionKey
+      expect(auditLogs.recordSystem).toHaveBeenCalledTimes(CUSTOMERS.length);
+      auditLogs.recordSystem.mock.calls.forEach(([input]: any[], i: number) => {
+        expect(input.action).toBe('NOTIFICATION_SENT');
+        expect(input.actionDomain).toBe('CUSTOMER');
+        expect(input.templateCode).toBe('AGREEMENT_PUBLISHED');
+        expect(input.channels).toEqual(['IN_APP', 'EMAIL_SIMULATED']);
+        expect(input.metadata).toMatchObject({ templateCode: 'AGREEMENT_PUBLISHED', channels: ['IN_APP', 'EMAIL_SIMULATED'] });
+        expect(input.requestId).toBe(notificationRows[i].id);
+        expect(input.primarySubjectType).toBe('AGREEMENT_VERSION');
+        expect(input.primarySubjectNo).toBe('v2');
+        expect(input.ownerCustomerNo).toBe(CUSTOMERS[i].customerNo);
+        expect(input.subjects).toEqual([
+          { subjectType: 'AGREEMENT_VERSION', subjectNo: 'v2', subjectRole: 'PRIMARY' },
+          { subjectType: 'CUSTOMER', subjectNo: CUSTOMERS[i].customerNo, subjectRole: 'OWNER' },
+        ]);
+      });
+
+      // 每客户信号一次（以内部 id 为 room）
+      expect(gateway.emitCustomerUpdated).toHaveBeenCalledTimes(CUSTOMERS.length);
+      expect(gateway.emitCustomerUpdated.mock.calls.map((c: any[]) => c[0])).toEqual(['c1', 'c2']);
+    });
+
+    it('② 中途一个客户 create 抛错 → 方法不外抛，其余客户照发，坏的那个无审计无信号', async () => {
+      const { service, prisma, auditLogs, gateway, notificationRows } = makeService();
+      prisma.customerNotification.create.mockRejectedValueOnce(new Error('db hiccup'));
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(service.notifyAgreementPublished('v2', EFFECTIVE_AT)).resolves.toBeUndefined();
+
+      // c1 失败、c2 成功：只落一行（c2），审计与信号也只有 c2 的
+      expect(prisma.customerNotification.create).toHaveBeenCalledTimes(2);
+      expect(notificationRows.map((r) => r.ownerCustomerNo)).toEqual(['CUS00002']);
+      expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
+      expect(auditLogs.recordSystem.mock.calls[0][0].ownerCustomerNo).toBe('CUS00002');
+      expect(gateway.emitCustomerUpdated.mock.calls.map((c: any[]) => c[0])).toEqual(['c2']);
+      expect(consoleErrorSpy).toHaveBeenCalled();
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('③ 模板键 AGREEMENT_PUBLISHED 已登记（simulateEmail=true）；键查无 → 静默零发（不查客户、不落库、不审计、不发信号，不兜底）', async () => {
+      expect(NOTIFICATION_TEMPLATES.AGREEMENT_PUBLISHED).toBeDefined();
+      expect(NOTIFICATION_TEMPLATES.AGREEMENT_PUBLISHED.simulateEmail).toBe(true);
+
+      const saved = NOTIFICATION_TEMPLATES.AGREEMENT_PUBLISHED;
+      delete NOTIFICATION_TEMPLATES.AGREEMENT_PUBLISHED;
+      try {
+        const { service, prisma, auditLogs, gateway } = makeService();
+
+        await expect(service.notifyAgreementPublished('v2', EFFECTIVE_AT)).resolves.toBeUndefined();
+
+        expect(prisma.customerMain.findMany).not.toHaveBeenCalled();
+        expect(prisma.customerNotification.create).not.toHaveBeenCalled();
+        expect(auditLogs.recordSystem).not.toHaveBeenCalled();
+        expect(gateway.emitCustomerUpdated).not.toHaveBeenCalled();
+      } finally {
+        NOTIFICATION_TEMPLATES.AGREEMENT_PUBLISHED = saved;
+      }
+    });
+
+    it('信号抛错（脚本环境无 server）→ 每客户的通知行/审计照常写入，不外抛', async () => {
+      const { service, auditLogs, gateway, notificationRows } = makeService();
+      gateway.emitCustomerUpdated.mockImplementation(() => {
+        throw new TypeError("Cannot read properties of null (reading 'to')");
+      });
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(service.notifyAgreementPublished('v2', EFFECTIVE_AT)).resolves.toBeUndefined();
+
+      expect(notificationRows).toHaveLength(CUSTOMERS.length);
+      expect(auditLogs.recordSystem).toHaveBeenCalledTimes(CUSTOMERS.length);
       consoleErrorSpy.mockRestore();
     });
   });

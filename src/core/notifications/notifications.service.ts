@@ -142,6 +142,39 @@ export class NotificationsService {
   }
 
   /**
+   * 战役丙波三 T4：协议版本发布 → 全员 fanout。协议当事人是全体客户，不分 lifecycle，
+   * 故 findMany 不带 where。边界吞错粒度 = 单客户（demo 尽力而为）：一个客户落库失败只
+   * console.error，其余客户照发，方法不外抛——调用方（发布审批 workflow）在通知之后
+   * 还有后置动作。落库+审计（send）先于信号，同上方耐久性次序约定。
+   * 模板键查无即沉默（登记处头注释既有约定），不加 default 分支、不拼兜底文案。
+   */
+  async notifyAgreementPublished(versionKey: string, effectiveAt: Date): Promise<void> {
+    const templateCode = 'AGREEMENT_PUBLISHED';
+    const template = NOTIFICATION_TEMPLATES[templateCode];
+    if (!template) return;
+
+    const customers = await this.prisma.customerMain.findMany({ select: { id: true, customerNo: true } });
+
+    for (const c of customers) {
+      try {
+        await this.send({
+          ownerCustomerNo: c.customerNo,
+          templateCode,
+          template,
+          params: { orderNo: versionKey, effectiveDate: effectiveAt.toISOString().slice(0, 10) },
+          entityType: AuditEntityTypes.AGREEMENT_VERSION,
+          relatedOrderType: 'AGREEMENT',
+          relatedOrderNo: versionKey,
+        });
+
+        this.emitSignal(c.id, `notifyAgreementPublished ${versionKey}`);
+      } catch (err) {
+        console.error(`[NotificationsService] notifyAgreementPublished failed for ${versionKey} → ${c.customerNo}:`, err);
+      }
+    }
+  }
+
+  /**
    * 信号是尽力而为，单独兜错——绝不能让 emit 失败（如脚本环境无 `.listen()`，
    * `gateway.server` 为 null）连累调用方已经写完的持久行/审计。
    */
