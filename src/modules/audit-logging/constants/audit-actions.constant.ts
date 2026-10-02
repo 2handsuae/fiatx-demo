@@ -47,6 +47,8 @@ export const AuditEntityTypes = {
   VENDOR_PAYMENT: 'VENDOR_PAYMENT',
   // 战役乙波三 T1（2026-09-30）：审慎（NLA）状态主体——业务键固定 'NLA'，零 UUID
   PRUDENTIAL_STATUS: 'PRUDENTIAL_STATUS',
+  // 战役丙波三 T2（2026-10-03）：客户协议版本主体——业务键 = versionKey（'v1'/'v2'，版本非单据，破例不走单号）
+  AGREEMENT_VERSION: 'AGREEMENT_VERSION',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -156,6 +158,8 @@ export const AuditBusinessWorkflowTypes = {
   VENDOR_PAYMENT: 'VENDOR_PAYMENT',
   // 战役乙波三 T1（2026-09-30）：审慎（NLA）状态主体（财资件，独立主体 PrudentialStatus）
   PRUDENTIAL: 'PRUDENTIAL',
+  // 战役丙波三 T2（2026-10-03）：客户协议发布（治理件，审批 workflowType，T3 handler 消费）
+  CUSTOMER_AGREEMENT: 'CUSTOMER_AGREEMENT',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -521,6 +525,14 @@ export const AuditActions = {
   NOTIFICATION_SENT: 'NOTIFICATION_SENT',
   // ── 战役丙波二 T3（2026-10-02）：成交确认单出具一码（域 SWAP）──────────────────
   CONFIRMATION_ISSUED: 'CONFIRMATION_ISSUED',
+  // ── 战役丙波三 T2（2026-10-03）：客户协议七码（发布链五码域 GOVERNANCE、客户表态两码域 CUSTOMER）──
+  AGREEMENT_PUBLISH_SUBMITTED: 'AGREEMENT_PUBLISH_SUBMITTED',
+  AGREEMENT_PUBLISHED: 'AGREEMENT_PUBLISHED',
+  AGREEMENT_PUBLISH_REJECTED: 'AGREEMENT_PUBLISH_REJECTED',
+  AGREEMENT_FASTFORWARDED: 'AGREEMENT_FASTFORWARDED',
+  AGREEMENT_EFFECTIVE: 'AGREEMENT_EFFECTIVE',
+  AGREEMENT_ACCEPTED: 'AGREEMENT_ACCEPTED',
+  AGREEMENT_DECLINED: 'AGREEMENT_DECLINED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1294,6 +1306,25 @@ export const CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS: Record<string, AuditActionSp
   // audit-logs 查表三处登记点零新增。单步动作无旅程可继承，correlationMode=N；必填
   // confirmationNo（顶层展开，assertActionSpec 只查 input 顶层）；requestId=确认单行 id。
   CONFIRMATION_ISSUED: { domain: 'SWAP', correlationMode: N, requiredFields: ['confirmationNo'], requiresCausation: false },
+  // 战役丙波三 T2：客户协议七码——同入本册（触达册自此是「通知 + 确认单 + 协议」），词表导出器/
+  // closure 守则/audit-logs 查表三处登记点零新增。全是单步动作无旅程可继承，correlationMode=N。
+  // 主体信封：primarySubject=AGREEMENT_VERSION·业务键 versionKey；表态两码另带 OWNER=客户。
+  // 必填字段顶层展开（assertActionSpec 只查 input 顶层）+ metadata 镜像；每条带显式 requestId
+  // （含随机后缀——审计 idempotencyKey 含 primarySubjectNo=versionKey，缺了每版第二条会被静默去重）。
+  // 提交发布（合规官，T3）
+  AGREEMENT_PUBLISH_SUBMITTED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['versionKey', 'effectiveAt'], requiresCausation: false },
+  // 批准发布（高管批准落地，PENDING_APPROVAL→PUBLISHED，T3）
+  AGREEMENT_PUBLISHED:         { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['versionKey', 'effectiveAt'], requiresCausation: false },
+  // 驳回/撤单/过期，或批准时 30 天复核不过的退回（PENDING_APPROVAL→DRAFT，T3，actor=system）
+  AGREEMENT_PUBLISH_REJECTED:  { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['versionKey', 'decision'], requiresCausation: false },
+  // ⚡快进改写生效日（演示装置，操作者留痕，T9）
+  AGREEMENT_FASTFORWARDED:     { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['versionKey', 'effectiveAt'], requiresCausation: false },
+  // 生效翻转 PUBLISHED→EFFECTIVE（含旧版退位 SUPERSEDED，actor=system，T2 懒翻写点）
+  AGREEMENT_EFFECTIVE:         { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['versionKey'], requiresCausation: false },
+  // 客户同意（注册/弹窗/阅读页三口同码，metadata 带 source，T2 写点）
+  AGREEMENT_ACCEPTED:          { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['versionKey', 'source'], requiresCausation: false },
+  // 客户暂不同意（仅对当前生效版可落，T2 写点）
+  AGREEMENT_DECLINED:          { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['versionKey', 'source'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——

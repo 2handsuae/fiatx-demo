@@ -149,6 +149,8 @@ describe('AuditLogsService', () => {
       VENDOR_PAYMENT: 'VENDOR_PAYMENT',
       // 战役乙波三 T1（2026-09-30）：审慎（NLA）状态主体
       PRUDENTIAL: 'PRUDENTIAL',
+      // 战役丙波三 T2（2026-10-03）：客户协议发布（审批 workflowType）
+      CUSTOMER_AGREEMENT: 'CUSTOMER_AGREEMENT',
     });
 
     expect(AuditUserActions).toEqual({

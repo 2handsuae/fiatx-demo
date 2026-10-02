@@ -239,7 +239,7 @@
 |---|---|---|---|---|
 | `AUDIT_LOG_QUERIED` | 每次查询审计列表自动记一条（重铺后 Q6 靠它转绿） | N 单步 | — |  |
 
-## CUSTOMER 域 —— V2 客户与合规（28 码）
+## CUSTOMER 域 —— V2 客户与合规（32 码）
 
 客户主档、限制便签（含制裁冻人）、材料请求账、现场开户（CDD/EDD）、档位升级。客户级件无订单旅程，全册单步。
 
@@ -309,6 +309,13 @@
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
 |---|---|---|---|---|
 | `NOTIFICATION_SENT` | 客户站内信（模拟邮件）：订单终态（充值/提现/兑换）+投诉三步里程碑发送一条 | N 单步 | templateCode, channels |  |
+
+### 客户协议表态（战役丙波三 T2 新增）（2）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `AGREEMENT_ACCEPTED` | 客户同意协议版本（注册 / 弹窗 / 阅读页三口同码，metadata 带 source；追加台账一行） | N 单步 | versionKey, source |  |
+| `AGREEMENT_DECLINED` | 客户对当前生效版选择「暂不同意」（仅生效版可落，通知期在途版无拒绝语义） | N 单步 | versionKey, source |  |
 
 ## DEPOSIT 域 —— V4 充值（47 码）
 
@@ -716,6 +723,16 @@
 | `COMPLAINT_RESOLUTION_REJECTED` | 裁决驳回/撤单/过期（回 INVESTIGATING 或 INVESTIGATING_EXTENDED，按是否延期过二选一） | N 单步 | — |  |
 | `COMPLAINT_ESCALATED` | 升级为事故（COMPLAINT_ESCALATION，仅两调查态可升级、一次性） | N 单步 | escalatedIncidentNo |  |
 | `COMPLAINT_DEADLINE_FASTFORWARDED` | ⚡ 把投诉钟（确认/裁决）拨到过去（演示装置，唯金库） | N 单步 | target |  |
+
+### 客户协议发布与生效（战役丙波三 T2，T3/T9 接写点）（5）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `AGREEMENT_PUBLISH_SUBMITTED` | 合规官提交协议版本发布（填生效日，预检 ≥ 今天 + 30 天，进高管审批） | N 单步 | versionKey, effectiveAt |  |
+| `AGREEMENT_PUBLISHED` | 高管批准落地：PENDING_APPROVAL→PUBLISHED，随后全员发通知 | N 单步 | versionKey, effectiveAt |  |
+| `AGREEMENT_PUBLISH_REJECTED` | 驳回 / 撤单 / 过期，或批准时 30 天复核不过的退回（PENDING_APPROVAL→DRAFT，actor=system） | N 单步 | versionKey, decision |  |
+| `AGREEMENT_FASTFORWARDED` | ⚡ 把已公告版本的生效日改写为当前时刻（演示装置，金库 / 超管） | N 单步 | versionKey, effectiveAt |  |
+| `AGREEMENT_EFFECTIVE` | PUBLISHED→EFFECTIVE 翻转（到点懒翻或 ⚡快进触发），旧生效版同事务退位 SUPERSEDED（actor=system） | N 单步 | versionKey |  |
 
 ## 附录 · 退役码（拒写闸名单，历史可读、不再允许写入）
 
