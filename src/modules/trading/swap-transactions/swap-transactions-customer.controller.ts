@@ -26,6 +26,7 @@ import {
 import { Prisma, SwapQuote } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
+import { computeSpreadAmount } from '../shared/spread-amount.util';
 
 @ApiTags('Customer - Swap Transactions')
 @Controller('swap-transactions')
@@ -69,7 +70,7 @@ export class SwapTransactionsCustomerController {
       amount: fromAmount,
       customerId: req.user.userId,
     });
-    return this.toCustomerQuoteResponse(quote);
+    return this.toCustomerQuoteResponse(quote, toAsset.decimals ?? 8);
   }
 
   private parseJson<T>(value: string | null | undefined, fallback: T): T {
@@ -81,7 +82,7 @@ export class SwapTransactionsCustomerController {
     }
   }
 
-  private toCustomerQuoteResponse(quote: SwapQuote) {
+  private toCustomerQuoteResponse(quote: SwapQuote, toAssetDecimals: number) {
     const totals = this.parseJson<Record<string, string>>(quote.totalsJson, {});
     const netAmountOut = Number(totals.amountOutNet ?? quote.amountOut);
     return {
@@ -111,6 +112,10 @@ export class SwapTransactionsCustomerController {
       feeTotal: Number(quote.feeTotal),
       feeCurrency: quote.feeCurrency,
       feeBreakdown: this.parseJson<unknown[]>(quote.feeBreakdown, []),
+      spreadAmount: Number(computeSpreadAmount(
+        new Prisma.Decimal(quote.amountIn), new Prisma.Decimal(quote.marketRate),
+        new Prisma.Decimal(quote.amountOut), toAssetDecimals,
+      )),
     };
   }
 

@@ -18,6 +18,7 @@ import { SwapQuoteService } from '../swap-fee-level/swap-quote.service';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { SwapTransactionsService } from './swap-transactions.service';
+import { computeSpreadAmount } from '../shared/spread-amount.util';
 import { SwapTransactionAction, SwapTransactionStatus } from './dto/swap-transaction.dto';
 import { SwapLegAccounting, SwapSettleCtx } from './swap-leg-accounting';
 import {
@@ -457,11 +458,7 @@ export class SwapWorkflowService {
 
         // Spread margin = market value of the in-leg minus the quoted gross out.
         // Kept as a reporting field on the swap row only.
-        const marketRate = new Prisma.Decimal(quote.marketRate);
-        const marketValueOut = fromAmount
-          .mul(marketRate)
-          .toDecimalPlaces(toDecimals, Prisma.Decimal.ROUND_HALF_UP);
-        const spreadAmount = marketValueOut.sub(toAmount);
+        const spreadAmount = computeSpreadAmount(fromAmount, new Prisma.Decimal(quote.marketRate), toAmount, toDecimals);
 
         // Create the swap row in COMPLIANCE_PENDING — no legs are booked here.
         // Legs are built only after the sell leg clears Sumsub KYT (Task 6
