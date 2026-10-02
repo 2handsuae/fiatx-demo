@@ -186,11 +186,16 @@
 }
 
 /* 成交确认单打印（战役丙波二 T6）：只印 .print-confirmation 区块，整体翻浅色——
-   页面是深色主题，直接打印不可读。打印按钮自身不进纸面。 */
+   页面是深色主题，直接打印不可读。打印按钮自身不进纸面。
+   区块用 fixed 而非 absolute：真实壳层（CustomerDashboardLayout）里 main 是 relative +
+   overflow，absolute 会被侧栏/顶栏宽高推偏、被窄宽度挤得换行；fixed 以纸面为参照。
+   html 切 light + html/body 翻白：勾「背景图形」打印时，深色页底与页边深色画布不进纸面。 */
 @media print {
+  html { color-scheme: light !important; }
+  html, body { background: #fff !important; }
   body * { visibility: hidden; }
   .print-confirmation, .print-confirmation * { visibility: visible; }
-  .print-confirmation { position: absolute; inset: 0 auto auto 0; width: 100%;
+  .print-confirmation { position: fixed; inset: 0 auto auto 0; width: 100%;
     background: #fff !important; }
   .print-confirmation * { color: #111 !important; background: transparent !important;
     border-color: #bbb !important; }
