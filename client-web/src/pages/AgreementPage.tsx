@@ -7,6 +7,7 @@ import { AlertCircle, Printer, RefreshCw } from 'lucide-react';
 import AgreementSections from '../components/AgreementSections';
 import { CustomerSessionError, customerFetch, getCustomerApiErrorMessage } from '../utils/customerFetch';
 import { agreementStatusLines, type AgreementMe, type AgreementVersion } from '../utils/agreementView';
+import { AGREEMENT_CONSENT_CHANGED_EVENT } from '../utils/agreementGate';
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -56,6 +57,8 @@ const AgreementPage = () => {
         setActionError(await getCustomerApiErrorMessage(res, 'Could not record your acceptance'));
         return;
       }
+      // 通知壳层 AgreementGate 重取 me：横幅/弹窗当场消失，无需整页刷新（T8 裁决①）。
+      window.dispatchEvent(new Event(AGREEMENT_CONSENT_CHANGED_EVENT));
       await load();
     } catch (err) {
       if (err instanceof CustomerSessionError) return;

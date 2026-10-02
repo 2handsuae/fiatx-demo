@@ -4,6 +4,10 @@ const SESSION_EXPIRED_MESSAGE = 'Session expired. Please sign in again.';
 // （那正是 tipping-off）。只剩「关系已终止」这一种硬拒。
 const ACCOUNT_CLOSED_CODE = 'CUSTOMER_ACCOUNT_CLOSED';
 const ACCOUNT_CLOSED_MESSAGE = 'This account has been closed.';
+// 战役丙波三 T5/T8：能力闸的「请先同意客户协议」是 403，但它是客户自己的选择、不是会话失效——
+// 必须原样交给调用方，页面才能在错误条里附 /agreement 引导；若走下面的会话失效分支，
+// 客户会被清 token 踢回登录页，调用方的 catch 还会把 CustomerSessionError 吞掉。
+export const AGREEMENT_NOT_ACCEPTED_CODE = 'AGREEMENT_NOT_ACCEPTED';
 
 export class CustomerSessionError extends Error {
   code?: string;
@@ -84,6 +88,7 @@ export const customerFetch = async (
   if (requireAuth && (response.status === 401 || response.status === 403)) {
     const payload = await readJsonSafely(response);
     const code = String(payload.code || '').trim().toUpperCase();
+    if (response.status === 403 && code === AGREEMENT_NOT_ACCEPTED_CODE) return response;
     const message =
       String(payload.message || '').trim() ||
       (code === ACCOUNT_CLOSED_CODE ? ACCOUNT_CLOSED_MESSAGE : SESSION_EXPIRED_MESSAGE);
@@ -107,4 +112,10 @@ export const getCustomerApiErrorMessage = async (
     return payload.message;
   }
   return fallback;
+};
+
+/** 读错误体里的机器码（体非 JSON 或无 code → null），与 getCustomerApiErrorMessage 读同一份 body（clone，可重复读）。 */
+export const getCustomerApiErrorCode = async (response: Response): Promise<string | null> => {
+  const payload = await readJsonSafely(response);
+  return typeof payload.code === 'string' && payload.code.trim() ? payload.code : null;
 };

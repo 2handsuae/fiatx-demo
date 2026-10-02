@@ -18,8 +18,10 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { formatAssetAmount, formatRate8, normalizeDecimals } from '../utils/number-format';
 import {
+  AGREEMENT_NOT_ACCEPTED_CODE,
   CustomerSessionError,
   customerFetch,
+  getCustomerApiErrorCode,
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
 import { resolveSubmitErrorInfo, TIER_UPGRADE_HINT_CODES } from '../utils/limitErrorText';
@@ -27,6 +29,7 @@ import { getSwapStatusView } from '../utils/swapStatusView';
 import { DISCLOSURE_COPY, fillRateDisclosure } from '../utils/disclosureCopy';
 import { onCustomerUpdated } from '../utils/customerSocket';
 import { RestrictionBanner } from '../components/RestrictionBanner';
+import { AgreementReviewLink } from '../components/AgreementGate';
 import { StatusBadge } from '../components/StatusBadge';
 import { isCapabilityRestricted } from '../utils/restrictedCapabilities';
 
@@ -176,6 +179,8 @@ const Swap = () => {
   const [showConfirm, setShowConfirm] = useState(false);
   const [swapping, setSwapping] = useState(false);
   const [limitBanner, setLimitBanner] = useState<{ message: string; upgradeHint: boolean } | null>(null);
+  // 协议拦截（AGREEMENT_NOT_ACCEPTED）的错误条文案；非空时在主卡片按钮上方显示，尾部附 /agreement 引导链。
+  const [agreementBlock, setAgreementBlock] = useState<string | null>(null);
 
   // Live Rate State
   const [liveRate, setLiveRate] = useState<number | null>(null);
@@ -445,6 +450,7 @@ const Swap = () => {
     if (!fromAssetId || !toAssetId || !fromAmount || Number(fromAmount) <= 0) return;
     if (missingReceivingAccountCodes.length > 0) return;
     setLoading(true);
+    setAgreementBlock(null);
     try {
       const response = await customerFetch(`${import.meta.env.VITE_API_URL}/swap-transactions/quotes`, {
         method: 'POST',
@@ -464,7 +470,12 @@ const Swap = () => {
         setQuoteExpiresIn(expiresInSec);
         setShowConfirm(true);
       } else {
-        alert(await getCustomerApiErrorMessage(response, 'Failed to get quote'));
+        const message = await getCustomerApiErrorMessage(response, 'Failed to get quote');
+        if ((await getCustomerApiErrorCode(response)) === AGREEMENT_NOT_ACCEPTED_CODE) {
+          setAgreementBlock(message);
+        } else {
+          alert(message);
+        }
       }
     } catch (error) {
       if (error instanceof CustomerSessionError) return;
@@ -524,6 +535,10 @@ const Swap = () => {
         const { message, limitCode } = await resolveSubmitErrorInfo(response, 'Swap failed');
         if (limitCode) {
           setLimitBanner({ message, upgradeHint: TIER_UPGRADE_HINT_CODES.has(limitCode) });
+        } else if ((await getCustomerApiErrorCode(response)) === AGREEMENT_NOT_ACCEPTED_CODE) {
+          // 报价之后才生效的新版协议也可能在提交时拦下：收起确认窗，错误条落在主卡片上。
+          setShowConfirm(false); setFirmQuote(null); setQuoteExpiresIn(0);
+          setAgreementBlock(message);
         } else {
           alert(message);
           if (message.includes('Quote')) { setShowConfirm(false); setFirmQuote(null); setQuoteExpiresIn(0); }
@@ -794,6 +809,15 @@ const Swap = () => {
                           Create receiving account →
                         </button>
                       </div>
+                    </div>
+                  )}
+
+                  {agreementBlock && (
+                    <div className="rounded-xl border border-fx-rust/30 bg-fx-rust/5 px-4 py-3 text-sm text-fx-rust">
+                      {agreementBlock}
+                      <span className="ml-2">
+                        <AgreementReviewLink />
+                      </span>
                     </div>
                   )}
 

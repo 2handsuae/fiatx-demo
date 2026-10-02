@@ -18,6 +18,7 @@ import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import NotificationBell from './NotificationBell';
+import AgreementGate from './AgreementGate';
 import { closeCustomerSocket } from '../utils/customerSocket';
 
 /* ────────────────────────────────────────────────────────────────
@@ -312,6 +313,9 @@ const CustomerDashboardLayout = () => {
             </Link>
           </div>
         </header>
+
+        {/* ── 客户协议：横幅（常驻态）+ 弹窗（fixed 覆盖层），态由后端 me 判定 ── */}
+        <AgreementGate />
 
         {/* ── CONTENT ────────────────────────────────────────── */}
         <main

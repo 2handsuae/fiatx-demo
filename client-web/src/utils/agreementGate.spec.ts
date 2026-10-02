@@ -1,0 +1,70 @@
+import { agreementGateState } from './agreementGate';
+import type { AgreementConsent, AgreementMe } from './agreementView';
+
+// 四态判定只读 pending 是否存在 + consent 五键，不读版本正文——夹具只造这两块。
+const consent = (patch: Partial<AgreementConsent>): AgreementConsent => ({
+  acceptedVersionKey: null,
+  acceptedAt: null,
+  acceptedCurrent: false,
+  acceptedPending: false,
+  declinedCurrentAt: null,
+  ...patch,
+});
+
+const pendingVersion = { versionKey: 'v2', effectiveAt: '2026-11-01T00:00:00.000Z', summary: 's', sections: [] };
+
+const me = (hasPending: boolean, patch: Partial<AgreementConsent>): Pick<AgreementMe, 'pending' | 'consent'> => ({
+  pending: hasPending ? pendingVersion : null,
+  consent: consent(patch),
+});
+
+describe('agreementGateState', () => {
+  it.each([
+    ['①已同意生效版、无在途版 → NONE', me(false, { acceptedCurrent: true }), 'NONE'],
+    [
+      '②已同意生效版、在途版在、未提前同意 → PENDING_DISMISSIBLE（可关弹窗）',
+      me(true, { acceptedCurrent: true, acceptedPending: false }),
+      'PENDING_DISMISSIBLE',
+    ],
+    [
+      '③已同意生效版、在途版在、已提前同意 → NONE（提前同意静默）',
+      me(true, { acceptedCurrent: true, acceptedPending: true }),
+      'NONE',
+    ],
+    [
+      '④生效版未同意、从未拒绝 → EFFECTIVE_BLOCKING（强制弹窗）',
+      me(false, { acceptedCurrent: false, declinedCurrentAt: null }),
+      'EFFECTIVE_BLOCKING',
+    ],
+    [
+      '⑤生效版未同意、拒绝过 → DECLINED_BANNER（横幅常驻）',
+      me(false, { acceptedCurrent: false, declinedCurrentAt: '2026-10-03T00:00:00.000Z' }),
+      'DECLINED_BANNER',
+    ],
+  ])('%s', (_name, input, expected) => {
+    expect(agreementGateState(input)).toBe(expected);
+  });
+
+  it('生效版未同意时，在途版不改变结论（生效版优先：④⑤不被在途版掩盖）', () => {
+    expect(agreementGateState(me(true, { acceptedCurrent: false }))).toBe('EFFECTIVE_BLOCKING');
+    expect(
+      agreementGateState(me(true, { acceptedCurrent: false, declinedCurrentAt: '2026-10-03T00:00:00.000Z' })),
+    ).toBe('DECLINED_BANNER');
+  });
+
+  it('生效版未同意时，acceptedPending=true 也不能让它静默（不得把提前同意当成已同意生效版）', () => {
+    expect(agreementGateState(me(true, { acceptedCurrent: false, acceptedPending: true }))).toBe(
+      'EFFECTIVE_BLOCKING',
+    );
+  });
+
+  it('acceptedCurrent=true 时旧的 declinedCurrentAt 不再触发横幅（拒绝后又同意）', () => {
+    expect(
+      agreementGateState(me(false, { acceptedCurrent: true, declinedCurrentAt: '2026-10-03T00:00:00.000Z' })),
+    ).toBe('NONE');
+  });
+
+  it('pending 为空而 acceptedPending=false 的已同意客户 → NONE（没有在途版就没有可关弹窗）', () => {
+    expect(agreementGateState(me(false, { acceptedCurrent: true, acceptedPending: false }))).toBe('NONE');
+  });
+});

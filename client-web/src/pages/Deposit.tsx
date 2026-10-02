@@ -6,13 +6,16 @@ import { useAuth } from '../context/AuthContext';
 import { formatAssetAmount } from '../utils/number-format';
 import { useSimulationMode } from '../utils/simulationMode';
 import {
+  AGREEMENT_NOT_ACCEPTED_CODE,
   CustomerSessionError,
   customerFetch,
+  getCustomerApiErrorCode,
   getCustomerApiErrorMessage,
 } from '../utils/customerFetch';
 import { getDepositStatusView } from '../utils/depositStatusView';
 import { onCustomerUpdated } from '../utils/customerSocket';
 import { RestrictionBanner } from '../components/RestrictionBanner';
+import { AgreementReviewLink } from '../components/AgreementGate';
 import { PendingActionBanner } from '../components/PendingActionBanner';
 import { StatusBadge } from '../components/StatusBadge';
 import { DISCLOSURE_COPY } from '../utils/disclosureCopy';
@@ -93,6 +96,8 @@ interface ScanInboundSignalsResult {
 interface SimulationFeedback {
   kind: 'success' | 'error';
   message: string;
+  /** 协议拦截（AGREEMENT_NOT_ACCEPTED）：错误条尾部附 /agreement 引导链。 */
+  agreementBlocked?: boolean;
 }
 
 interface SimulationResultSummary {
@@ -522,9 +527,12 @@ const Deposit = () => {
       );
 
       if (!createResponse.ok) {
-        throw new Error(
-          await getCustomerApiErrorMessage(createResponse, 'Failed to submit inbound signal'),
-        );
+        const message = await getCustomerApiErrorMessage(createResponse, 'Failed to submit inbound signal');
+        if ((await getCustomerApiErrorCode(createResponse)) === AGREEMENT_NOT_ACCEPTED_CODE) {
+          setSignalFeedback({ kind: 'error', message, agreementBlocked: true });
+          return;
+        }
+        throw new Error(message);
       }
 
       const createdSignal =
@@ -591,6 +599,11 @@ const Deposit = () => {
     return (
       <div className={`rounded-xl border px-4 py-3 text-sm ${tone}`}>
         {feedback.message}
+        {feedback.agreementBlocked && (
+          <span className="ml-2">
+            <AgreementReviewLink />
+          </span>
+        )}
       </div>
     );
   };
