@@ -769,7 +769,44 @@ export class SwapTransactionsService {
     if (item.ownerId !== customerId) {
       throw new ForbiddenException('Not your swap transaction');
     }
-    return this.toCustomerSwapView(item);
+    const view = this.toCustomerSwapView(item);
+    return { ...view, confirmation: await this.toCustomerConfirmation(item.swapNo, view.status) };
+  }
+
+  /**
+   * 战役丙波二 T4：详情响应的成交确认单子对象（客户面白名单，逐键显式映射——
+   * 禁 `...conf` 整行展开：行上的 id / swapNo / ownerCustomerNo 是内部列，新增列也天生不外泄）。
+   *
+   * 判据用 `toCustomerSwapView` 收敛后的 status（镜像 completedAt 先例）：FROZEN 单收敛成
+   * COMPLIANCE_PENDING，永不出具确认单，所以"有没有确认单"反推不出冻结（tipping-off）。
+   * 只在 SUCCESS 时才去查表：非 SUCCESS 单恒 null，且不产生任何"查过确认单"的差异路径。
+   * SUCCESS 但确认单行缺失（历史边缘）→ null，页面照旧。
+   */
+  private async toCustomerConfirmation(swapNo: string, customerStatus: string) {
+    if (customerStatus !== SwapTransactionStatus.SUCCESS) return null;
+    const conf = await this.prisma.tradeConfirmation.findUnique({ where: { swapNo } });
+    if (!conf) return null;
+    return {
+      confirmationNo: conf.confirmationNo,
+      quoteNo: conf.quoteNo,
+      fromAmount: conf.fromAmount,
+      fromAssetCode: conf.fromAssetCode,
+      toAmount: conf.toAmount,
+      toAssetCode: conf.toAssetCode,
+      netToAmount: conf.netToAmount,
+      feeAmount: conf.feeAmount,
+      feeCurrency: conf.feeCurrency,
+      feeLines: JSON.parse(conf.feeLines) as Array<{ itemCode: string; amount: string; currency: string }>,
+      exchangeRate: conf.exchangeRate,
+      marketRate: conf.marketRate,
+      rateSource: conf.rateSource,
+      fetchedAt: conf.fetchedAt,
+      spreadPercent: conf.spreadPercent,
+      spreadAmount: conf.spreadAmount,
+      tradedAt: conf.tradedAt,
+      settledAt: conf.settledAt,
+      issuedAt: conf.issuedAt,
+    };
   }
 
   /**

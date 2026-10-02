@@ -349,6 +349,8 @@ describe('customer-facing tipping-off whitelist (findOneForCustomer / findOneFor
         marketRate: null,
         spreadPercent: null,
         timeline: [{ status: 'COMPLIANCE_PENDING', at: fullRow.createdAt.toISOString() }],
+        // 丙波二 T4：非 SUCCESS 单恒 null（确认单只给收敛态 SUCCESS）。
+        confirmation: null,
       });
     });
 
@@ -1094,5 +1096,121 @@ describe('findAll — E1 ownerRestricted derivation (admin vs customerScope)', (
     expect(adminOut.items.map((i: any) => i.ownerRestricted)).toEqual([true, false]);
     const customerOut = await service.findAll({} as any, { customerScope: true });
     expect(customerOut.items[0].ownerRestricted).toBeUndefined();
+  });
+});
+
+// 战役丙波二 T4：客户详情响应附 confirmation 子对象（白名单显式映射）。
+// prisma mock 行为化——findUnique 按 where.swapNo 过滤（不匹配即 null），不无视 where 假绿。
+describe('findOneForCustomer · confirmation 子对象（丙波二 T4）', () => {
+  let service: SwapTransactionsService;
+  let prisma: any;
+
+  const CONFIRMATION_KEYS = [
+    'confirmationNo', 'quoteNo', 'fromAmount', 'fromAssetCode', 'toAmount', 'toAssetCode', 'netToAmount',
+    'feeAmount', 'feeCurrency', 'feeLines', 'exchangeRate', 'marketRate', 'rateSource', 'fetchedAt',
+    'spreadPercent', 'spreadAmount', 'tradedAt', 'settledAt', 'issuedAt',
+  ];
+
+  const swapRow = (over: any = {}) => ({
+    id: 'swap-c4',
+    swapNo: 'SWP0400',
+    quoteNo: 'SQT0400',
+    ownerId: 'cust-1',
+    ownerNo: 'C0001',
+    status: 'SUCCESS',
+    fromAmount: '100',
+    toAmount: '99.4',
+    netToAmount: '97.65',
+    feeAmount: '1.75',
+    feeCurrency: 'USDT',
+    feeBreakdown: '[]',
+    exchangeRate: '0.994',
+    statusHistory: '[]',
+    createdAt: new Date('2026-10-02T08:01:00.000Z'),
+    completedAt: new Date('2026-10-02T08:06:00.000Z'),
+    fromAsset: { id: 'a1', currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+    toAsset: { id: 'a2', currency: 'USDC', code: 'USDC', network: 'TRON', decimals: 6 },
+    ...over,
+  });
+
+  // 确认单整行（含 id/swapNo/ownerCustomerNo 三个内部列——白名单必须把它们挡在响应之外）
+  const confRow = (over: any = {}) => ({
+    id: 'tc-uuid-1',
+    confirmationNo: 'CNF0400',
+    swapNo: 'SWP0400',
+    ownerCustomerNo: 'C0001',
+    quoteNo: 'SQT0400',
+    fromAmount: '100',
+    fromAssetCode: 'USDT',
+    toAmount: '99.4',
+    toAssetCode: 'USDC',
+    netToAmount: '97.65',
+    feeAmount: '1.75',
+    feeCurrency: 'USDT',
+    feeLines: JSON.stringify([{ itemCode: 'SWAP_FEE', amount: '1.5', currency: 'USDT' }]),
+    exchangeRate: '0.994',
+    marketRate: '0.9990',
+    rateSource: 'DEMO_FX',
+    fetchedAt: new Date('2026-10-02T08:00:00.000Z'),
+    spreadPercent: '0.5',
+    spreadAmount: '0.5',
+    tradedAt: new Date('2026-10-02T08:01:00.000Z'),
+    settledAt: new Date('2026-10-02T08:06:00.000Z'),
+    issuedAt: new Date('2026-10-02T08:06:01.000Z'),
+    ...over,
+  });
+
+  const setup = (swap: any, confs: any[]) => {
+    prisma = {
+      swapTransaction: { findUnique: jest.fn().mockResolvedValue(swap) },
+      fundsOrder: { findMany: jest.fn().mockResolvedValue([]) },
+      tradeConfirmation: {
+        findUnique: jest.fn(async ({ where }: any) => confs.find((c) => c.swapNo === where.swapNo) ?? null),
+      },
+    };
+    service = new SwapTransactionsService(prisma as any, {} as any, {} as any, { emit: jest.fn() } as any, { recordByActor: jest.fn() } as any, { resolve: jest.fn().mockResolvedValue({ blocked: new Set() }) } as any);
+  };
+
+  it('SUCCESS 单且确认单存在 → confirmation 含且仅含 19 键（白名单封条，内部列 id/swapNo/ownerCustomerNo 不外泄），feeLines 为解析后的数组', async () => {
+    setup(swapRow(), [confRow()]);
+
+    const result: any = await service.findOneForCustomer('swap-c4', 'cust-1');
+
+    expect(result.status).toBe('SUCCESS');
+    expect(Object.keys(result.confirmation).sort()).toEqual([...CONFIRMATION_KEYS].sort());
+    expect(result.confirmation.confirmationNo).toBe('CNF0400');
+    expect(result.confirmation.toAssetCode).toBe('USDC');
+    expect(result.confirmation.feeLines).toEqual([{ itemCode: 'SWAP_FEE', amount: '1.5', currency: 'USDT' }]);
+    expect(result.confirmation.settledAt).toEqual(new Date('2026-10-02T08:06:00.000Z'));
+    expect(prisma.tradeConfirmation.findUnique).toHaveBeenCalledWith({ where: { swapNo: 'SWP0400' } });
+  });
+
+  it('FROZEN 单（哪怕确认单行存在）→ confirmation===null，且 status===COMPLIANCE_PENDING、completedAt===null——冻结单与正常处理中单不可区分', async () => {
+    setup(swapRow({ status: 'FROZEN' }), [confRow()]);
+
+    const result: any = await service.findOneForCustomer('swap-c4', 'cust-1');
+
+    expect(result.confirmation).toBeNull();
+    expect(result.status).toBe('COMPLIANCE_PENDING');
+    expect(result.completedAt).toBeNull();
+  });
+
+  it('SUCCESS 单但确认单行不存在（历史边缘）→ confirmation===null，其余页面照旧', async () => {
+    setup(swapRow(), []);
+
+    const result: any = await service.findOneForCustomer('swap-c4', 'cust-1');
+
+    expect(result.confirmation).toBeNull();
+    expect(result.status).toBe('SUCCESS');
+    expect(result.swapNo).toBe('SWP0400');
+  });
+
+  it('按业务键 swapNo 的详情入口同样带 confirmation（复用 findOneForCustomer）', async () => {
+    setup(swapRow(), [confRow()]);
+    prisma.swapTransaction.findFirst = jest.fn().mockResolvedValue({ id: 'swap-c4' });
+
+    const result: any = await service.findOneForCustomerBySwapNo('SWP0400', 'cust-1');
+
+    expect(result.confirmation.confirmationNo).toBe('CNF0400');
   });
 });
