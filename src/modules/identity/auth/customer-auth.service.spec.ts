@@ -2,6 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { CustomerAuthService } from './customer-auth.service';
 import { AuditActions } from '../../audit-logging/constants/audit-actions.constant';
+import { AgreementsReadService } from '../agreements/agreements-read.service';
 
 describe('CustomerAuthService', () => {
   const prismaMock: any = {
@@ -20,11 +21,18 @@ describe('CustomerAuthService', () => {
     recordSystem: jest.fn(),
   };
 
+  // 战役丙波三 T6：注册链路新增对协议读服务的依赖。本 describe 内的既有用例都与协议无关，
+  // 给一个惰性 stub 即可；"注册落同意"的行为断言见文件末尾独立 describe（真读服务 + 行为化内存库）。
+  const agreementsReadStub: any = {
+    getCurrentEffective: jest.fn().mockResolvedValue({ versionKey: 'v1' }),
+    recordConsent: jest.fn().mockResolvedValue(undefined),
+  };
+
   let service: CustomerAuthService;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new CustomerAuthService(prismaMock, jwtServiceMock, auditLogsServiceMock);
+    service = new CustomerAuthService(prismaMock, jwtServiceMock, auditLogsServiceMock, agreementsReadStub);
   });
 
   // 2026-08-26（812de117）裁定"客户登录流水归安全日志，本项目不做"，删的是
@@ -128,5 +136,98 @@ describe('CustomerAuthService', () => {
         }),
       }),
     );
+  });
+});
+
+// 战役丙波三 T6：注册同意落库。用【真的】AgreementsReadService 配行为化内存库——
+// "consent 行 + AGREEMENT_ACCEPTED(source=REGISTER) 审计"必须是 T2 真写出来的，不是 stub 事先编好的。
+describe('CustomerAuthService.register 落协议同意（波三 T6）', () => {
+  const makeWired = (versions: Array<{ versionKey: string; status: string; effectiveAt: Date | null }>) => {
+    const consentRows: any[] = [];
+    const prisma: any = {
+      customerMain: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({
+          id: 'c1', customerNo: 'CU250907001', email: 'new@example.com',
+          customerType: 'INDIVIDUAL', passwordHash: 'hashed',
+        }),
+      },
+      customerAgreementVersion: {
+        // tickEffective 的"到点待翻"查询与 EFFECTIVE / PUBLISHED 查询都经 findFirst，按 status 过滤；
+        // 到点判据（effectiveAt<=now）这里按语义实现，免得无视 where 假绿。
+        findFirst: jest.fn(async ({ where }: any = {}) =>
+          versions.find(
+            (v) =>
+              v.status === where.status &&
+              (where.effectiveAt?.lte === undefined || (v.effectiveAt != null && v.effectiveAt <= where.effectiveAt.lte)),
+          ) ?? null,
+        ),
+      },
+      customerAgreementConsent: {
+        create: jest.fn(async ({ data }: any) => {
+          consentRows.push(data);
+          return data;
+        }),
+      },
+    };
+    const events: string[] = [];
+    const audit: any = {
+      recordSystem: jest.fn(),
+      recordByActor: jest.fn(async (input: any) => {
+        events.push(input.action);
+        return {};
+      }),
+    };
+    const agreementsRead = new AgreementsReadService(prisma, audit);
+    const service = new CustomerAuthService(prisma, { sign: jest.fn() } as any, audit, agreementsRead);
+    return { service, prisma, audit, consentRows, events };
+  };
+
+  const FUTURE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+  it('注册后落一行 consent：versionKey=注册时刻的生效版（此处 v2 生效，证明不是写死 v1）、ACCEPTED，customer 取自刚建的客户', async () => {
+    const { service, consentRows } = makeWired([
+      { versionKey: 'v1', status: 'SUPERSEDED', effectiveAt: new Date('2026-01-01') },
+      { versionKey: 'v2', status: 'EFFECTIVE', effectiveAt: new Date('2026-06-01') },
+    ]);
+
+    await service.register({ email: 'new@example.com', password: '123456', customerType: 'INDIVIDUAL' });
+
+    expect(consentRows).toEqual([
+      { customerId: 'c1', customerNo: 'CU250907001', versionKey: 'v2', action: 'ACCEPTED' },
+    ]);
+  });
+
+  it('审计顺序：CUSTOMER_CREATED 在前，AGREEMENT_ACCEPTED(source=REGISTER) 在后', async () => {
+    const { service, audit, events } = makeWired([{ versionKey: 'v1', status: 'EFFECTIVE', effectiveAt: new Date('2026-01-01') }]);
+
+    await service.register({ email: 'new@example.com', password: '123456', customerType: 'INDIVIDUAL' });
+
+    expect(events).toEqual([AuditActions.CUSTOMER_CREATED, AuditActions.AGREEMENT_ACCEPTED]);
+    expect(audit.recordByActor).toHaveBeenLastCalledWith(
+      expect.objectContaining({ action: AuditActions.AGREEMENT_ACCEPTED, versionKey: 'v1', source: 'REGISTER', ownerCustomerNo: 'CU250907001' }),
+      expect.objectContaining({ actorType: 'CUSTOMER', actorNo: 'CU250907001' }),
+    );
+  });
+
+  it('注册时已有在途 v2：照常只同意生效版 v1（不特殊处理，登录后由弹窗引导）', async () => {
+    const { service, consentRows } = makeWired([
+      { versionKey: 'v1', status: 'EFFECTIVE', effectiveAt: new Date('2026-01-01') },
+      { versionKey: 'v2', status: 'PUBLISHED', effectiveAt: FUTURE },
+    ]);
+
+    await service.register({ email: 'new@example.com', password: '123456', customerType: 'INDIVIDUAL' });
+
+    expect(consentRows.map((r) => `${r.versionKey}/${r.action}`)).toEqual(['v1/ACCEPTED']);
+  });
+
+  it('邮箱已存在 → 抛错且不落 consent（同意绑在建户成功之后）', async () => {
+    const { service, prisma, consentRows } = makeWired([{ versionKey: 'v1', status: 'EFFECTIVE', effectiveAt: new Date('2026-01-01') }]);
+    prisma.customerMain.findUnique.mockResolvedValue({ id: 'old' });
+
+    await expect(
+      service.register({ email: 'new@example.com', password: '123456', customerType: 'INDIVIDUAL' }),
+    ).rejects.toThrow('Email already exists');
+    expect(consentRows).toHaveLength(0);
   });
 });

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { NotificationsModule } from '../../../core/notifications/notifications.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { ApprovalsModule } from '../../governance/approvals/approvals.module';
+import { AgreementsClientController } from './agreements.client.controller';
 import { AgreementPublishApprovalService } from './agreement-publish-approval.service';
 import { AgreementPublishWorkflowService } from './agreement-publish-workflow.service';
 import { AgreementsReadService } from './agreements-read.service';
@@ -16,6 +17,7 @@ import { AgreementsReadService } from './agreements-read.service';
  */
 @Module({
   imports: [AuditLogsModule, ApprovalsModule, NotificationsModule],
+  controllers: [AgreementsClientController],
   providers: [AgreementsReadService, AgreementPublishApprovalService, AgreementPublishWorkflowService],
   exports: [AgreementsReadService],
 })

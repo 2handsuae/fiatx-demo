@@ -12,6 +12,7 @@ import { randomUUID } from 'crypto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
+import { AgreementsReadService } from '../agreements/agreements-read.service';
 
 interface AuthRequestContext {
   requestId?: string;
@@ -25,6 +26,7 @@ export class CustomerAuthService {
     private prisma: PrismaService,
     private jwtService: JwtService,
     private auditLogsService: AuditLogsService,
+    private agreementsRead: AgreementsReadService,
   ) {}
 
   async register(
@@ -68,6 +70,16 @@ export class CustomerAuthService {
       requestId: `CUSTOMER_CREATED_${customer.customerNo}_${randomUUID()}`,
       sourcePlatform: 'CLIENT_API',
     } as any, { actorType: 'CUSTOMER', actorNo: customer.customerNo, actorDisplayName: customer.customerNo, actorRolesAtTime: ['CUSTOMER'] });
+
+    // 战役丙波三：注册页的勾选即同意注册时刻的生效版（source=REGISTER）。顺序在 CUSTOMER_CREATED 之后——
+    // 同意台账行与同意审计都以"客户已存在"为前提。注册时即使有在途版也只同意生效版，在途版登录后由弹窗引导。
+    const effective = await this.agreementsRead.getCurrentEffective();
+    await this.agreementsRead.recordConsent(
+      { customerId: customer.id, customerNo: customer.customerNo },
+      effective.versionKey,
+      'ACCEPTED',
+      'REGISTER',
+    );
 
     const { passwordHash: _, ...result } = customer;
     return result;

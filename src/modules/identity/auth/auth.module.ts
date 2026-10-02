@@ -16,6 +16,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './jwt.strategy';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
+import { AgreementsModule } from '../agreements/agreements.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
     AccessControlModule,
     PrismaModule,
     AuditLogsModule,
+    AgreementsModule,
     PassportModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'secretKey',
