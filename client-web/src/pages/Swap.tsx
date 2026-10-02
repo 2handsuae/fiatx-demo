@@ -24,6 +24,7 @@ import {
 } from '../utils/customerFetch';
 import { resolveSubmitErrorInfo, TIER_UPGRADE_HINT_CODES } from '../utils/limitErrorText';
 import { getSwapStatusView } from '../utils/swapStatusView';
+import { DISCLOSURE_COPY, fillRateDisclosure } from '../utils/disclosureCopy';
 import { onCustomerUpdated } from '../utils/customerSocket';
 import { RestrictionBanner } from '../components/RestrictionBanner';
 import { StatusBadge } from '../components/StatusBadge';
@@ -107,6 +108,7 @@ interface FirmQuoteResult {
   marketRate: number;
   spreadPercent: number;
   spreadBps: number;
+  spreadAmount: number;
   rateSource: string;
   fetchedAt: string;
   feeTotal: number;
@@ -1023,6 +1025,12 @@ const Swap = () => {
                         </span>
                       </div>
                       <div className="flex justify-between text-sm">
+                        <span className="text-fx-dune font-medium">{DISCLOSURE_COPY.retainedLabel}</span>
+                        <span className="font-mono text-fx-sand">
+                          Fee {formatAssetAmount(firmQuote.feeTotal, getAssetDecimalsByCode(firmQuote.feeCurrency))} {firmQuote.feeCurrency || '-'} · Spread {formatAssetAmount(firmQuote.spreadAmount, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
                         <span className="text-fx-dune font-medium">Net Receive</span>
                         <span className="font-mono text-fx-sage">
                           {formatAssetAmount(firmQuote.netAmountOut, getAssetDecimalsByCode(firmQuote.currencyOut))} {firmQuote.currencyOut}
@@ -1084,6 +1092,15 @@ const Swap = () => {
                       )}
                     </div>
                   )}
+
+                  <div className="mb-4 space-y-1 px-2">
+                    <p className="text-xs text-fx-dune uppercase font-bold tracking-wider">Before you confirm</p>
+                    <p className="text-[11px] text-fx-dust">{DISCLOSURE_COPY.principal}</p>
+                    <p className="text-[11px] text-fx-dust">
+                      {fillRateDisclosure(firmQuote.rateSource, firmQuote.fetchedAt, firmQuote.spreadPercent)}
+                    </p>
+                    <p className="text-[11px] text-fx-dust">{DISCLOSURE_COPY.conflict}</p>
+                  </div>
 
                   <button
                     onClick={handleExecuteSwap}
