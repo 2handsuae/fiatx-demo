@@ -2086,3 +2086,29 @@ model TradeConfirmation {
   @@index([ownerCustomerNo])
   @@map("trade_confirmations")
 }
+
+model CustomerAgreementVersion {
+  id                String    @id @default(uuid())
+  versionKey        String    @unique // 'v1'/'v2'——破例不走单号惯例（spec §0 岔口4：版本非单据）
+  status            String    // DRAFT | PENDING_APPROVAL | PUBLISHED | EFFECTIVE | SUPERSEDED
+  summary           String    // 一句话变更摘要，通知与弹窗引用；随种子预置，无编辑入口
+  effectiveAt       DateTime? // 提交发布时填；⚡快进改写并单独审计
+  publishedAt       DateTime? // = 批准时刻
+  pendingApprovalNo String?   // 在途审批单（照 RI pendingApprovalNo 先例）
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("customer_agreement_versions")
+}
+
+model CustomerAgreementConsent {
+  id         String   @id @default(uuid())
+  customerId String
+  customerNo String   // 冗余落列供审计/检索，照通知表先例
+  versionKey String
+  action     String   // ACCEPTED | DECLINED —— append-only，先拒后同各一行
+  actedAt    DateTime @default(now())
+
+  @@index([customerId, versionKey])
+  @@map("customer_agreement_consents")
+}

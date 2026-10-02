@@ -80,6 +80,9 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   'complaint',
   // 客户通知（战役丙波一 T1 加表；无 FK，删除顺序不敏感）
   'customerNotification',
+  // 客户协议两表（战役丙波三 T1 加表；无 FK，删除顺序不敏感）
+  'customerAgreementConsent',
+  'customerAgreementVersion',
   'tradeConfirmation',
   'reconciliationAdjustment',
   'reconciliationLineItem',

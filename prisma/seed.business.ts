@@ -56,6 +56,9 @@ export async function seedBusiness(
   await seedTransactionLimitRules(prisma);
   // ③ Customers layer
   await seedCustomers(prisma);
+  // ③a2 Customer agreements（战役丙波三 T1）：v1 生效 / v2 草稿 + 每个种子客户一行 ACCEPTED v1，
+  // needs seedCustomers' customer rows（同意台账逐客户铺）。
+  await seedCustomerAgreements(prisma, new Date());
   // ③b Material requests layer (needs seedCustomers' restriction rows for Ivy)
   await seedMaterialRequest(prisma);
   // ③c Incidents layer (needs seedCustomers' customerNo for the STUCK_TRANSACTION_MAJOR sample)
@@ -992,6 +995,35 @@ async function seedCustomers(prisma: PrismaClient): Promise<void> {
     `Seeded ${DEMO_CUSTOMERS.length} demo customers ` +
       `(+${restrictionRowCount} restriction rows) + customer TB accounts.`,
   );
+}
+
+// ─────────────────────────────────────────────────────────────
+// ③a2 Customer agreements — 协议版本两行（v1 生效 / v2 草稿）+ 每客户一行 ACCEPTED v1
+// （战役丙波三 T1，spec §0 岔口4/5）
+// ─────────────────────────────────────────────────────────────
+
+async function seedCustomerAgreements(prisma: PrismaClient, now: Date): Promise<void> {
+  const v1EffectiveAt = new Date(now.getTime() - 365 * 24 * 3600 * 1000); // 早于一切种子客户注册日（客户 createdAt=铺数时刻）
+  await prisma.customerAgreementVersion.upsert({
+    where: { versionKey: 'v1' },
+    update: { status: 'EFFECTIVE', effectiveAt: v1EffectiveAt, publishedAt: v1EffectiveAt, pendingApprovalNo: null },
+    create: { versionKey: 'v1', status: 'EFFECTIVE', effectiveAt: v1EffectiveAt, publishedAt: v1EffectiveAt,
+      summary: 'Initial customer agreement (terms of service, 7 sections).' },
+  });
+  await prisma.customerAgreementVersion.upsert({
+    where: { versionKey: 'v2' },
+    update: { status: 'DRAFT', effectiveAt: null, publishedAt: null, pendingApprovalNo: null },
+    create: { versionKey: 'v2', status: 'DRAFT',
+      summary: 'Adds complaint-handling commitments: acknowledgement within 7 days, resolution within 28 days (extendable once to 56 days).' },
+  });
+  const customers = await prisma.customerMain.findMany({ select: { id: true, customerNo: true, createdAt: true } });
+  for (const c of customers) {
+    await prisma.customerAgreementConsent.deleteMany({ where: { customerId: c.id } });
+    await prisma.customerAgreementConsent.create({ data: {
+      customerId: c.id, customerNo: c.customerNo, versionKey: 'v1', action: 'ACCEPTED', actedAt: c.createdAt,
+    } }); // 同意时间=注册时间（spec §0 岔口5）；种子直接铺终态不写审计，同限制账 fixture 先例
+  }
+  console.log(`Seeded customer agreements: v1 EFFECTIVE + v2 DRAFT + ${customers.length} ACCEPTED-v1 consent rows.`);
 }
 
 // ─────────────────────────────────────────────────────────────
