@@ -942,6 +942,59 @@ function runStaticChecks(): void {
       ? `groups=[${swapLegAdvanceRoute.groups.join(',')}]`
       : '路由 POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance 未找到',
   );
+
+  // ── S16：客户协议单组钉死——AGREEMENT_WRITE 唯合规官 + 桶/两路由挂组精确（战役丙波三 T9 修1）──
+  // 续接 S10-S15「每波一条钉死判据」先例（静态、读结构、不起行为探针）。AGREEMENT_WRITE 是
+  // 协议发布的提单组：提单唯合规官、裁决唯高管（AGREEMENT_PUBLISH 策略，MAKER_GROUP_BY_POLICY
+  // 已登记 maker 组），maker/checker 靠"高管不持本组"天然不相交——一旦有人把本组加给第二个
+  // 职务（尤其高管），S5c 之外还需要一条精确持有断言当场落红。持有口径同 S10b/S11b/S15b：
+  // 只数 RBAC_ROLE_GROUP_BINDINGS 的显式绑定（SUPER_ADMIN 靠 guard 短路全放行、不在绑定表里，
+  // 不计入）。再钉两处挂组：桶 compliance-office.agreements 只挂 AGREEMENT_WRITE；
+  // submit-publish 路由只挂 AGREEMENT_WRITE、⚡simulate-effective 路由只挂 DEMO_CLOCK_WRITE
+  // （合规官不是自己的裁决人，快进是演示者操作，同 obligations/报送单⚡先例——防有人把
+  // ⚡也并进提单组，或把提单误挂拨钟组）。
+  const agreementWriteHolders = Object.entries(RBAC_ROLE_GROUP_BINDINGS)
+    .filter(([, groups]) => (groups as PermissionGroup[]).includes('AGREEMENT_WRITE'))
+    .map(([role]) => role);
+  const agreementHoldersExact = agreementWriteHolders.length === 1 && agreementWriteHolders[0] === 'COMPLIANCE_OFFICER';
+  check(
+    'S16a AGREEMENT_WRITE 唯合规官持有（协议发布提单一组一门，高管是裁决人不持本组）',
+    agreementHoldersExact,
+    agreementHoldersExact
+      ? '持有职务集合恰为 {COMPLIANCE_OFFICER}'
+      : `持有职务集合为 {${agreementWriteHolders.join(',') || '空'}}，期望恰为 {COMPLIANCE_OFFICER}`,
+  );
+
+  const agreementBuckets = ACTION_BUCKET_CATALOG.flatMap((domain) => domain.buckets).filter(
+    (b) => b.key === 'compliance-office.agreements',
+  );
+  const agreementBucketExact = agreementBuckets.length === 1 &&
+    agreementBuckets[0].groups.length === 1 && agreementBuckets[0].groups[0] === 'AGREEMENT_WRITE';
+  check(
+    'S16b 桶 compliance-office.agreements 的 groups 恰为 [AGREEMENT_WRITE]',
+    agreementBucketExact,
+    agreementBuckets.length === 1
+      ? `groups=[${agreementBuckets[0].groups.join(',')}]`
+      : `桶数 ${agreementBuckets.length}（期望恰 1 个）`,
+  );
+
+  const AGREEMENT_ROUTE_EXPECT: Array<{ path: string; group: PermissionGroup }> = [
+    { path: '/admin/customer-agreements/:versionKey/submit-publish', group: 'AGREEMENT_WRITE' },
+    { path: '/admin/customer-agreements/:versionKey/simulate-effective', group: 'DEMO_CLOCK_WRITE' },
+  ];
+  const agreementRouteBad = AGREEMENT_ROUTE_EXPECT.flatMap(({ path: routePath, group }) => {
+    const hit = RBAC_PERMISSION_DEFINITIONS.filter((d) => d.method === 'POST' && d.path === routePath);
+    if (hit.length !== 1) return [`POST ${routePath}: 路由数 ${hit.length}（期望恰 1）`];
+    const got = hit[0].groups as string[];
+    return got.length === 1 && got[0] === group ? [] : [`POST ${routePath}: groups=[${got.join(',')}]，期望恰为 [${group}]`];
+  });
+  check(
+    'S16c submit-publish 路由 groups 恰为 [AGREEMENT_WRITE]、simulate-effective 路由 groups 恰为 [DEMO_CLOCK_WRITE]',
+    agreementRouteBad.length === 0,
+    agreementRouteBad.length === 0
+      ? AGREEMENT_ROUTE_EXPECT.map((e) => `POST ${e.path}: groups=[${e.group}]`).join('；')
+      : `不符: ${agreementRouteBad.join(' ｜ ')}`,
+  );
 }
 
 // ══════════════════════ S6：前后端权限码表差集 ══════════════════════
