@@ -20,6 +20,18 @@ export const agreementGateState = (me: Pick<AgreementMe, 'pending' | 'consent'>)
   return 'NONE';
 };
 
+const AGREEMENT_PAGE_PATH = '/agreement';
+
+/**
+ * 两种弹窗在 /agreement 阅读页上让位：人已经在读原文，页内状态头自带 Accept，不再盖一层。
+ * 只管「当前路径」这一个渲染条件；表态状态仍由 agreementGateState 单独判定，不混入 location。
+ * 横幅不是弹窗，不让位。路径比较与 react-router 同口径（忽略大小写与尾斜杠）。
+ */
+export const shouldSuppressModal = (state: AgreementGateState, pathname: string): boolean => {
+  if (state !== 'EFFECTIVE_BLOCKING' && state !== 'PENDING_DISMISSIBLE') return false;
+  return pathname.replace(/\/+$/, '').toLowerCase() === AGREEMENT_PAGE_PATH;
+};
+
 /**
  * 同意/拒绝落库后由发起方 window.dispatchEvent(new Event(...))，AgreementGate 监听后重取 me，
  * 横幅/弹窗随即消失，无需整页刷新（与 customer-auth-changed 同款自定义事件做法）。

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { FileText } from 'lucide-react';
 import { CustomerSessionError, customerFetch, getCustomerApiErrorMessage } from '../utils/customerFetch';
-import { AGREEMENT_CONSENT_CHANGED_EVENT, agreementGateState } from '../utils/agreementGate';
+import { AGREEMENT_CONSENT_CHANGED_EVENT, agreementGateState, shouldSuppressModal } from '../utils/agreementGate';
 import { STATUS_COPY, type AgreementMe } from '../utils/agreementView';
 
 /* ────────────────────────────────────────────────────────────────
@@ -12,10 +12,15 @@ import { STATUS_COPY, type AgreementMe } from '../utils/agreementView';
  *  经 agreementGateState() 一次判定（见 utils/agreementGate.ts）；本组件只把这四态
  *  换成文案与按钮，不自己推导任何条件。
  *
- *    EFFECTIVE_BLOCKING   强制弹窗：无关闭钮、遮罩不可点、无 Esc 处理；两钮 Accept / Not now
+ *    EFFECTIVE_BLOCKING   强制弹窗：无关闭钮、遮罩不可点、无 Esc 处理；两钮 Accept / Not now，
+ *                         其下一条纯导航的 View full terms 链（不落库、不改表态、不算关闭）
  *    PENDING_DISMISSIBLE  可关弹窗：Accept / View full terms / Remind me later
  *    DECLINED_BANNER      横幅常驻，带 Review & accept 链
  *    NONE                 什么都不渲染
+ *
+ *  路由让位：当前路径是 /agreement 时两种弹窗都不渲染（人已在读原文，页内状态头自带 Accept；
+ *  取得同意前客户必须能直接取到协议副本）；离开该页仍未表态则弹窗照常回来。让位只是
+ *  本组件的渲染条件（shouldSuppressModal），四态判定本身仍只看表态状态，不含路径。横幅不让位。
  *
  *  「Remind me later」只是本次挂载内的 React state（按在途版本键记），不落库、不进 storage——
  *  刷新页面/重新登录会再弹；「Not now」才落一条 DECLINED（source=MODAL）。
@@ -34,7 +39,7 @@ const GATE_COPY = {
   forcedBody: (versionKey: string) =>
     `Version ${versionKey} of the FIATX Customer Agreement is in effect. Please review the terms and record your decision.`,
   forcedHint:
-    'Choose Not now to read the full terms first; a reminder will stay at the top of your account.',
+    'You can read the full terms before you decide. Choosing Not now keeps a reminder at the top of your account.',
   pendingTitle: 'Updated Customer Agreement',
   pendingBody: (versionKey: string, effectiveOn: string) =>
     `Version ${versionKey} of the FIATX Customer Agreement takes effect on ${effectiveOn}. You can accept it now or review the full terms first.`,
@@ -60,6 +65,7 @@ export const AgreementReviewLink = () => (
 
 const AgreementGate = () => {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [me, setMe] = useState<AgreementMe | null>(null);
   // 「Remind me later」：记被收起的在途版本键，换了新版本键才会再弹。仅内存。
   const [dismissedPendingKey, setDismissedPendingKey] = useState<string | null>(null);
@@ -132,6 +138,9 @@ const AgreementGate = () => {
       </div>
     );
   }
+
+  // 弹窗在 /agreement 阅读页让位（横幅已在上面返回，不受影响）。
+  if (shouldSuppressModal(state, pathname)) return null;
 
   // 强制弹窗针对生效版；可关弹窗针对在途版（PENDING_DISMISSIBLE 必有 pending，这里仅为收窄类型）。
   const forced = state === 'EFFECTIVE_BLOCKING';
@@ -206,6 +215,13 @@ const AgreementGate = () => {
               </>
             )}
           </div>
+          {forced && (
+            <div>
+              <Link to="/agreement" className="fx-btn-ghost whitespace-nowrap">
+                {GATE_COPY.viewTerms}
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     </div>

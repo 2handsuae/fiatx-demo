@@ -1,4 +1,4 @@
-import { agreementGateState } from './agreementGate';
+import { agreementGateState, shouldSuppressModal, type AgreementGateState } from './agreementGate';
 import type { AgreementConsent, AgreementMe } from './agreementView';
 
 // 四态判定只读 pending 是否存在 + consent 五键，不读版本正文——夹具只造这两块。
@@ -66,5 +66,23 @@ describe('agreementGateState', () => {
 
   it('pending 为空而 acceptedPending=false 的已同意客户 → NONE（没有在途版就没有可关弹窗）', () => {
     expect(agreementGateState(me(false, { acceptedCurrent: true, acceptedPending: false }))).toBe('NONE');
+  });
+});
+
+describe('shouldSuppressModal（弹窗在 /agreement 阅读页让位，只豁免弹窗不豁免横幅）', () => {
+  it.each<[string, AgreementGateState, string, boolean]>([
+    ['强制弹窗 + /agreement → 让位', 'EFFECTIVE_BLOCKING', '/agreement', true],
+    ['可关弹窗 + /agreement → 让位', 'PENDING_DISMISSIBLE', '/agreement', true],
+    ['横幅 + /agreement → 不让位（横幅不是弹窗）', 'DECLINED_BANNER', '/agreement', false],
+    ['NONE + /agreement → 无弹窗可让，false', 'NONE', '/agreement', false],
+    ['强制弹窗 + 其它页 /swap → 照常弹', 'EFFECTIVE_BLOCKING', '/swap', false],
+    ['强制弹窗 + 根路径 / → 照常弹', 'EFFECTIVE_BLOCKING', '/', false],
+    ['可关弹窗 + 其它页 /deposit → 照常弹', 'PENDING_DISMISSIBLE', '/deposit', false],
+    ['强制弹窗 + /agreement/ 尾斜杠 → 让位（路由同样匹配）', 'EFFECTIVE_BLOCKING', '/agreement/', true],
+    ['强制弹窗 + /Agreement 大小写 → 让位（路由默认不分大小写）', 'EFFECTIVE_BLOCKING', '/Agreement', true],
+    ['强制弹窗 + /agreements（前缀相近的别页）→ 照常弹', 'EFFECTIVE_BLOCKING', '/agreements', false],
+    ['强制弹窗 + /agreement-history → 照常弹', 'EFFECTIVE_BLOCKING', '/agreement-history', false],
+  ])('%s', (_name, state, pathname, expected) => {
+    expect(shouldSuppressModal(state, pathname)).toBe(expected);
   });
 });
