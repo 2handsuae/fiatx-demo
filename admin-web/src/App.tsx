@@ -81,6 +81,7 @@ const RegulatoryFilingDetailPage = lazy(() => import('./pages/RegulatoryFilingDe
 const ComplianceClockWallPage = lazy(() => import('./pages/ComplianceClockWallPage'));
 const ComplianceObligationListPage = lazy(() => import('./pages/ComplianceObligationListPage'));
 const ComplianceRegistersPage = lazy(() => import('./pages/ComplianceRegistersPage'));
+const CustomerAgreementsPage = lazy(() => import('./pages/CustomerAgreementsPage'));
 const ComplaintListPage = lazy(() => import('./pages/ComplaintListPage'));
 const ComplaintDetailPage = lazy(() => import('./pages/ComplaintDetailPage'));
 
@@ -313,6 +314,7 @@ function App() {
             <Route path="governance/compliance-office/clock-wall" element={withPermission(<ComplianceClockWallPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
             <Route path="governance/compliance-office/obligations" element={withPermission(<ComplianceObligationListPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
             <Route path="governance/compliance-office/registers" element={withPermission(<ComplianceRegistersPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
+            <Route path="governance/compliance-office/agreements" element={withPermission(<CustomerAgreementsPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
 
             {/* audit */}
             <Route path="audit/logs" element={withPermission(<AuditLogsPage />, [PERMISSIONS.AUDIT_LOGS_READ])} />

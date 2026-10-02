@@ -38,6 +38,7 @@ import {
   CalendarClock,
   BookUser,
   MessageSquare,
+  ScrollText,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -488,6 +489,14 @@ const DashboardLayout = () => {
           path: '/admin/governance/compliance-office/registers',
           label: 'Registers',
           icon: <BookUser size={13} />,
+          requiredPermissions: [PERMISSIONS.COMPLIANCE_OFFICE_VIEW],
+        },
+        // 战役丙波三（Task 10）：客户协议版本管理——读权限复用 COMPLIANCE_OFFICE_VIEW（五职务共持），
+        // 写（提交发布）在页内按 AGREEMENT_WRITE 门控。
+        {
+          path: '/admin/governance/compliance-office/agreements',
+          label: 'Customer Agreements',
+          icon: <ScrollText size={13} />,
           requiredPermissions: [PERMISSIONS.COMPLIANCE_OFFICE_VIEW],
         },
       ],

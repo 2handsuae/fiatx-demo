@@ -181,6 +181,13 @@ export const PERMISSIONS = {
   COMPLAINT_READ: 'api.get.admin_complaints',
   COMPLAINT_WRITE: 'api.post.admin_complaints_complaintno_acknowledge',
 
+  // 战役丙波三（Task 10）：客户协议管理台——键名精确照 rbac.catalog.ts 的 PermissionGroup 字面量
+  // AGREEMENT_WRITE（合规官独占）。值是 buildPermissionCode 对该组唯一一条路由 submit-publish 的
+  // 派生值；Customer Agreements 页的「Submit for publication」钮用它判断。页面本身的读权限复用
+  // COMPLIANCE_OFFICE_VIEW；⚡「Fast-forward to effective」复用既有 DEMO_CLOCK_WRITE（simulate-effective
+  // 挂的是金库拨钟组，不是 AGREEMENT_WRITE），不新增键。
+  AGREEMENT_WRITE: 'api.post.admin_customer_agreements_versionkey_submit_publish',
+
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',
   AUDIT_EXPORT_CREATE: 'api.post.admin_audit_evidence_packages',

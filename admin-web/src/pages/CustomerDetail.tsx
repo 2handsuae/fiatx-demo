@@ -65,6 +65,14 @@ interface CustomerDetailData {
   residentialAddress?: string | null;
   onboardingSubmittedAt?: string | null;
   onboardingFinalRejectedAt?: string | null;
+  // 客户协议同意态（战役丙波三 T9 随详情响应带出，五键直通）
+  agreement?: {
+    acceptedVersionKey: string | null;
+    acceptedAt: string | null;
+    acceptedCurrent: boolean;
+    acceptedPending: boolean;
+    declinedCurrentAt: string | null;
+  } | null;
 }
 
 /* ── Customer Tags ───────────────────────────────────────────── */
@@ -120,12 +128,14 @@ const Field = ({
   mono = false,
   amber = false,
   full = false,
+  badge,
 }: {
   label: string;
   value?: string | null;
   mono?: boolean;
   amber?: boolean;
   full?: boolean;
+  badge?: ReactNode;
 }) => {
   if (!value) return null;
   return (
@@ -141,6 +151,7 @@ const Field = ({
         ].join(' ')}
       >
         {value}
+        {badge ? <span className="ml-2 align-middle">{badge}</span> : null}
       </p>
     </div>
   );
@@ -1098,6 +1109,33 @@ const CustomerDetail = () => {
                 <Field label="ID Type" value={detail.idDocType || '—'} />
                 <Field label="ID Number" value={detail.idDocNumber || '—'} mono />
                 <Field label="Residential Address" value={detail.residentialAddress || '—'} full />
+                {/* 客户协议同意态（丙波三 T10）：同意的版本 + 时刻；当前生效版未同意时旁标
+                    declined（有拒绝记录）/ pending response（尚未表态）。 */}
+                {detail.agreement && (
+                  <Field
+                    label="Agreement"
+                    value={
+                      detail.agreement.acceptedVersionKey
+                        ? `Accepted ${detail.agreement.acceptedVersionKey} · ${fmt(detail.agreement.acceptedAt)}`
+                        : 'No acceptance on record'
+                    }
+                    badge={
+                      detail.agreement.acceptedCurrent ? undefined : detail.agreement.declinedCurrentAt ? (
+                        <span
+                          className="inline-flex items-center rounded border border-adm-red/25 bg-adm-red/10 px-1.5 py-px font-mono text-[9px] font-semibold text-adm-red"
+                          title={`Declined the current agreement ${fmt(detail.agreement.declinedCurrentAt)}`}
+                        >
+                          declined
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center rounded border border-adm-amber/25 bg-adm-amber/10 px-1.5 py-px font-mono text-[9px] font-semibold text-adm-amber">
+                          pending response
+                        </span>
+                      )
+                    }
+                    full
+                  />
+                )}
               </FieldGrid>
             </div>
           </section>

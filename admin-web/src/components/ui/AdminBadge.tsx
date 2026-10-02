@@ -25,6 +25,10 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   EXPIRED:              'deleted',
   RETIRED:              'retired',
   CUSTOMER_FROZEN:      'failed',
+  // 战役丙波三 T10：客户协议版本生命周期（DRAFT / PENDING_APPROVAL 已在上表）。
+  PUBLISHED:            'pending',
+  EFFECTIVE:            'active',
+  SUPERSEDED:           'retired',
 };
 
 // Note: `active` and `success` intentionally use the same green colour — both represent "positive/live" states.
