@@ -27,7 +27,7 @@
 - Modify: `prisma/seed.business.ts`（新函数 `seedCustomerAgreements`，在客户铺完后调）
 
 **Interfaces:**
-- Produces: delegate `prisma.customerAgreementVersion` / `prisma.customerAgreementConsent`（T2+ 依赖）；种子态 v1=EFFECTIVE、v2=DRAFT、11 客户各一行 ACCEPTED v1。
+- Produces: delegate `prisma.customerAgreementVersion` / `prisma.customerAgreementConsent`（T2+ 依赖）；种子态 v1=EFFECTIVE、v2=DRAFT、13 客户各一行 ACCEPTED v1（T1 执行订正，原 11 系笔误）。
 
 - [ ] **Step 1: schema 追加**（无 FK——versionKey 是业务键，照 `CustomerNotification.relatedOrderNo` 先例）
 
@@ -370,7 +370,7 @@ route('POST', '/admin/customer-agreements/:versionKey/simulate-effective', 'Fast
 
 **Files:**
 - Modify: `doc-final/modules/v2-customer-compliance.md`（客户协议一节：两表/状态机/发布链/能力闸/30 天依据）+ `doc-final/modules/overview.md`（§4 82 桶 90 组；§5 审计 335、通知类型 5 值、agreements 模块行）
-- Modify: `doc-final/demo/script.md`（第九幕整幕+演员点名）+ `doc-final/demo/baseline.md`（版本 2 行/consents 11 行/v2 DRAFT 断言；data.md 生成区由 demo:all 自写不手改）
+- Modify: `doc-final/demo/script.md`（第九幕整幕+演员点名）+ `doc-final/demo/baseline.md`（版本 2 行/consents 13 行/v2 DRAFT 断言；data.md 生成区由 demo:all 自写不手改）
 - Modify: `doc-final/decisions.md`（+2：费率与协议零联动；30 天锚定批准时刻）＋ `doc-final/BACKLOG.md`（+1：同意率计数/名单缓做）＋ `doc-final/PRODUCTION-NOTES.md`（+1 行：正文整版哈希留存/真定时器生效/未读催告）＋ `doc-final/CHANGELOG.md` 一行
 - Create: `doc-final/superpowers/specs/2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md`（波四骨架：总纲链接/空「承接上一波」节/总纲 §3 波四已定事实搬运）——随后把本波承接记录（实际偏差/新事实/前提变化）写进该骨架
 - Modify: 总纲 `2026-09-30-campaign-c-outreach-disclosure-charter.md`（状态行与 §3 波三行更新）

@@ -56,7 +56,7 @@
 | `action` | `ACCEPTED` ｜ `DECLINED` |
 | `actedAt` | 表态时刻 |
 
-**只追加不改写**（append-only 台账）：同一客户对同一版本可先 DECLINED 后 ACCEPTED，各自一行；判定一律取"该客户对**当前生效版**是否存在 ACCEPTED 行"。种子：11 客户各一行 ACCEPTED v1，actedAt=各自注册时间。
+**只追加不改写**（append-only 台账）：同一客户对同一版本可先 DECLINED 后 ACCEPTED，各自一行；判定一律取"该客户对**当前生效版**是否存在 ACCEPTED 行"。种子：13 客户各一行 ACCEPTED v1（T1 执行订正：库内全部 demo 客户实为 13，原"11"系沿用 Quick login 子集数，笔误），actedAt=各自注册时间。
 
 ### 1.4 版本状态机（铁律④显式迁移表，非法跃迁显式拒绝）
 
@@ -140,7 +140,7 @@ PUBLISHED 版详情页 ⚡按钮：`effectiveAt` 改写为当前时刻并立即�
 ## §7 演示与 demo:all（坑 9 对策落地）
 
 - **第九幕（新开，排整场最后）**：合规官提交发布 v2（填生效日，指读 30 天校验）→ 高管批准 → 切客户端：铃铛 + 站内信 + email 留痕 → 演员客户登录见可关弹窗（提前同意先不点）→ 切管理台 ⚡快进生效 → 演员再登录强制弹窗 → **暂不同意** → 充值/兑换入口显式拦（指读报错文案）、提现照常可走 → 管理台客户详情见"未同意 v2" → 审计中心搜 DECLINED → 演员回 `/agreement` 对照两版（指读第 V 节新段）→ 同意 → 解锁 → 审计补一行 ACCEPTED。收场。
-- **`demo:all`：零协议动作**（plan 期订正，原"跑到发布为止"作废：demo:all 先发布则 ①前八幕现场走查时全库客户登录都弹新版弹窗，②第九幕现场再无"提交发布"可演——v2 只有一张）。v2 全程保持 DRAFT，全库客户闸零影响，既有各幕断言前提不变（骨架前提变化 7 已核）；发布→审批→通知→快进→表态整条链是第九幕现场戏，栈级证据来自走查截图（手驱走查法照波二 T7 先例，收尾闸前 `rm dev.db` 重铺防审计孤行，TOOLING-DEBT:89 在案）。`demo/baseline.md` 判据断言种子态：版本 2 行（v1 EFFECTIVE / v2 DRAFT）+ consents 11 行，且跑完交易日后协议态不变。
+- **`demo:all`：零协议动作**（plan 期订正，原"跑到发布为止"作废：demo:all 先发布则 ①前八幕现场走查时全库客户登录都弹新版弹窗，②第九幕现场再无"提交发布"可演——v2 只有一张）。v2 全程保持 DRAFT，全库客户闸零影响，既有各幕断言前提不变（骨架前提变化 7 已核）；发布→审批→通知→快进→表态整条链是第九幕现场戏，栈级证据来自走查截图（手驱走查法照波二 T7 先例，收尾闸前 `rm dev.db` 重铺防审计孤行，TOOLING-DEBT:89 在案）。`demo/baseline.md` 判据断言种子态：版本 2 行（v1 EFFECTIVE / v2 DRAFT）+ consents 13 行，且跑完交易日后协议态不变。
 - `demo/baseline.md` 判据同步（新表计数、审计码 334、通知 +1 条）。
 
 ## §8 测试与闸
@@ -160,7 +160,7 @@ PUBLISHED 版详情页 ⚡按钮：`effectiveAt` 改写为当前时刻并立即�
 
 ## §10 数量表（终审逐条可点）
 
-新表 2（迁移 +1，reset 登记 +1）｜ 新模块 1（`identity/agreements/`）｜ 审计 328→**335**（+7）｜ 权限桶 81→**82**（Compliance Office 域 +1）｜ 权限组 89→**90**（`AGREEMENT_WRITE` 合规官独占）｜ 审批策略 +1（`AGREEMENT_PUBLISH`，verify-rbac 登记 +1）｜ 通知模板 +1、`relatedOrderType` +1 值 ｜ 客户端：新页 1（`/agreement`）+ 弹窗/横幅组件 + 注册页正文改取接口 ｜ 管理台：新页 1 + 客户详情 +1 行 ｜ 能力闸改 1 处（`CustomerAccessService` 内部，6 个调用文件零改动）｜ 种子：consents +11 行、versions +2 行。
+新表 2（迁移 +1，reset 登记 +1）｜ 新模块 1（`identity/agreements/`）｜ 审计 328→**335**（+7）｜ 权限桶 81→**82**（Compliance Office 域 +1）｜ 权限组 89→**90**（`AGREEMENT_WRITE` 合规官独占）｜ 审批策略 +1（`AGREEMENT_PUBLISH`，verify-rbac 登记 +1）｜ 通知模板 +1、`relatedOrderType` +1 值 ｜ 客户端：新页 1（`/agreement`）+ 弹窗/横幅组件 + 注册页正文改取接口 ｜ 管理台：新页 1 + 客户详情 +1 行 ｜ 能力闸改 1 处（`CustomerAccessService` 内部，6 个调用文件零改动）｜ 种子：consents +13 行、versions +2 行。
 
 ## §11 验收口径（总纲波三行展开）
 
