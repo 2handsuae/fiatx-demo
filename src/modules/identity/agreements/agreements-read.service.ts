@@ -112,6 +112,18 @@ export class AgreementsReadService {
     return row ? this.toView(row) : null;
   }
 
+  /**
+   * 最近一个已退位版（SUPERSEDED，按生效时刻倒序取第一）：阅读页"版本可查可追"——⚡/到点生效后
+   * 旧版仍可对照。无则 null。开头不 tick：唯一调用方（客户端 /me 聚合）此前已在 getCurrentEffective 里懒翻过。
+   */
+  async getPreviousSuperseded(): Promise<AgreementVersionView | null> {
+    const row = await this.prisma.customerAgreementVersion.findFirst({
+      where: { status: 'SUPERSEDED' },
+      orderBy: { effectiveAt: 'desc' },
+    });
+    return row ? this.toView(row) : null;
+  }
+
   /** 管理台版本列表：全部版本（含 DRAFT / 在途），按 versionKey 升序；读口惯例先懒翻。 */
   async listVersions(): Promise<AgreementVersionView[]> {
     await this.tickEffective();

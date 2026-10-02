@@ -32,13 +32,19 @@ export class AgreementsClientController {
   @Get('me')
   @UseGuards(AuthGuard('jwt'))
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Effective + in-notice agreement versions (both with sections) and my consent state' })
+  @ApiOperation({ summary: 'Effective + in-notice + previously superseded agreement versions (all with sections) and my consent state' })
   async me(@Req() req: any) {
     const { customerId } = this.ensureCustomer(req);
     const current = await this.agreements.getCurrentEffective();
     const pending = await this.agreements.getPendingPublished();
+    const previous = await this.agreements.getPreviousSuperseded();
     const consent = await this.agreements.consentStateFor(customerId);
-    return { current: toClientView(current), pending: pending ? toClientView(pending) : null, consent };
+    return {
+      current: toClientView(current),
+      pending: pending ? toClientView(pending) : null,
+      previous: previous ? toClientView(previous) : null,
+      consent,
+    };
   }
 
   @Post(':versionKey/consent')

@@ -1,17 +1,27 @@
 // 战役丙波三 T7 · /agreement 客户协议阅读页（通知深链 / 横幅的落点）。
 // 三块：①版本状态头（由 me.consent 推，见 utils/agreementView.ts）②正文（AgreementSections，
-// 生效版 / 在途版两版对照切换，无在途版则不出切换钮）③打印（.print-agreement，样式见 index.css）。
+// [已退位版?, 生效版, 在途版?] 有啥显啥、≥2 版才出切换钮——⚡/到点生效后旧版仍可对照）
+// ③打印（.print-agreement，样式见 index.css）。
 // 同意动作与弹窗共用同一端点 POST /client/agreements/{versionKey}/consent，本页 source=PAGE。
 import { useCallback, useEffect, useState } from 'react';
 import { AlertCircle, Printer, RefreshCw } from 'lucide-react';
 import AgreementSections from '../components/AgreementSections';
 import { CustomerSessionError, customerFetch, getCustomerApiErrorMessage } from '../utils/customerFetch';
-import { agreementStatusLines, type AgreementMe, type AgreementVersion } from '../utils/agreementView';
+import {
+  agreementStatusLines,
+  agreementVersionTabs,
+  type AgreementMe,
+  type AgreementTabKey,
+} from '../utils/agreementView';
 import { AGREEMENT_CONSENT_CHANGED_EVENT } from '../utils/agreementGate';
 
 const API = import.meta.env.VITE_API_URL;
 
-type ViewKey = 'current' | 'pending';
+const EFFECTIVE_LABEL: Record<AgreementTabKey, string> = {
+  previous: 'Superseded · was in effect from',
+  current: 'In effect since',
+  pending: 'Takes effect on',
+};
 
 const toDay = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '—');
 
@@ -19,7 +29,7 @@ const AgreementPage = () => {
   const [me, setMe] = useState<AgreementMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [view, setView] = useState<ViewKey>('current');
+  const [view, setView] = useState<AgreementTabKey>('current');
   const [accepting, setAccepting] = useState(false);
   const [actionError, setActionError] = useState('');
 
@@ -68,12 +78,9 @@ const AgreementPage = () => {
     }
   };
 
-  // 在途版消失（如已生效翻为 current）时回到生效版，避免停在一个不存在的视图上。
-  const shown: { key: ViewKey; version: AgreementVersion } | null = me
-    ? view === 'pending' && me.pending
-      ? { key: 'pending', version: me.pending }
-      : { key: 'current', version: me.current }
-    : null;
+  // 选中的版本不在了（如在途版已生效翻为 current）时回到生效版，避免停在一个不存在的视图上。
+  const tabs = me ? agreementVersionTabs(me) : [];
+  const shown = tabs.find((t) => t.key === view) ?? tabs.find((t) => t.key === 'current') ?? null;
 
   return (
     <div className="space-y-6">
@@ -137,27 +144,22 @@ const AgreementPage = () => {
           </div>
           {actionError && <p className="font-mono text-[12px] text-fx-rust">{actionError}</p>}
 
-          {/* 两版切换（无在途版时不出） */}
-          {me.pending && (
-            <div className="flex items-center gap-2">
-              {(
-                [
-                  ['current', me.current, 'In effect'],
-                  ['pending', me.pending, 'Upcoming'],
-                ] as const
-              ).map(([key, v, tag]) => (
+          {/* 版本切换（只有一版时不出） */}
+          {tabs.length >= 2 && (
+            <div className="flex flex-wrap items-center gap-2">
+              {tabs.map((t) => (
                 <button
-                  key={key}
+                  key={t.key}
                   type="button"
-                  onClick={() => setView(key)}
-                  aria-pressed={shown.key === key}
+                  onClick={() => setView(t.key)}
+                  aria-pressed={shown.key === t.key}
                   className={`font-mono text-[10px] uppercase tracking-[0.12em] border px-3 py-1.5 transition-colors ${
-                    shown.key === key
+                    shown.key === t.key
                       ? 'border-fx-brass text-fx-brass'
                       : 'border-fx-rule text-fx-dust hover:text-fx-brass'
                   }`}
                 >
-                  {v.versionKey} · {tag}
+                  {t.version.versionKey} · {t.tag}
                 </button>
               ))}
             </div>
@@ -170,7 +172,7 @@ const AgreementPage = () => {
                 Customer Agreement · {shown.version.versionKey}
               </h2>
               <p className="mt-2 font-mono text-[10px] uppercase tracking-[0.12em] text-fx-dust">
-                {shown.key === 'current' ? 'In effect since' : 'Takes effect on'} {toDay(shown.version.effectiveAt)}
+                {EFFECTIVE_LABEL[shown.key]} {toDay(shown.version.effectiveAt)}
               </p>
               {shown.version.summary && (
                 <p className="mt-3 text-[13px] text-fx-dune">{shown.version.summary}</p>

@@ -269,6 +269,40 @@ describe('AgreementsReadService 懒翻生效', () => {
   });
 });
 
+// 修复波（T11 走查 Concerns 2）：生效后旧版仍可读——阅读页两版对照不能随 ⚡/到点生效而消失。
+describe('AgreementsReadService.getPreviousSuperseded', () => {
+  it('v1 SUPERSEDED + v2 EFFECTIVE → 返回 v1 视图（带登记处 sections）', async () => {
+    const { service } = makeService({ versions: [version('v1', 'SUPERSEDED', PAST), version('v2', 'EFFECTIVE', PAST)] });
+
+    const prev = await service.getPreviousSuperseded();
+
+    expect(prev).toMatchObject({ versionKey: 'v1', status: 'SUPERSEDED', sections: AGREEMENT_BODIES.v1 });
+  });
+
+  it('没有 SUPERSEDED 版（只有 EFFECTIVE / PUBLISHED / DRAFT）→ null', async () => {
+    const { service } = makeService({
+      versions: [version('v1', 'EFFECTIVE', PAST), version('v2', 'PUBLISHED', FUTURE), version('v3', 'DRAFT')],
+    });
+
+    expect(await service.getPreviousSuperseded()).toBeNull();
+  });
+
+  it('多个 SUPERSEDED：取 effectiveAt 最近的那版（库内故意把旧版排在后面，排序真由 orderBy 产生）', async () => {
+    const older = new Date(PAST.getTime() - 400 * DAY);
+    const { service, prisma } = makeService({
+      versions: [version('v2', 'SUPERSEDED', PAST), version('v1', 'SUPERSEDED', older), version('v3', 'EFFECTIVE', PAST)],
+    });
+
+    const prev = await service.getPreviousSuperseded();
+
+    expect(prev?.versionKey).toBe('v2');
+    expect(prisma.customerAgreementVersion.findFirst).toHaveBeenCalledWith({
+      where: { status: 'SUPERSEDED' },
+      orderBy: { effectiveAt: 'desc' },
+    });
+  });
+});
+
 // 战役丙波三 T9：管理台列表——全部版本（含 DRAFT / 在途），按 versionKey 升序；读口惯例先懒翻。
 describe('AgreementsReadService.listVersions', () => {
   it('返回全部版本视图（含 DRAFT），按 versionKey 升序，每项带 pendingApprovalNo 与登记处正文', async () => {

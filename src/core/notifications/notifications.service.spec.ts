@@ -288,7 +288,8 @@ describe('NotificationsService', () => {
 
   // 战役丙波三 T4：协议发布 → 全员 fanout（协议当事人不分 lifecycle，故 findMany 无 where）。
   describe('notifyAgreementPublished', () => {
-    const EFFECTIVE_AT = new Date('2026-11-02T00:00:00.000Z');
+    // 正午 UTC：-12..+11 的任何机器时区下本地日都是 2026-11-02，硬编码期望串不随机器时区漂。
+    const EFFECTIVE_AT = new Date('2026-11-02T12:00:00.000Z');
 
     it('① 逐客户落一行 AGREEMENT_PUBLISHED（AGREEMENT 深链键 + 邮件模拟）+ 每行 NOTIFICATION_SENT 审计 + 每客户信号一次', async () => {
       const { service, prisma, auditLogs, gateway, notificationRows } = makeService();
@@ -336,6 +337,25 @@ describe('NotificationsService', () => {
       // 每客户信号一次（以内部 id 为 room）
       expect(gateway.emitCustomerUpdated).toHaveBeenCalledTimes(CUSTOMERS.length);
       expect(gateway.emitCustomerUpdated.mock.calls.map((c: any[]) => c[0])).toEqual(['c1', 'c2']);
+    });
+
+    // 走查 T11 逮到：管理台选的"11-03"是迪拜本地 00:00（= UTC 11-02 20:00），正文曾写 UTC 日 11-02，
+    // 与页面 / 管理台显示的 11-03 对不上。本测试的期望值用 Date 本地 getter 手算（不走 Intl，避免与
+    // 实现同调用成恒真）；在 UTC+4 等偏移机器上，UTC 切片实现会在此红（实测见 task-11 修复报告）。
+    // jest 沙箱里改 process.env.TZ 不生效，故无法在测试内钉死时区，只能用机器本地时区自洽比对。
+    it('①b 生效日写本地日 YYYY-MM-DD，不是 UTC 日（UTC 20:00 = 迪拜次日 00:00 的临界点）', async () => {
+      const { service, notificationRows } = makeService();
+      const edge = new Date('2026-11-02T20:00:00.000Z');
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const localDay = `${edge.getFullYear()}-${pad(edge.getMonth() + 1)}-${pad(edge.getDate())}`;
+
+      await service.notifyAgreementPublished('v2', edge);
+
+      expect(notificationRows).toHaveLength(CUSTOMERS.length);
+      for (const row of notificationRows) {
+        expect(row.body).toContain(`will be updated on ${localDay}.`);
+        expect(row.body).toMatch(/updated on \d{4}-\d{2}-\d{2}\./);
+      }
     });
 
     it('② 中途一个客户 create 抛错 → 方法不外抛，其余客户照发，坏的那个无审计无信号', async () => {

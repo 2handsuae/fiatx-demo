@@ -1,4 +1,11 @@
-import { agreementStatusLines, type AgreementConsent, type AgreementMe } from './agreementView';
+import {
+  agreementDrawerByline,
+  agreementStatusLines,
+  agreementVersionTabs,
+  DRAWER_BYLINE_FALLBACK,
+  type AgreementConsent,
+  type AgreementMe,
+} from './agreementView';
 
 const fmt = (iso: string) => `<${iso}>`;
 
@@ -21,6 +28,7 @@ const consent = (patch: Partial<AgreementConsent>): AgreementConsent => ({
 const me = (patch: { pending?: boolean; consent: Partial<AgreementConsent> }): AgreementMe => ({
   current: version('v1', '2026-01-01T00:00:00.000Z'),
   pending: patch.pending ? version('v2', '2026-11-01T00:00:00.000Z') : null,
+  previous: null,
   consent: consent(patch.consent),
 });
 
@@ -90,5 +98,55 @@ describe('agreementStatusLines', () => {
   it('生效版未表态且有在途版 → AWAITING_CONSENT + PENDING_NOTICE 并存', () => {
     const lines = agreementStatusLines(me({ pending: true, consent: {} }), fmt);
     expect(lines.map((l) => l.kind)).toEqual(['AWAITING_CONSENT', 'PENDING_NOTICE']);
+  });
+});
+
+describe('agreementVersionTabs', () => {
+  const v1 = version('v1', '2025-01-01T00:00:00.000Z');
+  const v2 = version('v2', '2026-01-01T00:00:00.000Z');
+  const v3 = version('v3', '2027-01-01T00:00:00.000Z');
+
+  it('只有生效版 → 单项（调用方据 length<2 不出切换钮）', () => {
+    expect(agreementVersionTabs({ previous: null, current: v1, pending: null }).map((t) => t.key)).toEqual(['current']);
+  });
+
+  it('⚡生效后（v1 退位、v2 生效、无在途）→ [previous=v1 Superseded, current=v2 In effect]', () => {
+    const tabs = agreementVersionTabs({ previous: v1, current: v2, pending: null });
+    expect(tabs.map((t) => [t.key, t.version.versionKey, t.tag])).toEqual([
+      ['previous', 'v1', 'Superseded'],
+      ['current', 'v2', 'In effect'],
+    ]);
+  });
+
+  it('通知期（v1 生效、v2 在途、无退位版）→ [current, pending]，与旧行为一致', () => {
+    expect(agreementVersionTabs({ previous: null, current: v1, pending: v2 }).map((t) => t.key)).toEqual(['current', 'pending']);
+  });
+
+  it('三版齐全 → 按 [previous, current, pending] 顺序', () => {
+    const tabs = agreementVersionTabs({ previous: v1, current: v2, pending: v3 });
+    expect(tabs.map((t) => [t.key, t.version.versionKey])).toEqual([
+      ['previous', 'v1'],
+      ['current', 'v2'],
+      ['pending', 'v3'],
+    ]);
+  });
+});
+
+describe('agreementDrawerByline（注册页条款抽屉页眉）', () => {
+  it('取到生效版 → Version {versionKey} + Effective · 本地日（YYYY.MM.DD，补零）', () => {
+    // 正午 UTC：-12..+11 任何机器时区下本地日都是 2026-03-05，硬编码期望串不随机器时区漂。
+    const out = agreementDrawerByline({ versionKey: 'v2', effectiveAt: '2026-03-05T12:00:00.000Z' });
+    expect(out).toEqual({ issued: 'Effective · 2026.03.05 · Dubai, UAE', version: 'Version v2' });
+  });
+
+  it('没取回（null）→ 原样回落原字面', () => {
+    expect(agreementDrawerByline(null)).toEqual({ issued: 'Issued · 2025.IV · Dubai, UAE', version: 'Version 1.0' });
+    expect(DRAWER_BYLINE_FALLBACK.version).toBe('Version 1.0');
+  });
+
+  it('生效日缺失（理论上不会）→ 版本号用实值，日期位回落原字面，不出现 Invalid Date', () => {
+    const out = agreementDrawerByline({ versionKey: 'v3', effectiveAt: null });
+    expect(out.version).toBe('Version v3');
+    expect(out.issued).toBe('Issued · 2025.IV · Dubai, UAE');
   });
 });

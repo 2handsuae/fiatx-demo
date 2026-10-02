@@ -4,7 +4,7 @@ import { Eye, EyeOff, X } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import AgreementSections from '../components/AgreementSections';
 import { customerFetch } from '../utils/customerFetch';
-import type { AgreementSection, AgreementVersion } from '../utils/agreementView';
+import { agreementDrawerByline, type AgreementSection, type AgreementVersion } from '../utils/agreementView';
 
 /* ────────────────────────────────────────────────────────────────
  *  Open account — FIATX
@@ -55,6 +55,8 @@ function TermsDrawer({
   const [hasScrolledToBottom, setHasScrolledToBottom] = useState(false);
   // 正文单一来源：打开抽屉时取 GET /client/agreements/current（公开端点，注册页未登录可取）。
   const [bodySections, setBodySections] = useState<AgreementSection[] | null>(null);
+  // 页眉的版本号 / 生效日同取自该响应；没取回 / 取失败时为 null，页眉回落原字面（见 agreementDrawerByline）。
+  const [bodyVersion, setBodyVersion] = useState<Pick<AgreementVersion, 'versionKey' | 'effectiveAt'> | null>(null);
   const [loadError, setLoadError] = useState('');
 
   useEffect(() => {
@@ -70,7 +72,10 @@ function TermsDrawer({
         );
         if (!res.ok) throw new Error('bad status');
         const data = (await res.json()) as AgreementVersion;
-        if (!cancelled) setBodySections(data.sections);
+        if (!cancelled) {
+          setBodySections(data.sections);
+          setBodyVersion({ versionKey: data.versionKey, effectiveAt: data.effectiveAt });
+        }
       } catch {
         if (!cancelled) setLoadError('Could not load the terms. Please close and try again.');
       }
@@ -109,6 +114,8 @@ function TermsDrawer({
       document.body.style.overflow = prev;
     };
   }, [open]);
+
+  const byline = agreementDrawerByline(bodyVersion);
 
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -183,9 +190,9 @@ function TermsDrawer({
 
               {/* Byline row */}
               <div className="mt-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-fx-dust">
-                <span className="fx-cap">Issued · 2025.IV · Dubai, UAE</span>
+                <span className="fx-cap">{byline.issued}</span>
                 <span className="fx-cap">Effective from signup</span>
-                <span className="fx-cap">Version 1.0</span>
+                <span className="fx-cap">{byline.version}</span>
               </div>
 
               {/* Reading progress bar — hairline */}

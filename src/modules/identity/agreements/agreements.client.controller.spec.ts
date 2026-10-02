@@ -68,6 +68,9 @@ const v2Published = (): VersionRow => ({
   effectiveAt: FUTURE, publishedAt: new Date(), pendingApprovalNo: 'APR-1',
 });
 
+const v1Superseded = (): VersionRow => ({ ...v1Effective(), status: 'SUPERSEDED' });
+const v2Effective = (): VersionRow => ({ ...v2Published(), status: 'EFFECTIVE', effectiveAt: PAST, pendingApprovalNo: null });
+
 const VIEW_KEYS = ['effectiveAt', 'sections', 'summary', 'versionKey'];
 const CONSENT_KEYS = ['acceptedAt', 'acceptedCurrent', 'acceptedPending', 'acceptedVersionKey', 'declinedCurrentAt'];
 const customerReq = { user: { type: 'CUSTOMER', userId: 'cust-uuid-1', userNo: 'CU250907001' } };
@@ -104,7 +107,7 @@ describe('AgreementsClientController', () => {
   });
 
   describe('GET /client/agreements/me（登录）', () => {
-    it('有在途版：current / pending 各自键恰为四键（都带 sections），consent 恰为五键', async () => {
+    it('有在途版：current / pending 各自键恰为四键（都带 sections），previous 为 null，consent 恰为五键', async () => {
       const { service } = makeRealReadService({
         versions: [v1Effective(), v2Published()],
         consents: [
@@ -115,9 +118,10 @@ describe('AgreementsClientController', () => {
 
       const out = await controller.me(customerReq);
 
-      expect(Object.keys(out).sort()).toEqual(['consent', 'current', 'pending']);
+      expect(Object.keys(out).sort()).toEqual(['consent', 'current', 'pending', 'previous']);
       expect(Object.keys(out.current).sort()).toEqual(VIEW_KEYS);
       expect(Object.keys(out.pending!).sort()).toEqual(VIEW_KEYS);
+      expect(out.previous).toBeNull();
       expect(Object.keys(out.consent).sort()).toEqual(CONSENT_KEYS);
       expect(out.current.versionKey).toBe('v1');
       expect(out.current.sections).toBe(AGREEMENT_BODIES.v1);
@@ -132,9 +136,33 @@ describe('AgreementsClientController', () => {
 
       const out = await controller.me(customerReq);
 
-      expect(Object.keys(out).sort()).toEqual(['consent', 'current', 'pending']);
+      expect(Object.keys(out).sort()).toEqual(['consent', 'current', 'pending', 'previous']);
       expect(out.pending).toBeNull();
       expect(out.consent.acceptedCurrent).toBe(false);
+    });
+
+    it('v1 SUPERSEDED + v2 EFFECTIVE（⚡快进后）：previous=v1 且带 sections、键恰为四键；current=v2；pending=null', async () => {
+      const { service } = makeRealReadService({ versions: [v1Superseded(), v2Effective()] });
+      const controller = await buildController(service);
+
+      const out = await controller.me(customerReq);
+
+      expect(out.current.versionKey).toBe('v2');
+      expect(out.pending).toBeNull();
+      expect(Object.keys(out.previous!).sort()).toEqual(VIEW_KEYS);
+      expect(out.previous!.versionKey).toBe('v1');
+      expect(out.previous!.summary).toBe('summary of v1');
+      expect(out.previous!.sections).toBe(AGREEMENT_BODIES.v1);
+    });
+
+    it('无 SUPERSEDED 版：previous 为 null（键仍在）', async () => {
+      const { service } = makeRealReadService({ versions: [v1Effective()] });
+      const controller = await buildController(service);
+
+      const out = await controller.me(customerReq);
+
+      expect('previous' in out).toBe(true);
+      expect(out.previous).toBeNull();
     });
 
     it('consent 只看本人：别的客户的同意行不算数（按 customerId 取）', async () => {

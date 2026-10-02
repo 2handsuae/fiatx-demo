@@ -161,7 +161,9 @@ export class NotificationsService {
           ownerCustomerNo: c.customerNo,
           templateCode,
           template,
-          params: { orderNo: versionKey, effectiveDate: effectiveAt.toISOString().slice(0, 10) },
+          // 本地日 YYYY-MM-DD（en-CA 恰产此格式）：页面 / 管理台显示的是本地日，UTC 日在时区
+          // 偏移窗口内会差一天（UTC+4 下本地 11-03 00:00 = UTC 11-02 20:00）。
+          params: { orderNo: versionKey, effectiveDate: new Intl.DateTimeFormat('en-CA').format(effectiveAt) },
           entityType: AuditEntityTypes.AGREEMENT_VERSION,
           relatedOrderType: 'AGREEMENT',
           relatedOrderNo: versionKey,
