@@ -104,7 +104,7 @@
 
 **站 4.1 · 拿报价下单即上锁**
 账号：客户端 `demo_alice`
-走查：Swap 页拿一次报价（费率来自第一幕配的等级）→ 点 Confirm and Swap 打开确认弹窗——**先指读弹窗再确认**（战役丙波二）：明细里的「Retained by FIATX」行（`Fee … · Spread …`，平台留存的手续费与点差各一笔绝对数）＋ 按钮上方「Before you confirm」三句话（FIATX 是本金方 / 汇率=市场参考价（价源与取价时刻）加我方点差 % / 平台赚点差和手续费、利益可能与你不一致）→ 确认
+走查：Swap 页填金额，点 **Swap Now** 取报价并打开确认弹窗（费率来自第一幕配的等级）→ **先指读弹窗再确认**（战役丙波二）：明细里的「Retained by FIATX」行（`Fee … · Spread …`，平台留存的手续费与点差各一笔绝对数）＋ 按钮上方「Before you confirm」三句话（FIATX 是本金方 / 汇率=市场参考价（价源与取价时刻）加我方点差 % / 平台赚点差和手续费、利益可能与你不一致）→ 点弹窗内 **Confirm and Swap** 确认
 判据：卖出金额下单瞬间即上锁——切账本页看画圈（与提现同律）；弹窗三句话与留存行的数字全取这张报价的真值（点差 % 与金额随等级/报价变，不是写死的；证据 `superpowers/checkups/2026-10-02-campaign-c-wave2-evidence/01`）
 
 **站 4.2 · 管理台看单**（四腿资金单）
@@ -116,7 +116,8 @@
 判据：单转 **FROZEN**——2026-09-14 裁定翻案后，FROZEN 是**押锁待处置的中间态**，不再是"零出边终态、冻结当场擦锁退回余额"：切该客户 Overview，卖出金额仍算 locked（出生锁没放），要等解冻续走或拒退才真正动锁
 
 **站 4.3 反面步 · 冻结单没有确认单**（战役丙波二，验的是"没有"）
-走查：承接站 4.3 冻住的那张单 → 切该客户的客户端，打开该单详情页，再与另一位客户一张处于 COMPLIANCE_PENDING 的普通在途单详情页并排对照
+造数：`demo:all` 名册里兑换只有 3 笔 SUCCESS + 1 笔 FROZEN，没有 COMPLIANCE_PENDING 的在途单——先用 `demo_bob` 在 Swap 页取报价并确认建单、**不喂裁决**，单就停在 COMPLIANCE_PENDING，留作并排对照
+走查：承接站 4.3 冻住的那张单 → 切该客户的客户端，打开该单详情页，再与 bob 那张在途单详情页并排对照
 判据：两张单都显示 PROCESSING，页面是同一套 Amounts / Pricing / Timeline 区块与措辞（只有单号、金额、时间这些数据不同），**都没有** Trade Confirmation 区块——冻结单对客户收敛成与在途单同值，确认单只给成交（SUCCESS）单，所以"有没有确认单"反推不出冻结（tipping-off 同一道防线）；管理台审计中心按该兑换单号检索，**无** `CONFIRMATION_ISSUED`。证据：`superpowers/checkups/2026-10-02-campaign-c-wave2-evidence/` 的 `06`（冻结单）与 `06b`（在途参照）
 
 **站 4.4 · ⑨ 调查扣审 vs ⑦ 制裁冻结**（两制度讲词）
@@ -134,7 +135,7 @@
 判据：客户端全程零手动刷新；该单消息中心与审计页**各恰好一条** `NOTIFICATION_SENT`（`templateCode=SWAP_SUCCESS`），不再重复——`2026-09-30` T10 走查曾逮到此路径 100% 复现"事务嵌套自锁→假通知+SLA sweep 每 30 秒重发"（见 `BACKLOG.md` :106 行），`2067648e`（随 `70d119ac` 一并）把通知调用移出 `$transaction`、放到 `markStatus` 所在事务 resolve 之后的 workflow 层（含 SLA 超时拒单这第 9 个调用点），T10 复验：同日 `demo:all` 整跑 0 次 `Transaction already closed`、4 条兑换花名册全部按预期终态落地，现场新建一笔复走同样零故障。证据见 `superpowers/checkups/2026-09-30-campaign-c-wave1-evidence/`（`14`~`17`）
 
 **站 4.7 · 成交确认单：出具、留存、打印**（战役丙波二）
-账号：客户端 `demo_alice`（承接站 4.6 刚成交的那笔）→ 管理台 `admin@`（看审计）
+账号：客户端 `demo_alice`（承接站 4.6 刚成交的那笔；若 alice 已被站 4.3 连坐限制，改用 `demo_bob` 重走一笔成交）→ 管理台 `admin@`（看审计）
 走查：客户端该笔兑换详情页（SUCCESS）→ Trade Confirmation 区块——Confirmation No（`CNF` 开头）、卖出/买入/手续费/汇率/市场价·点差、「Retained by FIATX」一行、成交与出具三个时刻、「FIATX acted as principal in this trade.」与「Figures were fixed when you confirmed and will not change.」两句 → 点 Print / Save as PDF 看打印预览（浅色单页、只含确认单、按钮不进纸面；深色主题也可读）→ 切管理台审计中心按该兑换单号检索
 判据：区块里是出具当时留存的**原件**，不是页面现拼——话术"你看到的就是成交那一刻定格的单据，之后行情、费率怎么改都不会变"；审计页该单有一条 `CONFIRMATION_ISSUED`（系统动作，metadata 带 confirmationNo），记录先于同单的 `NOTIFICATION_SENT`（先落单、再记审计、再发通知，所以客户点开通知时确认单已经在；列表按时间倒序，通知在上、确认单在下）；按 CNF 号当关键字也检得到（Entity / Related No 筛选框不认 CNF 号）。证据见 `superpowers/checkups/2026-10-02-campaign-c-wave2-evidence/`（`02` 确认单区块、`03` 打印预览、`07`/`07b` 审计检索）
 
