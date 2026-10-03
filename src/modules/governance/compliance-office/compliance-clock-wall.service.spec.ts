@@ -50,6 +50,19 @@ function makeFixtures() {
     });
   }
 
+  const dsrRows: any[] = [];
+
+  function addDsr(overrides: Partial<{
+    requestNo: string; type: string; status: string; dueAt: Date;
+  }> = {}) {
+    dsrRows.push({
+      requestNo: overrides.requestNo ?? 'DSR-260101-000001',
+      type: overrides.type ?? 'ACCESS',
+      status: overrides.status ?? 'SUBMITTED',
+      dueAt: overrides.dueAt ?? new Date('2027-01-30T00:00:00.000Z'),
+    });
+  }
+
   const prisma = {
     regulatoryFiling: {
       findMany: jest.fn(async ({ where }: any) =>
@@ -69,9 +82,15 @@ function makeFixtures() {
       findMany: jest.fn(async ({ where }: any) =>
         complaintRows.filter((r) => (where?.currentStatus?.not ? r.currentStatus !== where.currentStatus.not : true))),
     },
+    // 战役丙波四 T10：第四张表。同样行为化——status.not='RESOLVED' 真的滤掉 RESOLVED 行。
+    // 注意 Prisma 模型名是 DataSubjectRequest（表 data_subject_requests），不是 dsrRequest。
+    dataSubjectRequest: {
+      findMany: jest.fn(async ({ where }: any) =>
+        dsrRows.filter((r) => (where?.status?.not ? r.status !== where.status.not : true))),
+    },
   };
 
-  return { prisma, addFiling, addObligation, addComplaint };
+  return { prisma, addFiling, addObligation, addComplaint, addDsr };
 }
 
 describe('ComplianceClockWallService.getWall (Task 5, spec §2)', () => {
@@ -250,6 +269,55 @@ describe('ComplianceClockWallService.getWall (Task 5, spec §2)', () => {
       expect(row.title).toBe('Fee dispute');
       expect(row.linkKey).toBe('CMP_SHAPE');
       expect(row.status).toBe('RECEIVED');
+    });
+  });
+
+  // 战役丙波四 T10：DSR 第四类灯（单钟 30 自然日；overdue 读时现算，投诉同款，不存标记不加 sweep）。
+  describe('DSR 分支（战役丙波四 T10）', () => {
+    it('未办结 DSR 上墙：SUBMITTED / IN_REVIEW 各一行，带 clockLabel=RESPOND (30d)', async () => {
+      const fx = makeFixtures();
+      fx.addDsr({ requestNo: 'DSR_SUBMITTED', status: 'SUBMITTED' });
+      fx.addDsr({ requestNo: 'DSR_IN_REVIEW', status: 'IN_REVIEW' });
+      const service = new ComplianceClockWallService(fx.prisma as any);
+
+      const rows = await service.getWall();
+      const dsrRows = rows.filter((r) => r.kind === 'DSR');
+      expect(dsrRows.map((r) => r.refNo).sort()).toEqual(['DSR_IN_REVIEW', 'DSR_SUBMITTED']);
+      expect(dsrRows.every((r) => r.clockLabel === 'RESPOND (30d)')).toBe(true);
+    });
+
+    it('RESOLVED 不上墙', async () => {
+      const fx = makeFixtures();
+      fx.addDsr({ requestNo: 'DSR_RESOLVED', status: 'RESOLVED' });
+      const service = new ComplianceClockWallService(fx.prisma as any);
+
+      const rows = await service.getWall();
+      expect(rows.some((r) => r.refNo === 'DSR_RESOLVED')).toBe(false);
+    });
+
+    it('overdue 红标位：dueAt < now 为真才红——读时现算（同 simulateTimeout ⚡ 拨到 now−1h）', async () => {
+      const fx = makeFixtures();
+      fx.addDsr({ requestNo: 'DSR_OVERDUE', status: 'IN_REVIEW', dueAt: new Date(Date.now() - 3600 * 1000) });
+      fx.addDsr({ requestNo: 'DSR_ON_TIME', status: 'IN_REVIEW', dueAt: new Date(Date.now() + 3600 * 1000) });
+      const service = new ComplianceClockWallService(fx.prisma as any);
+
+      const rows = await service.getWall();
+      expect(rows.find((r) => r.refNo === 'DSR_OVERDUE')!.overdue).toBe(true);
+      expect(rows.find((r) => r.refNo === 'DSR_ON_TIME')!.overdue).toBe(false);
+    });
+
+    it('归一行形状：kind=DSR，refNo=linkKey=requestNo，title=Data request · <type>，authority=DPO，deadlineAt=dueAt', async () => {
+      const fx = makeFixtures();
+      const dueAt = new Date(Date.now() + 29 * 86400000);
+      fx.addDsr({ requestNo: 'DSR_SHAPE', type: 'ERASURE', status: 'SUBMITTED', dueAt });
+      const service = new ComplianceClockWallService(fx.prisma as any);
+
+      const rows = await service.getWall();
+      expect(rows.find((r) => r.refNo === 'DSR_SHAPE')).toEqual({
+        kind: 'DSR', refNo: 'DSR_SHAPE', title: 'Data request · ERASURE', authority: 'DPO',
+        deadlineAt: dueAt.toISOString(), overdue: false, status: 'SUBMITTED', linkKey: 'DSR_SHAPE',
+        clockLabel: 'RESPOND (30d)',
+      });
     });
   });
 });

@@ -1,13 +1,13 @@
-// 战役甲波四 T5（spec §2）：闹钟墙——只读聚合两张表（regulatory_filings /
-// compliance_obligations），不建新表、不写任何表（铁律③「横向读客户主数据放行」——本服务
-// 是纯聚合读点，两个主体各自的写路径原样在各自服务里，本文件零 Prisma 写调用）。
+// 战役甲波四 T5（spec §2）：闹钟墙——只读聚合表（regulatory_filings / compliance_obligations /
+// complaints / 战役丙波四 T10 起加 data_subject_requests），不建新表、不写任何表（铁律③「横向读
+// 客户主数据放行」——本服务是纯聚合读点，各主体的写路径原样在各自服务里，本文件零 Prisma 写调用）。
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { FILING_CLOCK_WALL_STATUSES } from '../regulatory-filings/regulatory-filing.constants';
 import { ObligationStatus } from './compliance-office.constants';
 
 export interface ClockWallRow {
-  kind: 'FILING' | 'OBLIGATION' | 'COMPLAINT';
+  kind: 'FILING' | 'OBLIGATION' | 'COMPLAINT' | 'DSR';
   refNo: string;
   title: string;
   authority: string;
@@ -15,8 +15,8 @@ export interface ClockWallRow {
   overdue: boolean;
   status: string;
   linkKey: string;
-  // 战役甲波五 T5：COMPLAINT 行专属——区分「确认钟」/「裁决钟」，FILING/OBLIGATION 两种
-  // kind 不填这个字段（可选，toEqual 对 undefined 键视同不存在，不破坏既有行断言）。
+  // 战役甲波五 T5：COMPLAINT 行专属——区分「确认钟」/「裁决钟」（丙波四 T10 起 DSR 行也填，
+  // 恒为 'RESPOND (30d)'），FILING/OBLIGATION 两种 kind 不填这个字段（可选，toEqual 对 undefined 键视同不存在，不破坏既有行断言）。
   clockLabel?: string;
 }
 
@@ -35,7 +35,7 @@ export class ComplianceClockWallService {
    *   承担，故本行 overdue 恒 false。
    */
   async getWall(): Promise<ClockWallRow[]> {
-    const [filings, obligations, complaints] = await Promise.all([
+    const [filings, obligations, complaints, dsrs] = await Promise.all([
       this.prisma.regulatoryFiling.findMany({
         where: { deadlineAt: { not: null }, status: { in: FILING_CLOCK_WALL_STATUSES as string[] } },
         orderBy: { deadlineAt: 'asc' },
@@ -50,6 +50,12 @@ export class ComplianceClockWallService {
       // III.A.1.a/b，spec §1 已核事实）。
       this.prisma.complaint.findMany({
         where: { currentStatus: { not: 'RESOLVED' } },
+        orderBy: { submittedAt: 'asc' },
+      }),
+      // 战役丙波四 T10：非终态（!= RESOLVED）资料请求一行；单钟（提交后 30 自然日，dueAt 提交时
+      // 一次算定，⚡ 只改 dueAt）。overdue 读时现算（dueAt < now，投诉同款）——不存标记、不加 sweep。
+      this.prisma.dataSubjectRequest.findMany({
+        where: { status: { not: 'RESOLVED' } },
         orderBy: { submittedAt: 'asc' },
       }),
     ]);
@@ -95,6 +101,19 @@ export class ComplianceClockWallService {
       };
     });
 
-    return [...filingRows, ...obligationRows, ...complaintRows];
+    // authority 固定标 'DPO'（经办人角色，非监管方——前端 AUTHORITY_LABEL 无此键，原样显示）。
+    const dsrRows: ClockWallRow[] = dsrs.map((d) => ({
+      kind: 'DSR',
+      refNo: d.requestNo,
+      title: `Data request · ${d.type}`,
+      authority: 'DPO',
+      deadlineAt: d.dueAt.toISOString(),
+      overdue: d.dueAt.getTime() < now,
+      status: d.status,
+      linkKey: d.requestNo,
+      clockLabel: 'RESPOND (30d)',
+    }));
+
+    return [...filingRows, ...obligationRows, ...complaintRows, ...dsrRows];
   }
 }
