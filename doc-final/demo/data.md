@@ -24,7 +24,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 | Eve New | 刚注册未认证 | 开户起点 |
 | Frank HighRisk | 高风险 | 风险分层 |
 | Grace Premium | VIP 费率标签（手打 STATIC，与 PREMIUM 交易档位解绑，2026-09-06） | 费率受众谓词（命中 VIP-USDT-AED） |
-| Henry Acme | 企业客户 | 企业形态占位 |
+| Henry Acme | 企业客户 | 企业形态占位；**第十幕（客户的账单与资料）演员**（战役丙波四）：带上上月 / 上月种子历史腿，余额 AED 44,950.00 / USDT 2,709.049000，**statement-only**（无钱包 / 无 vIBAN / 无活订单，见下「月结单与资料请求种子」） |
 | Ivy Restricted | **材料过期 · 明示受限**（scopes 仅 WITHDRAW/SWAP，不含 DEPOSIT） | 与 Carol 对照：明示 vs 静默；横幅矩阵下提现/兑换页出条子形态合并横幅、充值页不出（按域过滤演示位，2026-09-13 波三；充值页横幅走第三幕⑥现场限制） |
 | Leo Confirmed | **制裁定性 · 确认命中**（`SANCTION_CONFIRMED`，DISCLOSED，scope=ALL） | 战役甲波三 Task 10：CNMR 已提交样例锚点——客户端 Profile 页横幅可演（`RestrictionBanner` 走既有 DISCLOSED 机制，零代码生效）；与 Ivy 对照：Leo 是全阻（ALL，充值也挡），Ivy 是半阻（WITHDRAW/SWAP，充值不挡） |
 | Mona Partial | **制裁定性 · 部分命中在途**（`SANCTION` SILENT，OPEN；PNMR 挂钟 + 补料在途） | 战役甲波三 Task 10：PNMR 5 工作日钟种子锚点——与 Carol 对照：Carol 是命中待裁（定性之前），Mona 是已出 PARTIAL 结果（定性之后：PNMR 已开、EMIRATES_ID 补料已发，便签仍 SILENT/OPEN 等 EOCN 回指令） |
@@ -203,10 +203,21 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 
 | 表 | 行数 | 内容 |
 |---|---|---|
-| `customer_agreement_versions` | **2** | `v1` = `EFFECTIVE`（`effectiveAt` 取早于最早种子客户注册日的固定日，不相对运行时；原七节 + 两处 14→30 天订正）／`v2` = `DRAFT`（v1 + 第 V 节追加投诉时限 7/28/56 天；第十幕现场由合规官提交发布） |
-| `customer_agreement_consents` | **13** | 13 位 demo 客户（上方客户矩阵全员）各一行 `ACCEPTED v1`，`actedAt` = 各自注册时间——**种子客户全部只同意过 v1**，所以第十幕⚡快进 v2 后全库被拦 DEPOSIT/SWAP（演完须重铺，见 `script.md` 第十幕） |
+| `customer_agreement_versions` | **2** | `v1` = `EFFECTIVE`（`effectiveAt` 取早于最早种子客户注册日的固定日，不相对运行时；原七节 + 两处 14→30 天订正）／`v2` = `DRAFT`（v1 + 第 V 节追加投诉时限 7/28/56 天；第十一幕现场由合规官提交发布） |
+| `customer_agreement_consents` | **13** | 13 位 demo 客户（上方客户矩阵全员）各一行 `ACCEPTED v1`，`actedAt` = 各自注册时间——**种子客户全部只同意过 v1**，所以第十一幕⚡快进 v2 后全库被拦 DEPOSIT/SWAP（演完须重铺，见 `script.md` 第十一幕） |
 
-`demo:all` **零协议动作**，v2 全程 DRAFT；`customer_notifications` 无 `AGREEMENT` 行、审计无 `AGREEMENT_*` 行。判据见 `baseline.md` 协议种子三断言。第十幕演员 Kate Trader（`demo_kate@`）的点名依据见 `script.md` 场景 33。
+`demo:all` **零协议动作**，v2 全程 DRAFT；`customer_notifications` 无 `AGREEMENT` 行、审计无 `AGREEMENT_*` 行。判据见 `baseline.md` 协议种子三断言。第十一幕演员 Kate Trader（`demo_kate@`）的点名依据见 `script.md` 场景 35（原场景 33，波四插幕后顺延）。
+
+## 月结单与资料请求种子（business seed，Henry 历史腿 + Grace 一张已办结 ACCESS 单，2026-10-03 战役丙波四 Task 11）
+
+`seedStatementHistoryLegs()` + `seedGraceAccessRequest()`（`prisma/seed.business.ts` 末尾，紧随公司资金种子之后）。**月结单本身不是种子**——`customer_monthly_statements` 一律由后端常驻 30 秒 sweep 经真实生成器出具（重铺后起栈 ≤60 秒内齐；种子不直插该表）。详细判据与公式见 `baseline.md`「战役丙波四种子断言」。
+
+| 种子 | 内容 |
+|---|---|
+| Henry（`demo_acme`，CU2601012635）历史腿 | 相对月份（`businessMonthOf(now)` 推）：**上上月 15 日** AED 充值 50,000.00；**上月 2 日** AED 充值 10,000.00、**5 日** AED→USDT 兑换（卖 10,000.00 AED，毛 2,712.049000 USDT，费 3.000000 USDT）、**20 日** AED 提现 5,050.00（到账 5,000.00 + 费 50.00）。落地 = TB 真写 + `tbTransferEvidence` 回拨时间 + `accountFlow` 镜像（LP 先例三件套）；只铺**客户侧**腿（公司侧对手腿不铺，**费腿不对称是有意的**，见 baseline）；另一行极薄 `swap_transactions` 壳 `SWP2601010349`（仅供账单兑换行取名）。结果余额 **AED 44,950.00 / USDT 2,709.049000**。**无钱包行 / 无 vIBAN / 无订单行**（充值 `DEP…` 与提现 `WDR…` 单号悬空）——只演账单，不演活交易 |
+| Grace（`demo_grace`，CU2601014381）一张 DSR | `DSR2601016750`：ACCESS / RESOLVED / `ACCESS_SUMMARY_PROVIDED`，submittedAt = 铺数 −10 天、reviewStartedAt = +1 天、resolvedAt = +3 天、dueAt = +30 天；摘要四键（`generatedAt` / `profile` 14 键白名单 / `agreementConsents` / `kycMaterials` 空）已固化，无 riskRating / eddRequired / hardLine；种子直写，**不补审计**（同投诉种子口径） |
+
+`demo:all` **零动作**：Henry 不在 29 笔花名册，终态比对不受扰；`data.md` 下方生成区的 `COA CLIENT(AED/USDT)` 两行**随 Henry 余额平移**（旧值 29612565 / 4392571811 → **34107565 / 7101620811**，+4495000 / +2709049000，已入库；花名册表与 FIRM 两行零变化）。第十幕走查产出的 DSR 单 / 材料请求 / 证件号更正是现场戏，不进种子。
 
 ## 各脚本造什么
 

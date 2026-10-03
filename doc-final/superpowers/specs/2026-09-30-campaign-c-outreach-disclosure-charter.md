@@ -1,6 +1,6 @@
 # 战役丙「客户触达与披露」总纲
 
-> 立纲 2026-09-30 ｜ **2026-10-02 改纲：三波 → 四波**（客户协议从波二拆出独立成波三，原波三「月结单与 DSR」顺延为波四，理由见 §1.1）｜ 状态：**波一已收官合 main（2026-10-01 快进 2f0a5c6e）；波二已收官合 main（2026-10-02 快进 6cc473f4；spec 含执行订正三条，spec/plan/骨架已归档 `archive/superpowers/`）；波三已收官（2026-10-03 T12 收口，快进合并 main `0a58bde5`；spec 含执行订正 9 条，spec/plan/骨架随合并归档）；波四待展开（骨架已立 `2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md`，含波三承接）** ｜ 体检：`checkups/2026-09-30-campaign-c-outreach-disclosure-checkup.md`（上游：同日 BD 参照系盘点 `checkups/2026-09-30-bd-landscape-vs-modules.md`）
+> 立纲 2026-09-30 ｜ **2026-10-02 改纲：三波 → 四波**（客户协议从波二拆出独立成波三，原波三「月结单与 DSR」顺延为波四，理由见 §1.1）｜ 状态：**波一已收官合 main（2026-10-01 快进 2f0a5c6e）；波二已收官合 main（2026-10-02 快进 6cc473f4；spec 含执行订正三条，spec/plan/骨架已归档 `archive/superpowers/`）；波三已收官（2026-10-03 T12 收口，快进合并 main `0a58bde5`；spec 含执行订正 9 条，spec/plan/骨架随合并归档）；**波四已收官（2026-10-03 T12 收口，合并哈希待填；spec 含执行订正 13 条，spec / plan / 骨架随合并归档）——丙战役四波全部收官**（骨架 `2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md` 含波三承接，已兑现）** ｜ 体检：`checkups/2026-09-30-campaign-c-outreach-disclosure-checkup.md`（上游：同日 BD 参照系盘点 `checkups/2026-09-30-bd-landscape-vs-modules.md`）
 > 波次执行按 CLAUDE.md §6：spec 只写细当前波；每波收尾按 `rules/delivery-checklist.md` 写承接记录进下一波骨架；**本纲活到最后一波**。
 
 ## §0 目标与判准
@@ -48,7 +48,7 @@
 - **波一**：已收官（2026-10-01 合 main）；骨架与 spec（含「执行订正」节：FROZEN 收敛真值、兑换 9 事务点后置）已随波归档 `archive/superpowers/specs/`。
 - **波二**：已收官（2026-10-02 合 main 6cc473f4）；骨架与 spec（含「执行订正」节：toAssetCode 补列 / CNF 无连字符 / 漏斗 8 调用点+SLA 直调第 9 发信点）已随波归档 `archive/superpowers/`。
 - **波三**：已收官（2026-10-03 T12 收口，合并哈希待填）；骨架与 spec（含「执行订正」9 条：种子 13 非 11 / `intakeDecision` 改前置拦 / 强制弹窗补查看全文 / 打印改流式 + 叠层修 / `/me` 四键含 `previous` / 通知本地日口径 / S16 判据补 / 零协议动作互链 / 幕号落第十幕）与 plan 随合并归档 `archive/superpowers/`。
-- **波四**：骨架已立 `2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md`（含波三承接；下列已定事实已搬运进骨架，此处原文保留）。监管依据（2026-10-02 一手核实）：CRM **IV.D.2** 客户资金月结单须于结单日后 25 天内出具；Custody III.D.4 有月度虚拟资产对账单（本司仅 BD 牌照，是否适用波内裁）。月结单定版形态——快照 or 按月重查（⚠️判例在案：实时快照不可批量补拍，乙波三 t11-05）；DSR 三种请求（查/改/删）各自结局——"删"演"因监管留存义务部分拒绝"（条款原文 `CustomerRegister.tsx:93` 写着 subject to retention obligations，是现成的戏）；DSR 请求经不经审批链（DPO 独办 or maker-checker）。
+- **波四**：**已收官**（2026-10-03 T12 收口，合并哈希待填）；spec 含「执行订正」13 条（phone 路由命名 / ⚡ requestId 随机后缀 / `clauseRef` 取最新 ACCEPTED / 摘要不打码 / 月结单行序新→旧与币种键 / admin `balances` / Henry 种子三取舍与 `data.md` 零 diff 判据推翻 / ⚡ 实际唯超管可点 / `audit-mask` 前提不成立 / integration 未入库与快照不漂实验 / 四张历史单 / 幕序 / 数量表终值）与 plan、骨架随合并归档 `archive/superpowers/`。以下为立纲 / 立骨架时的已定事实，原文保留：骨架 `2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md`（含波三承接；已定事实已搬运进骨架）。监管依据（2026-10-02 一手核实）：CRM **IV.D.2** 客户资金月结单须于结单日后 25 天内出具；Custody III.D.4 有月度虚拟资产对账单（本司仅 BD 牌照，是否适用波内裁）。月结单定版形态——快照 or 按月重查（⚠️判例在案：实时快照不可批量补拍，乙波三 t11-05）；DSR 三种请求（查/改/删）各自结局——"删"演"因监管留存义务部分拒绝"（条款原文 `CustomerRegister.tsx:93` 写着 subject to retention obligations，是现成的戏）；DSR 请求经不经审批链（DPO 独办 or maker-checker）。
 
 ## §4 设计红线（全战役）
 
@@ -67,7 +67,8 @@
 - 2026-10-02 改四波：本纲 §1.1/§2/§3/§4/§6 同步；新立波三骨架；波二骨架补"脑暴已拍"节；`decisions.md` 2026-10-01 判例行里"波三月结单"改称波四。
 - 2026-10-02 波二收官同步：波二 spec/plan/骨架归档；delivery decision-log +D-26（确认单三性）；本纲状态与 §3 波二行更新。
 - 2026-10-03 波三收官同步：本纲状态与 §3 波三行更新；立波四骨架（含波三承接）；delivery decision-log +D-27（协议三性；触碰检查命中状态机 / 审计集 / 业务键 `versionKey` 破例，语义合同条目为指针式、无需改）；`decisions.md` +3 条（费率与协议零联动 / 30 天通知期锚批准时刻 / 未同意拦充兑放提现且显式拒绝）。
+- 2026-10-03 **波四收官同步（丙战役末波，不立新骨架，承接写在本行）**：本纲状态与 §3 波四行更新；delivery decision-log +D-28（月结单三性 + DSR 独办；触碰检查命中状态机 / 审计集 / 业务键 `statementNo`·`requestNo`，语义合同条目为指针式、无需改）；`decisions.md` +3 条（无全局演示时钟判不做、月结单走 sweep / 月结单是出具的单据与记账月口径 / DSR 不走审批链 DPO 独办）；BACKLOG 核对 `CUSTOMER_WRITE` 孤儿桶已销、新登 O 节 5 行；PRODUCTION-NOTES +4、TOOLING-DEBT +1（`audit-mask` 驼峰死键 11 个）。**实际偏差**：月结单触发形态由"拨钟跨月"改 30 秒 sweep（系统无全局钟）；幕序——新第十幕"客户的账单与资料"（场景 33–34，演员 Henry），协议幕顺延第十一幕·场景 35（骨架前提 12"波四排第十一幕"被 `script.md` "协议幕必须排整场最后、演完重铺"硬约束推翻）；"改"的落档通道新建（脑暴前提"合规官有既有改档案能力"被实扫推翻，裸 CRUD 2026-09-16 已删）；Henry 种子历史腿（"种子客户腿全落铺数当天"被实扫推翻）；DSR ⚡ 实际唯超管可实点。**新事实**：`audit-mask.util.ts` 11 个驼峰条目永不命中（TOOLING-DEBT）；种子客户腿落铺数当天 → 快照只写一次对"seed 先于 API 起"的时序敏感（reset 生命周期保证，云端 `deploy/demo-run.sh` 序同 seed→API→demo:all，T11 评审证实）；`maskAuditPayload` 此前零调用方。**欠账 / 合并后必做**：云端 `cloud:deploy` 丙波一～四连欠；合并 main 后重启后端 + `npm run db:base:sync`（新增 `compliance-office.dsr` 桶与 `DSR_READ` / `DSR_WRITE` 两组，否则 403）+ `stack.sh reset main`（动过 schema / seed）；云端 `TZ=Asia/Dubai` 随丙波三生效、部署后须核通知生效日。**未了账**：CRS / CARF 税务报送仍归丁（§1 岔口 8，丙未动）。**归档动作留给合并会话**（波四 spec / plan / 骨架；本纲"活到最后一波"，随末波合并一并归档，哈希回填后）。
 
 ## §6 演示承接点
 
-通知类场景承接三幕（钱进）/四幕（钱换）/五幕（钱出）既有客户端环节；披露+确认单承接四幕报价/Confirm and Swap；客户协议自开新场景（**已落第十幕 · 场景 33**——第九幕早被战役乙「公司的钱」占用）；月结单承接六幕（账对）客户端流水场景；DSR 自开新场景（第十幕已被协议占用，波四应排第十一幕，波四 spec 定）。tipping-off 反面走查现场在二/三/五幕（Carol/Jack/Grace/Frank"客户面看不出来"）——通知上线后这些场景补"不发通知/发中性通知"验证步。
+通知类场景承接三幕（钱进）/四幕（钱换）/五幕（钱出）既有客户端环节；披露+确认单承接四幕报价/Confirm and Swap；客户协议自开新场景（**已落第十一幕 · 场景 35**——战役丙波三交付时原排第十幕 · 场景 33，波四插入新第十幕后顺延；第九幕早被战役乙「公司的钱」占用）；月结单与 DSR 合开**第十幕 · 场景 33–34**（演员 Henry；月结单落在客户端流水页，不挂第六幕——原写"承接六幕客户端流水场景"，实际流水页的翻月 / 深链 / 固定 vs 活页独立成场景 33）。tipping-off 反面走查现场在二/三/五幕（Carol/Jack/Grace/Frank"客户面看不出来"）——通知上线后这些场景补"不发通知/发中性通知"验证步；波四另在场景 34 末补"Carol / Frank 月结单页与普通客户逐字同款"一步。

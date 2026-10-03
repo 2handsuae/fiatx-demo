@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-10-02 ｜ 基线 main `1417585c` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
-> 现役 **335 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
+> 生成于 2026-10-03 ｜ 基线 main `d2714211` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 现役 **343 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 32 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 27 ｜ TREASURY 37 ｜ RECON 9 ｜ GOVERNANCE 48 ｜ 合计 335
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 27 ｜ TREASURY 37 ｜ RECON 9 ｜ GOVERNANCE 54 ｜ 合计 343
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -239,7 +239,7 @@
 |---|---|---|---|---|---|
 | `AUDIT_LOG_QUERIED` | 每次查询审计列表自动记一条（重铺后 Q6 靠它转绿） | N 单步 | — |  |  |
 
-## CUSTOMER 域 —— V2 客户与合规（32 码）
+## CUSTOMER 域 —— V2 客户与合规（34 码）
 
 客户主档、限制便签（含制裁冻人）、材料请求账、现场开户（CDD/EDD）、档位升级。客户级件无订单旅程，全册单步。
 
@@ -314,6 +314,13 @@
 |---|---|---|---|---|---|
 | `AGREEMENT_ACCEPTED` | 客户同意协议版本（注册 / 弹窗 / 阅读页三口同码，metadata 带 source；追加台账一行） | N 单步 | versionKey, source |  |  |
 | `AGREEMENT_DECLINED` | 客户对当前生效版选择「暂不同意」（仅生效版可落，通知期在途版无拒绝语义） | N 单步 | versionKey, source |  |  |
+
+### 客户档案更正（战役丙波四 T8/T9 新增）（2）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `CUSTOMER_PROFILE_UPDATED` | 合规官经 PATCH 通道更正客户档案（CDD 七字段白名单，逐字段 before/after 进 metadata，证件号与住址掩码；DSR「改」重核验通过后的人工落档，填 `CUSTOMER_WRITE` 孤儿桶） | N 单步 | customerNo, changedFields |  |  |
+| `CUSTOMER_PHONE_UPDATED` | 客户自助改手机号（唯一冲突显式 409；actor=客户本人，metadata 带掩码后的 before/after；phone 同时是登录标识之一） | N 单步 | customerNo |  |  |
 
 ## DEPOSIT 域 —— V4 充值（47 码）
 
@@ -643,7 +650,7 @@
 | `RECON_CASE_AGING_BREACHED` | 账龄到线（系统通道，actor=AGING_TIMER，核销/认损按钮由此解锁） | N 单步 | — |  |  |
 | `RECON_AGING_TIMEOUT_SIMULATED` | ⚡ 拨钟：把账龄截止拨到过去（拨钟一条、到线一条，各说各的事） | N 单步 | — |  |  |
 
-## GOVERNANCE 域 —— 事故登记（平账三期）（48 码）
+## GOVERNANCE 域 —— 事故登记（平账三期）（54 码）
 
 性质严重的差异正式立「事故」：登记 / 调查 / 定损 / 通报 / 善后 / 结案，全程零账务；动钱挂调账单与划转单引用。
 
@@ -729,6 +736,17 @@
 | `AGREEMENT_PUBLISH_REJECTED` | 驳回 / 撤单 / 过期，或批准时 30 天复核不过的退回（PENDING_APPROVAL→DRAFT，actor=system） | N 单步 | versionKey, decision |  |  |
 | `AGREEMENT_FASTFORWARDED` | ⚡ 把已公告版本的生效日改写为当前时刻（演示装置，金库 / 超管） | N 单步 | versionKey, effectiveAt |  |  |
 | `AGREEMENT_EFFECTIVE` | PUBLISHED→EFFECTIVE 翻转（到点懒翻或 ⚡快进触发），旧生效版同事务退位 SUPERSEDED（actor=system） | N 单步 | versionKey |  |  |
+
+### 月结单与资料请求（战役丙波四 T3/T5）（6）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `STATEMENT_ISSUED` | 月结单出具：30 秒 sweep 追赶式自动出具，一客户一月一张、只写一次（actor=system；先落快照行、再记本审计、最后发通知） | N 单步 | statementNo, periodMonth |  |  |
+| `DSR_SUBMITTED` | 客户提交资料请求（查 / 改 / 删三型之一，落 SUBMITTED，30 自然日响应钟自提交时刻起算） | N 单步 | requestNo, type |  |  |
+| `DSR_REVIEW_STARTED` | DPO 受理（SUBMITTED→IN_REVIEW） | N 单步 | requestNo |  |  |
+| `DSR_SUMMARY_GENERATED` | DPO 生成资料摘要（仅 ACCESS、仅 IN_REVIEW；档案白名单字段 + 协议同意史 + KYC 材料清单固化进工单，只写一次） | N 单步 | requestNo |  |  |
+| `DSR_RESOLVED` | DPO 办结（IN_REVIEW→RESOLVED，四个结局码之一；改→重核验连带开材料请求，删→拒绝信引协议 §VI） | N 单步 | requestNo, resolutionCode |  |  |
+| `DSR_DEADLINE_FASTFORWARDED` | ⚡ 把 DSR 响应钟拨到过去（演示装置，金库 / 超管；可对同单重拨） | N 单步 | requestNo |  |  |
 
 ## 附录 · 退役码（拒写闸名单，历史可读、不再允许写入）
 

@@ -1,6 +1,6 @@
 # 合规办公室（闹钟墙 · 合规日历 · 登记册）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-27（战役甲波四：闹钟墙 / 合规日历 / 登记册两本落地，首次实数点验：15 域 73 桶 81 组）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-10-03（战役丙波四：闹钟墙加第四类灯 DSR，见 §1）；此前 2026-09-27（战役甲波四：闹钟墙 / 合规日历 / 登记册两本落地，首次实数点验：15 域 73 桶 81 组）
 > 演示幕次：第八幕场景 21/22（战役甲波五收官定稿）｜ 验收：场景 21/22 走查（`demo/script.md`）+ 本篇 §5
 
 ## 0. 这是什么
@@ -18,13 +18,14 @@
 **端点**：`GET /admin/compliance-office/clock-wall`（只读聚合，不落新表）。返回行按归一形状展开：
 
 ```
-{ kind: 'FILING' | 'OBLIGATION', refNo, title, authority,
+{ kind: 'FILING' | 'OBLIGATION' | 'COMPLAINT' | 'DSR', refNo, title, authority,
   deadlineAt, overdue: boolean, status, linkKey }
 ```
 
 - **FILING 行**：`deadlineAt != null && status ∈ {DRAFT, PENDING_SIGNOFF, SIGNED_OFF}`——按时提交即下墙；被 sweep 标过 `overdueMarkedAt` 的**红着留墙**，直到提交 / 办结 / 作废才消。数据源即 V9 报送台的 `regulatory_filings.deadlineAt`（GENERAL 族 + AML 族 + 本波新增 PERIODIC_RETURN，同一张表、同一套超时软标机制，见 `modules/v9-regulatory-filing.md` §2）。
 - **OBLIGATION 行**：`status = ACTIVE` 的义务全部上墙，按 `nextDueAt` 倒计时；义务行只有绿 / 黄两色，到期即生成工单并翻期（§2），红色由生成的工单行接棒。
 - **COMPLAINT 行**（2026-09-28 战役甲波五新增）：`currentStatus != 'RESOLVED'` 的每张投诉一行，`deadlineAt` 取未确认走确认钟（`ackDeadlineAt`）、已确认走裁决钟（`resolveDeadlineAt`），`clockLabel` 区分两钟，超时同样只软标变红、不自动动作——详见 `modules/complaints.md` §5。
+- **DSR 行**（2026-10-03 战役丙波四新增，**第四类灯**）：`status != RESOLVED` 的每张资料请求一行，`deadlineAt` 取 `dueAt`（提交时刻 + 30 自然日单钟），`authority` 恒为 `DPO`，逾期 = 读时现算 `dueAt < now`（已办结单永不逾期）——详见 `modules/v2-customer-compliance.md` §8。**行点击**有显式 DSR 分支，落 DSR 详情页（目的页读权由路由守卫判：合规官 / 内审只读，MLRO 落 403 页）；**⚡ 快进**走 DSR 自家端点（`simulate-timeout`，`DEMO_CLOCK_WRITE`）——能同时看到墙又点得动 ⚡ 的只有超管：DPO 是 DSR 经办人但**不持 `COMPLIANCE_OFFICE_VIEW`、看不见墙**，金库有拨钟权同样看不见墙，合规官看得见墙但没有 ⚡ 列（墙是合规官督办视角，DPO 看自己列表页的倒计时列）。
 
 **颜色三档**：红 = `overdue`（FILING 行专属）；黄 = 剩余 ≤ 24h（聚合端点不携带锚时间戳或 `leadBusinessDays`，两种 kind 统一走「总长不可知」分支，见前端实现注释）；绿 = 其余。阈值数字是展示参数，不入验收判据。
 
