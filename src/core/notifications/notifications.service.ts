@@ -177,6 +177,61 @@ export class NotificationsService {
   }
 
   /**
+   * 战役丙波四 T2：月结单发出 → 单客户站内信（模拟邮件）。方法整体 try/catch 吞错，
+   * 调用方（月结单生成 sweep）在通知之后还有后置动作，通知失败不得拖垮它；
+   * 落库+审计（send）先于信号，同 notifyOrderStatusChange 的耐久性次序约定。
+   * 模板键查无即沉默（登记处头注释既有约定），不加 default 分支。
+   */
+  async notifyStatementIssued(input: { customerId: string; statementNo: string; periodMonth: string }): Promise<void> {
+    try {
+      const templateCode = 'STATEMENT_ISSUED';
+      const template = NOTIFICATION_TEMPLATES[templateCode];
+      if (!template) return;
+
+      const owner = await this.resolveOwner({ customerId: input.customerId });
+
+      await this.send({
+        ownerCustomerNo: owner.customerNo,
+        templateCode,
+        template,
+        params: { orderNo: input.statementNo, periodMonth: input.periodMonth },
+        entityType: AuditEntityTypes.MONTHLY_STATEMENT,
+        relatedOrderType: 'STATEMENT',
+        relatedOrderNo: input.statementNo,
+      });
+
+      this.emitSignal(owner.customerId, `notifyStatementIssued ${input.statementNo}`);
+    } catch (err) {
+      console.error(`[NotificationsService] notifyStatementIssued failed for ${input.statementNo}:`, err);
+    }
+  }
+
+  /** 战役丙波四 T2：资料请求办结 → 单客户站内信（模拟邮件）。形态同 notifyStatementIssued。 */
+  async notifyDsrResolved(input: { customerId: string; requestNo: string }): Promise<void> {
+    try {
+      const templateCode = 'DSR_RESOLVED';
+      const template = NOTIFICATION_TEMPLATES[templateCode];
+      if (!template) return;
+
+      const owner = await this.resolveOwner({ customerId: input.customerId });
+
+      await this.send({
+        ownerCustomerNo: owner.customerNo,
+        templateCode,
+        template,
+        params: { orderNo: input.requestNo },
+        entityType: AuditEntityTypes.DSR_REQUEST,
+        relatedOrderType: 'DSR',
+        relatedOrderNo: input.requestNo,
+      });
+
+      this.emitSignal(owner.customerId, `notifyDsrResolved ${input.requestNo}`);
+    } catch (err) {
+      console.error(`[NotificationsService] notifyDsrResolved failed for ${input.requestNo}:`, err);
+    }
+  }
+
+  /**
    * 信号是尽力而为，单独兜错——绝不能让 emit 失败（如脚本环境无 `.listen()`，
    * `gateway.server` 为 null）连累调用方已经写完的持久行/审计。
    */

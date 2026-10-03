@@ -29,6 +29,9 @@ const ORDER_ROUTES: Record<string, (no: string) => string> = {
   COMPLAINT: (no) => `/complaints/${no}`,
   // 战役丙波三 T8：协议通知（relatedOrderNo 是版本键，无详情页）→ 统一落协议阅读页。
   AGREEMENT: () => '/agreement',
+  // 战役丙波四 T2：月结单通知 → 交易记录页带月结单号；资料请求通知 → 资料请求页。
+  STATEMENT: (no) => `/transactions?statement=${encodeURIComponent(no)}`,
+  DSR: () => '/data-requests',
 };
 
 const Messages = () => {

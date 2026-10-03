@@ -1,5 +1,5 @@
 /**
- * 战役丙波一 T2：通知模板登记处——16 条全量（丙波三 T4 增 AGREEMENT_PUBLISHED 为 17 条），键 = `${domain}_${collapsedTo}` / 投诉码。
+ * 战役丙波一 T2：通知模板登记处——16 条全量（丙波三 T4 增 AGREEMENT_PUBLISHED 为 17 条，丙波四 T2 增 STATEMENT_ISSUED / DSR_RESOLVED 为 19 条），键 = `${domain}_${collapsedTo}` / 投诉码。
  * tipping-off 红线：文案是终稿，不含执法/合规/冻结类词；键查无即沉默——服务侧禁止为
  * 未登记的键加 default 分支（查不到模板 = 不发这条消息，不是"发一条兜底消息"）。
  */
@@ -9,6 +9,7 @@ export interface NotificationTemplateParams {
   amount?: string;
   assetCode?: string;
   effectiveDate?: string;
+  periodMonth?: string;
 }
 
 export interface NotificationTemplate {
@@ -40,4 +41,7 @@ export const NOTIFICATION_TEMPLATES: Record<string, NotificationTemplate> = {
   COMPLAINT_RESOLVED:     { title: 'Complaint resolved',          body: (p) => `Your complaint ${p.orderNo} has been resolved. Please open it to view the outcome.`, simulateEmail: true },
   // 战役丙波三 T4：协议发布全员通知（orderNo 复用为协议版本键 versionKey，深链键同值）。
   AGREEMENT_PUBLISHED:    { title: 'Customer agreement update',   body: (p) => `Our customer agreement will be updated on ${p.effectiveDate}. Please review version ${p.orderNo} and accept it before it takes effect.`, simulateEmail: true },
+  // 战役丙波四 T2：月结单发出（orderNo = 月结单号 statementNo）/ 资料请求办结（orderNo = 请求单号 requestNo）。
+  STATEMENT_ISSUED:       { title: 'Your monthly statement is ready', body: (p) => `Your account statement for ${p.periodMonth} has been issued and is available in Transaction history. Reference ${p.orderNo}.`, simulateEmail: true },
+  DSR_RESOLVED:           { title: 'Your data request has been resolved', body: (p) => `Your personal data request ${p.orderNo} has been resolved. Open the request to view the outcome.`, simulateEmail: true },
 };

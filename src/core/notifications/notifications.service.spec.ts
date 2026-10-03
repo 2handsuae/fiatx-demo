@@ -147,8 +147,8 @@ describe('NotificationsService', () => {
     expect(createInput.data.body).toBe('Your withdrawal WDR1 of 50 AED has been completed.');
   });
 
-  it('17 个模板全量登记（丙波三 T4 新增 AGREEMENT_PUBLISHED，判据自点）', () => {
-    expect(Object.keys(NOTIFICATION_TEMPLATES)).toHaveLength(17);
+  it('19 个模板全量登记（丙波四 T2 新增 STATEMENT_ISSUED / DSR_RESOLVED，判据自点）', () => {
+    expect(Object.keys(NOTIFICATION_TEMPLATES)).toHaveLength(19);
   });
 
   // 评审 Important（控制器裁定）：通知是主流程旁路副作用，内部失败（如落库
@@ -406,6 +406,115 @@ describe('NotificationsService', () => {
 
       expect(notificationRows).toHaveLength(CUSTOMERS.length);
       expect(auditLogs.recordSystem).toHaveBeenCalledTimes(CUSTOMERS.length);
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
+  // 战役丙波四 T2：月结单发出 / 资料请求办结 → 单客户站内信（模拟邮件）。入参 customerId 是内部 id（'c1'），
+  // 经既有 resolveOwner 补出 customerNo；mock 的 findUnique 按 where 语义返回，未知 id 查无即 resolveOwner 抛错。
+  describe('notifyStatementIssued', () => {
+    it('落库 STATEMENT 类通知（EMAIL_SIMULATED + 深链键 = 月结单号）+ NOTIFICATION_SENT 审计（主体 MONTHLY_STATEMENT）+ 信号', async () => {
+      const { service, auditLogs, gateway, notificationRows } = makeService();
+
+      await service.notifyStatementIssued({ customerId: 'c1', statementNo: 'STM-CU1-202609', periodMonth: '2026-09' });
+
+      expect(notificationRows).toHaveLength(1);
+      const row = notificationRows[0];
+      expect(row.templateCode).toBe('STATEMENT_ISSUED');
+      expect(row.ownerCustomerNo).toBe('CUS00001');
+      expect(row.relatedOrderType).toBe('STATEMENT');
+      expect(row.relatedOrderNo).toBe('STM-CU1-202609');
+      expect(JSON.parse(row.channels)).toContain('EMAIL_SIMULATED');
+      expect(row.body).toBe(
+        'Your account statement for 2026-09 has been issued and is available in Transaction history. Reference STM-CU1-202609.',
+      );
+
+      expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
+      const audit = auditLogs.recordSystem.mock.calls[0][0];
+      expect(audit.action).toBe('NOTIFICATION_SENT');
+      expect(audit.requestId).toBe(row.id);
+      expect(audit.primarySubjectType).toBe('MONTHLY_STATEMENT');
+      expect(audit.primarySubjectNo).toBe('STM-CU1-202609');
+      expect(audit.subjects).toEqual([
+        { subjectType: 'MONTHLY_STATEMENT', subjectNo: 'STM-CU1-202609', subjectRole: 'PRIMARY' },
+        { subjectType: 'CUSTOMER', subjectNo: 'CUS00001', subjectRole: 'OWNER' },
+      ]);
+
+      expect(gateway.emitCustomerUpdated).toHaveBeenCalledTimes(1);
+      expect(gateway.emitCustomerUpdated).toHaveBeenCalledWith('c1');
+    });
+
+    it('内部抛错（落库挂）→ 方法 resolve 不 throw，无审计无信号', async () => {
+      const { service, prisma, auditLogs, gateway } = makeService();
+      prisma.customerNotification.create.mockRejectedValueOnce(new Error('db unavailable'));
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(
+        service.notifyStatementIssued({ customerId: 'c1', statementNo: 'STM-CU1-202609', periodMonth: '2026-09' }),
+      ).resolves.toBeUndefined();
+
+      expect(auditLogs.recordSystem).not.toHaveBeenCalled();
+      expect(gateway.emitCustomerUpdated).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalled();
+      consoleErrorSpy.mockRestore();
+    });
+
+    it('信号抛错（脚本环境无 server）→ 通知行/审计照常写入，不外抛', async () => {
+      const { service, auditLogs, gateway, notificationRows } = makeService();
+      gateway.emitCustomerUpdated.mockImplementation(() => {
+        throw new TypeError("Cannot read properties of null (reading 'to')");
+      });
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(
+        service.notifyStatementIssued({ customerId: 'c2', statementNo: 'STM-CU2-202609', periodMonth: '2026-09' }),
+      ).resolves.toBeUndefined();
+
+      expect(notificationRows).toHaveLength(1);
+      expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
+      consoleErrorSpy.mockRestore();
+    });
+  });
+
+  describe('notifyDsrResolved', () => {
+    it('落库 DSR 类通知（EMAIL_SIMULATED + 深链键 = 请求单号）+ NOTIFICATION_SENT 审计（主体 DSR_REQUEST）+ 信号', async () => {
+      const { service, auditLogs, gateway, notificationRows } = makeService();
+
+      await service.notifyDsrResolved({ customerId: 'c2', requestNo: 'DSR-261003-000001' });
+
+      expect(notificationRows).toHaveLength(1);
+      const row = notificationRows[0];
+      expect(row.templateCode).toBe('DSR_RESOLVED');
+      expect(row.ownerCustomerNo).toBe('CUS00002');
+      expect(row.relatedOrderType).toBe('DSR');
+      expect(row.relatedOrderNo).toBe('DSR-261003-000001');
+      expect(JSON.parse(row.channels)).toContain('EMAIL_SIMULATED');
+      expect(row.body).toBe('Your personal data request DSR-261003-000001 has been resolved. Open the request to view the outcome.');
+
+      expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
+      const audit = auditLogs.recordSystem.mock.calls[0][0];
+      expect(audit.action).toBe('NOTIFICATION_SENT');
+      expect(audit.requestId).toBe(row.id);
+      expect(audit.primarySubjectType).toBe('DSR_REQUEST');
+      expect(audit.primarySubjectNo).toBe('DSR-261003-000001');
+      expect(audit.subjects).toEqual([
+        { subjectType: 'DSR_REQUEST', subjectNo: 'DSR-261003-000001', subjectRole: 'PRIMARY' },
+        { subjectType: 'CUSTOMER', subjectNo: 'CUS00002', subjectRole: 'OWNER' },
+      ]);
+
+      expect(gateway.emitCustomerUpdated).toHaveBeenCalledTimes(1);
+      expect(gateway.emitCustomerUpdated).toHaveBeenCalledWith('c2');
+    });
+
+    it('内部抛错（客户查无 → resolveOwner 抛）→ 方法 resolve 不 throw，不落库', async () => {
+      const { service, prisma, auditLogs } = makeService();
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      await expect(service.notifyDsrResolved({ customerId: 'no-such-id', requestNo: 'DSR-261003-000001' })).resolves.toBeUndefined();
+
+      expect(prisma.customerNotification.create).not.toHaveBeenCalled();
+      expect(auditLogs.recordSystem).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalled();
       consoleErrorSpy.mockRestore();
     });
   });

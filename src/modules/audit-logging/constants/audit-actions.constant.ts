@@ -49,6 +49,10 @@ export const AuditEntityTypes = {
   PRUDENTIAL_STATUS: 'PRUDENTIAL_STATUS',
   // 战役丙波三 T2（2026-10-03）：客户协议版本主体——业务键 = versionKey（'v1'/'v2'，版本非单据，破例不走单号）
   AGREEMENT_VERSION: 'AGREEMENT_VERSION',
+  // 战役丙波四 T2（2026-10-03）：月结单主体——业务键 = statementNo（STM-…）
+  MONTHLY_STATEMENT: 'MONTHLY_STATEMENT',
+  // 战役丙波四 T2（2026-10-03）：资料请求单主体——业务键 = requestNo（DSR-…）
+  DSR_REQUEST: 'DSR_REQUEST',
 } as const;
 
 export const AuditWorkflowTypes = {

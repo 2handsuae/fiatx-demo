@@ -1969,7 +1969,7 @@ model CustomerNotification {
   title            String
   body             String    // 发送时渲染定格，模板改码不回写
   channels         String    // JSON 数组字符串，如 ["IN_APP","EMAIL_SIMULATED"]
-  relatedOrderType String    // DEPOSIT | WITHDRAW | SWAP | COMPLAINT | AGREEMENT
+  relatedOrderType String    // DEPOSIT | WITHDRAW | SWAP | COMPLAINT | AGREEMENT | STATEMENT | DSR
   relatedOrderNo   String
   readAt           DateTime?
   createdAt        DateTime  @default(now())
