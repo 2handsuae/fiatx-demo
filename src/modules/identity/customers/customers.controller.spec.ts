@@ -11,6 +11,7 @@ describe('CustomersController', () => {
     findAll: jest.fn(),
     findOne: jest.fn(),
     findByCustomerNo: jest.fn(),
+    updateProfileFields: jest.fn(),
   };
   const agreementsReadMock = {
     consentStateFor: jest.fn(),
@@ -208,6 +209,32 @@ describe('CustomersController', () => {
 
       expect(customersServiceMock.findByCustomerNo).not.toHaveBeenCalled();
       expect(monthlyStatementsMock.listForAdmin).not.toHaveBeenCalled();
+    });
+  });
+
+  // 战役丙波四 T8：PATCH :customerNo/profile——路由只转发，规则（白名单/diff/审计）全在 service。
+  describe('PATCH :customerNo/profile（改档案）', () => {
+    const REQ = {
+      user: { type: 'ADMIN', userId: 'uuid-co', userNo: 'ADM-CO', role: 'COMPLIANCE_OFFICER', roleCodes: ['COMPLIANCE_OFFICER'] },
+    };
+
+    it('forwards the admin actor, the customerNo and the body untouched (non-whitelisted keys must reach the service so it can 400 them)', async () => {
+      customersServiceMock.updateProfileFields.mockResolvedValue(undefined);
+      const body = { lastName: 'Liu', riskRating: 'LOW' };
+
+      const out = await controller.updateProfile(REQ, 'CU0001', body);
+
+      expect(out).toEqual({ customerNo: 'CU0001' });
+      expect(customersServiceMock.updateProfileFields).toHaveBeenCalledTimes(1);
+      const [actor, customerNo, patch] = customersServiceMock.updateProfileFields.mock.calls[0];
+      expect(actor).toMatchObject({ actorType: 'ADMIN', userId: 'uuid-co', userNo: 'ADM-CO', roleCodes: ['COMPLIANCE_OFFICER'] });
+      expect(customerNo).toBe('CU0001');
+      expect(patch).toBe(body);
+    });
+
+    it('rejects a non-admin token before touching the service (AdminPermissionGuard is a no-op for customer tokens)', async () => {
+      await expect(controller.updateProfile({ user: { type: 'CUSTOMER' } }, 'CU0001', { lastName: 'x' })).rejects.toThrow(ForbiddenException);
+      expect(customersServiceMock.updateProfileFields).not.toHaveBeenCalled();
     });
   });
 });

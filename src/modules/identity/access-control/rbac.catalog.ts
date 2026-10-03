@@ -285,6 +285,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/customers', 'List customers', ['CUSTOMER_READ']),
   route('GET', '/customers/:customerNo', 'Get customer detail', ['CUSTOMER_READ']),
   route('GET', '/customers/:customerNo/statements', 'List customer monthly statements', ['CUSTOMER_READ']),
+  // 战役丙波四 T8：运营改档案（CDD 七字段）——CUSTOMER_WRITE 孤儿桶（customer.manage_profile）自此有路由，合规官持有。
+  route('PATCH', '/customers/:customerNo/profile', 'Edit customer CDD profile fields', ['CUSTOMER_WRITE']),
 
   // Customer tags
   route('GET', '/admin/customer-tags/catalog', 'List customer tag registry', ['CUSTOMER_TAG_VIEW']),
@@ -1212,7 +1214,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
   },
   // ─── Domain: Compliance Office ────────────────────────
   // 战役甲波四 T5（spec §5）：闹钟墙 + 合规日历（周期义务）+ 两本登记册（外包商 / RI）。
-  // 三个写面各自单一经办人（合规官独占），一组一门，不需要 cap.* 服务层族独占
+  // 三个写面各自单一经办人（甲波四原貌=合规官；其后同域加入 agreements〔合规官提交/高管批〕与 DSR〔DPO 独办〕，写面已不全归合规官），一组一门，不需要 cap.* 服务层族独占
   // （与上方 Regulatory Filings 域的差异：本域没有"两个经办人共享同一组写路由"的情形）。
   {
     id: 'compliance-office', label: 'Compliance Office', icon: '📋',

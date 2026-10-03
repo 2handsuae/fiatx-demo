@@ -88,19 +88,23 @@ const ALL_LOGIN_PREFIXES = Object.values(ROLE_LOGIN);
 
 // ══════════════════════ HTTP 小工具 ══════════════════════
 
+// 战役丙波四 T8：加 PATCH（改档案路由 PATCH /customers/:customerNo/profile 的探针要用）。
+type HttpMethod = 'GET' | 'POST' | 'PATCH';
+
 async function call(
-  method: 'GET' | 'POST',
+  method: HttpMethod,
   urlPath: string,
   token: string,
   body?: unknown,
 ): Promise<{ status: number; json: any; text: string }> {
+  const hasBody = method === 'POST' || method === 'PATCH';
   const res = await fetch(`${API}${urlPath}`, {
     method,
     headers: {
       Authorization: `Bearer ${token}`,
-      ...(method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+      ...(hasBody ? { 'Content-Type': 'application/json' } : {}),
     },
-    body: method === 'POST' ? JSON.stringify(body ?? {}) : undefined,
+    body: hasBody ? JSON.stringify(body ?? {}) : undefined,
   });
   const text = await res.text();
   let json: any = null;
@@ -1262,7 +1266,7 @@ function collectLiveRoutes(): Set<string> {
 interface RouteUsage {
   section: string;
   name: string;
-  method: 'GET' | 'POST';
+  method: HttpMethod;
   routePattern: string;
 }
 
@@ -1292,7 +1296,7 @@ const NOPE = 'RBAC-PROBE-404'; // 占位 id：任何域都不可能真实存在�
 interface DirectionalProbe {
   section: string;
   name: string;
-  method: 'GET' | 'POST';
+  method: HttpMethod;
   routePattern: string;
   path: string;
   role: string; // ROLE_LOGIN 的前缀值
@@ -1725,6 +1729,21 @@ const PROBES: DirectionalProbe[] = [
     section: 'DSR 办理独占 DPO(T5)', name: 'DPO 不得 ⚡拨快资料请求到期钟（DPO 是经办人但无 DEMO_CLOCK_WRITE）', method: 'POST',
     routePattern: '/admin/dsr-requests/:requestNo/simulate-timeout', path: `/admin/dsr-requests/${NOPE}/simulate-timeout`,
     role: 'dpo', expect: 'DENY',
+  },
+
+  // ── 改档案通道 CUSTOMER_WRITE 归合规官、DPO 不持（战役丙波四 T8）──────────────────
+  // 两条纯权限闸探针（占位 customerNo，业务上必然不存在）：ALLOW 判据只验权限闸不验业务——守卫放行后
+  // CustomersService.updateProfileFields 抛 404，非 403 即成立，零写入零残留（同 DSR/LP 占位先例）。
+  // 这条路由挂上后，CUSTOMER_WRITE 才不再是孤儿组（TOOLING-DEBT:143 的基线红之一随之自愈）。
+  {
+    section: '改档案归合规官(T8)', name: '合规官 可以 改客户档案（占位 customerNo，CUSTOMER_WRITE 正例）', method: 'PATCH',
+    routePattern: '/customers/:customerNo/profile', path: `/customers/${NOPE}/profile`,
+    role: 'compliance_lead', expect: 'ALLOW', body: { lastName: 'verify:rbac probe' },
+  },
+  {
+    section: '改档案归合规官(T8)', name: 'DPO 不得 改客户档案（DPO 只办资料请求，不持 CUSTOMER_WRITE）', method: 'PATCH',
+    routePattern: '/customers/:customerNo/profile', path: `/customers/${NOPE}/profile`,
+    role: 'dpo', expect: 'DENY', body: { lastName: 'verify:rbac probe' },
   },
 
   // ── LP 台仅金库写、CFO 只读推不动（战役乙波一 T10）──────────────────────

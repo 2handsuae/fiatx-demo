@@ -11,8 +11,11 @@ const SENSITIVE_KEYS = new Set([
 
 const EMAIL_KEYS = new Set(['email']);
 const PHONE_KEYS = new Set(['phone', 'mobile', 'tel']);
-const ID_KEYS = new Set(['idNo', 'idNumber', 'passportNo', 'identityNo']);
-const ADDRESS_KEYS = new Set(['address', 'walletAddress']);
+// 键集合比对的是 normalizeKey() 之后的全小写形——条目必须是小写（'idNo' 这类驼峰条目永远命不中）。
+// 丙波四 T8 追加 iddocnumber / residentialaddress：运营改档案（CUSTOMER_PROFILE_UPDATED）的审计差异里
+// 这两个 CDD 字段是证件号与住址，原集合不认这两个键名。
+const ID_KEYS = new Set(['idNo', 'idNumber', 'passportNo', 'identityNo', 'iddocnumber']);
+const ADDRESS_KEYS = new Set(['address', 'walletAddress', 'residentialaddress']);
 const BANK_KEYS = new Set(['iban', 'bankAccount', 'accountNumber', 'cardNumber']);
 const IP_KEYS = new Set(['ip', 'sourceIp', 'clientIp']);
 

@@ -26,6 +26,10 @@ export const PERMISSIONS = {
   // 的 :id → :customerNo 一起漂——同 6-7 行 Task 18 那条镜像约定。
   CUSTOMERS_DETAIL_READ: 'api.get.customers_customerno',
 
+  // 战役丙波四 T8：运营改档案（CDD 七字段）——精确镜像 rbac.catalog.ts 的
+  // route('PATCH', '/customers/:customerNo/profile')，归 CUSTOMER_WRITE 组（合规官持有）。
+  CUSTOMER_PROFILE_WRITE: 'api.patch.customers_customerno_profile',
+
   CUSTOMER_TAGS_CATALOG_READ: 'api.get.admin_customer_tags_catalog',
   CUSTOMER_TAGS_READ: 'api.get.admin_customers_customerno_effective_tags',
   CUSTOMER_TAGS_ASSIGN: 'api.post.admin_customers_customerno_tags',

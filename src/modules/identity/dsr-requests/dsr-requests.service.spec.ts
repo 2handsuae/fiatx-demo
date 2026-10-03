@@ -6,8 +6,11 @@
 //     整行吐出——摘要白名单必须由服务自己挑字段，不能靠"查询恰好只取了这几列"侥幸成立；
 //   - customerAgreementConsent / materialRequest 真按 customerId 过滤，materialRequest 夹具带
 //     reason/applicantActionId 等不该入摘要的列。
+// 丙波四 T8 追加：issuer 替身按 input.customerId 去夹具里找客户、无 sumsubApplicantId 即抛 400，
+//   与真 MaterialRequestIssuerService.loadCustomer 同形；另有一条用例直接接真 issuer 证明 400 来自真代码。
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { DsrRequestsService } from './dsr-requests.service';
+import { MaterialRequestIssuerService } from '../material-requests/material-request-issuer.service';
 import { DSR_SUMMARY_PROFILE_FIELDS } from './dsr.constants';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 
@@ -111,10 +114,22 @@ function makeHarness(opts: {
     }),
   };
 
-  const service = new DsrRequestsService(prisma, auditLogs as any, notifications as any);
+  const issuer = {
+    issue: jest.fn(async (input: any) => {
+      order.push('issue');
+      const c = customers.find((x) => x.id === input.customerId);
+      if (!c) throw new NotFoundException(`Customer not found: ${input.customerId}`);
+      if (!c.sumsubApplicantId) {
+        throw new BadRequestException({ code: 'NO_SUMSUB_APPLICANT', message: 'Customer has no Sumsub applicant; cannot create an applicant action' });
+      }
+      return { requestNo: 'MRQ2610030001', restrictionNo: null };
+    }),
+  };
+
+  const service = new DsrRequestsService(prisma, auditLogs as any, notifications as any, issuer as any);
   const auditCalls = () => auditLogs.recordByActor.mock.calls.map((c) => ({ input: c[0] as any, actor: c[1] as any }));
   const actionsOf = () => auditCalls().map((c) => c.input.action);
-  return { service, prisma, rows, auditLogs, notifications, order, auditCalls, actionsOf, consents, materials };
+  return { service, prisma, rows, auditLogs, notifications, issuer, order, auditCalls, actionsOf, consents, materials };
 }
 
 async function submitted(h: ReturnType<typeof makeHarness>, type = 'ACCESS') {
@@ -248,14 +263,80 @@ describe('DsrRequestsService (丙波四 T5)', () => {
       expect(h.notifications.notifyDsrResolved).not.toHaveBeenCalled();
     });
 
-    it('accepts both RECTIFICATION outcomes; REVERIFY leaves materialRequestNo empty (T8 fills it) and still resolves', async () => {
-      for (const code of ['RECTIFICATION_REVERIFY', 'RECTIFICATION_SELF_SERVICE']) {
-        const h = makeHarness();
-        const requestNo = await inReview(h, 'RECTIFICATION');
-        await h.service.resolve(dpo, requestNo, { resolutionCode: code, resolutionNote: 'ok' });
-        expect(h.rows[0]).toMatchObject({ status: 'RESOLVED', resolutionCode: code, resolutionNote: 'ok', materialRequestNo: null });
-        expect(h.rows[0].resolvedAt).toBeInstanceOf(Date);
-      }
+    it('SELF_SERVICE resolves without opening any material request (materialRequestNo stays empty, issuer untouched)', async () => {
+      const h = makeHarness();
+      const requestNo = await inReview(h, 'RECTIFICATION');
+      await h.service.resolve(dpo, requestNo, { resolutionCode: 'RECTIFICATION_SELF_SERVICE', resolutionNote: 'ok' });
+      expect(h.rows[0]).toMatchObject({ status: 'RESOLVED', resolutionCode: 'RECTIFICATION_SELF_SERVICE', resolutionNote: 'ok', materialRequestNo: null });
+      expect(h.rows[0].resolvedAt).toBeInstanceOf(Date);
+      expect(h.issuer.issue).not.toHaveBeenCalled();
+    });
+  });
+
+  // 丙波四 T8：REVERIFY 连带开材料请求。跨主体协作只调 MaterialRequestIssuerService.issue（铁律③），
+  // issue 先行、落 resolve 后行——开单失败则整个 resolve 失败，materialRequestNo 不悬空。
+  describe('resolve · RECTIFICATION_REVERIFY opens an Emirates ID material request', () => {
+    it('calls issuer.issue exactly once (neutral reason citing the DSR number, no restriction) and writes materialRequestNo back; issue runs before the resolve write', async () => {
+      const h = makeHarness();
+      const requestNo = await inReview(h, 'RECTIFICATION');
+      h.order.length = 0;
+      await h.service.resolve(dpo, requestNo, { resolutionCode: 'RECTIFICATION_REVERIFY', resolutionNote: 'Please re-verify your ID' });
+
+      expect(h.issuer.issue).toHaveBeenCalledTimes(1);
+      const arg = h.issuer.issue.mock.calls[0][0] as any;
+      expect(arg).toMatchObject({
+        customerId: 'cust-uuid-1', materialType: 'EMIRATES_ID', orderDomain: null, orderRef: null,
+        restrict: false, origin: 'OPERATOR_ISSUED', issuedBy: 'ADM-DPO', actor: dpo,
+      });
+      expect(arg.reason).toContain(requestNo);
+      expect(h.rows[0]).toMatchObject({ status: 'RESOLVED', resolutionCode: 'RECTIFICATION_REVERIFY', materialRequestNo: 'MRQ2610030001' });
+      expect(h.order).toEqual(['issue', 'update', 'audit', 'notify']);
+      // 跨主体协作在留痕里查得到：DSR_RESOLVED 的 metadata 带上开出的材料请求号。
+      const call = h.auditCalls().find((c) => c.input.action === 'DSR_RESOLVED')!;
+      expect(call.input.metadata).toMatchObject({ resolutionCode: 'RECTIFICATION_REVERIFY', materialRequestNo: 'MRQ2610030001' });
+    });
+
+    it('400s and leaves the request IN_REVIEW (nothing resolved, audited or notified) when the customer has no Sumsub applicant', async () => {
+      const h = makeHarness({ customers: [customerRow({ sumsubApplicantId: null })] });
+      const requestNo = await inReview(h, 'RECTIFICATION');
+      h.auditLogs.recordByActor.mockClear();
+      const err = await h.service.resolve(dpo, requestNo, { resolutionCode: 'RECTIFICATION_REVERIFY', resolutionNote: 'x' }).catch((e) => e);
+
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect(err.getResponse()).toMatchObject({ code: 'NO_SUMSUB_APPLICANT' });
+      expect(h.issuer.issue).toHaveBeenCalledTimes(1);
+      expect(h.rows[0]).toMatchObject({ status: 'IN_REVIEW', resolutionCode: null, resolvedAt: null, materialRequestNo: null });
+      expect(h.auditLogs.recordByActor).not.toHaveBeenCalled();
+      expect(h.notifications.notifyDsrResolved).not.toHaveBeenCalled();
+    });
+
+    it('with the REAL issuer wired in, a customer without a Sumsub applicant still 400s before anything is persisted (the 400 comes from real code, not from the stand-in)', async () => {
+      const h = makeHarness({ customers: [customerRow({ sumsubApplicantId: null })] });
+      const sumsub = { createApplicantAction: jest.fn() };
+      const requests = { create: jest.fn() };
+      const realIssuer = new MaterialRequestIssuerService(
+        { customerMain: { findFirst: jest.fn(async ({ where }: any) => (where.id === 'cust-uuid-1' ? customerRow({ sumsubApplicantId: null }) : null)) } } as any,
+        requests as any, {} as any, sumsub as any,
+        { getMaterialConfig: jest.fn(() => ({ sumsubActionLevelName: 'wave3-action-id-refresh' })) } as any,
+      );
+      const service = new (h.service.constructor as any)(h.prisma, h.auditLogs, h.notifications, realIssuer);
+      const requestNo = await inReview(h, 'RECTIFICATION');
+
+      const err = await service.resolve(dpo, requestNo, { resolutionCode: 'RECTIFICATION_REVERIFY', resolutionNote: 'x' }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(BadRequestException);
+      expect((err as BadRequestException).getResponse()).toMatchObject({ code: 'NO_SUMSUB_APPLICANT' });
+      expect(sumsub.createApplicantAction).not.toHaveBeenCalled();
+      expect(requests.create).not.toHaveBeenCalled();
+      expect(h.rows[0]).toMatchObject({ status: 'IN_REVIEW', materialRequestNo: null });
+    });
+
+    it.each([['ACCESS', 'ACCESS_SUMMARY_PROVIDED'], ['ERASURE', 'ERASURE_REFUSED_RETENTION']])('a %s resolution (%s) never touches the issuer', async (type, code) => {
+      const h = makeHarness();
+      const requestNo = await inReview(h, type);
+      if (type === 'ACCESS') await h.service.generateSummary(dpo, requestNo);
+      await h.service.resolve(dpo, requestNo, { resolutionCode: code, resolutionNote: 'ok' });
+      expect(h.issuer.issue).not.toHaveBeenCalled();
+      expect(h.rows[0].materialRequestNo).toBeNull();
     });
   });
 
@@ -514,6 +595,11 @@ describe('DsrRequestsService (丙波四 T5)', () => {
       for (const banned of ['dueAt', 'materialRequestNo', 'id', 'customerId', 'customerNo']) {
         expect(row).not.toHaveProperty(banned);
       }
+      // 正面全集：客户面投影恰这十个键（T7 评审定的真闸）——上面的负面清单只防已知的漏，投影里
+      // 多出任何新键（含清单没想到的未来泄漏）都在这里变红。
+      expect(Object.keys(row).sort()).toEqual([
+        'clauseRef', 'detail', 'requestNo', 'resolutionCode', 'resolutionNote', 'resolvedAt', 'status', 'submittedAt', 'summary', 'type',
+      ]);
     });
 
     it('getForCustomer returns my own request in the same client projection (summary parsed, no dueAt / ids); someone else\'s number and an unknown number get the identical 404', async () => {
@@ -528,6 +614,11 @@ describe('DsrRequestsService (丙波四 T5)', () => {
       for (const banned of ['dueAt', 'materialRequestNo', 'id', 'customerId', 'customerNo']) {
         expect(row).not.toHaveProperty(banned);
       }
+      // 正面全集：客户面投影恰这十个键（T7 评审定的真闸）——上面的负面清单只防已知的漏，投影里
+      // 多出任何新键（含清单没想到的未来泄漏）都在这里变红。
+      expect(Object.keys(row).sort()).toEqual([
+        'clauseRef', 'detail', 'requestNo', 'resolutionCode', 'resolutionNote', 'resolvedAt', 'status', 'submittedAt', 'summary', 'type',
+      ]);
 
       const other = await h.service.getForCustomer('cust-uuid-1', theirs).catch((e) => e);
       const unknown = await h.service.getForCustomer('cust-uuid-1', 'DSR000000000000').catch((e) => e);

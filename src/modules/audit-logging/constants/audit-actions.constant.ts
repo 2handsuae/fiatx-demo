@@ -545,6 +545,8 @@ export const AuditActions = {
   DSR_SUMMARY_GENERATED: 'DSR_SUMMARY_GENERATED',
   DSR_RESOLVED: 'DSR_RESOLVED',
   DSR_DEADLINE_FASTFORWARDED: 'DSR_DEADLINE_FASTFORWARDED',
+  // ── 战役丙波四 T8（2026-10-03）：运营改客户档案（CDD 七字段）——入 V2_CUSTOMER_AUDIT_ACTIONS（域 CUSTOMER）──
+  CUSTOMER_PROFILE_UPDATED: 'CUSTOMER_PROFILE_UPDATED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1072,6 +1074,9 @@ export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   SANCTION_DISPOSITION_REQUESTED: { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
   SANCTION_DISPOSITION_DECIDED:   { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
   SANCTION_DISPOSITION_LANDED:    { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
+  // ── 运营改档案（1，战役丙波四 T8，2026-10-03）：actor=操作员（recordByActor），主体 CUSTOMER·customerNo；
+  // requiredFields 顶层展开（assertActionSpec 只查 input 顶层），逐字段 before/after 差异（经 audit-mask 打码）落 beforeData/afterData。
+  CUSTOMER_PROFILE_UPDATED:       { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['customerNo', 'changedFields'], requiresCausation: false },
 };
 
 /**

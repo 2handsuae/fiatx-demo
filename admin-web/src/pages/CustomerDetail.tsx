@@ -6,6 +6,7 @@ import RestrictionReleaseModal from '../components/RestrictionReleaseModal';
 import SanctionDispositionModal from '../components/SanctionDispositionModal';
 import MaterialRequestPanel, { type AdminMaterialRequestRow } from '../components/MaterialRequestPanel';
 import MaterialRequestIssueModal from '../components/MaterialRequestIssueModal';
+import CustomerProfileEditModal from '../components/CustomerProfileEditModal';
 import { DetailPageHeader } from '../components/compliance/DetailPageComponents';
 import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
@@ -211,6 +212,9 @@ const CustomerDetail = () => {
   const [notice, setNotice] = useState<string | null>(null);
   const [restrictionModalOpen, setRestrictionModalOpen] = useState(false);
   const [materialRequestModalOpen, setMaterialRequestModalOpen] = useState(false);
+  // 战役丙波四 T8：改档案弹窗（CUSTOMER_WRITE 门控，合规官持有）。
+  const [profileEditOpen, setProfileEditOpen] = useState(false);
+  const canEditProfile = hasPermission(PERMISSIONS.CUSTOMER_PROFILE_WRITE);
   const [materialRequestsRefreshKey, setMaterialRequestsRefreshKey] = useState(0);
   const [materialRequestRows, setMaterialRequestRows] = useState<AdminMaterialRequestRow[]>([]);
   const [releaseTarget, setReleaseTarget] = useState<AdminRestrictionRow | null>(null);
@@ -1112,7 +1116,17 @@ const CustomerDetail = () => {
 
           {/* ② Profile */}
           <section className="px-6 py-5">
-            <Cap>Profile</Cap>
+            <div className="flex items-baseline justify-between gap-3">
+              <Cap>Profile</Cap>
+              {canEditProfile && (
+                <button
+                  onClick={() => setProfileEditOpen(true)}
+                  className={adminButtonClass('rowSecondaryUtility')}
+                >
+                  Edit profile
+                </button>
+              )}
+            </div>
             <div className="mt-3">
               <FieldGrid>
                 <Field label="Customer Type" value={detail.customerType} />
@@ -1634,6 +1648,28 @@ const CustomerDetail = () => {
         onSubmitted={async (approvalNo, outcome) => {
           setNotice(`Sanction disposition (${outcome}) submitted — approval ${approvalNo} opened, awaiting MLRO.`);
           fetchRestrictions(detail.customerNo);
+        }}
+      />
+      <CustomerProfileEditModal
+        open={profileEditOpen}
+        customerNo={detail.customerNo}
+        customerLabel={name}
+        isCorporate={isCorporate}
+        initial={{
+          firstName: detail.firstName ?? '',
+          lastName: detail.lastName ?? '',
+          dateOfBirth: detail.dateOfBirth ?? '',
+          nationality: detail.nationality ?? '',
+          idDocType: detail.idDocType ?? '',
+          idDocNumber: detail.idDocNumber ?? '',
+          residentialAddress: detail.residentialAddress ?? '',
+        }}
+        onClose={() => setProfileEditOpen(false)}
+        onSaved={async (changedFields) => {
+          // 先关弹窗再刷新：fetchDetail 会把整页切成 loading 占位，弹窗若还开着会在重渲染时闪一下。
+          setProfileEditOpen(false);
+          setNotice(`Profile updated (${changedFields.join(', ')}) — recorded in the audit log.`);
+          await fetchDetail();
         }}
       />
       <MaterialRequestIssueModal

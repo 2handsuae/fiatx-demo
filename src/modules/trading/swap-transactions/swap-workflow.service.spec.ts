@@ -1715,7 +1715,7 @@ describe('SwapWorkflowService.applyKytVerdict', () => {
         }),
       },
     };
-    const pendingActionService = new CustomersService(pendingActionPrisma);
+    const pendingActionService = new CustomersService(pendingActionPrisma, {} as any); // 第二参=AuditLogsService（丙波四 T8 加；本用例不走改档案通道）
 
     // Task 10: materialRequests/materialRequestIssuer are wired together
     // through a shared in-memory array so listLiveByOrder() actually reflects

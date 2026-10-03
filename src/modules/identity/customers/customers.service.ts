@@ -1,10 +1,26 @@
+import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CustomerMain, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
+import { AuditSubjectRole, CreateAuditLogEventDto } from '../../audit-logging/dto/audit-log.dto';
+import { maskAuditPayload } from '../../audit-logging/utils/audit-mask.util';
+import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+
+/** 运营改档案通道的白名单 = CDD 七字段（与 updateOnboardingData 的 CDD 段对齐）。
+ *  email/phone（登录标识）、riskRating/lifecycle/tradingTier/限制/标签等一律不在此通道改。 */
+export const PROFILE_EDITABLE_FIELDS = [
+  'firstName', 'lastName', 'dateOfBirth', 'nationality', 'idDocType', 'idDocNumber', 'residentialAddress',
+] as const;
+export type ProfileEditableField = (typeof PROFILE_EDITABLE_FIELDS)[number];
 
 @Injectable()
 export class CustomersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditLogs: AuditLogsService,
+  ) {}
 
   async findAll(params: {
     skip?: number;
@@ -57,6 +73,63 @@ export class CustomersService {
   ) {
     const db = (tx ?? this.prisma) as PrismaService;
     return db.customerMain.update({ where: { id: customerId }, data });
+  }
+
+  /**
+   * 运营改档案（战役丙波四 T8；CUSTOMER_WRITE 孤儿桶 customer.manage_profile 的第一条真路由）。
+   * 白名单外的键整单 400（不是静默剥掉）；只写与现值真不同的字段；写库后落一条
+   * CUSTOMER_PROFILE_UPDATED，逐字段 before/after 差异经 audit-mask 打码后进 metadata.before/after。
+   * 什么都没变 = 没有持久动作，也就没有留痕，直接返回。
+   */
+  async updateProfileFields(
+    actor: ApprovalActorContext,
+    customerNo: string,
+    patch: Partial<Record<ProfileEditableField, string>>,
+  ): Promise<void> {
+    const illegal = Object.keys(patch).filter((k) => !(PROFILE_EDITABLE_FIELDS as readonly string[]).includes(k));
+    if (illegal.length > 0) {
+      throw new BadRequestException({
+        code: 'PROFILE_FIELD_NOT_EDITABLE',
+        message: `These fields cannot be edited here: ${illegal.join(', ')}. Editable: ${PROFILE_EDITABLE_FIELDS.join(', ')}`,
+      });
+    }
+    const customer = await this.prisma.customerMain.findUnique({ where: { customerNo } });
+    if (!customer) throw new NotFoundException(`Customer not found: ${customerNo}`);
+
+    const changedFields = PROFILE_EDITABLE_FIELDS.filter(
+      (f) => patch[f] !== undefined && patch[f] !== (customer[f] ?? null),
+    );
+    if (changedFields.length === 0) return;
+
+    const data = Object.fromEntries(changedFields.map((f) => [f, patch[f]]));
+    await this.prisma.customerMain.update({ where: { id: customer.id }, data });
+
+    const display = actor.userNo ?? actor.userId;
+    // requiredFields（customerNo/changedFields）顶层展开——assertActionSpec 只查 input 顶层；metadata 同步镜像。
+    const input: CreateAuditLogEventDto & { customerNo: string; changedFields: string[] } = {
+      action: AuditActions.CUSTOMER_PROFILE_UPDATED,
+      actionDomain: 'CUSTOMER',
+      primarySubjectType: AuditEntityTypes.CUSTOMER,
+      primarySubjectNo: customerNo,
+      ownerCustomerNo: customerNo,
+      subjects: [{ subjectType: AuditEntityTypes.CUSTOMER, subjectNo: customerNo, subjectRole: AuditSubjectRole.PRIMARY }],
+      customerNo,
+      changedFields,
+      // 差异进 metadata：before/after 各是「字段名→值」的平对象，audit-mask 按字段名键打码（证件号/住址）。
+      metadata: {
+        customerNo,
+        changedFields,
+        before: maskAuditPayload(Object.fromEntries(changedFields.map((f) => [f, customer[f] ?? null]))),
+        after: maskAuditPayload(data),
+      },
+      reason: `Customer profile updated by operator: ${changedFields.join(', ')}`,
+      // 同一客户可反复改：requestId 带随机后缀，否则第二次会被审计 idempotencyKey 静默吞掉。
+      requestId: `${AuditActions.CUSTOMER_PROFILE_UPDATED}_${customerNo}_${randomUUID()}`,
+      sourcePlatform: 'ADMIN_API',
+    };
+    await this.auditLogs.recordByActor(input, {
+      actorType: 'ADMIN', actorNo: display, actorDisplayName: display, actorRolesAtTime: actor.roleCodes ?? [],
+    });
   }
 
   /**

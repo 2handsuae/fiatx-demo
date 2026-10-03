@@ -1,7 +1,7 @@
 // 战役丙波四 T5 · DSR（资料请求）主体服务（spec §3）。
 // 铁律③各管各的：本服务只写自己的表（data_subject_requests）；摘要/条款引用对客户主数据、协议同意台账、
-//   材料请求只读（横向读客户主数据放行）。REVERIFY 的连带开材料单是跨主体协作，T8 在本服务 resolve 里
-//   调既有 MaterialRequestIssuerService（只调主体服务方法）——本任务只留 materialRequestNo 的空写入位。
+//   材料请求只读（横向读客户主数据放行）。REVERIFY 的连带开材料单是跨主体协作：resolve 里只调既有
+//   MaterialRequestIssuerService.issue()（主体服务方法，T8 接入），不直写材料表。
 // 铁律④状态只能沿边走：DSR_STATUS_TRANSITIONS 显式迁移表，非法跃迁 400 带码 INVALID_TRANSITION。
 // 铁律①操作必留痕：五个写方法各一条审计，全部 recordByActor（提交=客户，其余=管理台操作者）；
 //   requestId 每次显式带——审计 idempotencyKey 含 requestId，缺了会按 NO_REQUEST_ID 静默去重。
@@ -18,6 +18,7 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+import { MaterialRequestIssuerService } from '../material-requests/material-request-issuer.service';
 import {
   DSR_CLAUSE_SECTION, DSR_DUE_DAYS, DSR_RESOLUTION_BY_TYPE, DSR_STATUS_TRANSITIONS, DSR_SUMMARY_PROFILE_FIELDS,
   DsrClauseRef, DsrResolutionCode, DsrResolutionCodeValue, DsrStatus, DsrStatusValue, DsrSummarySnapshot, DsrType, DsrTypeValue,
@@ -72,6 +73,7 @@ export class DsrRequestsService {
     private readonly prisma: PrismaService,
     private readonly auditLogs: AuditLogsService,
     private readonly notificationsService: NotificationsService,
+    private readonly materialRequestIssuer: MaterialRequestIssuerService,
   ) {}
 
   // ── 读 ──────────────────────────────────────────────────────────────
@@ -291,8 +293,23 @@ export class DsrRequestsService {
       clauseRef = JSON.stringify({ versionKey: latest.versionKey, section: DSR_CLAUSE_SECTION } satisfies DsrClauseRef);
     }
 
-    // T8 接管：RECTIFICATION_REVERIFY 在此先开材料单取号；本任务恒为 null（resolve 不因缺它失败）。
-    const materialRequestNo: string | null = null;
+    // RECTIFICATION_REVERIFY：先开材料请求（Emirates ID 重验）取号、再落 resolve——开单失败（如客户没有
+    // Sumsub applicant → 400）则整个 resolve 失败、单据仍 IN_REVIEW，保证 materialRequestNo 不悬空。
+    // 不挂限制（restrict:false，纯提醒式补料）；话术中性，只引 DSR 单号。
+    let materialRequestNo: string | null = null;
+    if (dto.resolutionCode === DsrResolutionCode.RECTIFICATION_REVERIFY) {
+      ({ requestNo: materialRequestNo } = await this.materialRequestIssuer.issue({
+        customerId: row.customerId,
+        materialType: 'EMIRATES_ID',
+        orderDomain: null,
+        orderRef: null,
+        restrict: false,
+        origin: 'OPERATOR_ISSUED',
+        reason: `Please re-verify your identity details following your data request ${requestNo}.`,
+        issuedBy: actor.userNo ?? actor.userId,
+        actor,
+      }));
+    }
 
     const updated = await this.transition(row, DsrStatus.RESOLVED, {
       resolvedAt: new Date(),
@@ -305,7 +322,7 @@ export class DsrRequestsService {
       requestId: requestNo,
       fromStatus: row.status, toStatus: updated.status,
       extra: { resolutionCode: dto.resolutionCode },
-      metadata: { type: row.type, resolutionCode: dto.resolutionCode },
+      metadata: { type: row.type, resolutionCode: dto.resolutionCode, ...(materialRequestNo ? { materialRequestNo } : {}) },
     });
 
     // 持久物先于信号：落库+审计之后才通知；通知是旁路副作用，抛错不回滚、不拖垮办结。

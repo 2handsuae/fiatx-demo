@@ -1,7 +1,9 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
+  Patch,
   Query,
   UseGuards,
   Request,
@@ -14,6 +16,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
 import { AgreementsReadService } from '../agreements/agreements-read.service';
 import { MonthlyStatementService } from '../../asset-treasury/treasury/monthly-statement.service';
+import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -45,6 +48,17 @@ export class CustomersController {
     if (req.user?.type !== 'ADMIN') {
       throw new ForbiddenException('Admin token required');
     }
+  }
+
+  private buildActor(req: any): ApprovalActorContext {
+    const user = req.user;
+    return {
+      actorType: 'ADMIN',
+      userId: user.userId || user.sub,
+      userNo: user.userNo,
+      role: user.role,
+      roleCodes: user.roleCodes || (user.role ? [user.role] : []),
+    };
   }
 
   /** 铁律⑥ 对外用业务键：三个详情端点的路由参数都是 customerNo，这里换成内部 id
@@ -138,5 +152,20 @@ export class CustomersController {
     this.ensureAdmin(req);
     const id = await this.resolveCustomerId(customerNo);
     return this.monthlyStatements.listForAdmin(id);
+  }
+
+  // 战役丙波四 T8：运营改档案（CDD 七字段）。挂 CUSTOMER_WRITE（孤儿桶 customer.manage_profile 的第一条路由）。
+  // body 刻意不挂 DTO：全局 ValidationPipe 带 whitelist 会把白名单外的键静默剥掉，而业务规则要的是
+  // 「白名单外的键显式 400」——由 service 的 PROFILE_FIELD_NOT_EDITABLE 守。
+  @Patch(':customerNo/profile')
+  @ApiOperation({ summary: 'Edit a customer\'s CDD profile fields (first/last name, DOB, nationality, ID type/number, address)' })
+  async updateProfile(
+    @Request() req: any,
+    @Param('customerNo') customerNo: string,
+    @Body() body: Record<string, string>,
+  ) {
+    this.ensureAdmin(req);
+    await this.customersService.updateProfileFields(this.buildActor(req), customerNo, body);
+    return { customerNo };
   }
 }
