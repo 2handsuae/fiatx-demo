@@ -2112,3 +2112,34 @@ model CustomerAgreementConsent {
   @@index([customerId, versionKey])
   @@map("customer_agreement_consents")
 }
+
+model CustomerMonthlyStatement {
+  id          String   @id @default(uuid())
+  statementNo String   @unique            // STM-<customerNo>-<YYYYMM>，业务键
+  customerId  String
+  periodMonth String                      // 迪拜业务月 YYYY-MM
+  issuedAt    DateTime @default(now())
+  payload     String                      // JSON：逐币种分节快照，只写一次
+  @@unique([customerId, periodMonth])     // 一单一张（单据三性）
+  @@map("customer_monthly_statements")
+}
+
+model DataSubjectRequest {
+  id                String    @id @default(uuid())
+  requestNo         String    @unique     // DSR-YYMMDD-xxxxxx
+  customerId        String
+  type              String                // ACCESS | RECTIFICATION | ERASURE
+  detail            String                // 客户自述
+  status            String    @default("SUBMITTED") // SUBMITTED | IN_REVIEW | RESOLVED
+  submittedAt       DateTime  @default(now())
+  reviewStartedAt   DateTime?
+  resolvedAt        DateTime?
+  dueAt             DateTime              // submittedAt + 30 自然日，提交时一次算定
+  resolutionCode    String?               // 四值，见 dsr.constants.ts
+  resolutionNote    String?               // DPO 答复正文（客户可见）
+  clauseRef         String?               // JSON {versionKey, section}，仅 ERASURE_REFUSED_RETENTION
+  summary           String?               // JSON 资料摘要快照，仅 ACCESS，只写一次
+  materialRequestNo String?               // 仅 RECTIFICATION_REVERIFY
+  @@index([status])
+  @@map("data_subject_requests")
+}

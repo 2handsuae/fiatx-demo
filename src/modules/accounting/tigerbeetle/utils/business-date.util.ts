@@ -17,3 +17,20 @@ export function endOfBusinessDate(businessDate: string): Date {
 export function startOfBusinessDate(businessDate: string): Date {
   return new Date(new Date(`${businessDate}T00:00:00.000Z`).getTime() - DUBAI_UTC_OFFSET_MS);
 }
+
+/** 迪拜业务月（YYYY-MM）。月边界 = 迪拜午夜，与 toBusinessDate 同口径。 */
+export function businessMonthOf(at: Date): string {
+  return toBusinessDate(at).slice(0, 7);
+}
+
+/** 业务月 M 的第一刻：M-01 迪拜零点。 */
+export function startOfBusinessMonth(month: string): Date {
+  return startOfBusinessDate(`${month}-01`);
+}
+
+/** 业务月 M 的最后一刻（含）：该月末日的日终。 */
+export function endOfBusinessMonth(month: string): Date {
+  const [y, m] = month.split('-').map(Number);
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate(); // m 为 1 基，Date.UTC(y,m,0)=该月末日
+  return endOfBusinessDate(`${month}-${String(lastDay).padStart(2, '0')}`);
+}
