@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { CustomerMain, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -56,7 +56,7 @@ export class CustomersService {
     });
   }
 
-  /** 入驻实体字段的唯一显式写方法（波二）。workflow 不直写表（铁律③）。 */
+  /** 入驻实体字段的唯一显式写方法（波二）。运营改档案走 updateProfileFields。workflow 不直写表（铁律③）。 */
   async updateOnboardingData(
     customerId: string,
     data: Partial<{
@@ -129,6 +129,58 @@ export class CustomersService {
     };
     await this.auditLogs.recordByActor(input, {
       actorType: 'ADMIN', actorNo: display, actorDisplayName: display, actorRolesAtTime: actor.roleCodes ?? [],
+    });
+  }
+
+  /**
+   * 客户自助改 phone（战役丙波四 T9；DSR「改」的联系方式出口，DSR RECTIFICATION_SELF_SERVICE 指路到这里）。
+   * 只开 phone 一个字段：email 是登录凭据不碰，其余全是 KYC/CDD 字段（走材料重核验 / 运营改档案）。
+   * phone 同时是登录标识之一（customer-auth OR 匹配）——改后用新号登录属正常语义，不设确认流。
+   * 业务规则（非防御校验）：phone 不许清空（登录标识）→ 400 PHONE_REQUIRED；schema `phone @unique`，
+   * 撞了别的客户的号 → 捕获 P2002 显式 409 PHONE_ALREADY_IN_USE。
+   * 与现值相同 = 没有持久动作，也就没有留痕，直接返回。
+   * 写库后落一条 CUSTOMER_PHONE_UPDATED，actor=客户本人；新旧号经 audit-mask（小写 'phone' 键）打码后进 metadata.before/after。
+   */
+  async updatePhoneSelf(customerId: string, phone: string): Promise<void> {
+    const next = typeof phone === 'string' ? phone.trim() : '';
+    if (!next) {
+      throw new BadRequestException({ code: 'PHONE_REQUIRED', message: 'Phone number cannot be empty — it is also a login identifier' });
+    }
+    const customer = await this.prisma.customerMain.findUnique({ where: { id: customerId } });
+    if (!customer) throw new NotFoundException(`Customer not found: ${customerId}`);
+    if (customer.phone === next) return;
+
+    try {
+      await this.prisma.customerMain.update({ where: { id: customerId }, data: { phone: next } });
+    } catch (err) {
+      if ((err as { code?: string } | null)?.code === 'P2002') {
+        throw new ConflictException({ code: 'PHONE_ALREADY_IN_USE', message: 'This phone number is already registered to another account' });
+      }
+      throw err;
+    }
+
+    const customerNo = customer.customerNo;
+    // customerNo 顶层展开——assertActionSpec 只查 input 顶层；metadata 同步镜像。
+    const input: CreateAuditLogEventDto & { customerNo: string } = {
+      action: AuditActions.CUSTOMER_PHONE_UPDATED,
+      actionDomain: 'CUSTOMER',
+      primarySubjectType: AuditEntityTypes.CUSTOMER,
+      primarySubjectNo: customerNo,
+      ownerCustomerNo: customerNo,
+      subjects: [{ subjectType: AuditEntityTypes.CUSTOMER, subjectNo: customerNo, subjectRole: AuditSubjectRole.PRIMARY }],
+      customerNo,
+      metadata: {
+        customerNo,
+        before: maskAuditPayload({ phone: customer.phone ?? null }),
+        after: maskAuditPayload({ phone: next }),
+      },
+      reason: 'Customer changed own phone number',
+      // 同一客户可反复改：requestId 带随机后缀，否则第二次会被审计 idempotencyKey 静默吞掉。
+      requestId: `${AuditActions.CUSTOMER_PHONE_UPDATED}_${customerNo}_${randomUUID()}`,
+      sourcePlatform: 'CLIENT_API',
+    };
+    await this.auditLogs.recordByActor(input, {
+      actorType: 'CUSTOMER', actorNo: customerNo, actorDisplayName: customerNo, actorRolesAtTime: ['CUSTOMER'],
     });
   }
 

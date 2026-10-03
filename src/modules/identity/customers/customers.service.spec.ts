@@ -1,4 +1,5 @@
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -220,6 +221,109 @@ describe('CustomersService', () => {
 
     it('a patch that changes nothing writes nothing and audits nothing (no persisted action, no trail)', async () => {
       await service.updateProfileFields(compliance, 'CU0001', { firstName: 'Henry', nationality: 'AE' });
+      expect(mockPrismaService.customerMain.update).not.toHaveBeenCalled();
+      expect(mockAuditLogs.recordByActor).not.toHaveBeenCalled();
+    });
+  });
+
+  // 丙波四 T9：客户自助改 phone（登录标识之一 + schema @unique）——唯一冲突显式 409 是业务规则；留痕 actor=客户本人。
+  describe('updatePhoneSelf', () => {
+    const baseRow = { id: 'c1', customerNo: 'CU0001', email: 'henry@example.com', phone: '+971500000001' };
+    const otherCustomerPhone = '+971500000099';
+    let row: Record<string, any>;
+    let order: string[];
+
+    beforeEach(() => {
+      row = { ...baseRow };
+      order = [];
+      // 行为化 mock：findUnique 按 id 取、update 真合并 data；phone 与「另一位客户」撞号时像 SQLite 一样抛 P2002。
+      mockPrismaService.customerMain.findUnique.mockImplementation(async ({ where }: any) =>
+        where.id === row.id ? { ...row } : null);
+      mockPrismaService.customerMain.update.mockImplementation(async ({ where, data }: any) => {
+        order.push('update');
+        if (where.id !== row.id) throw new Error('mock: update target not found');
+        if (data.phone === otherCustomerPhone) {
+          throw new Prisma.PrismaClientKnownRequestError('Unique constraint failed on the fields: (`phone`)', {
+            code: 'P2002', clientVersion: 'test', meta: { target: ['phone'] },
+          });
+        }
+        Object.assign(row, data);
+        return { ...row };
+      });
+      mockAuditLogs.recordByActor.mockImplementation(async () => { order.push('audit'); return {}; });
+    });
+
+    it('writes the new phone, then audits CUSTOMER_PHONE_UPDATED with actor = the customer (persist first); old/new numbers go into metadata.before/after masked', async () => {
+      await service.updatePhoneSelf('c1', '+971500000002');
+
+      expect(mockPrismaService.customerMain.update).toHaveBeenCalledWith({ where: { id: 'c1' }, data: { phone: '+971500000002' } });
+      expect(row.phone).toBe('+971500000002');
+      expect(order).toEqual(['update', 'audit']);
+
+      expect(mockAuditLogs.recordByActor).toHaveBeenCalledTimes(1);
+      const [input, actor] = mockAuditLogs.recordByActor.mock.calls[0];
+      expect(input).toMatchObject({
+        action: 'CUSTOMER_PHONE_UPDATED', actionDomain: 'CUSTOMER',
+        primarySubjectType: 'CUSTOMER', primarySubjectNo: 'CU0001', ownerCustomerNo: 'CU0001',
+        customerNo: 'CU0001', sourcePlatform: 'CLIENT_API',
+        metadata: { customerNo: 'CU0001', before: { phone: '*********0001' }, after: { phone: '*********0002' } },
+      });
+      expect(input.requestId).toEqual(expect.any(String));
+      expect(input.requestId.length).toBeGreaterThan(0);
+      expect(actor).toMatchObject({ actorType: 'CUSTOMER', actorNo: 'CU0001', actorDisplayName: 'CU0001', actorRolesAtTime: ['CUSTOMER'] });
+      // 落库值是掩码后形态——整条审计输入里搜不到原号。掩码只动审计副本，主档里写的是真值。
+      const serialized = JSON.stringify(input);
+      expect(serialized).not.toContain('+971500000001');
+      expect(serialized).not.toContain('+971500000002');
+    });
+
+    it('two changes by the same customer carry different requestIds (the audit idempotency key would otherwise swallow the second)', async () => {
+      await service.updatePhoneSelf('c1', '+971500000002');
+      await service.updatePhoneSelf('c1', '+971500000003');
+      const ids = mockAuditLogs.recordByActor.mock.calls.map((c) => c[0].requestId);
+      expect(ids).toHaveLength(2);
+      expect(new Set(ids).size).toBe(2);
+    });
+
+    it('a number already held by another customer is a 409 PHONE_ALREADY_IN_USE — nothing is audited and the old phone stays', async () => {
+      const err = await service.updatePhoneSelf('c1', otherCustomerPhone).catch((e) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect(err.getResponse()).toMatchObject({ code: 'PHONE_ALREADY_IN_USE' });
+      expect(mockAuditLogs.recordByActor).not.toHaveBeenCalled();
+      expect(row.phone).toBe('+971500000001');
+    });
+
+    it('a non-unique database failure is not disguised as a phone conflict', async () => {
+      mockPrismaService.customerMain.update.mockRejectedValueOnce(new Error('disk I/O error'));
+      await expect(service.updatePhoneSelf('c1', '+971500000002')).rejects.toThrow('disk I/O error');
+      expect(mockAuditLogs.recordByActor).not.toHaveBeenCalled();
+    });
+
+    it.each([['empty string', ''], ['whitespace only', '   '], ['not a string', undefined as any]])(
+      'rejects %s with 400 PHONE_REQUIRED (phone is a login identifier, it cannot be cleared) — nothing written or audited',
+      async (_name, value) => {
+        const err = await service.updatePhoneSelf('c1', value).catch((e) => e);
+        expect(err).toBeInstanceOf(BadRequestException);
+        expect(err.getResponse()).toMatchObject({ code: 'PHONE_REQUIRED' });
+        expect(mockPrismaService.customerMain.update).not.toHaveBeenCalled();
+        expect(mockAuditLogs.recordByActor).not.toHaveBeenCalled();
+        expect(row.phone).toBe('+971500000001');
+      },
+    );
+
+    it('trims surrounding spaces before storing', async () => {
+      await service.updatePhoneSelf('c1', '  +971500000002 ');
+      expect(row.phone).toBe('+971500000002');
+    });
+
+    it('re-submitting the current number writes nothing and audits nothing (no persisted action, no trail)', async () => {
+      await service.updatePhoneSelf('c1', '+971500000001');
+      expect(mockPrismaService.customerMain.update).not.toHaveBeenCalled();
+      expect(mockAuditLogs.recordByActor).not.toHaveBeenCalled();
+    });
+
+    it('404s on an unknown customer id (nothing written or audited)', async () => {
+      await expect(service.updatePhoneSelf('nope', '+971500000002')).rejects.toThrow(NotFoundException);
       expect(mockPrismaService.customerMain.update).not.toHaveBeenCalled();
       expect(mockAuditLogs.recordByActor).not.toHaveBeenCalled();
     });

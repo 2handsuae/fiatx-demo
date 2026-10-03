@@ -1,8 +1,9 @@
-import { Controller, ForbiddenException, Get, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Patch, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { CustomerAccessService } from './customer-access.service';
+import { CustomersService } from './customers.service';
 
 /**
  * 客户端「我是谁 / 我被卡了什么」投影（站6 自 OnboardingCustomerController 迁入）。
@@ -19,18 +20,23 @@ import { CustomerAccessService } from './customer-access.service';
  *
  * 波二加 submitted / canReapply 两个派生布尔（入驻会话事实，非限制账事实）；
  * 原始时间戳不下发——内部术语不出客户面。
+ *
+ * 丙波四 T9 加 `PATCH client/me/phone`（客户自助改 phone）。本控制器前缀原为 'onboarding'，
+ * 要在同一控制器里同时承载 `client/me/*` 路由，前缀挪到各方法上（`GET onboarding/me` 的 URL 不变）。
+ * 客户面端点零权限码（JWT + 客户 token 校验），不进 rbac.catalog。
  */
 @ApiTags('Customer - Profile')
-@Controller('onboarding')
+@Controller()
 @UseGuards(AuthGuard('jwt'))
 @ApiBearerAuth()
 export class CustomerProfileController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly customerAccess: CustomerAccessService,
+    private readonly customers: CustomersService,
   ) {}
 
-  @Get('me')
+  @Get('onboarding/me')
   @ApiOperation({ summary: 'Get my profile, lifecycle and disclosed restrictions' })
   async getMe(@Req() req: any) {
     if (req.user?.type !== 'CUSTOMER') {
@@ -69,5 +75,15 @@ export class CustomerProfileController {
       submitted: onboardingSubmittedAt !== null,
       canReapply: onboardingFinalRejectedAt === null,
     };
+  }
+
+  @Patch('client/me/phone')
+  @ApiOperation({ summary: 'Change my own phone number (also a login identifier; 409 if another account holds it)' })
+  async updatePhone(@Req() req: any, @Body() body: { phone?: string }): Promise<{ ok: true }> {
+    if (req.user?.type !== 'CUSTOMER') {
+      throw new ForbiddenException('Customer token required');
+    }
+    await this.customers.updatePhoneSelf(req.user.userId as string, body?.phone as string);
+    return { ok: true };
   }
 }

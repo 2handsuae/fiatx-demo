@@ -1,8 +1,9 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RefreshCw, ArrowRight } from 'lucide-react';
 import { useCustomerProfile } from '../hooks/useCustomerProfile';
 import { useTierUpgrade, type TierUpgradeOverview } from '../hooks/useTierUpgrade';
-import { customerFetch } from '../utils/customerFetch';
+import { customerFetch, getCustomerApiErrorMessage } from '../utils/customerFetch';
 import { ProfileBannerStack } from '../components/ProfileBannerStack';
 import {
   isCustomerApprovedForAccess,
@@ -114,6 +115,119 @@ function Row({
   );
 }
 
+/* ─── Phone row with inline edit (丙波四 T9) ───────────────────────
+ *  Phone is the only identity field a customer edits themselves (PATCH /client/me/phone).
+ *  It is also a sign-in identifier, so the helper line says so. 409 (number held by another
+ *  account) surfaces the server's message in place. The "saved" notice lives in the parent:
+ *  refreshProfile() flips the page to its loading state, which remounts this row.
+ * ──────────────────────────────────────────────────────────────── */
+function PhoneRow({
+  phone,
+  saved,
+  onEditStart,
+  onSaved,
+}: {
+  phone?: string | null;
+  saved: boolean;
+  onEditStart: () => void;
+  onSaved: () => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const startEdit = () => {
+    setDraft(phone ?? '');
+    setError('');
+    setEditing(true);
+    onEditStart();
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setError('');
+    try {
+      const res = await customerFetch(`${import.meta.env.VITE_API_URL}/client/me/phone`, {
+        method: 'PATCH',
+        body: JSON.stringify({ phone: draft }),
+      });
+      if (!res.ok) {
+        setError(await getCustomerApiErrorMessage(res, 'Could not update your phone number.'));
+        return;
+      }
+      setEditing(false);
+      await onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Network error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const unchanged = draft.trim() === (phone ?? '');
+  const colCls = editing ? 'col-span-12 md:col-span-8' : 'col-span-12 sm:col-span-6 md:col-span-4';
+
+  return (
+    <div className={colCls}>
+      <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust/70 mb-1">Phone</div>
+      {editing ? (
+        <div>
+          <input
+            type="tel"
+            autoFocus
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !saving && draft.trim() && !unchanged) void save();
+              if (e.key === 'Escape') setEditing(false);
+            }}
+            aria-label="Phone number"
+            className="fx-input font-mono text-[12px] tabular-nums max-w-xs"
+          />
+          <p className="mt-2 font-sans text-[11px] text-fx-dust/80 leading-snug max-w-md">
+            This number is also a sign-in identifier — once saved, you can sign in with the new one.
+          </p>
+          {error && <p className="mt-2 font-mono text-[11px] text-fx-rust">{error}</p>}
+          <div className="mt-3 flex items-center gap-3">
+            <button
+              onClick={() => void save()}
+              disabled={saving || !draft.trim() || unchanged}
+              className="fx-btn-primary !px-4 !py-2"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button onClick={() => setEditing(false)} disabled={saving} className="fx-btn-ghost !px-4 !py-2">
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div className="flex items-baseline gap-3">
+            <span
+              className={`break-words leading-snug font-mono text-[12px] tabular-nums ${phone ? 'text-fx-sand' : 'text-fx-dust'}`}
+            >
+              {phone || '—'}
+            </span>
+            <button
+              onClick={startEdit}
+              className="font-mono text-[10px] uppercase tracking-[0.14em] text-fx-brass hover:text-fx-ember transition-colors"
+            >
+              {phone ? 'Change' : 'Add'}
+            </button>
+          </div>
+          {saved && (
+            <p className="mt-2 font-mono text-[11px] text-fx-sage">
+              Phone number updated — you can now sign in with it.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Section heading — small, quiet ───────────────────────────── */
 function SectionTitle({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
   return (
@@ -129,9 +243,10 @@ function SectionTitle({ children, right }: { children: React.ReactNode; right?: 
 /* ─── Page ─────────────────────────────────────────────────────── */
 
 const CustomerProfile = () => {
-  const { profile, loading, error } = useCustomerProfile();
+  const { profile, loading, error, refreshProfile } = useCustomerProfile();
   const { data: tier } = useTierUpgrade();
   const navigate = useNavigate();
+  const [phoneSaved, setPhoneSaved] = useState(false);
 
   const applyForUpgrade = async () => {
     const r = await customerFetch(`${import.meta.env.VITE_API_URL}/client/me/tier-upgrade/apply`, {
@@ -305,7 +420,15 @@ const CustomerProfile = () => {
           <Row label="Last name" value={profile.lastName} />
           <Row label="Customer type" value={profile.customerType} />
           <Row label="Email" value={profile.email} mono span={2} />
-          <Row label="Phone" value={profile.phone} mono />
+          <PhoneRow
+            phone={profile.phone}
+            saved={phoneSaved}
+            onEditStart={() => setPhoneSaved(false)}
+            onSaved={async () => {
+              setPhoneSaved(true);
+              await refreshProfile();
+            }}
+          />
           <Row label="Member since" value={fmtDate(profile.createdAt)} mono />
           <Row label="Last login" value={fmt(profile.lastLoginAt)} mono />
         </div>

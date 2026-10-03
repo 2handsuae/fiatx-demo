@@ -547,6 +547,8 @@ export const AuditActions = {
   DSR_DEADLINE_FASTFORWARDED: 'DSR_DEADLINE_FASTFORWARDED',
   // ── 战役丙波四 T8（2026-10-03）：运营改客户档案（CDD 七字段）——入 V2_CUSTOMER_AUDIT_ACTIONS（域 CUSTOMER）──
   CUSTOMER_PROFILE_UPDATED: 'CUSTOMER_PROFILE_UPDATED',
+  // ── 战役丙波四 T9（2026-10-03）：客户自助改 phone——入 V2_CUSTOMER_AUDIT_ACTIONS（域 CUSTOMER），actor=客户本人 ──
+  CUSTOMER_PHONE_UPDATED: 'CUSTOMER_PHONE_UPDATED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1075,8 +1077,11 @@ export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   SANCTION_DISPOSITION_DECIDED:   { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
   SANCTION_DISPOSITION_LANDED:    { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['approvalNo'], requiresCausation: false },
   // ── 运营改档案（1，战役丙波四 T8，2026-10-03）：actor=操作员（recordByActor），主体 CUSTOMER·customerNo；
-  // requiredFields 顶层展开（assertActionSpec 只查 input 顶层），逐字段 before/after 差异（经 audit-mask 打码）落 beforeData/afterData。
+  // requiredFields 顶层展开（assertActionSpec 只查 input 顶层），逐字段 before/after 差异（经 audit-mask 打码）落 metadata.before/after。
   CUSTOMER_PROFILE_UPDATED:       { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['customerNo', 'changedFields'], requiresCausation: false },
+  // ── 客户自助改 phone（1，战役丙波四 T9，2026-10-03）：actor=客户本人（recordByActor，actorType CUSTOMER），主体 CUSTOMER·customerNo；
+  // 新旧号经 audit-mask（小写 'phone' 键既有已认）打码后落 metadata.before/after；customerNo 顶层展开供 assertActionSpec 查验。
+  CUSTOMER_PHONE_UPDATED:         { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['customerNo'], requiresCausation: false },
 };
 
 /**
