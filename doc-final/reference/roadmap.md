@@ -83,10 +83,10 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️P0 审计日志 8 年留存 + 归档 — 冷存储+完整性验证 ｜CRM Rule I.F.2(≥8 年，涉国安无限期)；⚠️现 `audit-retention-job.ts` 还查已删列坏着(见 BACKLOG)
 - [ ] ⚖️P0 定期权限复审/复认 — 权限快照 + 休眠/过度权限/SoD 违规标记 + 季审签字 ｜Schedule 1 RC2 Std 8 + §D.2.d.ii(quarterly) + NIST AC-2/AC-6(7)
 - [ ] ⚖️P0 密钥生命周期治理 — API Key + 加密密钥(DEK/KEK) + admin 凭证 的生成/轮换/撤销/访问审计；**链上签名/托管密钥→HexTrust 治理，平台只留监督(勿实现)** ｜TIR §D + NIST SP 800-57 crypto period
-- [ ] ⚖️P0 审计日志 WORM/tamper-evidence + 实时安全告警 — 哈希链/完整性验证 + 安全事件实时告警 ｜Schedule 1 RC2 Std 13(⚠️通知本体 stub 是根因)
+- [ ] ⚖️P0 审计日志 WORM/tamper-evidence + 实时安全告警 — 哈希链/完整性验证 + 安全事件实时告警 ｜Schedule 1 RC2 Std 13(通知本体已复活 2026-10-01，本条只剩哈希链与告警侧本体)
 - [ ] ⚖️P0 会话即时撤销/终止 — 停用/角色撤销即时会话失效(撤销列表/短 TTL+吊销)，至少特权账户 ｜NIST AC-12(现 JWT next-check 非即时)
 - [ ] ⚖️P0 SoD 互斥矩阵扩容 — 从 3 对 admin 扩到 VARA 枚举 sales/dealing/accounting/settlement/safekeeping ｜Company Rulebook §B.2
-- [ ] ⚖️P0 admin 生命周期通知补实 — create/modify/enable/disable/remove 自动审计+通知指定人(审计已有、通知因 stub 未落) ｜NIST AC-2(4)
+- [ ] ⚖️P0 admin 生命周期通知补实 — create/modify/enable/disable/remove 自动审计+通知指定人(审计已有；通知本体已复活 2026-10-01，但管理员侧通知面丙波一判缓——BACKLOG 在案) ｜NIST AC-2(4)
 - [ ] ⚖️P0 API Key 紧急 + 定期轮换 — 泄露紧急轮换 + 定期轮换(NIST crypto period 递归控制) ｜TIR Schedule 1(原 ADVANCED，提级)
 
 **P1（VARA/行业，非上线阻断）：**
@@ -94,7 +94,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 - [ ] ⚖️P1 PAM 特权治理闭环 — 特权账户白名单强制 + 特权操作审计 + Break-Glass 紧急特权 ｜NIST AC-6(5)
 - [ ] P1 变更前强制安全测试门 — 上线前渗透/漏洞扫描 + 整改追踪门控 ｜Schedule 1 RC2 Std 11(依赖 CI/CD)
 - [ ] ⚖️ Emergency Break-Glass — 紧急权限绕过 + 时限 elevated + 自动收回 + 事后 review ｜TIR V.A ｜上线无 SUPER_ADMIN 后优先级高
-- [ ] Approval 超时预警/通知 — 到期前 N 小时通知 + 升级 ｜来源:业务 ｜依赖通知本体
+- [ ] Approval 超时预警/通知 — 到期前 N 小时通知 + 升级 ｜来源:业务 ｜依赖通知本体(已复活 2026-10-01，前置解除；同样缺管理员侧通知面)
 
 **P2（低频/退出路径）：**
 
@@ -104,7 +104,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 ### Supporting Features（非 workflow）
 
 - **审批引擎(maker-checker)** ✅ ｜ **审计 write/query** ✅ ｜ **RBAC 权限校验** ✅ ｜ **SoD 互斥(3 对硬编码，⚠️应扩容见上 P0)** ✅ ｜ ~~**审计 SubjectNo 移除** ✅2026-05-19~~ → **已反向**：旧 `audit_log_subject_nos` 表确于 2026-05-19 删除，但 2026-08-25 `audit_log_redesign` 迁移新建了 `AuditLogSubject` 子表，2026-09-16 第七幕波二把它铺到 9 文件 50 处调用、34 码写入 + 名册 47 码，是**审计按主体检索的现役地基**（`verify:audit` 覆盖）。这行别再当「已移除」读
-- ⚠️ **通知 send/retry** — roadmap 原标 ✅，**实为 STUB**（只 WebSocket gateway，无 email/webhook/retry）——是"实时告警""生命周期通知""超时预警"三个 P0/P1 的共同前置，见 truth + BACKLOG
+- ⚠️ **通知 send/retry** — roadmap 原标 ✅ 后订正为 STUB；**✅2026-10-01 丙波一本体复活**：`core/notifications/` 站内消息中心（铃铛+列表+已读）+16 发信点（收敛判据触发）+email 模拟留痕；2026-10-03 丙波三再加 AGREEMENT 类型全员 fanout——"实时告警""生命周期通知""超时预警"的前置已解除；**仍无**真发 email/webhook/retry（演示判不做，PRODUCTION-NOTES 在案）
 - **Approval delegation / Login anomaly detection** — ADVANCED 未做
 
 > 现状/锚点见 [modules/v1-governance.md](../modules/v1-governance.md)；技术债(通知 stub / subjectNos 漂移 / retention 脚本 / SUPER_ADMIN bypass)见 [BACKLOG.md](../BACKLOG.md)。
@@ -155,7 +155,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 **Individual 进阶：**
 - [ ] 客户资料变更 — 身份变更触发重验(低风险直接生效/高风险 Sumsub 重验) ｜VARA CRM II.A.3
 - [ ] 客户销户 — 余额清零+在途处理+AML 终审+KYC 归档 8 年+账号关闭 ｜VARA CRM IV.C
-- [ ] 客户协议版本管理 — T&C/费率表版本+Legal 审批+客户确认记录 ｜来源:业务 ｜⚠️2026-07-06 V6 复查:协议含费率表,变更须**提前 30 日历日**通知客户+单方变更权须明示写入协议(MC II.A.7/8)——生效闸在 V6 费率工作流,通知发送在本条
+- [x] 客户协议版本管理 — T&C/费率表版本+Legal 审批+客户确认记录 ｜来源:业务 ｜⚠️2026-07-06 V6 复查:协议含费率表,变更须**提前 30 日历日**通知客户+单方变更权须明示写入协议(MC II.A.7/8)——生效闸在 V6 费率工作流,通知发送在本条 ✅2026-10-03 丙波三：版本登记处（正文写死随版本装载，v1 两处 14→30 订正）+合规官提/高管批+**生效日≥批准+30 天双锚**+发布即全员通知+生效后客户表态落库审计（暂不同意拦充值/兑换、放行提现）；**协议采引用式费率条款，费率表与协议零联动**（日常调率/限时活动不触发协议发布，`decisions.md` 防翻案）；单方变更权 v1 第 VII 节已明示
 - [ ] ⚖️ 投资者分类(Retail/Qualified/Institutional) — 客户级分类状态+证据留痕≥8y(Qualified 门槛:净资产≥AED 350 万或年收入≥AED 70 万,禁自我声明);升级走披露+同意+双重复核;V4-V6 交易门只读此字段 ｜Market Conduct IV.A.1 + VARA Circular 2026-01-08 ｜来源:2026-07-06 V6 复查分拣归 V2
 - [ ] ⚖️ 客户资金月度对账单 — 至少月度(25 日历日内编制)向客户发 Client Money 对账单，逐笔列每笔 credit/debit(含每笔法币提现借记的金额/日期/价值)；提现流水字段由 V5「提现记录字段集」供数 ｜CRM IV.D.2.a/b ｜来源:2026-07-06 V5 复查分拣归 V2
 
@@ -270,7 +270,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ### OPTIMIZED（VARA 不强制、行业惯例）
 
-- [ ] 充值成功通知 — 到账推送客户，复用 V1 Notification ｜来源:行业(UX) ｜🔴**2026-09-17 复核订正根因**：不是「基础设施在、没接」——`src/core/notifications/` 只有 2 个文件，唯一方法 `notifyComplianceUpdated()` **全仓零调用方**（`grep -rn "notifyComplianceUpdated" src` 唯一命中是它自己的定义行；`NotificationsGateway` 只在自身与自己的 module 出现）。**整层是死码**，V4/V5/V6 三条「成功通知」是同一个根因，见 `BACKLOG.md` ⭐🔴 条
+- [x] 充值成功通知 — 到账推送客户，复用 V1 Notification ｜来源:行业(UX) ｜🔴2026-09-17 曾订正整层死码（三条「成功通知」同根因）✅2026-10-01 丙波一死码复活并接线：充值 6 发信点（DEPOSIT_SUCCESS/FAILED/RETURNING/RETURNED/CLAWED_BACK/ACTION_PENDING，`toCustomerXStatus(from)≠(to)` 收敛判据触发，冻结单与正常单一字不差）
 
 > **支撑项**（事件驱动编排 / **Sumsub KYT 单笔交易引擎（真集成，2026-07-31 取代老 mock 管道：Gate 0 提交存 txnId + webhook 强类型路由 + `applyKytVerdict` 四裁决驱动 + SLA 定时器 + getTxn 报文存证）** / **`SUMSUB_MOCK_MODE` 开关 + 10 个原子裁决按钮的场景一键喂端点**（业主 2026-07-29 定的甲方案：sandbox 演不出制裁/PEP/慢 case，故 fixture 驱动）/ **四条异常动钱弧（没收异步两阶段 / 退回 A3 / 上缴 A4 / 解冻回炉 A5，均真结算 + maker-checker 正门）** / KYT-TR 模拟端点 / Admin 充值页 / Client 三 Tab / Tipping-off 映射 / Overview 读 TB）均已交付；现状见 [modules/v4-deposit.md](../modules/v4-deposit.md)。**技术债**（txHash 去重、repair surface、emit vs emitAsync、PATCH 绕过等）见 [BACKLOG.md](../BACKLOG.md)。**TransactionComplianceService 废弃** — 已确认全仓 0 命中（删干净）。
 
@@ -306,10 +306,10 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 **P1（VARA 强制但相对次级）：**
 
-- [~] ⚖️P1 stuck/failed→追踪-定因-通知 — 转账未达须追踪+查因+通知客户；⚠️2026-07-06 牌照订正:II.C.3 直接义务方是 HexTrust,平台侧=合同要求追踪+对客通知与留痕 ｜CRM I.E.1 + HexTrust 合同(原锚 T&S II.C.3 撤) ｜**部分兑现 2026-08-03**：卡单可见性已建——本金腿 FAILED→整单 `FAILED`+双锁 void 归还；费腿失败三级梯（重建 ≤3 次→耗尽打 `needsReview` 旗 + `WITHDRAW_FEE_SETTLE_STUCK` 审计，单留 `PAYOUT_PENDING` 等人工，SUCCESS 结算自动清旗）；⚠️**缺**：无专用 repair admin 端点（现靠资金单 ⚡ 步进恢复）、无对客通知（通知本体仍是 stub，见 OPTIMIZED）、无自动追踪/定因（链上/银行侧查因未接）
+- [~] ⚖️P1 stuck/failed→追踪-定因-通知 — 转账未达须追踪+查因+通知客户；⚠️2026-07-06 牌照订正:II.C.3 直接义务方是 HexTrust,平台侧=合同要求追踪+对客通知与留痕 ｜CRM I.E.1 + HexTrust 合同(原锚 T&S II.C.3 撤) ｜**部分兑现 2026-08-03**：卡单可见性已建——本金腿 FAILED→整单 `FAILED`+双锁 void 归还；费腿失败三级梯（重建 ≤3 次→耗尽打 `needsReview` 旗 + `WITHDRAW_FEE_SETTLE_STUCK` 审计，单留 `PAYOUT_PENDING` 等人工，SUCCESS 结算自动清旗）；⚠️**缺**：无专用 repair admin 端点（现靠资金单 ⚡ 步进恢复）、~~无对客通知~~ **对客通知已接**（✅2026-10-01 丙波一卡单/失败发信点）、无自动追踪/定因（链上/银行侧查因未接）
 - [ ] ⚖️P1 自托管钱包差异化 EDD/限额 — **消费 V3 打的自托管标记**，按金额应用 EDD/额度限制(所有权验证已在 V3 登记时做) ｜FATF/VARA III.G.7
 - [ ] ⚖️P1 大额提现增强审查(EDD) — 超阈值强制 SOF/SOW→Sumsub 增强→MLRO 门(阈值按 tradingTier) ｜CRM III.B
-- [~] 法币银行退回(bounced) — 退汇→void 恢复→通知→审计(绑 24h) ｜来源:业务 ｜配对:V4 充值 bounce ｜**主体兑现 2026-08-03**：admin `POST :id/bounce`（理由必填）——守卫仅 `PAYOUT_PENDING` 且本金已 POST（未发出的失败走 `FAIL` 不走 bounce）→ 反向分录 `DR CLIENT_ASSET/CR CLIENT_PAYABLE`（先账后状态）→ `RETURNED`；费腿双支处置（已 POST=归公司 / 未 POST=void 退还客户，防孤儿锁）｜⚠️**缺**：无对客通知（根因见 V4「充值成功通知」条：通知层零调用方）、24h SLA 无计时器。~~SUCCESS 后退汇无入口~~ **已推翻（2026-09-17 复核）**：`POST :withdrawNo/return-claim`（`initiateReturnClaim`，守卫 `status!==SUCCESS` 即拒，专收 SUCCESS 态）于 2026-09-03 平账 B 批交付，`modules/v5-withdraw.md` §2 记「SUCCESS──退回(B批)──→RETURNED」｜⚠️原文引用的「truth §7/§9」章节号已失效，该篇现只到 §6
+- [~] 法币银行退回(bounced) — 退汇→void 恢复→通知→审计(绑 24h) ｜来源:业务 ｜配对:V4 充值 bounce ｜**主体兑现 2026-08-03**：admin `POST :id/bounce`（理由必填）——守卫仅 `PAYOUT_PENDING` 且本金已 POST（未发出的失败走 `FAIL` 不走 bounce）→ 反向分录 `DR CLIENT_ASSET/CR CLIENT_PAYABLE`（先账后状态）→ `RETURNED`；费腿双支处置（已 POST=归公司 / 未 POST=void 退还客户，防孤儿锁）｜⚠️**缺**：~~无对客通知~~ **已接**（✅2026-10-01 丙波一 WITHDRAW_RETURNED 发信点）、24h SLA 无计时器（仍缺）。~~SUCCESS 后退汇无入口~~ **已推翻（2026-09-17 复核）**：`POST :withdrawNo/return-claim`（`initiateReturnClaim`，守卫 `status!==SUCCESS` 即拒，专收 SUCCESS 态）于 2026-09-03 平账 B 批交付，`modules/v5-withdraw.md` §2 记「SUCCESS──退回(B批)──→RETURNED」｜⚠️原文引用的「truth §7/§9」章节号已失效，该篇现只到 §6
 
 > 🔄 **2026-07-06 遗漏复查追补**（fable-5，11 存活→分拣后 9 留 V5、对账单归 V2）。下列 Client Money(CRM Part IV) 条款号系 gap-audit 溯源，**一手复核前当"很可能对"**（见 spec caveat）。
 - [ ] ⚖️P1 🔄 提现划账授权 + 指令绑定存证 — 客户账户每笔划出须绑客户提现指令(指令ID+客户ID+收款账户/地址+白名单肢分类)方可打款；付第三方须留客户指令原文 ｜CRM IV.B.10
@@ -329,7 +329,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 ### OPTIMIZED（VARA 不强制、行业惯例）
 
-- [ ] 提现成功通知 — SUCCESS 推送客户，复用 V1 Notification ｜来源:行业(UX) ｜🔴根因同 V4「充值成功通知」：通知层非「基础设施在、未接」而是**全仓零调用方的死码**，2026-09-17 复核订正
+- [x] 提现成功通知 — SUCCESS 推送客户，复用 V1 Notification ｜来源:行业(UX) ✅2026-10-01 丙波一：提现 5 发信点（SUCCESS/REJECTED/RETURNED/FAILED/ACTION_PENDING，死码复活后接线）
 
 > **支撑项**（事件驱动编排 / TB pending-post-void 记账 / Admin+Client 页 / Tipping-off 映射 / WithdrawQuote 取最优 / 费率 seed）均已交付；**2026-08-03~07 新增**：`withdraw-sumsub/` 真实引擎（router/handler/SLA/demo-scenario）、admin 详情页 9 区块 + Frozen/Payout Disposition 组 + ⚡Simulation 10 按钮、client 详情/认证独立页、e2e（money-arcs 7 + scenarios 13）；~~模拟端点~~ 老 mock kyt/tr simulate 端点已随真实引擎退役删除。现状见 [modules/v5-withdraw.md](../modules/v5-withdraw.md)。
 > **技术债**（~~Sumsub 真集成~~ ✅2026-08-04 已接 / 热钱包校验 / 通知 / repair surface / STUCK 无自动重触发 / slaBreached 不复位 / 创建响应未白名单）见 [BACKLOG.md](../BACKLOG.md)。
@@ -360,11 +360,11 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 
 - [ ] ⚖️P0 兑换反洗钱交易监控 — 成交后 emit `SwapCompleted`→规则引擎(刚充就换/大额或拆单/来回对敲/画像不符/高风险PEP)→命中开 MLRO Case→STR 候选(联动 V9 goAML)；**本质盯客户行为模式非单笔**；先「只检测不阻断」(R.20 事后报即合规) ｜CRM III.F.1/III.E.5(a) + FATF R.10/R.20/2020 红旗
 - [ ] ⚖️P0 最优执行 best-execution gate — 平台自营做庄须**自证定价靠谱**：≥2 价源比对 + 偏离阈值拦截/降级 + 每笔 bestExec 证据留痕(≥8y)；⚠️**非限制利润**，管透明/一致/有据、点差多少是商业决策 ｜BD II.A.1/A.2(本金成交不豁免)/II.B.1
-- [ ] ⚖️P0 本金身份 + 利益冲突 + 定价方法 对外披露 — 告知客户「平台作对手方成交、含点差」+ 公开定价方法 + 冲突管理 ｜BD I.B.1.a/d + II.B.1
+- [x] ⚖️P0 本金身份 + 利益冲突 + 定价方法 对外披露 — 告知客户「平台作对手方成交、含点差」+ 公开定价方法 + 冲突管理 ｜BD I.B.1.a/d + II.B.1 ✅2026-10-02 丙波二：成交前确认弹窗三句话（本金身份/市场参考价+点差定价法含来源与时刻/利益冲突声明），文案集中登记处占位填真值——演示口径=交易点披露，官网级披露页不在演示范围
 
 **P1（VARA 强制但相对次级）：**
 
-- [ ] ⚖️P1 点差作「平台留存」双点披露 + 成交确认单 — 成交前显性标注留存额 + SUCCESS 后生成不可变确认单(现连成功通知都没接) ｜BD II.A.6
+- [x] ⚖️P1 点差作「平台留存」双点披露 + 成交确认单 — 成交前显性标注留存额 + SUCCESS 后生成不可变确认单 ｜BD II.A.6 ✅2026-10-02 丙波二：Retained by FIATX 行弹窗+确认单各出现一次（双点）；`trade_confirmations` 一单一张只写一次（21 列自包含原件），详情页出示+浏览器打印，`CONFIRMATION_ISSUED` 留痕
 - [ ] ⚖️P1 价格公允性书面政策 + 治理 — 点差上限/偏离容忍/peg 来源入 fee-level 式 Maker-Checker；**分档按规则(同档同价、禁手动看人改价)** ｜BD II.A.1/A.3/A.16
 - [ ] ⚖️P1 内部化订单流季度执行质量复核 — 100% 自成交须 ≥季度抽样 自家价 vs 外部可得价，出「调整 or 书面说明」 ｜BD II.A.13
 - [ ] ⚖️P1 陈旧价/极端行情保护 — 价源心跳+最大陈旧度拒单+第二源熔断+成交前重校验(顺带解决滑点) ｜BD II.A.4/A.12 + Tech I.H.1
@@ -392,7 +392,7 @@ V7（财资运营）已脱离交易链——旧 EOD 结算/内部转账被实时
 ### OPTIMIZED（VARA 不强制、行业惯例）
 
 - [ ] Quote TTL cron sweep — 过期 Quote 自动标 EXPIRED(现仅懒过期) ｜来源:行业
-- [ ] 兑换成功通知 — SUCCESS 推送客户，复用 V1 Notification ｜来源:行业(UX) ｜🔴根因同 V4/V5 两条「成功通知」：通知层全仓零调用方的死码，2026-09-17 复核订正
+- [x] 兑换成功通知 — SUCCESS 推送客户，复用 V1 Notification ｜来源:行业(UX) ✅2026-10-01 丙波一：SWAP_SUCCESS/SWAP_REJECTED 两发信点（死码复活后接线；深链达详情页）
 
 > **支撑项**（SwapQuoteService 拆分 / PricingCenterService 删除 −3500 行 / 4 腿声明式记账 / Client 兑换页 / Swap Quotes admin 页 / 审批策略 6 类简化 OPS_OFFICER / legacy swap config 已清）均已交付；现状见 [modules/v6-swap.md](../modules/v6-swap.md)。**技术债**（Sumsub TM / repair surface / InternalFund 命名债）见 [BACKLOG.md](../BACKLOG.md)。
 > ⚠️ **措辞订正（2026-07-04 体检）**：① reverse 整笔冲正 / REVERSED / FAILED 实为**死枚举 + 无 reverse 端点**（原 2026-06-26 ✅ 过度声明，降为 ADVANCED 待做）；② 编排类名实为 `SwapWorkflowService`+`SwapLegAccounting`，**无 `SwapSettlementService`**；③ swap 腿 = funds_order（代码仍用 InternalFund 旧名，命名债）。
