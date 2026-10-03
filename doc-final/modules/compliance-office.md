@@ -7,7 +7,7 @@
 
 合规办公室是**监管义务的统一倒计时看板 + 两本法定登记册**，挂在 V1 治理域下、与 V9 报送台共用同一张 `RegulatoryFiling` 主体（见 §2）：
 
-- **闹钟墙**：把「对监管的死限期」——报送单的 `deadlineAt` 与周期义务的 `nextDueAt`——聚合到一张只读表，红/黄/绿三色一眼看出谁快到期、谁已超期。
+- **闹钟墙**：把「对监管的死限期」——报送单的 `deadlineAt`、周期义务的 `nextDueAt`、投诉的确认 / 裁决钟与资料请求（DSR）的 30 天答复钟——聚合到一张只读表（四类灯：FILING / OBLIGATION / COMPLAINT / DSR），红/黄/绿三色一眼看出谁快到期、谁已超期。
 - **合规日历**：周期性监管申报（月报/季报/年报）的义务台账，到期自动开出报送单（一期一单，翻期在生成时）。
 - **两本登记册**：外包商登记册（Material Outsourcing）与 RI（Responsible Individual，受托责任人）登记册，RI 换人走事前审批（合规官提、高管批）。
 
@@ -27,13 +27,15 @@
 - **COMPLAINT 行**（2026-09-28 战役甲波五新增）：`currentStatus != 'RESOLVED'` 的每张投诉一行，`deadlineAt` 取未确认走确认钟（`ackDeadlineAt`）、已确认走裁决钟（`resolveDeadlineAt`），`clockLabel` 区分两钟，超时同样只软标变红、不自动动作——详见 `modules/complaints.md` §5。
 - **DSR 行**（2026-10-03 战役丙波四新增，**第四类灯**）：`status != RESOLVED` 的每张资料请求一行，`deadlineAt` 取 `dueAt`（提交时刻 + 30 自然日单钟），`authority` 恒为 `DPO`，逾期 = 读时现算 `dueAt < now`（已办结单永不逾期）——详见 `modules/v2-customer-compliance.md` §8。**行点击**有显式 DSR 分支，落 DSR 详情页（目的页读权由路由守卫判：合规官 / 内审只读，MLRO 落 403 页）；**⚡ 快进**走 DSR 自家端点（`simulate-timeout`，`DEMO_CLOCK_WRITE`）——能同时看到墙又点得动 ⚡ 的只有超管：DPO 是 DSR 经办人但**不持 `COMPLIANCE_OFFICE_VIEW`、看不见墙**，金库有拨钟权同样看不见墙，合规官看得见墙但没有 ⚡ 列（墙是合规官督办视角，DPO 看自己列表页的倒计时列）。
 
-**颜色三档**：红 = `overdue`（FILING 行专属）；黄 = 剩余 ≤ 24h（聚合端点不携带锚时间戳或 `leadBusinessDays`，两种 kind 统一走「总长不可知」分支，见前端实现注释）；绿 = 其余。阈值数字是展示参数，不入验收判据。
+**颜色三档**：红 = `overdue`（FILING / COMPLAINT / DSR 三类行都可能红——FILING 行由 sweep 标 `overdueMarkedAt`、COMPLAINT 行超时软标、DSR 行读时现算 `dueAt < now`；OBLIGATION 行只有绿 / 黄）；黄 = 剩余 ≤ 24h（聚合端点不携带锚时间戳或 `leadBusinessDays`，四种 kind 统一走「总长不可知」分支，见前端实现注释）；绿 = 其余。阈值数字是展示参数，不入验收判据。
 
 **权限**：`COMPLIANCE_OFFICE_VIEW`（合规官、MLRO、高管、内审、CISO 五职务共持，见 §4）。
 
-**⚡ 快进**（两条，均挂 `DEMO_CLOCK_WRITE`，金库/超管持有，审计各一条）：
+**⚡ 快进**（四条，均挂 `DEMO_CLOCK_WRITE`，金库/超管持有，审计各一条；前两条随闹钟墙 / 合规日历一并落地，后两条分别由投诉 / 资料请求两波加入，墙上 FILING / COMPLAINT / DSR 行点 ⚡ 各走自己类别的端点，OBLIGATION 的 simulate-due 不在墙行上）：
 - `POST /admin/regulatory-filings/:filingNo/simulate-deadline-timeout`——把该单 `deadlineAt` 回拨到过去（仅限墙上行集内状态，终态 / 已提交单 400），30 秒内被既有 sweep 标红，落 `FILING_DEADLINE_FASTFORWARDED` 审计。
 - `POST /admin/compliance-obligations/:obligationNo/simulate-due`——把 `nextDueAt` 回拨进生成窗，sweep 30 秒内当场开单（见 §2），落 `OBLIGATION_DUE_FASTFORWARDED` 审计。
+- `POST /admin/complaints/:complaintNo/simulate-timeout`——把该投诉的确认钟或裁决钟（body `target`）回拨到过去，落 `COMPLAINT_DEADLINE_FASTFORWARDED` 审计（详见 `modules/complaints.md` §5）。
+- `POST /admin/dsr-requests/:requestNo/simulate-timeout`——把该资料请求 `dueAt` 回拨到 now−1h（终态 400），落 `DSR_DEADLINE_FASTFORWARDED` 审计（详见 `modules/v2-customer-compliance.md` §8）。
 
 前端按钮走 `useSimulationMode` 既有门控；合规官不持 `DEMO_CLOCK_WRITE`（不是自己的裁决人），页面上不出现任何 ⚡ 按钮——只有金库 / 超管这类持有 `DEMO_CLOCK_WRITE` **且**持有 `COMPLIANCE_OFFICE_VIEW`（金库不持有，实际能点的只有 SUPER_ADMIN）才看得到并能点，这一「无人独自持有两把钥匙」的现象是本波真实的 RBAC 交叉产物，非缺陷（见 §4）。
 
@@ -92,7 +94,7 @@
 
 ## 5. 演示脚本
 
-**场景 21 · 闹钟墙与合规日历**：看墙（报送单钟 + 三条义务倒计时）→ ⚡ 义务快进 → 工单当场出现在墙上与报送台 → 合规官起草送签 → 高管签发 → 标已提交 → 义务翻期；再 ⚡ 报送单超时 → 墙上变红 + 审计留痕 → 口播「升级出口 = 人工登记事故」（不实际登记，指给观众看入口）。
+**场景 21 · 闹钟墙与合规日历**（墙现为四类灯——报送单 / 周期义务 / 投诉 / DSR；本场景只走前两类，投诉灯与 DSR 灯分别在各自场景里演）：看墙（报送单钟 + 三条义务倒计时）→ ⚡ 义务快进 → 工单当场出现在墙上与报送台 → 合规官起草送签 → 高管签发 → 标已提交 → 义务翻期；再 ⚡ 报送单超时 → 墙上变红 + 审计留痕 → 口播「升级出口 = 人工登记事故」（不实际登记，指给观众看入口）。
 
 **场景 22 · 登记册**：外包商登记 / 修改 / 终止 → RI 换人提单 → 高管批准 → 名册翻新 → 审计链回查（`RI_REPLACEMENT_APPLIED` 携 from/to）。
 

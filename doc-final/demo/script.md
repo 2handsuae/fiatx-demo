@@ -659,6 +659,8 @@ bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash script
 
 > 战役丙波四交付（2026-10-03）。主篇文档 `modules/v7-treasury.md` §7。本场景 2026-10-03 T12 在 self 栈全程实走一遍（干净库重铺、真点击，合规官 / 内审 / 客户三账号轮转），证据 `35`–`41`。
 
+> ⚠️ **月份是相对的**：本场景的月份名与张数按 **2026-10-03 走查日**写。重演时，"九月 / 八月" = **上月 / 上上月**，已出具张数随走查日递增（sweep 补出从开户批准月到上月的全部月，每过一个迪拜月 +1）；Henry 的历史腿（上月 / 上上月）也随之后移——判据与台词里的具体月份名、`2026-0N` 单号后缀、`Oct 3, 2026` 出具日，重演时照走查日换算。
+
 **账号**：`compliance_lead@fiatx.com`（合规官，看客户详情）→ `auditor@fiatx.com`（内审，查审计）→ 客户端 `demo_acme@example.com`（Henry，密码 123456）。
 
 **走查**：
