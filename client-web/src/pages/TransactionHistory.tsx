@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -8,6 +8,7 @@ import {
   AlertCircle,
   History,
   Briefcase,
+  FileText,
 } from 'lucide-react';
 import { formatAssetAmount } from '../utils/number-format';
 import {
@@ -20,6 +21,11 @@ import {
  *  Transaction History — one row per order, fed by the Task 10
  *  aggregated statement read-model. Entered only from the Overview
  *  asset row's history icon; not a sidebar nav item.
+ *
+ *  Campaign C wave 4 (T4): the "Statements" dropdown flips the page
+ *  between live activity and an issued monthly statement — a frozen
+ *  snapshot, shown as issued (rows stay newest-first, same as live).
+ *  `?statement=<statementNo>` deep-links straight to one (Messages).
  * ──────────────────────────────────────────────────────────────── */
 
 const PAGE_SIZE = 20;
@@ -46,6 +52,36 @@ interface StatementRow {
   refs: { sourceType: string; sourceNo: string }[];
 }
 
+interface StatementListItem {
+  statementNo: string;
+  periodMonth: string; // YYYY-MM, Dubai business month
+  issuedAt: string;
+}
+
+// section.assetCode is the *currency* (USDT), matched against portfolio.currency — not the asset code.
+interface StatementSection {
+  assetCode: string;
+  isFiat: boolean;
+  openingBalance: string;
+  closingBalance: string;
+  rows: StatementRow[];
+}
+
+interface StatementSnapshot extends StatementListItem {
+  sections: StatementSection[];
+}
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+// Plain string split on purpose — a YYYY-MM never goes through Date (timezone drift).
+const monthLabel = (periodMonth: string): string => {
+  const [year, month] = periodMonth.split('-');
+  return `${MONTH_NAMES[Number(month) - 1] ?? month} ${year}`;
+};
+
 // Backend does a plain `<=` comparison on `to`; a bare end-date string parses to
 // that day's UTC midnight, which would exclude every event during the selected
 // end day. Push the boundary to the start of the next day so the whole selected
@@ -66,6 +102,20 @@ const TransactionHistory = () => {
 
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(
     () => searchParams.get('assetId'),
+  );
+
+  // Issued monthly statements. snapshotNo = null → live activity (current behaviour).
+  const [issuedList, setIssuedList] = useState<StatementListItem[]>([]);
+  const [snapshotNo, setSnapshotNo] = useState<string | null>(
+    () => searchParams.get('statement'),
+  );
+  const [snapshot, setSnapshot] = useState<StatementSnapshot | null>(null);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const [snapshotError, setSnapshotError] = useState('');
+  // A message deep link carries only ?statement= — remember that, so once the snapshot
+  // is in we can land on an asset that actually has rows in it.
+  const deepLinkPending = useRef(
+    searchParams.get('statement') !== null && searchParams.get('assetId') === null,
   );
 
   const [startDate, setStartDate] = useState('');
@@ -119,13 +169,71 @@ const TransactionHistory = () => {
 
   useEffect(() => {
     if (!selectedAssetId) return;
-    setSearchParams({ assetId: selectedAssetId }, { replace: true });
-  }, [selectedAssetId, setSearchParams]);
+    const next: Record<string, string> = { assetId: selectedAssetId };
+    if (snapshotNo) next.statement = snapshotNo;
+    setSearchParams(next, { replace: true });
+  }, [selectedAssetId, snapshotNo, setSearchParams]);
 
   const selectedCurrency = selectedAsset?.currency ?? null;
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const response = await customerFetch(
+          `${import.meta.env.VITE_API_URL}/client/portfolio/statements`,
+        );
+        if (response.ok) {
+          const data = await response.json();
+          setIssuedList(data.items ?? []);
+        }
+      } catch (err) {
+        // The list is a convenience; live activity works without it.
+        if (err instanceof CustomerSessionError) return;
+      }
+    })();
+  }, []);
+
+  const fetchSnapshot = useCallback(async () => {
+    if (!snapshotNo) return;
+    setSnapshotLoading(true);
+    setSnapshotError('');
+    try {
+      const response = await customerFetch(
+        `${import.meta.env.VITE_API_URL}/client/portfolio/statements/${encodeURIComponent(snapshotNo)}`,
+      );
+      if (response.ok) {
+        setSnapshot(await response.json());
+      } else {
+        setSnapshot(null);
+        setSnapshotError(
+          await getCustomerApiErrorMessage(response, 'Failed to load statement'),
+        );
+      }
+    } catch (err) {
+      if (err instanceof CustomerSessionError) return;
+      setSnapshotError(err instanceof Error ? err.message : 'Network connection error');
+    } finally {
+      setSnapshotLoading(false);
+    }
+  }, [snapshotNo]);
+
+  useEffect(() => {
+    fetchSnapshot();
+  }, [fetchSnapshot]);
+
+  // Message deep link: land on the first asset that has rows in this statement.
+  // Defined after the "resolve asset" effect so, when both fire together, this one wins.
+  useEffect(() => {
+    if (!deepLinkPending.current || !snapshot || portfolio.length === 0) return;
+    deepLinkPending.current = false;
+    const hasRows = (currency: string) =>
+      snapshot.sections.some((sec) => sec.assetCode === currency && sec.rows.length > 0);
+    const pick = portfolio.find((p) => hasRows(p.currency));
+    if (pick) setSelectedAssetId(pick.assetId);
+  }, [snapshot, portfolio]);
+
   const fetchStatement = useCallback(async () => {
-    if (!selectedCurrency) return;
+    if (!selectedCurrency || snapshotNo) return;
     setStatementLoading(true);
     setStatementError('');
     try {
@@ -155,7 +263,7 @@ const TransactionHistory = () => {
     } finally {
       setStatementLoading(false);
     }
-  }, [selectedCurrency, startDate, endDate, page]);
+  }, [selectedCurrency, snapshotNo, startDate, endDate, page]);
 
   useEffect(() => {
     fetchStatement();
@@ -166,14 +274,48 @@ const TransactionHistory = () => {
     setPage(1);
   };
 
+  const handleSelectSnapshot = (statementNo: string) => {
+    setSnapshotNo(statementNo || null);
+    setPage(1);
+  };
+
   const handleClearDates = () => {
     setStartDate('');
     setEndDate('');
     setPage(1);
   };
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const scale = Math.pow(10, decimals);
+  // One table, two sources: live activity (server-paged) or the frozen snapshot's section
+  // for the selected currency (paged client-side — the snapshot carries every row of the month).
+  const snapshotReady = !!snapshotNo && snapshot?.statementNo === snapshotNo;
+  const snapshotSection = snapshotReady
+    ? snapshot!.sections.find((sec) => sec.assetCode === selectedCurrency) ?? null
+    : null;
+  const viewRows = snapshotNo
+    ? (snapshotSection?.rows ?? []).slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+    : rows;
+  const viewTotal = snapshotNo ? snapshotSection?.rows.length ?? 0 : total;
+  const viewDecimals = snapshotNo ? selectedAsset?.decimals ?? 2 : decimals;
+  const viewCurrency = snapshotNo ? selectedCurrency ?? '' : statementCurrency;
+  const viewLoading = snapshotNo ? snapshotLoading || (!snapshotReady && !snapshotError) : statementLoading;
+  const viewError = snapshotNo ? snapshotError : statementError;
+  const retryView = snapshotNo ? fetchSnapshot : fetchStatement;
+
+  const totalPages = Math.max(1, Math.ceil(viewTotal / PAGE_SIZE));
+  const scale = Math.pow(10, viewDecimals);
+
+  // The deep-linked / selected statement may be missing from the list (list still loading).
+  const statementOptions =
+    snapshotNo && !issuedList.some((st) => st.statementNo === snapshotNo)
+      ? [
+          ...issuedList,
+          {
+            statementNo: snapshotNo,
+            periodMonth: snapshotReady ? snapshot!.periodMonth : '',
+            issuedAt: '',
+          },
+        ]
+      : issuedList;
 
   return (
     <div className="space-y-6">
@@ -197,11 +339,11 @@ const TransactionHistory = () => {
           </div>
         </div>
         <button
-          onClick={fetchStatement}
+          onClick={retryView}
           className="mt-1 text-fx-dust hover:text-fx-brass transition-colors"
           title="Refresh"
         >
-          <RefreshCw size={15} className={statementLoading ? 'animate-spin' : ''} />
+          <RefreshCw size={15} className={viewLoading ? 'animate-spin' : ''} />
         </button>
       </div>
 
@@ -249,30 +391,90 @@ const TransactionHistory = () => {
                 );
               })}
             </div>
-            <div className="flex items-center gap-2.5">
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
-                className="border border-fx-rule bg-fx-ink text-fx-dune font-mono text-[11px] px-3 py-1.5 focus:outline-none focus:border-fx-brass/50"
-              />
-              <span className="font-mono text-[11px] text-fx-dust">to</span>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
-                className="border border-fx-rule bg-fx-ink text-fx-dune font-mono text-[11px] px-3 py-1.5 focus:outline-none focus:border-fx-brass/50"
-              />
-              {(startDate || endDate) && (
-                <button
-                  onClick={handleClearDates}
-                  className="font-mono text-[11px] text-fx-dust hover:text-fx-brass transition-colors"
+            <div className="flex flex-wrap items-center gap-2.5">
+              <label className="flex items-center gap-2">
+                <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust">
+                  Statements
+                </span>
+                <select
+                  value={snapshotNo ?? ''}
+                  onChange={(e) => handleSelectSnapshot(e.target.value)}
+                  aria-label="Statements"
+                  className="border border-fx-rule bg-fx-ink text-fx-dune font-mono text-[11px] px-3 py-1.5 focus:outline-none focus:border-fx-brass/50"
                 >
-                  Clear
-                </button>
+                  <option value="">Current activity</option>
+                  {statementOptions.map((st) => (
+                    <option key={st.statementNo} value={st.statementNo}>
+                      {st.periodMonth ? monthLabel(st.periodMonth) : st.statementNo}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {!snapshotNo && (
+                <>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
+                    className="border border-fx-rule bg-fx-ink text-fx-dune font-mono text-[11px] px-3 py-1.5 focus:outline-none focus:border-fx-brass/50"
+                  />
+                  <span className="font-mono text-[11px] text-fx-dust">to</span>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
+                    className="border border-fx-rule bg-fx-ink text-fx-dune font-mono text-[11px] px-3 py-1.5 focus:outline-none focus:border-fx-brass/50"
+                  />
+                  {(startDate || endDate) && (
+                    <button
+                      onClick={handleClearDates}
+                      className="font-mono text-[11px] text-fx-dust hover:text-fx-brass transition-colors"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </>
               )}
             </div>
           </div>
+
+          {/* Issued-statement banner — only for a historical month */}
+          {snapshotReady && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border border-fx-rule bg-fx-ink px-5 py-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="inline-flex items-center gap-1.5 border border-fx-brass/50 bg-fx-brass/[0.08] px-2.5 py-1 font-mono text-[10px] tracking-[0.06em] text-fx-brass">
+                  <FileText size={12} />
+                  Statement issued{' '}
+                  {new Date(snapshot!.issuedAt).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    year: 'numeric',
+                  })}
+                </span>
+                <span className="text-[13px] font-medium text-fx-sand">
+                  {monthLabel(snapshot!.periodMonth)}
+                </span>
+                <span className="font-mono text-[10px] text-fx-dust">{snapshot!.statementNo}</span>
+              </div>
+              {snapshotSection && (
+                <div className="flex items-center gap-5 font-mono text-[11px] text-fx-dust">
+                  <span>
+                    Opening{' '}
+                    <span className="text-fx-sand">
+                      {formatAssetAmount(Number(snapshotSection.openingBalance) / scale, viewDecimals)}
+                    </span>
+                  </span>
+                  <span>
+                    Closing{' '}
+                    <span className="text-fx-sand">
+                      {formatAssetAmount(Number(snapshotSection.closingBalance) / scale, viewDecimals)}
+                    </span>{' '}
+                    <span className="text-[10px] opacity-60">{viewCurrency}</span>
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Statement table */}
           <div className="border border-fx-rule bg-fx-ink">
@@ -283,31 +485,33 @@ const TransactionHistory = () => {
               <span className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust text-right">Balance</span>
             </div>
 
-            {statementLoading ? (
+            {viewLoading ? (
               <div className="flex items-center justify-center py-16">
                 <RefreshCw className="animate-spin text-fx-dust" size={20} />
               </div>
-            ) : statementError ? (
+            ) : viewError ? (
               <div className="flex flex-col items-center gap-3 py-16 text-center">
                 <AlertCircle size={22} className="text-fx-rust" />
-                <p className="font-mono text-[11px] text-fx-rust">{statementError}</p>
+                <p className="font-mono text-[11px] text-fx-rust">{viewError}</p>
                 <button
-                  onClick={fetchStatement}
+                  onClick={retryView}
                   className="font-mono text-[10px] uppercase tracking-[0.12em] text-fx-dust hover:text-fx-brass transition-colors border border-fx-rule px-3 py-1.5"
                 >
                   Retry
                 </button>
               </div>
-            ) : rows.length === 0 ? (
+            ) : viewRows.length === 0 ? (
               <div className="flex flex-col items-center gap-3 py-16 text-center">
                 <History size={22} className="text-fx-dust" />
                 <p className="font-mono text-[11px] text-fx-dust">
-                  No transactions in this range.
+                  {snapshotNo
+                    ? `No ${viewCurrency} transactions in this statement.`
+                    : 'No transactions in this range.'}
                 </p>
               </div>
             ) : (
               <div className="divide-y divide-fx-rule">
-                {rows.map((row, idx) => {
+                {viewRows.map((row, idx) => {
                   const netMinor = Number(row.amount);
                   const net = netMinor / scale;
                   const isNegative = netMinor < 0;
@@ -334,17 +538,17 @@ const TransactionHistory = () => {
                       </div>
                       <div className="text-right">
                         <div className={`font-mono text-[13px] font-medium ${isNegative ? 'text-fx-rust' : 'text-fx-sage'}`}>
-                          {isNegative ? '' : '+'}{formatAssetAmount(net, decimals)}{' '}
-                          <span className="text-[10px] opacity-60">{statementCurrency}</span>
+                          {isNegative ? '' : '+'}{formatAssetAmount(net, viewDecimals)}{' '}
+                          <span className="text-[10px] opacity-60">{viewCurrency}</span>
                         </div>
                         {feeMinor !== 0 && (
                           <div className="mt-0.5 font-mono text-[10px] text-fx-dust">
-                            fee {formatAssetAmount(feeMinor / scale, decimals)}
+                            fee {formatAssetAmount(feeMinor / scale, viewDecimals)}
                           </div>
                         )}
                       </div>
                       <div className="text-right font-mono text-[13px] text-fx-sand">
-                        {formatAssetAmount(balance, decimals)}
+                        {formatAssetAmount(balance, viewDecimals)}
                       </div>
                     </div>
                   );
@@ -352,10 +556,10 @@ const TransactionHistory = () => {
               </div>
             )}
 
-            {!statementLoading && !statementError && rows.length > 0 && (
+            {!viewLoading && !viewError && viewRows.length > 0 && (
               <div className="flex items-center justify-between border-t border-fx-rule px-5 py-3">
                 <span className="font-mono text-[10px] text-fx-dust">
-                  {rows.length} of {total} entries
+                  {viewRows.length} of {viewTotal} entries
                 </span>
                 <div className="flex items-center gap-2.5 text-fx-dust">
                   <button

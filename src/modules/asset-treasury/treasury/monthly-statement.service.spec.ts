@@ -6,6 +6,7 @@
 //   - tbEvidence.getAccountStatement 真按 tbAccountId 取各自腿；
 //   - asset.findFirst 真按 where.currency 查；customerMain.findMany 真按 onboardingApprovedAt not null 过滤；
 //   - CustomerStatementService 用真实现（非 mock）——tipping-off 白名单继承是行为，不是调用次数。
+import { NotFoundException } from '@nestjs/common';
 import { MonthlyStatementService } from './monthly-statement.service';
 import { MonthlyStatementSweepService } from './monthly-statement-sweep.service';
 import { CustomerStatementService } from './customer-statement.service';
@@ -63,7 +64,7 @@ const DEPOSIT_SUSPENSE = 101;
 function makeHarness(opts: {
   legsByAccount?: Record<string, LegFixture[]>;
   registry?: Array<{ tbAccountId: string; code: number; ledger: number; ownerUuid: string }>;
-  statements?: Array<{ customerId: string; periodMonth: string; statementNo: string; payload: string }>;
+  statements?: Array<{ customerId: string; periodMonth: string; statementNo: string; payload: string; issuedAt?: Date }>;
   customers?: Array<{ id: string; customerNo: string; onboardingApprovedAt: Date | null }>;
 } = {}) {
   const statementRows: any[] = [...(opts.statements ?? [])];
@@ -85,8 +86,24 @@ function makeHarness(opts: {
         statementRows.push(row);
         return row;
       }),
-      findMany: jest.fn(async ({ where }: any) =>
-        statementRows.filter((r) => (where?.customerId ? r.customerId === where.customerId : true))),
+      // 行为化：真按 where.customerId 过滤、真按 orderBy.periodMonth 排序、真按 select 投影——
+      // T4 的"列表不带 payload / 降序"才有可能红。
+      findMany: jest.fn(async ({ where, orderBy, select }: any = {}) => {
+        let rows = statementRows.filter((r) => (where?.customerId ? r.customerId === where.customerId : true));
+        if (orderBy?.periodMonth) {
+          const dir = orderBy.periodMonth === 'desc' ? -1 : 1;
+          rows = [...rows].sort((a, b) => dir * a.periodMonth.localeCompare(b.periodMonth));
+        }
+        if (select) {
+          rows = rows.map((r) => Object.fromEntries(Object.keys(select).filter((k) => select[k]).map((k) => [k, r[k]])));
+        }
+        return rows;
+      }),
+      // 真按 where.statementNo 与 where.customerId 同时匹配（缺任一键即查不到）。
+      findFirst: jest.fn(async ({ where }: any) =>
+        statementRows.find((r) =>
+          (where?.statementNo ? r.statementNo === where.statementNo : true)
+          && (where?.customerId ? r.customerId === where.customerId : true)) ?? null),
       update: jest.fn(),
       upsert: jest.fn(),
       updateMany: jest.fn(),
@@ -99,6 +116,10 @@ function makeHarness(opts: {
         ];
         return assets.find((a) => (where?.currency ? a.currency === where.currency : true)) ?? null;
       }),
+      findMany: jest.fn(async () => [
+        { currency: 'AED', decimals: 2 },
+        { currency: 'USDT', decimals: 6 },
+      ]),
     },
     customerMain: {
       findMany: jest.fn(async ({ where }: any) =>
@@ -320,6 +341,109 @@ describe('MonthlyStatementService', () => {
       expect(aed.rows[0].subtitle).toBeNull();
       // tipping-off：快照里任何位置都不得出现原始事件码（refs 只带 sourceType/sourceNo）
       expect(payloadText).not.toContain('SEIZE_X');
+    });
+  });
+
+  // 战役丙波四 T4：读面（客户面两端 + 管理台详情节）。数据源 = 真 issue 出的快照或等价 fixture。
+  describe('read faces', () => {
+    const row = (kind: string, amount: string, balanceAfter: string, postedAt: string) => ({
+      postedAt, kind, title: kind, subtitle: null, amount, feeAmount: null, balanceAfter, refs: [],
+    });
+    const payloadOf = (closing: string) => JSON.stringify({
+      sections: [
+        {
+          assetCode: 'AED', isFiat: true, openingBalance: '1000', closingBalance: closing,
+          // 新→旧序（buildStatement 的原序），读面不得反转
+          rows: [row('WITHDRAWAL', '-200', closing, '2026-09-20T08:00:00.000Z'), row('DEPOSIT', '1000', '1200', '2026-09-05T08:00:00.000Z')],
+        },
+        { assetCode: 'USDT', isFiat: false, openingBalance: '0', closingBalance: '5000000', rows: [] },
+      ],
+    });
+    const statements = [
+      { customerId: 'c1', periodMonth: '2026-07', statementNo: 'STM-CU1-202607', payload: payloadOf('900'), issuedAt: new Date('2026-08-01T20:05:00.000Z') },
+      { customerId: 'c1', periodMonth: '2026-09', statementNo: 'STM-CU1-202609', payload: payloadOf('1000'), issuedAt: new Date('2026-10-01T20:05:00.000Z') },
+      { customerId: 'c1', periodMonth: '2026-08', statementNo: 'STM-CU1-202608', payload: payloadOf('950'), issuedAt: new Date('2026-09-01T20:05:00.000Z') },
+      { customerId: 'c2', periodMonth: '2026-09', statementNo: 'STM-CU2-202609', payload: payloadOf('777'), issuedAt: new Date('2026-10-01T20:05:00.000Z') },
+    ];
+
+    it('客户列表：只有本人的单、业务月降序、恰三键（不带 payload / customerId / id）', async () => {
+      const h = makeHarness({ statements });
+
+      const { items } = await h.service.listForCustomer('c1');
+
+      expect(items.map((i) => i.statementNo)).toEqual(['STM-CU1-202609', 'STM-CU1-202608', 'STM-CU1-202607']);
+      expect(items.map((i) => i.periodMonth)).toEqual(['2026-09', '2026-08', '2026-07']);
+      for (const item of items) expect(Object.keys(item).sort()).toEqual(['issuedAt', 'periodMonth', 'statementNo']);
+      expect(items[0].issuedAt).toEqual(new Date('2026-10-01T20:05:00.000Z'));
+    });
+
+    it('客户列表：没有月结单 → 空数组', async () => {
+      const h = makeHarness({ statements });
+      expect(await h.service.listForCustomer('c3')).toEqual({ items: [] });
+    });
+
+    it('客户详情：本人单返回 sections 快照，行序保持新→旧不反转，响应不带内部 id / customerId / payload', async () => {
+      const h = makeHarness({ statements });
+
+      const detail = await h.service.getForCustomer('c1', 'STM-CU1-202609');
+
+      expect(Object.keys(detail).sort()).toEqual(['issuedAt', 'periodMonth', 'sections', 'statementNo']);
+      expect(detail.statementNo).toBe('STM-CU1-202609');
+      expect(detail.periodMonth).toBe('2026-09');
+      expect(detail.sections.map((sec) => sec.assetCode)).toEqual(['AED', 'USDT']);
+      expect(detail.sections[0].openingBalance).toBe('1000');
+      expect(detail.sections[0].closingBalance).toBe('1000');
+      expect(detail.sections[0].rows.map((r) => r.kind)).toEqual(['WITHDRAWAL', 'DEPOSIT']);
+    });
+
+    it('客户详情：别人的单号 → 404（c2 去取 c1 的单；归属校验是业务规则）', async () => {
+      const h = makeHarness({ statements });
+      await expect(h.service.getForCustomer('c2', 'STM-CU1-202609')).rejects.toThrow(NotFoundException);
+      // 对照：本人取自己的单仍通
+      await expect(h.service.getForCustomer('c2', 'STM-CU2-202609')).resolves.toMatchObject({ statementNo: 'STM-CU2-202609' });
+    });
+
+    it('客户详情：不存在的单号 → 404', async () => {
+      const h = makeHarness({ statements });
+      await expect(h.service.getForCustomer('c1', 'STM-CU1-209901')).rejects.toThrow(NotFoundException);
+    });
+
+    it('出具后可读：issue 落库的快照经 getForCustomer 原样读回（期初/期末/行），列表随之出现新月', async () => {
+      const h = makeHarness({
+        legsByAccount: {
+          'acc-aed': [
+            leg('DEPOSIT_SUSPENSE_TO_PAYABLE', 'IN', 50000, 50000, '2026-08-15T08:00:00.000Z'),
+            leg('WITHDRAW_NET_POST', 'OUT', 5000, 45000, '2026-09-20T08:00:00.000Z'),
+          ],
+        },
+      });
+      expect((await h.service.listForCustomer('c1')).items).toEqual([]);
+
+      const no = await h.service.issue({ id: 'c1', customerNo: 'CU1' }, '2026-09');
+
+      const list = await h.service.listForCustomer('c1');
+      expect(list.items.map((i) => i.statementNo)).toEqual([no]);
+      const detail = await h.service.getForCustomer('c1', no);
+      const aed = detail.sections.find((sec) => sec.assetCode === 'AED')!;
+      expect(aed.openingBalance).toBe('50000');
+      expect(aed.closingBalance).toBe('45000');
+      expect(aed.rows.map((r) => r.amount)).toEqual(['-5000']);
+    });
+
+    it('管理台列表：业务月降序、三键 + 逐币种期末余额与精度（精度取自资产表），不带行', async () => {
+      const h = makeHarness({ statements });
+
+      const { items } = await h.service.listForAdmin('c1');
+
+      expect(items.map((i) => i.periodMonth)).toEqual(['2026-09', '2026-08', '2026-07']);
+      expect(Object.keys(items[0]).sort()).toEqual(['balances', 'issuedAt', 'periodMonth', 'statementNo']);
+      expect(items[0].balances).toEqual([
+        { assetCode: 'AED', decimals: 2, closingBalance: '1000' },
+        { assetCode: 'USDT', decimals: 6, closingBalance: '5000000' },
+      ]);
+      expect(items[2].balances[0].closingBalance).toBe('900');
+      // 别的客户的单不进来
+      expect(items.some((i) => i.statementNo === 'STM-CU2-202609')).toBe(false);
     });
   });
 

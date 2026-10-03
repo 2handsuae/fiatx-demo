@@ -13,6 +13,7 @@ import { Prisma } from '@prisma/client';
 import { AuthGuard } from '@nestjs/passport';
 import { AdminPermissionGuard } from '../access-control/admin-permission.guard';
 import { AgreementsReadService } from '../agreements/agreements-read.service';
+import { MonthlyStatementService } from '../../asset-treasury/treasury/monthly-statement.service';
 import {
   ApiTags,
   ApiBearerAuth,
@@ -37,6 +38,7 @@ export class CustomersController {
   constructor(
     private readonly customersService: CustomersService,
     private readonly agreementsRead: AgreementsReadService,
+    private readonly monthlyStatements: MonthlyStatementService,
   ) {}
 
   private ensureAdmin(req: any) {
@@ -127,5 +129,14 @@ export class CustomersController {
     const customer = await this.customersService.findOne(id);
     // 战役丙波三 T9：详情档案区的协议行（已同意 vX / pending response / declined）——五键直通。
     return customer && { ...customer, agreement: await this.agreementsRead.consentStateFor(id) };
+  }
+
+  // 战役丙波四 T4：详情页 Monthly statements 节——列表三键 + 逐币种期末余额，业务月降序。
+  @Get(':customerNo/statements')
+  @ApiOperation({ summary: 'List a customer\'s issued monthly statements' })
+  async listStatements(@Request() req: any, @Param('customerNo') customerNo: string) {
+    this.ensureAdmin(req);
+    const id = await this.resolveCustomerId(customerNo);
+    return this.monthlyStatements.listForAdmin(id);
   }
 }

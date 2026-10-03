@@ -17,6 +17,7 @@ import { NotificationsModule } from '../../../core/notifications/notifications.m
     MonthlyStatementService,
     MonthlyStatementSweepService,
   ],
-  exports: [],
+  // 管理台客户详情节（identity 模块的 CustomersController）读月结单列表——读口只经本主体的服务，不直查表。
+  exports: [MonthlyStatementService],
 })
 export class TreasuryModule {}

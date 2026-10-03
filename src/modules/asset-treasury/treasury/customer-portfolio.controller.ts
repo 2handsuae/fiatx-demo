@@ -7,11 +7,13 @@ import {
   ForbiddenException,
   BadRequestException,
   NotFoundException,
+  Param,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { CustomerPortfolioService } from './customer-portfolio.service';
 import { CustomerStatementService } from './customer-statement.service';
+import { MonthlyStatementService } from './monthly-statement.service';
 import { TbAccountRegistryService } from '../../accounting/tigerbeetle/tb-account-registry.service';
 import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
@@ -28,6 +30,7 @@ export class CustomerPortfolioController {
     private readonly registryService: TbAccountRegistryService,
     private readonly evidenceService: TbEvidenceService,
     private readonly statementService: CustomerStatementService,
+    private readonly monthlyStatements: MonthlyStatementService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -88,5 +91,24 @@ export class CustomerPortfolioController {
       take: take !== undefined ? parseInt(take, 10) : undefined,
     });
     return { items, total, currentBalance, assetCurrency, decimals };
+  }
+
+  // 战役丙波四 T4：月结单读面（客户面零权限码；归属 = JWT 本人）。
+  @Get('statements')
+  @ApiOperation({ summary: 'List my issued monthly statements (newest month first)' })
+  async listMonthlyStatements(@Request() req: any) {
+    if (req.user?.type !== 'CUSTOMER') {
+      throw new ForbiddenException('Customer token required');
+    }
+    return this.monthlyStatements.listForCustomer(req.user.userId);
+  }
+
+  @Get('statements/:statementNo')
+  @ApiOperation({ summary: 'Get one of my monthly statements (frozen snapshot)' })
+  async getMonthlyStatement(@Request() req: any, @Param('statementNo') statementNo: string) {
+    if (req.user?.type !== 'CUSTOMER') {
+      throw new ForbiddenException('Customer token required');
+    }
+    return this.monthlyStatements.getForCustomer(req.user.userId, statementNo);
   }
 }

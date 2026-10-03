@@ -6,7 +6,7 @@
 // 次序：先落快照行 → 再写审计 STATEMENT_ISSUED（持久物先于留痕，照 TradeConfirmationsService 先例）。
 // 同客户同月第二次 issue 由 @@unique([customerId, periodMonth]) 抛出——这是单据"一单一张"的业务规则，
 // 不是幂等兜底；sweep 以 listMissingMonths 为准，正常不会撞。
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { TbAccountRegistryService } from '../../accounting/tigerbeetle/tb-account-registry.service';
 import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
@@ -34,6 +34,18 @@ export interface MonthlyStatementSection {
 
 export interface MonthlyStatementPayload {
   sections: MonthlyStatementSection[];
+}
+
+/** 列表三键投影（客户面与管理台共用的行头；不带 payload）。 */
+export interface MonthlyStatementListItem {
+  statementNo: string;
+  periodMonth: string;
+  issuedAt: Date;
+}
+
+/** 管理台详情节的行：列表三键 + 逐币种期末余额（行展开用；decimals 取自资产表，管理台不再另拉资产清单）。 */
+export interface MonthlyStatementAdminItem extends MonthlyStatementListItem {
+  balances: { assetCode: string; decimals: number; closingBalance: string }[];
 }
 
 /** 账本号 → 币种（TB_LEDGERS 的反查）：账户登记行的 assetCode 存的是资产 code（如 USDT-TRON），
@@ -73,6 +85,53 @@ export class MonthlyStatementService {
     });
     const have = new Set(issued.map((r) => r.periodMonth));
     return months.filter((m) => !have.has(m));
+  }
+
+  /** 客户面列表：本人名下的月结单，业务月降序，只投三键。 */
+  async listForCustomer(customerId: string): Promise<{ items: MonthlyStatementListItem[] }> {
+    const items = await this.prisma.customerMonthlyStatement.findMany({
+      where: { customerId },
+      orderBy: { periodMonth: 'desc' },
+      select: { statementNo: true, periodMonth: true, issuedAt: true },
+    });
+    return { items };
+  }
+
+  /**
+   * 客户面详情：按 statementNo 取一张，归属不符一律 404（"这张单是不是你的"是业务规则，
+   * 不是防御——别人的单号对本人就是不存在）。sections 原样出快照，行序保持新→旧。
+   */
+  async getForCustomer(customerId: string, statementNo: string) {
+    const row = await this.prisma.customerMonthlyStatement.findFirst({ where: { statementNo, customerId } });
+    if (!row) throw new NotFoundException('Statement not found');
+    const payload = JSON.parse(row.payload) as MonthlyStatementPayload;
+    return {
+      statementNo: row.statementNo,
+      periodMonth: row.periodMonth,
+      issuedAt: row.issuedAt,
+      sections: payload.sections,
+    };
+  }
+
+  /** 管理台客户详情节：三键 + 逐币种期末余额（不带行）。 */
+  async listForAdmin(customerId: string): Promise<{ items: MonthlyStatementAdminItem[] }> {
+    const rows = await this.prisma.customerMonthlyStatement.findMany({
+      where: { customerId },
+      orderBy: { periodMonth: 'desc' },
+    });
+    const assets = await this.prisma.asset.findMany({ select: { currency: true, decimals: true } });
+    const decimalsOf = (currency: string) => assets.find((a) => a.currency === currency)?.decimals ?? 0;
+    const items = rows.map((r) => ({
+      statementNo: r.statementNo,
+      periodMonth: r.periodMonth,
+      issuedAt: r.issuedAt,
+      balances: (JSON.parse(r.payload) as MonthlyStatementPayload).sections.map((s) => ({
+        assetCode: s.assetCode,
+        decimals: decimalsOf(s.assetCode),
+        closingBalance: s.closingBalance,
+      })),
+    }));
+    return { items };
   }
 
   /** 出具一张月结单，返回 statementNo。已存在则抛（唯一约束）。 */

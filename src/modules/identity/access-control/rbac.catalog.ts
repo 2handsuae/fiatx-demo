@@ -279,6 +279,7 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // Customer domain
   route('GET', '/customers', 'List customers', ['CUSTOMER_READ']),
   route('GET', '/customers/:customerNo', 'Get customer detail', ['CUSTOMER_READ']),
+  route('GET', '/customers/:customerNo/statements', 'List customer monthly statements', ['CUSTOMER_READ']),
 
   // Customer tags
   route('GET', '/admin/customer-tags/catalog', 'List customer tag registry', ['CUSTOMER_TAG_VIEW']),

@@ -18,6 +18,7 @@ import { AgreementsModule } from '../agreements/agreements.module';
 import { RegulatoryFilingsModule } from '../../governance/regulatory-filings/regulatory-filings.module';
 import { CustomerRestrictionsAdminController } from './customer-restrictions.admin.controller';
 import { CustomerRestrictionsClientController } from './customer-restrictions.client.controller';
+import { TreasuryModule } from '../../asset-treasury/treasury/treasury.module';
 
 @Module({
   imports: [
@@ -35,6 +36,9 @@ import { CustomerRestrictionsClientController } from './customer-restrictions.cl
     // 丙波三：能力闸（CustomerAccessService）要查协议同意台账。AgreementsModule 依赖只向下
     // （Approvals / Notifications / AuditLogs，均不回指本模块），零环，无需 forwardRef。
     AgreementsModule,
+    // 丙波四：管理台客户详情 Monthly statements 节读 MonthlyStatementService。TreasuryModule 只依赖
+    // Prisma / TigerBeetle / Notifications，不回指本模块，零环。
+    TreasuryModule,
   ],
   providers: [
     CustomerRestrictionWorkflowService,

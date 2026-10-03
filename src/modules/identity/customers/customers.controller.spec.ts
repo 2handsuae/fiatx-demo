@@ -1,6 +1,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { AgreementsReadService } from '../agreements/agreements-read.service';
+import { MonthlyStatementService } from '../../asset-treasury/treasury/monthly-statement.service';
 import { CustomersController } from './customers.controller';
 import { CustomersService } from './customers.service';
 
@@ -14,6 +15,9 @@ describe('CustomersController', () => {
   const agreementsReadMock = {
     consentStateFor: jest.fn(),
   };
+  const monthlyStatementsMock = {
+    listForAdmin: jest.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -26,6 +30,10 @@ describe('CustomersController', () => {
         {
           provide: AgreementsReadService,
           useValue: agreementsReadMock,
+        },
+        {
+          provide: MonthlyStatementService,
+          useValue: monthlyStatementsMock,
         },
       ],
     }).compile();
@@ -169,6 +177,37 @@ describe('CustomersController', () => {
 
       expect(customersServiceMock.findByCustomerNo).not.toHaveBeenCalled();
       expect(agreementsReadMock.consentStateFor).not.toHaveBeenCalled();
+    });
+  });
+
+  // 战役丙波四 T4：详情页 Monthly statements 节——业务号换内部 id 后只转发给月结单服务。
+  describe('GET :customerNo/statements', () => {
+    const ADMIN_REQ = { user: { type: 'ADMIN' } };
+
+    it('customerNo 换内部 id 后转发（服务按 id 查，不收业务号），响应原样透传', async () => {
+      customersServiceMock.findByCustomerNo.mockResolvedValue({ id: 'cust-uuid-1', customerNo: 'CU250907001' });
+      const payload = { items: [{ statementNo: 'STM-CU250907001-202609', periodMonth: '2026-09', issuedAt: new Date(), balances: [] }] };
+      monthlyStatementsMock.listForAdmin.mockResolvedValue(payload);
+
+      const out = await controller.listStatements(ADMIN_REQ, 'CU250907001');
+
+      expect(out).toBe(payload);
+      expect(monthlyStatementsMock.listForAdmin).toHaveBeenCalledWith('cust-uuid-1');
+    });
+
+    it('客户不存在 → 404，且不查月结单', async () => {
+      customersServiceMock.findByCustomerNo.mockResolvedValue(null);
+
+      await expect(controller.listStatements(ADMIN_REQ, 'CU-NOPE')).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(monthlyStatementsMock.listForAdmin).not.toHaveBeenCalled();
+    });
+
+    it('非 ADMIN token → 403，且不查任何东西', async () => {
+      await expect(controller.listStatements({ user: { type: 'CUSTOMER' } }, 'CU250907001')).rejects.toBeInstanceOf(ForbiddenException);
+
+      expect(customersServiceMock.findByCustomerNo).not.toHaveBeenCalled();
+      expect(monthlyStatementsMock.listForAdmin).not.toHaveBeenCalled();
     });
   });
 });

@@ -20,6 +20,7 @@ import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { scopeLabel, type AdminRestrictionRow } from '../utils/restrictionCauseMeta';
 import { useSimulationMode } from '../utils/simulationMode';
+import { formatMinorToMajor } from './companyFundsFormat';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
 
@@ -73,6 +74,14 @@ interface CustomerDetailData {
     acceptedPending: boolean;
     declinedCurrentAt: string | null;
   } | null;
+}
+
+/* 战役丙波四 T4：月结单列表行（三键 + 逐币种期末余额，行展开用；不带逐笔行）。 */
+interface MonthlyStatementItem {
+  statementNo: string;
+  periodMonth: string;
+  issuedAt: string;
+  balances: { assetCode: string; decimals: number; closingBalance: string }[];
 }
 
 /* ── Customer Tags ───────────────────────────────────────────── */
@@ -255,6 +264,11 @@ const CustomerDetail = () => {
   const [tierUpgradeSimBusy, setTierUpgradeSimBusy] = useState<string | null>(null);
   const [tierUpgradeError, setTierUpgradeError] = useState<string | null>(null);
 
+  /* ── Monthly statements（丙波四 T4：只读；行展开看逐币种期末余额） ── */
+  const [statements, setStatements] = useState<MonthlyStatementItem[]>([]);
+  const [statementsLoading, setStatementsLoading] = useState(false);
+  const [expandedStatementNo, setExpandedStatementNo] = useState<string | null>(null);
+
   /* ── Risk Assessment trigger state ── */
 
   /* ── Fetching ── */
@@ -381,6 +395,21 @@ const CustomerDetail = () => {
 
   useEffect(() => {
     if (detail?.customerNo) fetchTierUpgrade(detail.customerNo);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.customerNo]);
+
+  /* ── Monthly statements fetching ── */
+  const fetchStatements = (customerNo: string) => {
+    setStatementsLoading(true);
+    adminFetch(`${import.meta.env.VITE_API_URL}/customers/${customerNo}/statements`)
+      .then((r) => (r.ok ? r.json() : { items: [] }))
+      .then((d: { items?: MonthlyStatementItem[] }) => setStatements(Array.isArray(d.items) ? d.items : []))
+      .catch(() => {})
+      .finally(() => setStatementsLoading(false));
+  };
+
+  useEffect(() => {
+    if (detail?.customerNo) fetchStatements(detail.customerNo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.customerNo]);
 
@@ -1195,6 +1224,85 @@ const CustomerDetail = () => {
                 Swaps →
               </Link>
             </div>
+          </section>
+
+          {/* 月结单（丙波四 T4）：客户名下已出具的月结单，只读；行展开 = 逐币种期末余额 */}
+          <section className="px-6 py-5">
+            <div className="flex items-baseline justify-between gap-3">
+              <Cap>Monthly statements</Cap>
+              <span className="font-mono text-[10px] text-adm-t3">
+                {statementsLoading ? 'Loading…' : `${statements.length} issued`}
+              </span>
+            </div>
+            <p className="mt-1 mb-3 font-mono text-[9px] text-adm-t3">
+              One row = one issued statement (Dubai business month, frozen at issue). Expand to see closing balances per currency.
+            </p>
+            {statements.length === 0 ? (
+              <p className="font-mono text-[10px] text-adm-t3">No statements issued yet.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr>
+                      {(['Month', 'Issued', 'Statement No', ''] as string[]).map((h, i) => (
+                        <th
+                          key={h || `stm-col-${i}`}
+                          className="border-b border-adm-border bg-adm-panel px-3 py-1.5 text-left font-mono text-[8.5px] font-semibold uppercase tracking-[0.12em] text-adm-t3 whitespace-nowrap"
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statements.map((st) => {
+                      const open = expandedStatementNo === st.statementNo;
+                      return (
+                        <Fragment key={st.statementNo}>
+                          <tr className="border-b border-adm-border">
+                            <td className="px-3 py-2 font-mono text-[11px] font-semibold text-adm-amber whitespace-nowrap">
+                              {st.periodMonth}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                              {fmt(st.issuedAt)}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-[10px] text-adm-t2 whitespace-nowrap">
+                              {st.statementNo}
+                            </td>
+                            <td className="px-3 py-2 text-right whitespace-nowrap">
+                              <button
+                                className={adminButtonClass('rowLink')}
+                                onClick={() => setExpandedStatementNo(open ? null : st.statementNo)}
+                              >
+                                Balances {open ? '▾' : '▸'}
+                              </button>
+                            </td>
+                          </tr>
+                          {open && (
+                            <tr className="border-b border-adm-border">
+                              <td colSpan={4} className="px-3 pb-3 pt-1">
+                                {st.balances.length === 0 ? (
+                                  <span className="font-mono text-[9px] text-adm-t3">No currency accounts at issue.</span>
+                                ) : (
+                                  <div className="flex flex-wrap gap-x-8 gap-y-1.5">
+                                    {st.balances.map((b) => (
+                                      <span key={b.assetCode} className="font-mono text-[10px] text-adm-t2">
+                                        <span className="text-adm-t3">Closing {b.assetCode}</span>{' '}
+                                        {formatMinorToMajor(b.closingBalance, b.decimals)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </section>
 
           {/* ⑤ Restrictions —— 一行一张便签；🔇 = SILENT，后台可见客户不可见 */}
