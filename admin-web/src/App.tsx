@@ -84,6 +84,8 @@ const ComplianceRegistersPage = lazy(() => import('./pages/ComplianceRegistersPa
 const CustomerAgreementsPage = lazy(() => import('./pages/CustomerAgreementsPage'));
 const ComplaintListPage = lazy(() => import('./pages/ComplaintListPage'));
 const ComplaintDetailPage = lazy(() => import('./pages/ComplaintDetailPage'));
+const DsrRequestListPage = lazy(() => import('./pages/DsrRequestListPage'));
+const DsrRequestDetailPage = lazy(() => import('./pages/DsrRequestDetailPage'));
 
 const FullPageMessage = ({
   title,
@@ -315,6 +317,10 @@ function App() {
             <Route path="governance/compliance-office/obligations" element={withPermission(<ComplianceObligationListPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
             <Route path="governance/compliance-office/registers" element={withPermission(<ComplianceRegistersPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
             <Route path="governance/compliance-office/agreements" element={withPermission(<CustomerAgreementsPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
+            {/* 战役丙波四（Task 6）：资料请求（DSR）——DPO 的经办面，归合规办公室组；读权限 DSR_READ
+                （DPO/合规官/内审），写钮在页内按 DSR_WRITE（DPO 独占）门控。 */}
+            <Route path="governance/compliance-office/dsr-requests" element={withPermission(<DsrRequestListPage />, [PERMISSIONS.DSR_READ])} />
+            <Route path="governance/compliance-office/dsr-requests/:requestNo" element={withPermission(<DsrRequestDetailPage />, [PERMISSIONS.DSR_READ])} />
 
             {/* audit */}
             <Route path="audit/logs" element={withPermission(<AuditLogsPage />, [PERMISSIONS.AUDIT_LOGS_READ])} />

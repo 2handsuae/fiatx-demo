@@ -39,6 +39,7 @@ import {
   BookUser,
   MessageSquare,
   ScrollText,
+  FileSearch,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -498,6 +499,14 @@ const DashboardLayout = () => {
           label: 'Customer Agreements',
           icon: <ScrollText size={13} />,
           requiredPermissions: [PERMISSIONS.COMPLIANCE_OFFICE_VIEW],
+        },
+        // 战役丙波四（Task 6）：资料请求（DSR）——DPO 的经办面；读 DSR_READ（DPO/合规官/内审），
+        // 写钮在页内按 DSR_WRITE（DPO 独占）门控。
+        {
+          path: '/admin/governance/compliance-office/dsr-requests',
+          label: 'Data Requests',
+          icon: <FileSearch size={13} />,
+          requiredPermissions: [PERMISSIONS.DSR_READ],
         },
       ],
     },
