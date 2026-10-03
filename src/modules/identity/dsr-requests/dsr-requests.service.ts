@@ -1,7 +1,9 @@
 // 战役丙波四 T5 · DSR（资料请求）主体服务（spec §3）。
 // 铁律③各管各的：本服务只写自己的表（data_subject_requests）；摘要/条款引用对客户主数据、协议同意台账、
-//   材料请求只读（横向读客户主数据放行）。REVERIFY 的连带开材料单是跨主体协作：resolve 里只调既有
-//   MaterialRequestIssuerService.issue()（主体服务方法，T8 接入），不直写材料表。
+//   材料请求只读（横向读客户主数据放行）。跨主体编排不在本服务：RECTIFICATION_REVERIFY 的连带开材料单
+//   + 办结后通知客户由 dsr-resolution-workflow.service.ts 编排（先 assertResolvable → issuer.issue → 本服务
+//   resolve(materialRequestNo) → 通知）；本服务既不 import 材料请求、也不注入通知——resolve 只做本主体的事
+//   （校验 + 状态迁移 + 写 resolution 字段 + 审计）。
 // 铁律④状态只能沿边走：DSR_STATUS_TRANSITIONS 显式迁移表，非法跃迁 400 带码 INVALID_TRANSITION。
 // 铁律①操作必留痕：五个写方法各一条审计，全部 recordByActor（提交=客户，其余=管理台操作者）；
 //   requestId 每次显式带——审计 idempotencyKey 含 requestId，缺了会按 NO_REQUEST_ID 静默去重。
@@ -12,13 +14,11 @@ import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DataSubjectRequest, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { NotificationsService } from '../../../core/notifications/notifications.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
-import { MaterialRequestIssuerService } from '../material-requests/material-request-issuer.service';
 import {
   DSR_CLAUSE_SECTION, DSR_DUE_DAYS, DSR_RESOLUTION_BY_TYPE, DSR_STATUS_TRANSITIONS, DSR_SUMMARY_PROFILE_FIELDS,
   DsrClauseRef, DsrResolutionCode, DsrResolutionCodeValue, DsrStatus, DsrStatusValue, DsrSummarySnapshot, DsrType, DsrTypeValue,
@@ -61,6 +61,20 @@ export interface ClientDsrRow {
   summary: DsrSummarySnapshot | null;
 }
 
+/** 办结入参（controller DTO 与 workflow 共用同一形状）。 */
+export interface DsrResolveInput {
+  resolutionCode: string;
+  resolutionNote: string;
+}
+
+/** assertResolvable 的产出：校验通过后 resolve 要落库 / workflow 要用的上下文。 */
+export interface DsrResolveContext {
+  row: DataSubjectRequest;
+  customerNo: string;
+  /** ERASURE_REFUSED_RETENTION 才有：已序列化的 {versionKey, section}，其余 null。 */
+  clauseRef: string | null;
+}
+
 export interface DsrListFilter {
   type?: string;
   status?: string;
@@ -72,8 +86,6 @@ export class DsrRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogs: AuditLogsService,
-    private readonly notificationsService: NotificationsService,
-    private readonly materialRequestIssuer: MaterialRequestIssuerService,
   ) {}
 
   // ── 读 ──────────────────────────────────────────────────────────────
@@ -265,12 +277,11 @@ export class DsrRequestsService {
   }
 
   // ── 办结（IN_REVIEW→RESOLVED；resolutionCode×type 匹配；终态后一切写 400）────────
+  //   拆成两步：assertResolvable（只读校验，不写任何东西）+ resolve（迁状态 + 写字段 + 审计）。
+  //   拆开是为了让 dsr-resolution-workflow 能在「开材料单」之前先把本主体的办结前置全部判完——
+  //   校验不过就不开单，免得留下一张悬空的材料请求。
 
-  async resolve(
-    actor: ApprovalActorContext,
-    requestNo: string,
-    dto: { resolutionCode: string; resolutionNote: string },
-  ): Promise<{ requestNo: string }> {
+  async assertResolvable(requestNo: string, dto: DsrResolveInput): Promise<DsrResolveContext> {
     const row = await this.findByNo(requestNo);
     this.assertTransition(row.status, DsrStatus.RESOLVED);
     if (!(DSR_RESOLUTION_BY_TYPE[row.type] ?? []).includes(dto.resolutionCode)) {
@@ -292,25 +303,21 @@ export class DsrRequestsService {
       }
       clauseRef = JSON.stringify({ versionKey: latest.versionKey, section: DSR_CLAUSE_SECTION } satisfies DsrClauseRef);
     }
+    return { row, customerNo, clauseRef };
+  }
 
-    // RECTIFICATION_REVERIFY：先开材料请求（Emirates ID 重验）取号、再落 resolve——开单失败（如客户没有
-    // Sumsub applicant → 400）则整个 resolve 失败、单据仍 IN_REVIEW，保证 materialRequestNo 不悬空。
-    // 不挂限制（restrict:false，纯提醒式补料）；话术中性，只引 DSR 单号。
-    let materialRequestNo: string | null = null;
-    if (dto.resolutionCode === DsrResolutionCode.RECTIFICATION_REVERIFY) {
-      ({ requestNo: materialRequestNo } = await this.materialRequestIssuer.issue({
-        customerId: row.customerId,
-        materialType: 'EMIRATES_ID',
-        orderDomain: null,
-        orderRef: null,
-        restrict: false,
-        origin: 'OPERATOR_ISSUED',
-        reason: `Please re-verify your identity details following your data request ${requestNo}.`,
-        issuedBy: actor.userNo ?? actor.userId,
-        actor,
-      }));
-    }
-
+  /**
+   * 办结落库。`materialRequestNo` 由 workflow 先开单后传入（REVERIFY 才有）；本服务只把它写进自己的行和审计，
+   * 不知道它从哪来。直调时自己再判一次 assertResolvable——终态/匹配/摘要/条款这些门不依赖调用方记得先判。
+   * 通知不在这里：持久物（落库+审计）先于信号，信号由 workflow 在本方法返回后发。
+   */
+  async resolve(
+    actor: ApprovalActorContext,
+    requestNo: string,
+    dto: DsrResolveInput,
+    materialRequestNo: string | null = null,
+  ): Promise<{ requestNo: string }> {
+    const { row, customerNo, clauseRef } = await this.assertResolvable(requestNo, dto);
     const updated = await this.transition(row, DsrStatus.RESOLVED, {
       resolvedAt: new Date(),
       resolutionCode: dto.resolutionCode,
@@ -324,13 +331,6 @@ export class DsrRequestsService {
       extra: { resolutionCode: dto.resolutionCode },
       metadata: { type: row.type, resolutionCode: dto.resolutionCode, ...(materialRequestNo ? { materialRequestNo } : {}) },
     });
-
-    // 持久物先于信号：落库+审计之后才通知；通知是旁路副作用，抛错不回滚、不拖垮办结。
-    try {
-      await this.notificationsService.notifyDsrResolved({ customerId: row.customerId, requestNo });
-    } catch (err) {
-      console.error(`[DsrRequestsService] notifyDsrResolved failed for ${requestNo}:`, err);
-    }
     return { requestNo };
   }
 

@@ -1,4 +1,5 @@
-// 战役丙波四 T5 · DSR admin 面控制器。路由→服务转发，不加业务规则（校验/状态机/审计全在服务层）。
+// 战役丙波四 T5 · DSR admin 面控制器。路由→服务转发，不加业务规则（校验/状态机/审计全在服务层）；
+// resolve 路由转发给 DsrResolutionWorkflowService（跨主体编排：开材料单 + 通知，终审修 F1），其余路由直转主体服务。
 // 三件套（buildActor/assertAdmin/@RequirePermissions(buildPermissionCode(...))）逐行照
 // complaints.controller.ts。路径与 rbac.catalog.ts 登记的 route() 逐条一致（本任务同批新增）：
 // list/detail 挂 DSR_READ；start-review/generate-summary/resolve 挂 DSR_WRITE（DPO 独占）；
@@ -11,6 +12,7 @@ import { RequirePermissions } from '../access-control/require-permissions.decora
 import { buildPermissionCode } from '../access-control/permission-code.util';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { DsrRequestsService } from './dsr-requests.service';
+import { DsrResolutionWorkflowService } from './dsr-resolution-workflow.service';
 import { ResolveDsrBodyDto } from './dsr-requests.dto';
 
 @ApiTags('Admin - Data Subject Requests')
@@ -19,7 +21,10 @@ import { ResolveDsrBodyDto } from './dsr-requests.dto';
 @UseGuards(AuthGuard('jwt'), AdminPermissionGuard)
 @UsePipes(new ValidationPipe({ transform: true, whitelist: true }))
 export class DsrRequestsAdminController {
-  constructor(private readonly dsr: DsrRequestsService) {}
+  constructor(
+    private readonly dsr: DsrRequestsService,
+    private readonly resolution: DsrResolutionWorkflowService,
+  ) {}
 
   private buildActor(req: any): ApprovalActorContext {
     const user = req.user;
@@ -68,7 +73,7 @@ export class DsrRequestsAdminController {
   @RequirePermissions(buildPermissionCode('POST', '/admin/dsr-requests/:requestNo/resolve'))
   resolve(@Param('requestNo') requestNo: string, @Body() dto: ResolveDsrBodyDto, @Req() req: any) {
     this.assertAdmin(req);
-    return this.dsr.resolve(this.buildActor(req), requestNo, dto);
+    return this.resolution.resolve(this.buildActor(req), requestNo, dto);
   }
 
   // ⚡ 演示装置：挂 DEMO_CLOCK_WRITE（金库），非 DSR_WRITE——同 complaints.controller.ts simulate-timeout 路由注释。
