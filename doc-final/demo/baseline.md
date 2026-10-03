@@ -308,3 +308,49 @@ sqlite3 <栈库> "select count(*) from audit_log_events where \"action\" like 'A
 **实测口径**（2026-10-03，self 栈 `c3_agreement`，Node 20.20.2）：`bash scripts/stack.sh down` → `rm -f /tmp/exchange_js_wt_c3_agreement/dev.db` → `bash scripts/stack.sh reset`（exit 0，`verify:demo-data ALL PASS`）→ 断言 1、2 实测 `v1|EFFECTIVE` / `v2|DRAFT`、`13|13` → `bash scripts/stack.sh up`（exit 0，`GET /client/agreements/current` 200）→ `bash scripts/on-stack.sh self demo:all`（exit 0：花名册 29/29、`asserts: 5/5 PASS`、`demo:all DONE`；`git status` 仅有本任务改动，`data.md` 生成区零 diff）→ 断言 3 实测版本两行不变、consents 13、`AGREEMENT` 通知 0、`AGREEMENT_*` 审计 0 → `API_BASE=http://localhost:3100 bash scripts/on-stack.sh self verify:rbac`：**2 FAIL，均为波前既有红、红集与甲波四基线恒等**——`S7 catalog 字典真实性`（`TOOLING-DEBT.md` 已登记的三域 demo 裁决按钮 4 行扫描器盲区）+ `V2 改角色不丢权限 · COMPLIANCE_OFFICER`（`BACKLOG.md` 已登记的 `CUSTOMER_WRITE` 孤儿权限组）；**本波新增判据全绿**：S5（51 条策略无未登记自批死锁）/S5b-d/S9（42 条带回链策略）/S13d（15 域、**82 桶**、**90 组**）/S16a·b·c（`AGREEMENT_WRITE` 唯合规官、桶 groups 精确、两写路由分挂）；`verify:rbac` 共 161 项 ✓。`verify:coa` 不触发（本波不动钱）。
 
 **同日订正（e2e 口径）**：本机 Node 20.20.2 下，起完整 `AppModule` 的 jest 在 `app.init()` 即抛 `TypeError`——审批事件监听器 52 个 > 各文件 `setMaxListeners(50)`（`test/` 下 25 个 e2e 文件全带这行上限，`customer-restrictions` / `incident-register` 两份实测同红，其余按机理同红未逐个跑；`invite-expiry.service.spec.ts` 同红，基线 `8e9e2ed2` 上同命令同红，监听器当时 51 个），下方 e2e 节的 83/83 口径当前**不可复现**；另有三份 e2e 的直插客户夹具缺协议同意行。两条均已登 `TOOLING-DEBT.md`，修好前 e2e 不得称绿。
+
+## 战役丙波四种子断言：Henry 历史腿 + 月结单出具 + Grace 已办结 ACCESS 单（reset 判据，2026-10-03 Task 11 起）
+
+`bash scripts/stack.sh reset self` 从零建库重铺后（`seedBusiness()` 末尾追加 `seedStatementHistoryLegs()` + `seedGraceAccessRequest()`，紧随 `seedCompanyFunding()` 之后；打印 `Seeded Henry (CU2601012635) statement history: 9 TB transfers, 9 evidence row(s) + 18 flow row(s) …` / `Seeded 1 data subject request for Grace (DSR2601016750 …)`），`stack.sh up` 后端起稳、**≤60 秒内**出具 sweep 跑完（实测 ≤5 秒即齐），下列判据成立。**月结单一律由 sweep 经真实生成器出具，种子不直插 `customer_monthly_statements`**；两轮独立 reset 单号与数字逐字一致（`buildDeterministicNo` 派生）。
+
+**Henry（`demo_acme`，CU2601012635）历史腿**——只铺客户域（`CLIENT_PAYABLE`/`DEPOSIT_SUSPENSE` ↔ `CLIENT_ASSET`），腿的 `createdAt` 回拨到相对月份（`businessMonthOf(now)` 推：上月 = 刚结束的迪拜业务月，上上月再往前一月），`walletRef=null`/非外部穿越（Henry 无钱包行，不进 recon 钱包桶）；公司侧对手腿不铺（理由：会漂移 F_OPS/NLA 等场景 31/32 钉死数字，见种子函数头注释）：
+
+| 业务月 | 日 | 腿（evidence `eventCode`，客户侧借贷） | 金额 |
+|---|---|---|---|
+| 上上月（2026-08） | 15 | `DEPOSIT_ASSET_TO_SUSPENSE`（DR CLIENT_ASSET / CR DEPOSIT_SUSPENSE）+ `DEPOSIT_SUSPENSE_TO_PAYABLE`（DR DEPOSIT_SUSPENSE / CR CLIENT_PAYABLE），单号 `DEP2601014127` | AED 50,000.00 |
+| 上月（2026-09） | 2 | 同上两腿，单号 `DEP2601017605` | AED 10,000.00 |
+| 上月 | 5 | `SWAP_SELL_CLIENT`（AED，DR CLIENT_PAYABLE / CR CLIENT_ASSET）+ `SWAP_BUY_CLIENT`（USDT 毛额，DR CLIENT_ASSET / CR CLIENT_PAYABLE）+ `SWAP_FEE_CLIENT`（USDT，DR CLIENT_PAYABLE / CR CLIENT_ASSET），单号 `SWP2601010349`（另有一行极薄 `swap_transactions` 壳，仅供月结单兑换行标题反查 `AED → USDT`） | 卖 AED 10,000.00 → 毛 USDT 2,712.049000，费 USDT 3.000000 |
+| 上月 | 20 | `WITHDRAW_NET_POST` + `WITHDRAW_FEE_POST`（均 DR CLIENT_PAYABLE / CR CLIENT_ASSET），单号 `WDR2601019900` | 到账 AED 5,000.00 + 费 AED 50.00（申请额 5,050.00，STD-AED 第 2 档服务费 50） |
+
+兑换毛额口径（示例价，同 LP 种子手填先例）：`round8(1/3.6725) × (1 − 40bps)` = 0.27120490 USDT/AED（STD-AED-USDT 第 3 档：加价 40bps、固定费 3 USDT），× 10,000 向下取 6 位 = 2,712.049000。
+
+**判据（公式 + 当日快照值；当日 = 2026-10-03，当前业务月 2026-10）**
+
+| # | 判据 | 公式 | 当日快照值 |
+|---|---|---|---|
+| 1 | `customer_monthly_statements` 行数 | Σ 客户（`onboardingApprovedAt` 非空）[ `businessMonthOf(now)` − `businessMonthOf(onboardingApprovedAt)` ] 个月（当月不出，已完整月数）；11 位客户开户批准均为 2026-06-15（迪拜 2026-06） | 11 × 4（2026-06/07/08/09）= **44** 行，每人恰 4 张（`STM-<customerNo>-<YYYYMM>`）；下月 1 日（迪拜）起每人 +1 |
+| 2 | Henry 上月单（`STM-CU2601012635-202609`）AED 节 | rows ≥ 3；期初 = 上上月末余额；期末 = 50,000 + 10,000 − 10,000 − 5,000 − 50 | **rows = 3**（Withdrawal −5,050.00〔fee 50.00〕/ Swap AED → USDT −10,000.00 / Deposit +10,000.00），期初 **5,000,000**（50,000.00），期末 **4,495,000**（**44,950.00**） |
+| 2b | Henry 上月单 USDT 节 | 期末 = 毛额 − 兑换费 | rows = 1（Swap AED → USDT，amount 2,709.049000、fee 3.000000），期初 0，期末 **2,709,049,000**（**2,709.049000 USDT**） |
+| 2c | Henry 上上月单（`…202608`）与更早 | 上上月有一笔充值；之前无流水 | 2026-08：AED rows=1，期初 0、期末 5,000,000；USDT rows=0；2026-06/07 两币种皆空（期初=期末=0） |
+| 3 | `customer_notifications` 里 `relatedOrderType='STATEMENT'` | 每客户仅最新月一条（sweep 补发多月只通知最末月） | **11** 条（每条 `relatedOrderNo=STM-<customerNo>-202609`） |
+| 4 | `data_subject_requests` | 种子恰一张 | **1**：`DSR2601016750`（Grace，ACCESS，RESOLVED，`resolutionCode=ACCESS_SUMMARY_PROVIDED`，submittedAt = 铺场 −10 天、reviewStartedAt = +1 天、resolvedAt = submittedAt + 3 天、dueAt = submittedAt + 30 天；summary 四键 `generatedAt/profile/agreementConsents/kycMaterials`，profile 14 键白名单，无 riskRating/eddRequired/hardLine*；同意史 `v1 ACCEPTED` 按注册批准时点封顶，`kycMaterials=[]`） |
+| 5 | 账本（`verify:coa`，reset 后、`up` 前后均可测） | 客户域净增 = Henry 期末；公司域零变化 | `ledger 1 CLIENT 恒等 4495000`（= Henry AED 44,950.00）/ `ledger 1 FIRM 恒等 94750000`（= 波二 F_OPS(AED) 基线，**不变**）/ `ledger 2 CLIENT 恒等 2709049000`（= Henry USDT）/ `ledger 2 FIRM 恒等 113600000000`（**不变**）/ `负余额检查 通过 (67 个科目全部 ≥ 0)` |
+
+查法（`<栈库>` = self 栈 `DATABASE_URL` 指向的 `dev.db`，只读；statements 行数与期末值查 payload JSON）：
+
+```bash
+sqlite3 -readonly <栈库> "select count(*), count(distinct customerId) from customer_monthly_statements;"                         # 44|11
+sqlite3 -readonly <栈库> "select s.periodMonth, json_extract(j.value,'$.assetCode'), json_extract(j.value,'$.openingBalance'), json_extract(j.value,'$.closingBalance'), json_array_length(json_extract(j.value,'$.rows')) from customer_monthly_statements s join customer_main m on m.id=s.customerId, json_each(s.payload,'$.sections') j where m.email='demo_acme@example.com' and s.periodMonth>='2026-08' order by 1,2;"
+                                                                                                                                  # 2026-08|AED|0|5000000|1 / 2026-08|USDT|0|0|0 / 2026-09|AED|5000000|4495000|3 / 2026-09|USDT|0|2709049000|1
+sqlite3 -readonly <栈库> "select count(*) from customer_notifications where relatedOrderType='STATEMENT';"                         # 11
+sqlite3 -readonly <栈库> "select count(*) from data_subject_requests;"                                                            # 1
+```
+
+**与既有判据的衔接（实测，2026-10-03，self 栈 `c_wave4`，Node 20.20.2）**：
+
+- `demo:all`：花名册 **29/29**、`asserts: 5/5 PASS`——Henry 不在花名册，终态比对不受扰；COA 恒等式四行：`CLIENT(AED) 34107565 == 34107565`（= 旧值 29,612,565 + Henry 4,495,000）、`CLIENT(USDT) 7101620811 == 7101620811`（= 旧值 4,392,571,811 + Henry 2,709,049,000）、`FIRM(AED) 94620335`、`FIRM(USDT) 114013428189`（**两条公司域与旧值逐位相同**）。`data.md` 生成区因此改写**恰两行**（上两条 CLIENT 数字），花名册区零 diff——这是 Henry 余额的必然后果，不是花名册漂移。
+- `recon:demo:pass`：`status=PASS walletsChecked=19 casesOpened=0`，五条断言全 OK（与乙波二基线 19 个受检钱包一致，Henry 无钱包不新增受检对象）；`recon:demo:break`：`scenarios 18/18 DETECTED`、`wallets 12/12 bucket OK`、`casesOpened 12/12`——**零新破口**。
+- `verify:coa`：reset 后 / `up` 后 / `demo:all`+`recon:demo:break` 后三个时点均 `ALL INVARIANTS PASS`（末点 `ledger 1 CLIENT 34307565` = `demo:all` 后的 34107565 + `recon:demo:break` 场景 6 真写账本的 200000，恒等式两边相等，67 科目 ≥ 0）。
+- **失效验证**（判据不是自证绿）：对 self 栈账本分别注入 ① 只铺 `DEPOSIT_SUSPENSE_TO_PAYABLE`、缺 STEP_1（DR 暂扣 / CR 应付 各 1.00 AED）→ 恒等式仍绿、`✗ 负余额 L.DEPOSIT_SUSPENSE ledger=1 CUSTOMER:CU2601012635 balance=-100`，`verify:coa` 退出码 1（**负余额断言是「起点缺一笔」的唯一探针，恒等式绿不豁免它**）；② 只贷客户应付、借公司 `FIRM_OPS`（DR FIRM_OPS / CR Henry CLIENT_PAYABLE）→ `✗ ledger 1 CLIENT: asset=4495000 liab=4495100`、`✗ ledger 1 FIRM: asset=94750000 equity=94749900`，退出码 1。变异后已 `reset self` 重铺还原。
+- `swap-money-arc.e2e-spec.ts`（取 `demo_acme`）**只读核查**：断言全为相对差值（`before`/`after` 余额，`availableBalances()` 前后比）、证据行按本单 `swapNo` 取（`findBySource('SWAP', swap.swapNo)`，7 行），`beforeAll` 自己 `fundCustomer` 预充 1,000,000——不依赖 Henry 期初为零，**无需改断言**；且该文件在本机当前起不来（`app.init()` 抛监听器 52 > 50 的 `TypeError`，见上节同日订正与 `TOOLING-DEBT.md`），故未实跑，不得称绿。
+- 下游钉死数字的漂移清单（本任务只改 baseline，剧本归 T12）：`script.md:592` / `:637` 的 `✓ ledger 1 CLIENT 恒等 29612565` → **34107565**、`✓ ledger 2 CLIENT 恒等 4392571811` → **7101620811**（两处均为场景 31/32 时点读数，与 `data.md` 生成区旧值同数——据此推得漂移量恒为 Henry 余额 +4495000 / +2709049000，**未实走场景 31/32 复读**，T12 走查时以实测为准；FIRM 两数不变）；`script.md:658` 的「Henry Acme 无便签但余额 0」不再成立（Henry 现有 AED 44,950.00 / USDT 2,709.049000，且是场景 33/34 的演员）。

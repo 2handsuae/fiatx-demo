@@ -8,7 +8,7 @@ import { ensureTbAccountRegistry, provisionTbAccounts } from './seed-tb.helper';
 import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
 import { assertNetwork } from '../src/config/manifests/networks.manifest';
 import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
-import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { systemAccountCodesFor } from '../src/modules/asset-treasury/assets/asset-provisioning.service';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
@@ -26,11 +26,12 @@ import { writeSeedAudit } from './seed-audit.helper';
 import { FilingStatus, FilingEntryKinds, RegulatoryAuthorities } from '../src/modules/governance/regulatory-filings/regulatory-filing.constants';
 import { getFilingTypeConfig } from '../src/modules/governance/regulatory-filings/filing-type-registry';
 import { addBusinessDays } from '../src/modules/governance/regulatory-filings/business-days';
-import { DUBAI_UTC_OFFSET_MS, toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
+import { DUBAI_UTC_OFFSET_MS, businessMonthOf, toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { fakeChainTxHash, fakeBankRef } from '../src/common/utils/fake-external-refs.util';
 import { INCIDENT_REPORT_BASES } from '../src/modules/governance/incidents/incident.constants';
 import { ObligationFrequencies, ObligationStatus, VendorStatus } from '../src/modules/governance/compliance-office/compliance-office.constants';
 import { ComplaintCategories, ComplaintClientMessageTypes, ComplaintEntryKinds, ComplaintResolutionOutcomes, ComplaintStatus } from '../src/modules/governance/complaints/complaint.constants';
+import { DSR_DUE_DAYS, DSR_SUMMARY_PROFILE_FIELDS, DsrResolutionCode, DsrStatus, DsrType } from '../src/modules/identity/dsr-requests/dsr.constants';
 
 type SeedBusinessOptions = {
   skipEnsureBase?: boolean;
@@ -89,6 +90,11 @@ export async function seedBusiness(
   // vendor-hextrust 登记行（PAY 历史单挂靠）；排在 seedLpDesk 之后跑（F_OPS(AED) 期望
   // 起点是 LP 卖出腿扣完之后的 950,000，本任务的 −2,500 落在它之上）。
   await seedCompanyFunding(prisma);
+  // 月结单历史腿 + DSR 对照单（战役丙波四 Task 11，spec §8.1/§8.2）：Henry（demo_acme）上上月/上月的
+  // 客户域账本史（月结单要有行可出）+ Grace 一张已办结 ACCESS 单。needs provisionTbAccounts 的
+  // Henry 客户科目、seedCustomers 的两客户行、seedCustomerAgreements 的同意行（摘要要引）。
+  await seedStatementHistoryLegs(prisma);
+  await seedGraceAccessRequest(prisma);
 
   console.log('✅ Business data seeded.');
 }
@@ -2767,4 +2773,319 @@ async function seedCompanyFunding(prisma: PrismaClient): Promise<void> {
   } finally {
     client.destroy();
   }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 月结单历史腿 — 战役丙波四 Task 11（spec §8.1）。
+//
+// 为什么要补：种子客户的腿全落在铺数当天（tb-evidence 写死 new Date()），不补历史腿则所有客户的
+// 历史月账单全空。Henry（demo_acme）是唯一「ACTIVE + 零腿 + 零便签 + 不在 demo:all 花名册」的演员。
+//
+// 工艺 = LP 种子先例三件套（seedLpDesk）：TB createTransfers 真写（verify:coa 直读 TB，不写必红）+
+// tbTransferEvidence 回拨 createdAt（月结单按 evidence.createdAt 归月）+ accountFlow 镜像（debit→OUT /
+// credit→IN）。事件码 / 借贷科目逐腿抄自真实 workflow 的 AccountingService 调用：
+//   充值   deposit-workflow.executeDepositAccounting  STEP_1 DR CLIENT_ASSET / CR DEPOSIT_SUSPENSE（码 1）
+//                                                      STEP_2 DR DEPOSIT_SUSPENSE / CR CLIENT_PAYABLE（码 2）
+//          ——STEP_1 必须有：只铺 STEP_2 会让客户暂扣户为负（verify:coa 负余额断言唯一探针）。
+//   兑换   swap-leg-plan FIAT_TO_CRYPTO 的客户侧三腿：SWAP_SELL_CLIENT（码 30，from=AED）/
+//          SWAP_BUY_CLIENT（码 34，to=USDT 毛额）/ SWAP_FEE_CLIENT（码 35，to=USDT 费）
+//   提现   withdraw-workflow 的 POST 终态：WITHDRAW_NET_POST（码 11）/ WITHDRAW_FEE_POST（码 14）
+//          DR CLIENT_PAYABLE / CR CLIENT_ASSET（真流程是 pending→post，终态等价于一笔 posted）。
+//
+// 只铺客户域（CLIENT_PAYABLE / DEPOSIT_SUSPENSE ↔ CLIENT_ASSET），**不铺公司侧对手腿**（SWAP_SELL_FIRM /
+// SWAP_SELL_SET_TO_OPS / SWAP_BUY_OPS_TO_ASSET / SWAP_FEE_FIRM / WITHDRAW_FEE_FIRM）：公司侧会挪动
+// F_OPS / F_SET / INCOME_* 余额，而那些数是 baseline.md / script.md 场景 31/32（NLA、运营户水位）钉死的
+// 演示数字——月结单只读客户 CLIENT_PAYABLE 户，公司侧腿对它没有任何贡献。两恒等式（客户：CLIENT_ASSET =
+// Σ(PAYABLE+SUSPENSE)；公司：FIRM_ASSET = Σ 权益）按账本各自守恒，本节只动前者，后者零变化。
+//
+// walletRef=null / isExternalCrossing=false：Henry 没有任何钱包行（客户钱包由 demo-lib.ensureSetup 为花名册
+// 客户建，Henry 不在内），也不应为这几笔历史账凭空造钱包（verify:demo-data R5 要求客户钱包全员有 DEMO_SEED
+// 审计）。无钱包即不进 recon 的钱包桶（recon-demo.planWallets 按 wallets 表逐钱包拉流水），自洽不出破口。
+//
+// 只给兑换铺一行极薄的 swap_transactions 壳（SUCCESS、无资金单）：月结单的兑换行标题
+// （CustomerStatementService.presentGroup）要按 swapNo 反查 fromAssetCode/toAssetCode，缺行就是 "Swap ? → ?"。
+// 充值 / 提现行标题不依赖订单行，不造壳（提现壳会撞 verify:demo-data R4：放款后的提现必须有客户名下 fromWalletId）。
+// 种子没有 operator，不写审计（同 seedLpDesk 里 LP 兑换单本身的先例）。
+//
+// 月份用 businessMonthOf(now) 推相对值（上月 = 刚结束的迪拜业务月；上上月再往前一个），不写死日历月：
+//   上上月 15 日  AED 充值 50,000.00
+//   上月   2 日   AED 充值 10,000.00        （让上月单 AED 节有 ≥3 行：充值 / 兑换 / 提现）
+//   上月   5 日   AED→USDT 兑换，卖 10,000.00 AED（STD-AED-USDT 第 3 档：加价 40bps、固定费 3 USDT）
+//   上月  20 日   AED 提现，申请 5,050.00 = 到账 5,000.00 + 费 50.00（STD-AED 第 2 档 1,000–10,000 → 服务费 50）
+// ─────────────────────────────────────────────────────────────
+
+/** 业务月 YYYY-MM 往前推 n 个月。 */
+function businessMonthBefore(month: string, n: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const idx = y * 12 + (m - 1) - n;
+  return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;
+}
+
+/** 业务月 M 的 D 日 迪拜正午（= 08:00Z）起算，再加若干分钟——腿之间留开时间差，runningBalance 序才确定。 */
+function businessMonthDayAt(month: string, day: number, plusMinutes = 0): Date {
+  const d = String(day).padStart(2, '0');
+  return new Date(new Date(`${month}-${d}T08:00:00.000Z`).getTime() + plusMinutes * 60_000);
+}
+
+async function seedStatementHistoryLegs(prisma: PrismaClient): Promise<void> {
+  const tbAddress = process.env.TB_ADDRESS;
+  if (!tbAddress) {
+    // 同 seedLpDesk 纪律：不 graceful skip——少这几笔账会让月结单为空，且失败点落在很远的下游。
+    throw new Error(
+      'TB_ADDRESS 未设置，无法铺 Henry 的月结单历史腿。修法：确认调用方显式传 TB_ADDRESS（见 scripts/reset-stack.sh）。',
+    );
+  }
+
+  const henry = await prisma.customerMain.findUnique({
+    where: { email: 'demo_acme@example.com' }, select: { id: true, customerNo: true },
+  });
+  if (!henry) throw new Error('seedStatementHistoryLegs: 找不到 demo_acme@example.com——seedCustomers 是否先跑？');
+  const [aedAsset, usdtAsset] = await Promise.all([
+    prisma.asset.findFirst({ where: { currency: 'AED', status: 'ACTIVE' } }),
+    prisma.asset.findFirst({ where: { currency: 'USDT', status: 'ACTIVE' } }),
+  ]);
+  if (!aedAsset || !usdtAsset) throw new Error('seedStatementHistoryLegs: AED/USDT 资产行缺失——seedAssets 是否先跑？');
+  const aedLedger = TB_LEDGERS[aedAsset.currency as keyof typeof TB_LEDGERS];
+  const usdtLedger = TB_LEDGERS[usdtAsset.currency as keyof typeof TB_LEDGERS];
+
+  // 业务月：上月 / 上上月（相对铺数时刻）。
+  const lastMonth = businessMonthBefore(businessMonthOf(new Date()), 1);
+  const monthBeforeLast = businessMonthBefore(businessMonthOf(new Date()), 2);
+
+  // ── 金额（最小单位）与订单号 ─────────────────────────────────────────────
+  const toMinor = (d: Prisma.Decimal | string, decimals: number): bigint =>
+    BigInt(new Prisma.Decimal(d).mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0));
+  const DEPOSIT_A = '50000'; // 上上月 15 日
+  const DEPOSIT_B = '10000'; // 上月 2 日
+  const SWAP_SELL = '10000'; // 上月 5 日卖出 AED
+  const WITHDRAW_NET = '5000'; // 上月 20 日到账
+  const WITHDRAW_FEE = '50'; //  STD-AED 第 2 档服务费（网络费 0）
+  const SWAP_FEE = '3'; //  STD-AED-USDT 第 3 档固定费（USDT）
+  // 兑换毛额：示例价口径（同 LP 种子手填先例）——AED 钉价 3.6725，第 3 档加价 40bps：
+  // quotedRate = round8(1/3.6725) × (1 − 0.004)，毛额 = 卖出额 × quotedRate，USDT 6 位向下取整。
+  const baseRate = new Prisma.Decimal(1).div('3.6725').toDecimalPlaces(8);
+  const quotedRate = baseRate.mul(new Prisma.Decimal(1).sub(new Prisma.Decimal(40).div(10000))).toDecimalPlaces(8);
+  const swapGrossUsdt = new Prisma.Decimal(SWAP_SELL).mul(quotedRate).toDecimalPlaces(usdtAsset.decimals, Prisma.Decimal.ROUND_DOWN);
+  const swapNetUsdt = swapGrossUsdt.sub(SWAP_FEE);
+
+  const depositANo = buildDeterministicNo('DEP', 'henry-acme-statement-history', 'deposit-month-before-last');
+  const depositBNo = buildDeterministicNo('DEP', 'henry-acme-statement-history', 'deposit-last-month');
+  const swapNo = buildDeterministicNo('SWP', 'henry-acme-statement-history', 'swap-last-month');
+  const withdrawNo = buildDeterministicNo('WDR', 'henry-acme-statement-history', 'withdraw-last-month');
+  if (new Set([depositANo, depositBNo, swapNo, withdrawNo]).size !== 4) {
+    throw new Error('seedStatementHistoryLegs: 四个历史订单号撞了（4 位确定性后缀）——换 seed 段');
+  }
+
+  // ── 账户：Henry 客户户（CLIENT_PAYABLE / DEPOSIT_SUSPENSE）+ 系统 CLIENT_ASSET ──
+  const customerAcct = async (code: number, ledger: number): Promise<{ tbAccountId: string }> => {
+    const reg = await (prisma as any).tbAccountRegistry.findFirst({
+      where: { code, ledger, ownerType: 'CUSTOMER', ownerUuid: henry.id }, select: { tbAccountId: true },
+    });
+    if (!reg) throw new Error(`seedStatementHistoryLegs: 找不到 Henry 客户科目 code=${code} ledger=${ledger}——seedCustomers/provisionTbAccounts 是否先跑？`);
+    return reg;
+  };
+  const acct = {
+    [aedLedger]: {
+      payable: await customerAcct(TB_ACCOUNT_CODES.CLIENT_PAYABLE, aedLedger),
+      suspense: await customerAcct(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, aedLedger),
+      clientAsset: await findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.CLIENT_ASSET, aedLedger),
+    },
+    [usdtLedger]: {
+      payable: await customerAcct(TB_ACCOUNT_CODES.CLIENT_PAYABLE, usdtLedger),
+      suspense: await customerAcct(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, usdtLedger),
+      clientAsset: await findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.CLIENT_ASSET, usdtLedger),
+    },
+  };
+
+  type Slot = 'payable' | 'suspense' | 'clientAsset';
+  const SLOT_CODE: Record<Slot, number> = {
+    payable: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
+    suspense: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
+    clientAsset: TB_ACCOUNT_CODES.CLIENT_ASSET,
+  };
+  type HistLeg = {
+    sourceType: 'DEPOSIT' | 'SWAP' | 'WITHDRAWAL'; sourceNo: string; eventCode: string; code: number;
+    ledger: number; assetCode: string; debit: Slot; credit: Slot; amount: bigint;
+    actorId: string; memo: string; at: Date;
+  };
+  const depositLegs = (sourceNo: string, amountMajor: string, month: string, day: number): HistLeg[] => {
+    const amount = toMinor(amountMajor, aedAsset.decimals);
+    const base = { sourceType: 'DEPOSIT' as const, sourceNo, ledger: aedLedger, assetCode: aedAsset.currency, amount, actorId: 'SYSTEM' };
+    return [
+      { ...base, eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE', code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE, debit: 'clientAsset', credit: 'suspense',
+        memo: 'Payin confirmed, funds in compliance hold (CLIENT_ASSET→DEPOSIT_SUSPENSE)', at: businessMonthDayAt(month, day, 0) },
+      { ...base, eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE', code: TB_TRANSFER_CODES.DEPOSIT_SUSPENSE_TO_PAYABLE, debit: 'suspense', credit: 'payable',
+        memo: 'Compliance approved, funds credited to client payable', at: businessMonthDayAt(month, day, 30) },
+    ];
+  };
+  const swapAt = (plusMinutes: number) => businessMonthDayAt(lastMonth, 5, plusMinutes);
+  const withdrawAt = (plusMinutes: number) => businessMonthDayAt(lastMonth, 20, plusMinutes);
+  const legs: HistLeg[] = [
+    ...depositLegs(depositANo, DEPOSIT_A, monthBeforeLast, 15),
+    ...depositLegs(depositBNo, DEPOSIT_B, lastMonth, 2),
+    // 兑换（FIAT_TO_CRYPTO 客户侧三腿；evidence.actorId=SWAP_SETTLEMENT，memo 同真实 `swap leg <eventCode>`）
+    { sourceType: 'SWAP', sourceNo: swapNo, eventCode: 'SWAP_SELL_CLIENT', code: TB_TRANSFER_CODES.SWAP_SELL_CLIENT, ledger: aedLedger,
+      assetCode: aedAsset.currency, debit: 'payable', credit: 'clientAsset', amount: toMinor(SWAP_SELL, aedAsset.decimals),
+      actorId: 'SWAP_SETTLEMENT', memo: 'swap leg SWAP_SELL_CLIENT', at: swapAt(0) },
+    { sourceType: 'SWAP', sourceNo: swapNo, eventCode: 'SWAP_BUY_CLIENT', code: TB_TRANSFER_CODES.SWAP_BUY_CLIENT, ledger: usdtLedger,
+      assetCode: usdtAsset.currency, debit: 'clientAsset', credit: 'payable', amount: toMinor(swapGrossUsdt, usdtAsset.decimals),
+      actorId: 'SWAP_SETTLEMENT', memo: 'swap leg SWAP_BUY_CLIENT', at: swapAt(5) },
+    { sourceType: 'SWAP', sourceNo: swapNo, eventCode: 'SWAP_FEE_CLIENT', code: TB_TRANSFER_CODES.SWAP_FEE_CLIENT, ledger: usdtLedger,
+      assetCode: usdtAsset.currency, debit: 'payable', credit: 'clientAsset', amount: toMinor(SWAP_FEE, usdtAsset.decimals),
+      actorId: 'SWAP_SETTLEMENT', memo: 'swap leg SWAP_FEE_CLIENT', at: swapAt(6) },
+    // 提现（POST 终态：净额腿 + 费腿，DR CLIENT_PAYABLE / CR CLIENT_ASSET）
+    { sourceType: 'WITHDRAWAL', sourceNo: withdrawNo, eventCode: 'WITHDRAW_NET_POST', code: TB_TRANSFER_CODES.WITHDRAW_NET_POST, ledger: aedLedger,
+      assetCode: aedAsset.currency, debit: 'payable', credit: 'clientAsset', amount: toMinor(WITHDRAW_NET, aedAsset.decimals),
+      actorId: 'WITHDRAW_WORKFLOW', memo: 'Payout confirmed: POST net pending transfer → CLIENT_ASSET', at: withdrawAt(0) },
+    { sourceType: 'WITHDRAWAL', sourceNo: withdrawNo, eventCode: 'WITHDRAW_FEE_POST', code: TB_TRANSFER_CODES.WITHDRAW_FEE_POST, ledger: aedLedger,
+      assetCode: aedAsset.currency, debit: 'payable', credit: 'clientAsset', amount: toMinor(WITHDRAW_FEE, aedAsset.decimals),
+      actorId: 'WITHDRAW_WORKFLOW', memo: 'Payout confirmed: POST fee pending transfer → CLIENT_ASSET', at: withdrawAt(1) },
+  ];
+
+  // ── ① 兑换订单壳（只为月结单兑换行标题）──────────────────────────────────
+  const swapCreatedAt = swapAt(0);
+  const swapDoneAt = swapAt(6);
+  await prisma.swapTransaction.upsert({
+    where: { swapNo },
+    update: {},
+    create: {
+      swapNo, ownerType: 'CUSTOMER', ownerId: henry.id, ownerNo: henry.customerNo, status: 'SUCCESS',
+      fromAssetId: aedAsset.id, fromAssetCode: aedAsset.currency, fromAmount: SWAP_SELL,
+      toAssetId: usdtAsset.id, toAssetCode: usdtAsset.currency, toAmount: swapGrossUsdt.toFixed(usdtAsset.decimals),
+      netToAmount: swapNetUsdt.toFixed(usdtAsset.decimals), feeAmount: SWAP_FEE, feeCurrency: usdtAsset.currency,
+      exchangeRate: quotedRate.toFixed(8), traceId: `SEED_HENRY_HISTORY_${swapNo}`,
+      statusHistory: JSON.stringify([
+        { status: 'SUCCESS', timestamp: swapDoneAt.toISOString(), operator: 'SYSTEM', note: 'Seeded historical swap (statement history)' },
+      ]),
+      createdAt: swapCreatedAt, updatedAt: swapDoneAt, completedAt: swapDoneAt,
+    },
+  });
+
+  // ── ② TB 真写（一批 9 笔）──────────────────────────────────────────────
+  let client: ReturnType<typeof tbCreateClient>;
+  try {
+    client = tbCreateClient({ cluster_id: 0n, replica_addresses: [tbAddress] });
+  } catch (err: any) {
+    throw new Error(`seedStatementHistoryLegs: 连不上 TigerBeetle（${err.message}）——Henry 历史腿不能静默跳过`);
+  }
+  try {
+    const transferIds = legs.map((l) => deterministicTransferId(l.sourceType, l.sourceNo, l.eventCode, 0));
+    const transfers = legs.map((l, i) => ({
+      id: transferIds[i],
+      debit_account_id: BigInt('0x' + acct[l.ledger][l.debit].tbAccountId),
+      credit_account_id: BigInt('0x' + acct[l.ledger][l.credit].tbAccountId),
+      amount: l.amount,
+      pending_id: 0n, user_data_128: 0n, user_data_64: 0n, user_data_32: 0, timeout: 0,
+      ledger: l.ledger, code: l.code, flags: 0, timestamp: 0n,
+    }));
+    const errors = await client.createTransfers(transfers);
+    const realErrors = errors.filter((e: any) => e.status !== TB_TRANSFER_EXISTS_LP && e.status !== TB_DEV_OK_LP);
+    if (realErrors.length > 0) {
+      // 动钱的种子不许吞错：半截账本会让 verify:coa 红在很远的下游。
+      throw new Error(`seedStatementHistoryLegs: TB 写账失败 ${JSON.stringify(realErrors, (_, v) => (typeof v === 'bigint' ? v.toString() : v))}`);
+    }
+
+    // ── ③ evidence（createdAt 回拨）+ accountFlow 镜像 ──────────────────────
+    let evidenceRows = 0;
+    let flowRows = 0;
+    for (let i = 0; i < legs.length; i += 1) {
+      const l = legs[i];
+      const tbTransferId = bigintToHex(transferIds[i]);
+      const debitAcct = acct[l.ledger][l.debit];
+      const creditAcct = acct[l.ledger][l.credit];
+      const shared = {
+        sourceType: l.sourceType, sourceNo: l.sourceNo, eventCode: l.eventCode,
+        amount: new Prisma.Decimal(l.amount.toString()), assetCode: l.assetCode, transferType: 'POSTED',
+        isExternalCrossing: false, externalRef: null as string | null, effectiveDate: toBusinessDate(l.at),
+      };
+      await (prisma as any).tbTransferEvidence.upsert({
+        where: { tbTransferId }, update: {},
+        create: {
+          tbTransferId, ...shared,
+          debitCode: TB_CODE_TO_COA[SLOT_CODE[l.debit]], creditCode: TB_CODE_TO_COA[SLOT_CODE[l.credit]],
+          debitTbAccountId: debitAcct.tbAccountId, creditTbAccountId: creditAcct.tbAccountId,
+          traceId: l.sourceNo, actorType: 'SYSTEM', actorId: l.actorId, memo: l.memo,
+          debitWalletRef: null, creditWalletRef: null, createdAt: l.at,
+        },
+      });
+      evidenceRows += 1;
+      for (const [tbAccountId, direction] of [
+        [debitAcct.tbAccountId, 'OUT'],
+        [creditAcct.tbAccountId, 'IN'],
+      ] as const) {
+        await (prisma as any).accountFlow.upsert({
+          where: { tbTransferId_tbAccountId: { tbTransferId, tbAccountId } }, update: {},
+          create: { tbTransferId, tbAccountId, walletRef: null, direction, ...shared, createdAt: l.at },
+        });
+        flowRows += 1;
+      }
+    }
+    console.log(
+      `Seeded Henry (${henry.customerNo}) statement history: ${legs.length} TB transfers, ${evidenceRows} evidence row(s) + ${flowRows} flow row(s) ` +
+        `[${monthBeforeLast}: deposit ${DEPOSIT_A} AED | ${lastMonth}: deposit ${DEPOSIT_B} AED, swap ${SWAP_SELL} AED→${swapGrossUsdt.toFixed(usdtAsset.decimals)} USDT (fee ${SWAP_FEE}), withdraw ${WITHDRAW_NET}+${WITHDRAW_FEE} AED] + 1 swap shell (${swapNo}).`,
+    );
+  } finally {
+    client.destroy();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// DSR 对照单 — 战役丙波四 Task 11（spec §8.2）：Grace 一张已办结 ACCESS 单，列表上有一张「办完的」作对照，
+// 现场戏（Henry 的改 / 删）不被抢跑。直插 data_subject_requests，不补审计（种子没有 operator，投诉种子同口径）。
+// summary 按 DsrRequestsService.generateSummary 的白名单快照形状手工构造（键 = generatedAt / profile /
+// agreementConsents / kycMaterials）：profile 只取 DSR_SUMMARY_PROFILE_FIELDS 白名单（tipping-off 红线，
+// riskRating / eddRequired / 限制 / 标签一律不入），同意史与材料清单读 Grace 自己此刻的种子行。
+// resolvedAt = submittedAt + 3 天；dueAt = submittedAt + 30 自然日（提交时一次算定，同真实 submit）。
+// ─────────────────────────────────────────────────────────────
+
+async function seedGraceAccessRequest(prisma: PrismaClient): Promise<void> {
+  const grace = await prisma.customerMain.findUnique({
+    where: { email: 'demo_grace@example.com' },
+    select: { id: true, ...(Object.fromEntries(DSR_SUMMARY_PROFILE_FIELDS.map((f) => [f, true])) as Record<string, true>) },
+  });
+  if (!grace) {
+    console.log('  ⚠ Skipping DSR seed — customer demo_grace@example.com missing');
+    return;
+  }
+
+  const DAY = 86400000;
+  const submittedAt = new Date(Date.now() - 10 * DAY);
+  const reviewStartedAt = new Date(submittedAt.getTime() + 1 * DAY);
+  const summaryGeneratedAt = new Date(reviewStartedAt.getTime() + 2 * 3600 * 1000);
+  const resolvedAt = new Date(submittedAt.getTime() + 3 * DAY);
+  const dueAt = new Date(submittedAt.getTime() + DSR_DUE_DAYS * DAY);
+
+  const profile = Object.fromEntries(DSR_SUMMARY_PROFILE_FIELDS.map((f) => {
+    const v = (grace as Record<string, unknown>)[f];
+    return [f, v instanceof Date ? v.toISOString() : (v ?? null)];
+  }));
+  const consents = await prisma.customerAgreementConsent.findMany({ where: { customerId: grace.id }, orderBy: { actedAt: 'asc' } });
+  const materials = await prisma.materialRequest.findMany({ where: { customerId: grace.id }, orderBy: { issuedAt: 'asc' } });
+  // 同意行的 actedAt = 客户行 createdAt = 铺数时刻（seedCustomerAgreements），晚于「10 天前生成」的快照时点——
+  // 冻结快照里出现生成之后才发生的同意，时序自相矛盾。快照按注册批准时点（onboardingApprovedAt）封顶。
+  const consentCap = ((grace as Record<string, unknown>).onboardingApprovedAt as Date).getTime();
+  const summary = {
+    generatedAt: summaryGeneratedAt.toISOString(),
+    profile,
+    agreementConsents: consents.map((c) => ({
+      versionKey: c.versionKey, actedAt: new Date(Math.min(c.actedAt.getTime(), consentCap)).toISOString(), decision: c.action,
+    })),
+    kycMaterials: materials.map((m) => ({ materialType: m.materialType, status: m.status, issuedAt: m.issuedAt.toISOString() })),
+  };
+
+  const requestNo = buildDeterministicNo('DSR', 'grace-access-resolved');
+  await prisma.dataSubjectRequest.upsert({
+    where: { requestNo },
+    update: {},
+    create: {
+      requestNo, customerId: grace.id, type: DsrType.ACCESS,
+      detail: 'I would like a copy of the personal data FiatX holds about me.',
+      status: DsrStatus.RESOLVED,
+      submittedAt, reviewStartedAt, resolvedAt, dueAt,
+      resolutionCode: DsrResolutionCode.ACCESS_SUMMARY_PROVIDED,
+      resolutionNote: 'We have completed your data access request. A summary of the personal data we hold about you is attached to this request.',
+      summary: JSON.stringify(summary),
+    },
+  });
+  console.log(`Seeded 1 data subject request for Grace (${requestNo}, ACCESS, RESOLVED — submitted 10 days ago, resolved on day 3, summary frozen).`);
 }
