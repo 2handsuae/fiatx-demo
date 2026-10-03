@@ -1,6 +1,6 @@
 # 战役丙「客户触达与披露」总纲
 
-> 立纲 2026-09-30 ｜ **2026-10-02 改纲：三波 → 四波**（客户协议从波二拆出独立成波三，原波三「月结单与 DSR」顺延为波四，理由见 §1.1）｜ 状态：**波一已收官合 main（2026-10-01 快进 2f0a5c6e）；波二已收官合 main（2026-10-02 快进 6cc473f4；spec 含执行订正三条，spec/plan/骨架已归档 `archive/superpowers/`）；波三已收官（2026-10-03 T12 收口，合并 main 哈希待控制者填：`________`；spec 含执行订正 9 条，spec/plan/骨架随合并归档）；波四待展开（骨架已立 `2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md`，含波三承接）** ｜ 体检：`checkups/2026-09-30-campaign-c-outreach-disclosure-checkup.md`（上游：同日 BD 参照系盘点 `checkups/2026-09-30-bd-landscape-vs-modules.md`）
+> 立纲 2026-09-30 ｜ **2026-10-02 改纲：三波 → 四波**（客户协议从波二拆出独立成波三，原波三「月结单与 DSR」顺延为波四，理由见 §1.1）｜ 状态：**波一已收官合 main（2026-10-01 快进 2f0a5c6e）；波二已收官合 main（2026-10-02 快进 6cc473f4；spec 含执行订正三条，spec/plan/骨架已归档 `archive/superpowers/`）；波三已收官（2026-10-03 T12 收口，快进合并 main `0a58bde5`；spec 含执行订正 9 条，spec/plan/骨架随合并归档）；波四待展开（骨架已立 `2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md`，含波三承接）** ｜ 体检：`checkups/2026-09-30-campaign-c-outreach-disclosure-checkup.md`（上游：同日 BD 参照系盘点 `checkups/2026-09-30-bd-landscape-vs-modules.md`）
 > 波次执行按 CLAUDE.md §6：spec 只写细当前波；每波收尾按 `rules/delivery-checklist.md` 写承接记录进下一波骨架；**本纲活到最后一波**。
 
 ## §0 目标与判准
