@@ -1732,7 +1732,7 @@ const PROBES: DirectionalProbe[] = [
   },
 
   // ── 改档案通道 CUSTOMER_WRITE 归合规官、DPO 不持（战役丙波四 T8）──────────────────
-  // 两条纯权限闸探针（占位 customerNo，业务上必然不存在）：ALLOW 判据只验权限闸不验业务——守卫放行后
+  // 三条纯权限闸探针（合规官 ALLOW / DPO DENY / 运营 DENY；占位 customerNo，业务上必然不存在）：ALLOW 判据只验权限闸不验业务——守卫放行后
   // CustomersService.updateProfileFields 抛 404，非 403 即成立，零写入零残留（同 DSR/LP 占位先例）。
   // 这条路由挂上后，CUSTOMER_WRITE 才不再是孤儿组（TOOLING-DEBT:143 的基线红之一随之自愈）。
   {
@@ -1744,6 +1744,12 @@ const PROBES: DirectionalProbe[] = [
     section: '改档案归合规官(T8)', name: 'DPO 不得 改客户档案（DPO 只办资料请求，不持 CUSTOMER_WRITE）', method: 'PATCH',
     routePattern: '/customers/:customerNo/profile', path: `/customers/${NOPE}/profile`,
     role: 'dpo', expect: 'DENY', body: { lastName: 'verify:rbac probe' },
+  },
+  // 终审修 F3（spec §5 承诺的第三条常驻探针）：运营也是客户面常客，但改档案是合规官的门——运营不持 CUSTOMER_WRITE。
+  {
+    section: '改档案归合规官(T8)', name: '运营 不得 改客户档案（运营不持 CUSTOMER_WRITE）', method: 'PATCH',
+    routePattern: '/customers/:customerNo/profile', path: `/customers/${NOPE}/profile`,
+    role: 'ops_officer', expect: 'DENY', body: { lastName: 'verify:rbac probe' },
   },
 
   // ── LP 台仅金库写、CFO 只读推不动（战役乙波一 T10）──────────────────────

@@ -430,6 +430,33 @@ describe('MonthlyStatementService', () => {
       expect(aed.rows.map((r) => r.amount)).toEqual(['-5000']);
     });
 
+    // spec §13.1：快照不漂入库。出具后账本在该月窗口内又多一条腿（如平账调整回溯入账），读面不得重查账本。
+    it('快照不漂：出具后往账本追加一条落在该月窗口内的腿，getForCustomer 读回的快照与出具时完全一致（行数 / 期末不变）', async () => {
+      const aedLegs = [
+        leg('DEPOSIT_SUSPENSE_TO_PAYABLE', 'IN', 50000, 50000, '2026-08-15T08:00:00.000Z'),
+        leg('WITHDRAW_NET_POST', 'OUT', 5000, 45000, '2026-09-20T08:00:00.000Z'),
+      ];
+      const h = makeHarness({ legsByAccount: { 'acc-aed': aedLegs } });
+      const no = await h.service.issue({ id: 'c1', customerNo: 'CU1' }, '2026-09');
+      const atIssue = await h.service.getForCustomer('c1', no);
+      const aedAtIssue = atIssue.sections.find((sec) => sec.assetCode === 'AED')!;
+      expect(aedAtIssue.closingBalance).toBe('45000');
+      expect(aedAtIssue.rows).toHaveLength(1);
+
+      // 出具之后：9 月窗口内再入账一腿（账本真的变了——对照断言证明 mock 账本确实多了一腿）
+      aedLegs.push(leg('DEPOSIT_SUSPENSE_TO_PAYABLE', 'IN', 7770, 52770, '2026-09-25T08:00:00.000Z'));
+      expect((await h.tbEvidence.getAccountStatement('acc-aed')).items).toHaveLength(3);
+
+      const later = await h.service.getForCustomer('c1', no);
+      expect(later).toEqual(atIssue);
+      const aedLater = later.sections.find((sec) => sec.assetCode === 'AED')!;
+      expect(aedLater.rows).toHaveLength(1);
+      expect(aedLater.closingBalance).toBe('45000');
+      // 管理台读面同样读快照：期末仍是出具时的 45000
+      const admin = await h.service.listForAdmin('c1');
+      expect(admin.items[0].balances.find((b) => b.assetCode === 'AED')!.closingBalance).toBe('45000');
+    });
+
     it('管理台列表：业务月降序、三键 + 逐币种期末余额与精度（精度取自资产表），不带行', async () => {
       const h = makeHarness({ statements });
 
