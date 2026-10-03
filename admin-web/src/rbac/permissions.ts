@@ -188,6 +188,14 @@ export const PERMISSIONS = {
   // 挂的是金库拨钟组，不是 AGREEMENT_WRITE），不新增键。
   AGREEMENT_WRITE: 'api.post.admin_customer_agreements_versionkey_submit_publish',
 
+  // 战役丙波四（Task 5）：DSR 资料请求——键名精确照 rbac.catalog.ts 的 PermissionGroup 字面量
+  // DSR_READ/DSR_WRITE。DSR_READ 代表码=列表路由（DPO/合规官/内审三职务持有）；DSR_WRITE 代表码=
+  // resolve 路由（DPO 独占——Resolve/Start review/Generate summary 三个写钮统一用它判断，合规官/
+  // 内审看得见页面、看不见这些钮）。⚡拨钟钮复用既有 DEMO_CLOCK_WRITE（simulate-timeout 挂的是
+  // 金库拨钟组，不是 DSR_WRITE），不新增键。页面归 T6，本任务只加键。
+  DSR_READ: 'api.get.admin_dsr_requests',
+  DSR_WRITE: 'api.post.admin_dsr_requests_requestno_resolve',
+
   SUMSUB_EVENTS_READ: 'api.get.admin_sumsub_events',
   AUDIT_LOGS_READ: 'api.get.admin_audit_logs',
   AUDIT_EXPORT_CREATE: 'api.post.admin_audit_evidence_packages',

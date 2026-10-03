@@ -120,7 +120,12 @@ export type PermissionGroup =
   | 'FUNDING_DASHBOARD_VIEW'
   // 战役乙波三 T3：巡检（NLA 审慎检查）手动触发——演示站「每日监控任务」的替身，
   // 唯金库能戳（T7 判据）。
-  | 'PRUDENTIAL_CHECK_WRITE';
+  | 'PRUDENTIAL_CHECK_WRITE'
+  // 战役丙波四 T5（spec §5）：资料请求（DSR）——DSR_WRITE 是 DPO 的第一个经办面、DPO 独占
+  // （受理/生成摘要/办结）；DSR_READ 恰绑 DPO/合规官/内审三职务（照 COMPLAINT_READ 三读者先例），
+  // 合规官/内审只能看、办不了。⚡ simulate-timeout 不挂本两组，挂既有 DEMO_CLOCK_WRITE。
+  | 'DSR_READ'
+  | 'DSR_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -628,6 +633,16 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('GET', '/admin/customer-agreements/:versionKey', 'Customer agreement version detail (read-only body)', ['COMPLIANCE_OFFICE_VIEW']),
   route('POST', '/admin/customer-agreements/:versionKey/submit-publish', 'Submit an agreement version for publication (senior management approves; effective date >= +30d)', ['AGREEMENT_WRITE']),
   route('POST', '/admin/customer-agreements/:versionKey/simulate-effective', 'Fast-forward an announced agreement version to effective (demo only)', ['DEMO_CLOCK_WRITE']),
+
+  // 战役丙波四 T5（spec §3.3/§5）：DSR 资料请求——列表/详情 DSR_READ（DPO/合规官/内审），受理/
+  // 生成摘要/办结 DSR_WRITE（DPO 独占）。⚡拨到期钟挂既有 Demo Instruments 组（金库/超管），非
+  // DSR_WRITE——DPO 是经办人但拨不动钟，与投诉"运营拨不动"同款 RBAC 交叉，是演示点不是缺陷。
+  route('GET', '/admin/dsr-requests', 'List data subject requests', ['DSR_READ']),
+  route('GET', '/admin/dsr-requests/:requestNo', 'Data subject request detail', ['DSR_READ']),
+  route('POST', '/admin/dsr-requests/:requestNo/start-review', 'Start review of a data subject request (SUBMITTED → IN_REVIEW)', ['DSR_WRITE']),
+  route('POST', '/admin/dsr-requests/:requestNo/generate-summary', 'Generate the data summary snapshot for an ACCESS request (written once)', ['DSR_WRITE']),
+  route('POST', '/admin/dsr-requests/:requestNo/resolve', 'Resolve a data subject request with a resolution code and reply', ['DSR_WRITE']),
+  route('POST', '/admin/dsr-requests/:requestNo/simulate-timeout', 'Fast-forward a data subject request deadline into the past (demo only)', ['DEMO_CLOCK_WRITE']),
 
   // 战役甲波三 T6：cap.filing.* 服务层门标记码——不是路由，是 RegulatoryFilingService.
   // assertFamily 的服务层门标记（照 cap.incident.* 先例，Ruling-6；码本身由 T1 在
@@ -1207,6 +1222,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       { key: 'compliance-office.vendors', label: 'Manage the outsourcing register', description: 'Register, update and terminate outsourcing vendors', groups: ['VENDOR_REGISTER_WRITE'] },
       { key: 'compliance-office.ri', label: 'Manage the responsible individual register', description: 'Register seats and propose replacements (senior management approves)', groups: ['RI_REGISTER_WRITE'] },
       { key: 'compliance-office.agreements', label: 'Manage customer agreements', description: 'Submit agreement versions for publication (senior management approves); body is code-registered and read-only', groups: ['AGREEMENT_WRITE'] },
+      { key: 'compliance-office.dsr', label: 'Handle data subject requests', description: 'Review, summarise and resolve customer access / rectification / erasure requests within the 30-day clock — the DPO personally handles them; compliance and audit read only', groups: ['DSR_READ', 'DSR_WRITE'] },
     ],
   },
   // ─── Domain: Pricing ─────────────────────────────────
@@ -1323,6 +1339,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役甲波一 T9：DATA 族事故经办组——唯一持有人，DATA_BREACH（PDPL Art.9）登记/调查/
     // 定损/结案请求全靠这个组。
     'INCIDENT_DATA_WRITE',
+    // 战役丙波四 T5（spec §5）：资料请求（DSR）——DPO 的第一个经办面，DSR_WRITE 独占；DSR_READ
+    // 与合规官/内审并列三读者。⚡拨钟不给（DEMO_CLOCK_WRITE 唯金库/超管）。
+    'DSR_READ', 'DSR_WRITE',
   ],
 
   // 全域只读 + 建证据包；一个 manage / act 包都不给 —— 这是本职务的全部意义
@@ -1352,6 +1371,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'FUNDING_READ',
     // 战役乙波二 T8：公司资金全景看板——金库/CFO/高管/内审恰四职务（spec §7 裁定 6）。
     'FUNDING_DASHBOARD_VIEW',
+    // 战役丙波四 T5（spec §5）：DSR_READ 恰绑 DPO/合规官/内审三职务——内审全域只读人设，
+    // 资料请求同样只读，不持 DSR_WRITE。
+    'DSR_READ',
   ],
 
   // 拦的手：开/解限制、贴撕标签、提解冻；管理台里推不动任何交易单据（D-不翻案）
@@ -1383,6 +1405,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // checker=合规官，裁决走 ComplaintResolutionWorkflowService 提交给 ApprovalsService 的
     // 角色路由，不经这张写权限组）。
     'COMPLAINT_READ',
+    // 战役丙波四 T5（spec §5）：DSR_READ 恰绑 DPO/合规官/内审三职务——合规官督办视角只读，
+    // 不持 DSR_WRITE（办理是 DPO 独占，合规官不是经办人）。
+    'DSR_READ',
   ],
 
   // 定价的主人：费率两族的写权限全仓仅此一处（提由他提，运营复核）。

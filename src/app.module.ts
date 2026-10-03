@@ -38,6 +38,7 @@ import { OnboardingModule } from './modules/identity/onboarding/onboarding.modul
 import { TierUpgradeModule } from './modules/identity/tier-upgrade/tier-upgrade.module';
 import { ProfileBannersModule } from './modules/identity/profile-banners/profile-banners.module';
 import { AgreementsModule } from './modules/identity/agreements/agreements.module';
+import { DsrRequestsModule } from './modules/identity/dsr-requests/dsr-requests.module';
 import { FundsLayerModule } from './modules/funds-layer/funds-layer.module';
 import { FundsOrdersModule } from './modules/funds-orders/funds-orders.module';
 import { TradingReadinessModule } from './modules/trading/shared/trading-readiness.module';
@@ -101,6 +102,7 @@ import { TransactionLimitsModule as TransactionLimitRulesModule } from './module
     TierUpgradeModule,
     ProfileBannersModule,
     AgreementsModule,
+    DsrRequestsModule,
     FundsLayerModule,
     FundsOrdersModule,
     TradingReadinessModule,

@@ -813,13 +813,17 @@ function runStaticChecks(): void {
     // 战役丙波三 T9：新增 compliance-office.agreements 一桶、AGREEMENT_WRITE 一组，数字再顺延
     // 一格（81→82 桶、89→90 组）——同样先在 81/89 门槛下落红（本任务实测：82 桶/90 组），
     // 再改成 82/90 转绿。
-    'S13d 波前→波后计数（域 15→15 不变、桶 81→82、组 89→90；AGREEMENT_WRITE 新成员在册）',
-    totalDomains === 15 && totalBuckets === 82 && declaredPermissionGroups.size === 90 &&
+    // 战役丙波四 T5：新增 compliance-office.dsr 一桶、DSR_READ/DSR_WRITE 两组，数字再顺延
+    // （82→83 桶、90→92 组）——同样先在 82/90 门槛下落红（本任务实测：83 桶/92 组），再改成
+    // 83/92 转绿。
+    'S13d 波前→波后计数（域 15→15 不变、桶 82→83、组 90→92；DSR_READ/DSR_WRITE 新成员在册）',
+    totalDomains === 15 && totalBuckets === 83 && declaredPermissionGroups.size === 92 &&
       declaredPermissionGroups.has('FUNDING_READ') && declaredPermissionGroups.has('FUNDING_WRITE') &&
       declaredPermissionGroups.has('FUNDING_DASHBOARD_VIEW') && declaredPermissionGroups.has('PRUDENTIAL_CHECK_WRITE') &&
-      declaredPermissionGroups.has('AGREEMENT_WRITE'),
-    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 82）｜` +
-      `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 90，含 FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW/PRUDENTIAL_CHECK_WRITE/AGREEMENT_WRITE）`,
+      declaredPermissionGroups.has('AGREEMENT_WRITE') &&
+      declaredPermissionGroups.has('DSR_READ') && declaredPermissionGroups.has('DSR_WRITE'),
+    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 83）｜` +
+      `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 92，含 FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW/PRUDENTIAL_CHECK_WRITE/AGREEMENT_WRITE/DSR_READ/DSR_WRITE）`,
   );
 
   // ── S14：公司资金三组「四处齐」+ 唯一持有断言 + OR 粗门登记（战役乙波二 T3/T5/T8/T10）──
@@ -895,7 +899,7 @@ function runStaticChecks(): void {
   // 同 S10-S14 范式：单个新组（PRUDENTIAL_CHECK_WRITE）核验 route() 挂载 /
   // ACTION_BUCKET_CATALOG 桶挂载 / 职务持有均 >=1（联合类型成员由 tsc 收口，同 S10-S14
   // 头注释）；桶挂既有 Treasury 域（treasury.prudential_check，T3 域注释），域数不变仍
-  // 15——桶/组总数由 S13d 持续顺延（丙波三 T9 后为 82/90）并断言 PRUDENTIAL_CHECK_WRITE 在册，本判据不
+  // 15——桶/组总数由 S13d 持续顺延（丙波四 T5 后为 83/92）并断言 PRUDENTIAL_CHECK_WRITE 在册，本判据不
   // 重复算总数，只核这一个新组本身「登记齐全」。再加一条精确持有断言——
   // PRUDENTIAL_CHECK_WRITE 唯金库持有（T3 定案：运营/合规官/高管均不加，同
   // LP_WRITE/FUNDING_WRITE「maker≠checker」反向先例）。再加一条丙案钉死判据（brief
@@ -994,6 +998,82 @@ function runStaticChecks(): void {
     agreementRouteBad.length === 0
       ? AGREEMENT_ROUTE_EXPECT.map((e) => `POST ${e.path}: groups=[${e.group}]`).join('；')
       : `不符: ${agreementRouteBad.join(' ｜ ')}`,
+  );
+
+  // ── S16 续（战役丙波四 T5）：DSR 资料请求两组「四处齐」+ 唯一持有 + 桶/六路由挂组精确 ──
+  // 同 S12/S16a-c 范式（静态、读结构、不起行为探针）。DSR_WRITE 是 DPO 的第一个经办面——
+  // 受理/生成摘要/办结全在一组，DPO 独占（合规官/内审只持 DSR_READ，看得见办不了）；DSR_READ 恰绑
+  // DPO/合规官/内审三职务（照 COMPLAINT_READ 三读者先例）。持有口径同 S16a：只数
+  // RBAC_ROLE_GROUP_BINDINGS 显式绑定（SUPER_ADMIN 靠 guard 短路、不在表里）。再钉两处挂组：
+  // 桶 compliance-office.dsr 恰挂 [DSR_READ, DSR_WRITE]；六路由 groups 各自精确——list/detail
+  // 只挂 DSR_READ、start-review/generate-summary/resolve 只挂 DSR_WRITE、⚡simulate-timeout 只挂
+  // DEMO_CLOCK_WRITE（DPO 是经办人但拨不动钟，防有人把⚡并进 DSR_WRITE，或把写面误挂读组）。
+  const DSR_GROUPS: PermissionGroup[] = ['DSR_READ', 'DSR_WRITE'];
+  const dsrCoverage = DSR_GROUPS.map((g) => {
+    const groupRoutes = RBAC_PERMISSION_DEFINITIONS.filter((d) => d.groups.includes(g));
+    const groupBuckets = ACTION_BUCKET_CATALOG.flatMap((domain) => domain.buckets).filter((b) => b.groups.includes(g));
+    const groupHolders = Object.entries(RBAC_ROLE_GROUP_BINDINGS)
+      .filter(([, groups]) => (groups as PermissionGroup[]).includes(g))
+      .map(([role]) => role);
+    return { group: g, routes: groupRoutes.length, buckets: groupBuckets.length, holders: groupHolders };
+  });
+  const uncoveredDsrGroups = dsrCoverage.filter((c) => c.routes < 1 || c.buckets < 1 || c.holders.length < 1);
+  check(
+    'S16d DSR 两组四处齐（route() / ACTION_BUCKET_CATALOG 桶 / 职务持有；联合类型由 tsc 收口）',
+    uncoveredDsrGroups.length === 0,
+    uncoveredDsrGroups.length === 0
+      ? dsrCoverage.map((c) => `${c.group}: route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length}`).join('；')
+      : `未齐全: ${uncoveredDsrGroups.map((c) => `${c.group}(route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length})`).join(', ')}`,
+  );
+
+  const dsrWriteHolders = dsrCoverage.find((c) => c.group === 'DSR_WRITE')!.holders;
+  const dsrWriteExact = dsrWriteHolders.length === 1 && dsrWriteHolders[0] === 'DPO';
+  check(
+    'S16e DSR_WRITE 唯 DPO 持有（资料请求办理独占，合规官/内审只读）',
+    dsrWriteExact,
+    dsrWriteExact
+      ? '持有职务集合恰为 {DPO}'
+      : `持有职务集合为 {${dsrWriteHolders.join(',') || '空'}}，期望恰为 {DPO}`,
+  );
+
+  const dsrReadHolders = new Set(dsrCoverage.find((c) => c.group === 'DSR_READ')!.holders);
+  const expectedDsrReadHolders = new Set(['DPO', 'COMPLIANCE_OFFICER', 'INTERNAL_AUDITOR']);
+  const dsrReadExact = dsrReadHolders.size === expectedDsrReadHolders.size &&
+    [...expectedDsrReadHolders].every((r) => dsrReadHolders.has(r));
+  check(
+    'S16f DSR_READ 恰为 {DPO,合规官,内审}',
+    dsrReadExact,
+    dsrReadExact
+      ? `持有职务集合恰为 {${[...dsrReadHolders].join(',')}}`
+      : `持有职务集合为 {${[...dsrReadHolders].join(',')}}，期望恰为 {${[...expectedDsrReadHolders].join(',')}}`,
+  );
+
+  const dsrBuckets = ACTION_BUCKET_CATALOG.flatMap((domain) => domain.buckets).filter((b) => b.key === 'compliance-office.dsr');
+  const dsrBucketExact = dsrBuckets.length === 1 &&
+    dsrBuckets[0].groups.length === 2 && dsrBuckets[0].groups.includes('DSR_READ') && dsrBuckets[0].groups.includes('DSR_WRITE');
+  const DSR_ROUTE_EXPECT: Array<{ method: 'GET' | 'POST'; path: string; group: PermissionGroup }> = [
+    { method: 'GET', path: '/admin/dsr-requests', group: 'DSR_READ' },
+    { method: 'GET', path: '/admin/dsr-requests/:requestNo', group: 'DSR_READ' },
+    { method: 'POST', path: '/admin/dsr-requests/:requestNo/start-review', group: 'DSR_WRITE' },
+    { method: 'POST', path: '/admin/dsr-requests/:requestNo/generate-summary', group: 'DSR_WRITE' },
+    { method: 'POST', path: '/admin/dsr-requests/:requestNo/resolve', group: 'DSR_WRITE' },
+    { method: 'POST', path: '/admin/dsr-requests/:requestNo/simulate-timeout', group: 'DEMO_CLOCK_WRITE' },
+  ];
+  const dsrRouteBad = DSR_ROUTE_EXPECT.flatMap(({ method, path: routePath, group }) => {
+    const hit = RBAC_PERMISSION_DEFINITIONS.filter((d) => d.method === method && d.path === routePath);
+    if (hit.length !== 1) return [`${method} ${routePath}: 路由数 ${hit.length}（期望恰 1）`];
+    const got = hit[0].groups as string[];
+    return got.length === 1 && got[0] === group ? [] : [`${method} ${routePath}: groups=[${got.join(',')}]，期望恰为 [${group}]`];
+  });
+  check(
+    'S16g 桶 compliance-office.dsr 恰挂 [DSR_READ,DSR_WRITE]；六路由 groups 各自精确（list/detail=DSR_READ、三写=DSR_WRITE、⚡=DEMO_CLOCK_WRITE）',
+    dsrBucketExact && dsrRouteBad.length === 0,
+    dsrBucketExact && dsrRouteBad.length === 0
+      ? DSR_ROUTE_EXPECT.map((e) => `${e.method} ${e.path}: [${e.group}]`).join('；')
+      : `不符: ${[
+        ...(dsrBucketExact ? [] : [`桶 compliance-office.dsr 数 ${dsrBuckets.length} / groups=[${dsrBuckets[0]?.groups.join(',') ?? ''}]`]),
+        ...dsrRouteBad,
+      ].join(' ｜ ')}`,
   );
 }
 
@@ -1619,6 +1699,32 @@ const PROBES: DirectionalProbe[] = [
     section: '投诉两组门(T6)', name: '金库 不得 看投诉列表', method: 'GET',
     routePattern: '/admin/complaints', path: '/admin/complaints',
     role: 'treasury', expect: 'DENY',
+  },
+
+  // ── DSR 资料请求办理独占 DPO、⚡拨钟 DPO 拨不动（战役丙波四 T5）─────────────────
+  // 四条纯权限闸探针，同「投诉两组门」先例：Guard 先于 Pipe/Handler 跑，占位 requestNo（NOPE
+  // 业务上必然不存在）+ 空 body 在业务层之前就被挡；ALLOW 判据只验权限闸不验业务——守卫放行后
+  // 落到 DsrRequestsService.findByNo 抛 404，非 403 即成立，零写入零残留（同 LP suspend 占位先例）。
+  // 不选真建 DSR 的探针：DSR 工单没有「撤回」边（只能走受理→办结），探针不该给演示库掺清不掉的单。
+  {
+    section: 'DSR 办理独占 DPO(T5)', name: 'DPO 可以 办结资料请求（占位 requestNo，DSR_WRITE 正例）', method: 'POST',
+    routePattern: '/admin/dsr-requests/:requestNo/resolve', path: `/admin/dsr-requests/${NOPE}/resolve`,
+    role: 'dpo', expect: 'ALLOW', body: { resolutionCode: 'RECTIFICATION_SELF_SERVICE', resolutionNote: 'verify:rbac probe' },
+  },
+  {
+    section: 'DSR 办理独占 DPO(T5)', name: '合规官 不得 办结资料请求（只持 DSR_READ，办不了）', method: 'POST',
+    routePattern: '/admin/dsr-requests/:requestNo/resolve', path: `/admin/dsr-requests/${NOPE}/resolve`,
+    role: 'compliance_lead', expect: 'DENY', body: { resolutionCode: 'RECTIFICATION_SELF_SERVICE', resolutionNote: 'verify:rbac probe' },
+  },
+  {
+    section: 'DSR 办理独占 DPO(T5)', name: '运营 不得 看资料请求列表（无 DSR_READ）', method: 'GET',
+    routePattern: '/admin/dsr-requests', path: '/admin/dsr-requests',
+    role: 'ops_officer', expect: 'DENY',
+  },
+  {
+    section: 'DSR 办理独占 DPO(T5)', name: 'DPO 不得 ⚡拨快资料请求到期钟（DPO 是经办人但无 DEMO_CLOCK_WRITE）', method: 'POST',
+    routePattern: '/admin/dsr-requests/:requestNo/simulate-timeout', path: `/admin/dsr-requests/${NOPE}/simulate-timeout`,
+    role: 'dpo', expect: 'DENY',
   },
 
   // ── LP 台仅金库写、CFO 只读推不动（战役乙波一 T10）──────────────────────

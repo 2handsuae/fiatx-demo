@@ -539,6 +539,12 @@ export const AuditActions = {
   AGREEMENT_DECLINED: 'AGREEMENT_DECLINED',
   // ── 战役丙波四 T3（2026-10-03）：月结单出具一码（域 GOVERNANCE）──────────────────
   STATEMENT_ISSUED: 'STATEMENT_ISSUED',
+  // ── 战役丙波四 T5（2026-10-03）：DSR 资料请求五码（域 GOVERNANCE）──────────────────
+  DSR_SUBMITTED: 'DSR_SUBMITTED',
+  DSR_REVIEW_STARTED: 'DSR_REVIEW_STARTED',
+  DSR_SUMMARY_GENERATED: 'DSR_SUMMARY_GENERATED',
+  DSR_RESOLVED: 'DSR_RESOLVED',
+  DSR_DEADLINE_FASTFORWARDED: 'DSR_DEADLINE_FASTFORWARDED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1338,6 +1344,19 @@ export const CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS: Record<string, AuditActionSp
   // primarySubject=MONTHLY_STATEMENT·业务键 statementNo；requestId=statementNo（缺了会被审计
   // idempotencyKey 静默去重）。
   STATEMENT_ISSUED:            { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['statementNo', 'periodMonth'], requiresCausation: false },
+  // 战役丙波四 T5：DSR 资料请求五码（同入本册，三处登记点零新增）。主体 = DSR_REQUEST·业务键 requestNo，
+  // 另带 OWNER=客户；全是单步动作无旅程可继承（correlationMode=N）；必填字段顶层展开（assertActionSpec
+  // 只查 input 顶层）+ metadata 镜像；每条显式 requestId（DSR_DEADLINE_FASTFORWARDED 可对同单重拨，故带随机后缀）。
+  // 提交（actor=客户）
+  DSR_SUBMITTED:               { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['requestNo', 'type'], requiresCausation: false },
+  // 受理（actor=DPO，SUBMITTED→IN_REVIEW）
+  DSR_REVIEW_STARTED:          { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['requestNo'], requiresCausation: false },
+  // 生成资料摘要（actor=DPO，仅 ACCESS，快照只写一次）
+  DSR_SUMMARY_GENERATED:       { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['requestNo'], requiresCausation: false },
+  // 办结（actor=DPO，IN_REVIEW→RESOLVED；resolutionCode 四值之一）
+  DSR_RESOLVED:                { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['requestNo', 'resolutionCode'], requiresCausation: false },
+  // ⚡快进到期钟（演示装置，操作者=金库/超管留痕，照 COMPLAINT_DEADLINE_FASTFORWARDED）
+  DSR_DEADLINE_FASTFORWARDED:  { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['requestNo'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——
