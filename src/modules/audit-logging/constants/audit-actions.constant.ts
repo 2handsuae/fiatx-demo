@@ -537,6 +537,8 @@ export const AuditActions = {
   AGREEMENT_EFFECTIVE: 'AGREEMENT_EFFECTIVE',
   AGREEMENT_ACCEPTED: 'AGREEMENT_ACCEPTED',
   AGREEMENT_DECLINED: 'AGREEMENT_DECLINED',
+  // ── 战役丙波四 T3（2026-10-03）：月结单出具一码（域 GOVERNANCE）──────────────────
+  STATEMENT_ISSUED: 'STATEMENT_ISSUED',
 } as const;
 
 // 站4 清扫:十条死词映射(APPROVAL_APPROVED/EXECUTED、ADMIN_INVITATION_*、USER_*、
@@ -1310,7 +1312,7 @@ export const CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS: Record<string, AuditActionSp
   // audit-logs 查表三处登记点零新增。单步动作无旅程可继承，correlationMode=N；必填
   // confirmationNo（顶层展开，assertActionSpec 只查 input 顶层）；requestId=确认单行 id。
   CONFIRMATION_ISSUED: { domain: 'SWAP', correlationMode: N, requiredFields: ['confirmationNo'], requiresCausation: false },
-  // 战役丙波三 T2：客户协议七码——同入本册（触达册自此是「通知 + 确认单 + 协议」），词表导出器/
+  // 战役丙波三 T2：客户协议七码——同入本册（触达册自此是「通知 + 确认单 + 协议 + 月结单 + DSR」），词表导出器/
   // closure 守则/audit-logs 查表三处登记点零新增。全是单步动作无旅程可继承，correlationMode=N。
   // 主体信封：primarySubject=AGREEMENT_VERSION·业务键 versionKey；表态两码另带 OWNER=客户。
   // 必填字段顶层展开（assertActionSpec 只查 input 顶层）+ metadata 镜像；每条带显式 requestId
@@ -1329,6 +1331,13 @@ export const CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS: Record<string, AuditActionSp
   AGREEMENT_ACCEPTED:          { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['versionKey', 'source'], requiresCausation: false },
   // 客户暂不同意（仅对当前生效版可落，T2 写点）
   AGREEMENT_DECLINED:          { domain: 'CUSTOMER', correlationMode: N, requiredFields: ['versionKey', 'source'], requiresCausation: false },
+  // 战役丙波四 T3：月结单出具（actor=system，同 CONFIRMATION_ISSUED 先例）。MonthlyStatementService.issue
+  // 先落 customer_monthly_statements 快照行、再写本码；通知由 sweep 在其后发。DSR 码由 T5 入同册——
+  // 词表导出器/closure 守则/audit-logs 查表三处登记点零新增。单步动作无旅程可继承，correlationMode=N；
+  // 必填 statementNo+periodMonth（顶层展开，assertActionSpec 只查 input 顶层）；主体信封
+  // primarySubject=MONTHLY_STATEMENT·业务键 statementNo；requestId=statementNo（缺了会被审计
+  // idempotencyKey 静默去重）。
+  STATEMENT_ISSUED:            { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['statementNo', 'periodMonth'], requiresCausation: false },
 };
 
 /** 动态迁移码族（<域>_<从>_TO_<到>，充值站1b-β/提现站2-β 整族废除；站7 扩面治理五簿+监管闸——
