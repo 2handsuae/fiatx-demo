@@ -92,7 +92,7 @@ RED-RETRY 不算边——停留 `IN_REVIEW`，清 `materialsSubmittedAt` 重开�
 
 ## 7. 客户协议（战役丙波三，2026-10-03）
 
-> 总纲 `superpowers/specs/2026-09-30-campaign-c-outreach-disclosure-charter.md` §1.1/§2 波三行；spec 随合并归档（含执行订正 9 条）。管客户签的条款**有版本可查、变更有人批、客户有得选、选了留痕**。与上文 lifecycle / 限制账**正交**：不新增 lifecycle 边、不贴便签，只是 DEPOSIT / SWAP 两个能力门多一个条件。
+> 总纲 `archive/superpowers/specs/2026-09-30-campaign-c-outreach-disclosure-charter.md`（已归档） §1.1/§2 波三行；spec 随合并归档（含执行订正 9 条）。管客户签的条款**有版本可查、变更有人批、客户有得选、选了留痕**。与上文 lifecycle / 限制账**正交**：不新增 lifecycle 边、不贴便签，只是 DEPOSIT / SWAP 两个能力门多一个条件。
 
 **为什么有这一节。** 现行条款末节原承诺"重大变更至少提前 14 天通知"，系统无版本概念、无从兑现，条款同意还是纯前端闸（注册页自认）。2026-10-02 核 VARA Market Conduct Rulebook **II.A.7** 原文：协议任何变更须提前 **30 个日历日**通知客户（同节 II.A.8 保留单方变更权须写明、II.A.9 须保留历次版本、II.A.5/6 提供服务前取得接受并给客户副本）——14 天本身不合规。于是：协议成为**有版本的登记物**，发布走审批，通知期系统强制 ≥ 30 天。
 
@@ -143,7 +143,7 @@ RED-RETRY 不算边——停留 `IN_REVIEW`，清 `materialsSubmittedAt` 重开�
 
 ## 8. 资料请求 DSR · 改档案通道 · phone 自助改（战役丙波四，2026-10-03）
 
-> 总纲 `superpowers/specs/2026-09-30-campaign-c-outreach-disclosure-charter.md` §1 岔口 1 / §2 波四行；spec 随合并归档（含执行订正）。管客户**要自己的资料有门可走**：查 / 改 / 删三种请求一张工单、一个 30 天的钟、DPO 一个人办、全程留痕。与 §7 协议同属"客户触达与披露"战役，同样**不动 lifecycle、不贴便签**。
+> 总纲 `archive/superpowers/specs/2026-09-30-campaign-c-outreach-disclosure-charter.md`（已归档） §1 岔口 1 / §2 波四行；spec 随合并归档（含执行订正）。管客户**要自己的资料有门可走**：查 / 改 / 删三种请求一张工单、一个 30 天的钟、DPO 一个人办、全程留痕。与 §7 协议同属"客户触达与披露"战役，同样**不动 lifecycle、不贴便签**。
 
 **为什么有这一节。** 条款第 VI 节（Privacy & Data Protection）早已向客户承诺"DPO 30 天内答复数据请求"，系统却没有任何受理这类请求的主体——客户无处提、DPO 无处办、30 天钟无处挂。同时，原计划"改"的出口"合规官人工落档"缺落点：管理台裸 CRUD 客户端点 2026-09-16 已整体删除，`CUSTOMER_WRITE` 权限组与 `customer.manage_profile` 桶成了**零路由孤儿**（BACKLOG 旧账）。于是：新建 DSR 工单主体 + 新开"改档案"admin 通道（顺手把孤儿桶填实、销账）+ 客户自助改 phone。
 

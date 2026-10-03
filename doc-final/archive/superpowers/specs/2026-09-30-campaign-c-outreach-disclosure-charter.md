@@ -1,6 +1,6 @@
 # 战役丙「客户触达与披露」总纲
 
-> 立纲 2026-09-30 ｜ **2026-10-02 改纲：三波 → 四波**（客户协议从波二拆出独立成波三，原波三「月结单与 DSR」顺延为波四，理由见 §1.1）｜ 状态：**波一已收官合 main（2026-10-01 快进 2f0a5c6e）；波二已收官合 main（2026-10-02 快进 6cc473f4；spec 含执行订正三条，spec/plan/骨架已归档 `archive/superpowers/`）；波三已收官（2026-10-03 T12 收口，快进合并 main `0a58bde5`；spec 含执行订正 9 条，spec/plan/骨架随合并归档）；**波四已收官（2026-10-03 T12 收口，合并哈希待填；spec 含执行订正 13 条，spec / plan / 骨架随合并归档）——丙战役四波全部收官**（骨架 `2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md` 含波三承接，已兑现）** ｜ 体检：`checkups/2026-09-30-campaign-c-outreach-disclosure-checkup.md`（上游：同日 BD 参照系盘点 `checkups/2026-09-30-bd-landscape-vs-modules.md`）
+> 立纲 2026-09-30 ｜ **2026-10-02 改纲：三波 → 四波**（客户协议从波二拆出独立成波三，原波三「月结单与 DSR」顺延为波四，理由见 §1.1）｜ 状态：**波一已收官合 main（2026-10-01 快进 2f0a5c6e）；波二已收官合 main（2026-10-02 快进 6cc473f4；spec 含执行订正三条，spec/plan/骨架已归档 `archive/superpowers/`）；波三已收官（2026-10-03 T12 收口，快进合并 main `0a58bde5`；spec 含执行订正 9 条，spec/plan/骨架随合并归档）；**波四已收官（2026-10-03 快进合并 main `c34c47cf`、已推 GitHub；spec 含执行订正 14 条；Opus 终审 With fixes → 一次 fix wave，Fable 补终审 Ready to merge；spec / plan / 骨架与本总纲随合并归档）——丙战役四波全部收官**（骨架 `2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md` 含波三承接，已兑现）** ｜ 体检：`checkups/2026-09-30-campaign-c-outreach-disclosure-checkup.md`（上游：同日 BD 参照系盘点 `checkups/2026-09-30-bd-landscape-vs-modules.md`）
 > 波次执行按 CLAUDE.md §6：spec 只写细当前波；每波收尾按 `rules/delivery-checklist.md` 写承接记录进下一波骨架；**本纲活到最后一波**。
 
 ## §0 目标与判准
@@ -47,8 +47,8 @@
 
 - **波一**：已收官（2026-10-01 合 main）；骨架与 spec（含「执行订正」节：FROZEN 收敛真值、兑换 9 事务点后置）已随波归档 `archive/superpowers/specs/`。
 - **波二**：已收官（2026-10-02 合 main 6cc473f4）；骨架与 spec（含「执行订正」节：toAssetCode 补列 / CNF 无连字符 / 漏斗 8 调用点+SLA 直调第 9 发信点）已随波归档 `archive/superpowers/`。
-- **波三**：已收官（2026-10-03 T12 收口，合并哈希待填）；骨架与 spec（含「执行订正」9 条：种子 13 非 11 / `intakeDecision` 改前置拦 / 强制弹窗补查看全文 / 打印改流式 + 叠层修 / `/me` 四键含 `previous` / 通知本地日口径 / S16 判据补 / 零协议动作互链 / 幕号落第十幕）与 plan 随合并归档 `archive/superpowers/`。
-- **波四**：**已收官**（2026-10-03 T12 收口，合并哈希待填）；spec 含「执行订正」13 条（phone 路由命名 / ⚡ requestId 随机后缀 / `clauseRef` 取最新 ACCEPTED / 摘要不打码 / 月结单行序新→旧与币种键 / admin `balances` / Henry 种子三取舍与 `data.md` 零 diff 判据推翻 / ⚡ 实际唯超管可点 / `audit-mask` 前提不成立 / integration 未入库与快照不漂实验 / 四张历史单 / 幕序 / 数量表终值）与 plan、骨架随合并归档 `archive/superpowers/`。以下为立纲 / 立骨架时的已定事实，原文保留：骨架 `2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md`（含波三承接；已定事实已搬运进骨架）。监管依据（2026-10-02 一手核实）：CRM **IV.D.2** 客户资金月结单须于结单日后 25 天内出具；Custody III.D.4 有月度虚拟资产对账单（本司仅 BD 牌照，是否适用波内裁）。月结单定版形态——快照 or 按月重查（⚠️判例在案：实时快照不可批量补拍，乙波三 t11-05）；DSR 三种请求（查/改/删）各自结局——"删"演"因监管留存义务部分拒绝"（条款原文 `CustomerRegister.tsx:93` 写着 subject to retention obligations，是现成的戏）；DSR 请求经不经审批链（DPO 独办 or maker-checker）。
+- **波三**：已收官（2026-10-03 T12 收口，快进合并 main `0a58bde5`）；骨架与 spec（含「执行订正」9 条：种子 13 非 11 / `intakeDecision` 改前置拦 / 强制弹窗补查看全文 / 打印改流式 + 叠层修 / `/me` 四键含 `previous` / 通知本地日口径 / S16 判据补 / 零协议动作互链 / 幕号落第十幕）与 plan 随合并归档 `archive/superpowers/`。
+- **波四**：**已收官**（2026-10-03 快进合并 main `c34c47cf`，已推 GitHub）；spec 含「执行订正」14 条（phone 路由命名 / ⚡ requestId 随机后缀 / `clauseRef` 取最新 ACCEPTED / 摘要不打码 / 月结单行序新→旧与币种键 / admin `balances` / Henry 种子三取舍与 `data.md` 零 diff 判据推翻 / ⚡ 实际唯超管可点 / `audit-mask` 前提不成立 / integration 未入库与快照不漂实验 / 四张历史单 / 幕序 / 数量表终值 / 终审修：DSR 办结编排抽至 `dsr-resolution-workflow`、开单次序先 issue 后 resolve、DSR 深链落列表页、两处无消费接口可留、§5 探针补齐）与 plan、骨架随合并归档 `archive/superpowers/`。以下为立纲 / 立骨架时的已定事实，原文保留：骨架 `2026-10-02-campaign-c-wave4-statements-dsr-skeleton.md`（含波三承接；已定事实已搬运进骨架）。监管依据（2026-10-02 一手核实）：CRM **IV.D.2** 客户资金月结单须于结单日后 25 天内出具；Custody III.D.4 有月度虚拟资产对账单（本司仅 BD 牌照，是否适用波内裁）。月结单定版形态——快照 or 按月重查（⚠️判例在案：实时快照不可批量补拍，乙波三 t11-05）；DSR 三种请求（查/改/删）各自结局——"删"演"因监管留存义务部分拒绝"（条款原文 `CustomerRegister.tsx:93` 写着 subject to retention obligations，是现成的戏）；DSR 请求经不经审批链（DPO 独办 or maker-checker）。
 
 ## §4 设计红线（全战役）
 

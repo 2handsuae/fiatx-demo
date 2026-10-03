@@ -51,7 +51,7 @@
 
 ## 7. 月结单（战役丙波四，2026-10-03）
 
-> 总纲 `superpowers/specs/2026-09-30-campaign-c-outreach-disclosure-charter.md` §1 岔口 1 / §2 波四行；spec 随合并归档（含执行订正）。月结单主体挂 `asset-treasury/treasury/`，与读模型 `customer-statement.service.ts` 同屋——它和上文内部划转单是同一域里两件不相干的事：划转单管"公司的钱怎么给客户"，月结单管"客户账本的历史月份怎么固化成单据发给客户"。
+> 总纲 `archive/superpowers/specs/2026-09-30-campaign-c-outreach-disclosure-charter.md`（已归档） §1 岔口 1 / §2 波四行；spec 随合并归档（含执行订正）。月结单主体挂 `asset-treasury/treasury/`，与读模型 `customer-statement.service.ts` 同屋——它和上文内部划转单是同一域里两件不相干的事：划转单管"公司的钱怎么给客户"，月结单管"客户账本的历史月份怎么固化成单据发给客户"。
 
 **为什么是"出具的单据"。** 客户端原先只有"活水页"（`GET client/portfolio/statement`，按日期区间现查账本腿）：每次打开都重算，平账调整可回溯，同一个月今天看与下月看数字可能不同。监管的动词是 **issue**（VARA CRM IV.D.2：客户资金月结单须于结单日后 25 天内出具；Custody III.D.4 的月度虚拟资产对账单本司仅 BD 牌照、是否适用波内留白）。所以月结单是**出具并留存的单据**，沿成交确认单（D-26）三性：**一单一张（客户 × 月）、只写一次、出具时刻与审计留痕**——决策见 `decisions.md` 与 `delivery/decision-log.md` D-28。
 
