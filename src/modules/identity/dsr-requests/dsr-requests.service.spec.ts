@@ -515,5 +515,26 @@ describe('DsrRequestsService (丙波四 T5)', () => {
         expect(row).not.toHaveProperty(banned);
       }
     });
+
+    it('getForCustomer returns my own request in the same client projection (summary parsed, no dueAt / ids); someone else\'s number and an unknown number get the identical 404', async () => {
+      const h = makeHarness({ customers: [customerRow(), customerRow({ id: 'cust-uuid-2', customerNo: 'CU0002', email: 'x@example.com', phone: '+971500000002' })] });
+      const mine = await inReview(h, 'ACCESS');
+      await h.service.generateSummary(dpo, mine);
+      const theirs = (await h.service.submit({ id: 'cust-uuid-2' }, { type: 'ACCESS', detail: 'someone else' })).requestNo;
+
+      const row = (await h.service.getForCustomer('cust-uuid-1', mine)) as any;
+      expect(row).toMatchObject({ requestNo: mine, type: 'ACCESS', status: 'IN_REVIEW', detail: 'Please show me what you hold about me' });
+      expect(row.summary.profile.customerNo).toBe('CU0001');
+      for (const banned of ['dueAt', 'materialRequestNo', 'id', 'customerId', 'customerNo']) {
+        expect(row).not.toHaveProperty(banned);
+      }
+
+      const other = await h.service.getForCustomer('cust-uuid-1', theirs).catch((e) => e);
+      const unknown = await h.service.getForCustomer('cust-uuid-1', 'DSR000000000000').catch((e) => e);
+      expect(other).toBeInstanceOf(NotFoundException);
+      expect(unknown).toBeInstanceOf(NotFoundException);
+      expect(other.message).toBe(unknown.message);
+      expect(other.message).not.toContain(theirs);
+    });
   });
 });

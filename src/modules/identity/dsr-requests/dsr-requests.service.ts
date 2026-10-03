@@ -20,7 +20,7 @@ import { AuditCategory, AuditSubjectRole } from '../../audit-logging/dto/audit-l
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import {
   DSR_CLAUSE_SECTION, DSR_DUE_DAYS, DSR_RESOLUTION_BY_TYPE, DSR_STATUS_TRANSITIONS, DSR_SUMMARY_PROFILE_FIELDS,
-  DsrClauseRef, DsrResolutionCode, DsrStatus, DsrSummarySnapshot, DsrType,
+  DsrClauseRef, DsrResolutionCode, DsrResolutionCodeValue, DsrStatus, DsrStatusValue, DsrSummarySnapshot, DsrType, DsrTypeValue,
 } from './dsr.constants';
 
 /** 两种 actor：客户（submit）/ 管理台（其余四个写方法）。只在本文件内选 recordByActor 的 actorType 分支。 */
@@ -49,12 +49,12 @@ export interface DsrAdminView extends DsrListItem {
 /** 客户面显式投影：dueAt 是内部办理时限不下发；materialRequestNo/customerNo 也不下发。 */
 export interface ClientDsrRow {
   requestNo: string;
-  type: string;
+  type: DsrTypeValue;
   detail: string;
-  status: string;
+  status: DsrStatusValue;
   submittedAt: string;
   resolvedAt: string | null;
-  resolutionCode: string | null;
+  resolutionCode: DsrResolutionCodeValue | null;
   resolutionNote: string | null;
   clauseRef: DsrClauseRef | null;
   summary: DsrSummarySnapshot | null;
@@ -135,21 +135,33 @@ export class DsrRequestsService {
     };
   }
 
-  /** 客户面：只列自己的（customerId = JWT sub）。显式字段投影，不下发 dueAt/materialRequestNo/任何 id。 */
-  async listForCustomer(customerId: string): Promise<ClientDsrRow[]> {
-    const rows = await this.prisma.dataSubjectRequest.findMany({ where: { customerId }, orderBy: { submittedAt: 'desc' } });
-    return rows.map((r) => ({
+  /** 客户面唯一出口：显式字段投影，不下发 dueAt/materialRequestNo/customerNo/任何 id。 */
+  private toClientRow(r: DataSubjectRequest): ClientDsrRow {
+    return {
       requestNo: r.requestNo,
-      type: r.type,
+      type: r.type as DsrTypeValue,
       detail: r.detail,
-      status: r.status,
+      status: r.status as DsrStatusValue,
       submittedAt: r.submittedAt.toISOString(),
       resolvedAt: r.resolvedAt ? r.resolvedAt.toISOString() : null,
-      resolutionCode: r.resolutionCode ?? null,
+      resolutionCode: (r.resolutionCode ?? null) as DsrResolutionCodeValue | null,
       resolutionNote: r.resolutionNote ?? null,
       clauseRef: this.parseJson<DsrClauseRef>(r.clauseRef),
       summary: this.parseJson<DsrSummarySnapshot>(r.summary),
-    }));
+    };
+  }
+
+  /** 客户面：只列自己的（customerId = JWT sub）。 */
+  async listForCustomer(customerId: string): Promise<ClientDsrRow[]> {
+    const rows = await this.prisma.dataSubjectRequest.findMany({ where: { customerId }, orderBy: { submittedAt: 'desc' } });
+    return rows.map((r) => this.toClientRow(r));
+  }
+
+  /** 客户面详情：别人的号与不存在的号统一查无（同一句 404，不确认号是否真实存在）。 */
+  async getForCustomer(customerId: string, requestNo: string): Promise<ClientDsrRow> {
+    const row = await this.prisma.dataSubjectRequest.findUnique({ where: { requestNo } });
+    if (!row || row.customerId !== customerId) throw new NotFoundException('Data request not found');
+    return this.toClientRow(row);
   }
 
   // ── 迁移守卫（铁律④）──────────────────────────────────────────────

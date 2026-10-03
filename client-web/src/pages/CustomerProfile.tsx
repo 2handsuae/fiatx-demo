@@ -477,6 +477,20 @@ const CustomerProfile = () => {
           <span className="text-fx-brass">dpo@fiatx.ae</span>. Requests are answered within
           thirty days under the UAE Federal Personal Data Protection Law.
         </p>
+        <button
+          onClick={() => navigate('/data-requests')}
+          className="mt-4 w-full max-w-xl flex items-center justify-between gap-3 border border-fx-rule bg-fx-ink/40 px-4 py-3 text-left transition-colors hover:border-fx-brass/50 hover:bg-fx-brass/[0.03] group"
+        >
+          <div className="min-w-0">
+            <div className="font-mono text-[9px] uppercase tracking-[0.14em] text-fx-dust mb-0.5">
+              Submit a data request
+            </div>
+            <div className="font-sans text-[12px] text-fx-dune truncate">
+              Ask for a copy of your data, a correction, or deletion — and track the answer.
+            </div>
+          </div>
+          <ArrowRight size={13} className="text-fx-brass shrink-0 group-hover:translate-x-0.5 transition-transform" />
+        </button>
       </section>
     </div>
   );
