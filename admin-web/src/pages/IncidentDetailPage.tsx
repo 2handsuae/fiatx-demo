@@ -331,6 +331,14 @@ const IncidentDetailPage = () => {
   const hasTransferRemediation = detail.remediations.some((r) => r.kind === 'TRANSFER');
   const canInitiateCompensation = canWrite && !!postedAdjustment && !!detail.sourceCaseNo && !hasTransferRemediation;
 
+  // Type-Specific Details 卡的显示条件：subjectRefs 非空 ∨ 来路字段/顶层锚（六字段）任一非空。
+  const hasTypeSpecific =
+    (!!detail.subjectRefs && Object.keys(detail.subjectRefs).length > 0)
+    || [
+      detail.sourceCaseNo, detail.sourceDispositionNo, detail.sourceAdvanceTransferNo,
+      detail.customerNo, detail.assetCode, detail.amount,
+    ].some((v) => v != null && v !== '');
+
   const toggleBasisCode = (code: string) => {
     setReportBasisCodes((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
   };
@@ -362,34 +370,13 @@ const IncidentDetailPage = () => {
       <div className="flex flex-1 overflow-hidden">
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
 
-          {/* ① 基本信息 */}
+          {/* ① 基本信息——spec §2 详情页同口径：只留 Common 三件（Type/Title/Description）+ 状态/登记人/时间
+              等元信息；来路字段与顶层锚（案件号/定性行/垫款单号/客户/金额/币种）全进下面的 Type-Specific Details。 */}
           <DetailCard title="Basic Info" columns={3}>
             <InfoField label="Type" value={INCIDENT_TYPE_LABEL[detail.type] ?? detail.type} />
             <InfoField label="Status" value={INCIDENT_STATUS_LABEL[detail.status] ?? detail.status} />
-            <InfoField label="Amount" value={detail.amount != null ? `${detail.amount} ${detail.assetCode ?? ''}` : null} mono accent />
             <InfoField label="Title" value={detail.title} />
             <InfoField label="Description" value={detail.description} />
-            <InfoField
-              label="Source Case"
-              value={detail.sourceCaseNo}
-              mono
-              link={detail.sourceCaseNo ? `/admin/reconciliation/cases/${encodeURIComponent(detail.sourceCaseNo)}` : undefined}
-            />
-            {detail.sourceDispositionNo && <InfoField label="Source Disposition Line" value={detail.sourceDispositionNo} mono />}
-            {detail.sourceAdvanceTransferNo && (
-              <InfoField
-                label="Source Advance Transfer"
-                value={detail.sourceAdvanceTransferNo}
-                mono
-                link={`/admin/custody/internal-transfers/${encodeURIComponent(detail.sourceAdvanceTransferNo)}`}
-              />
-            )}
-            <InfoField
-              label="Customer"
-              value={detail.customerNo}
-              mono
-              link={detail.customerNo ? `/admin/customers/${encodeURIComponent(detail.customerNo)}` : undefined}
-            />
             <InfoField label="Registered By" value={detail.registeredBy} mono />
             <InfoField label="Registered At" value={fmt(detail.createdAt)} mono />
             {detail.closedAt && <InfoField label="Closed At" value={fmt(detail.closedAt)} mono />}
@@ -403,12 +390,40 @@ const IncidentDetailPage = () => {
             </div>
           )}
 
-          {/* ①b 类型专属锚（新七类，subjectRefs 键值区块——顶层锚 assetCode/customerNo/
-              amount 已经在 Basic Info 里，这里只放剩下那些，铁律⑥零 UUID：业务值全是文本/
-              受控枚举/布尔）。 */}
-          {detail.subjectRefs && Object.keys(detail.subjectRefs).length > 0 && (
+          {/* ①b 类型专属区（与登记弹窗 Type-specific 段同口径）：来路字段 → 顶层锚（客户/金额/币种）→
+              subjectRefs 键值（新七类动态锚；铁律⑥零 UUID：业务值全是文本/受控枚举/布尔）。
+              来路字段与顶层锚按值非空渲染——该类型不用的字段本就为空，不画「—」占位。 */}
+          {hasTypeSpecific && (
             <DetailCard title="Type-Specific Details" columns={3}>
-              {Object.entries(detail.subjectRefs).map(([key, value]) => (
+              {detail.sourceCaseNo && (
+                <InfoField
+                  label="Source Case"
+                  value={detail.sourceCaseNo}
+                  mono
+                  link={`/admin/reconciliation/cases/${encodeURIComponent(detail.sourceCaseNo)}`}
+                />
+              )}
+              {detail.sourceDispositionNo && <InfoField label="Source Disposition Line" value={detail.sourceDispositionNo} mono />}
+              {detail.sourceAdvanceTransferNo && (
+                <InfoField
+                  label="Source Advance Transfer"
+                  value={detail.sourceAdvanceTransferNo}
+                  mono
+                  link={`/admin/custody/internal-transfers/${encodeURIComponent(detail.sourceAdvanceTransferNo)}`}
+                />
+              )}
+              {detail.customerNo && (
+                <InfoField
+                  label="Customer"
+                  value={detail.customerNo}
+                  mono
+                  link={`/admin/customers/${encodeURIComponent(detail.customerNo)}`}
+                />
+              )}
+              {detail.amount != null && <InfoField label="Amount" value={`${detail.amount} ${detail.assetCode ?? ''}`} mono accent />}
+              {/* 币种单独成锚（如资产不合规只填币种、无金额）时 Amount 行不出现，补一行 Asset 让它可见；有金额时币种已在 Amount 行里。 */}
+              {detail.amount == null && detail.assetCode && <InfoField label="Asset" value={detail.assetCode} mono />}
+              {Object.entries(detail.subjectRefs ?? {}).map(([key, value]) => (
                 <InfoField
                   key={key}
                   label={ANCHOR_FIELD_LABEL[key] ?? key}
