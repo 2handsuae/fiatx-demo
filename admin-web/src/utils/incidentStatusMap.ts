@@ -109,6 +109,13 @@ export const INCIDENT_REPORT_BASES: Record<string, { label: string; hours: numbe
   COMPANY_VI_C_F: { label: 'Company Rulebook VI.C / VI.F — NLA prudential breach, notify VARA immediately; daily updates until VARA is satisfied (calendar duty → wave 4)', hours: null, immediate: true },
 };
 
+/** 零候选依据码类型（reportBasisCandidates 为空集）的定损页通报区静态说明——替换原来置灰的
+ * "Regulatory report required" 勾选框；其余类型有候选码，不渲染该行（spec §4.5）。 */
+export const NO_REPORTING_NOTE: Record<string, string> = {
+  ASSET_NONCOMPLIANCE: 'No reporting obligation — the duty is immediate asset suspension, not reporting',
+  COMPLAINT_ESCALATION: 'No complaint-specific reporting obligation under VARA Market Conduct',
+};
+
 /** 事故经办桶族独占能力码（rbac.catalog.ts 的 cap.incident.* 五行镜像）——详情页/案子页
  * 登记入口按"所视事故类型所属族"门控写按钮，不再用被五组共享而失去区分力的路由级码
  * （`api.post.admin_incidents`：route() 把这一个 code 同时挂给 INCIDENT_WRITE/
@@ -244,6 +251,9 @@ export function formatSubjectRefValue(key: string, value: unknown): string {
 
 export interface IncidentTypeMirror {
   assessmentScheme: AssessmentScheme;
+  /** 定损结论合法集（后端 allowedAssessmentBases 镜像，是 assessmentScheme 合法集的子集）——
+   * 只有 1 个值的类型，定损表单渲染为固定文本、不渲染下拉。真门在后端 assess()。 */
+  allowedAssessmentBases: readonly string[];
   reportBasisCandidates: readonly string[];
   allowedRemediationKinds: readonly string[];
   /** 全量必填锚键（含顶层键），登记表单前端提交前校验、详情页判断必填星号用。 */
@@ -251,7 +261,7 @@ export interface IncidentTypeMirror {
 }
 
 /** 类型注册表镜像（incident-type-registry.ts 的 INCIDENT_TYPE_REGISTRY 同构手抄，仅取前端
- * 渲染需要的四格：口径集、依据码候选集、善后白名单、必填锚键）。战役甲波五 Task 9
+ * 渲染需要的五格：口径集、定损结论合法集、依据码候选集、善后白名单、必填锚键）。战役甲波五 Task 9
  * （承接项G自查）：COMPLAINT_ESCALATION 现已通电（enabled:true）补入本表——此前的
  * "enabled:false 不出现在任何下拉"已不成立：不入表会让详情页/事件资产页 assess 环节
  * 的 `cfg = INCIDENT_TYPE_REGISTRY_MIRROR[detail.type]` 落空，按错误的 MONETARY 口径
@@ -262,38 +272,47 @@ export interface IncidentTypeMirror {
 export const INCIDENT_TYPE_REGISTRY_MIRROR: Record<string, IncidentTypeMirror> = {
   UNAUTHORIZED_OUTFLOW: {
     assessmentScheme: 'MONETARY', reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
+    allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: ['SUPPLEMENT', 'CLAIM', 'ADJUSTMENT', 'TRANSFER'], requiredAnchors: [],
   },
   LARGE_UNEXPLAINED: {
     assessmentScheme: 'MONETARY', reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
+    allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: ['SUPPLEMENT', 'CLAIM', 'ADJUSTMENT', 'TRANSFER'], requiredAnchors: [],
   },
   CLIENT_SHORTFALL: {
     assessmentScheme: 'MONETARY', reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
+    allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: ['SUPPLEMENT', 'CLAIM', 'ADJUSTMENT', 'TRANSFER'], requiredAnchors: [],
   },
   CYBER_BCDR: {
     assessmentScheme: 'IMPACT', reportBasisCandidates: ['TIR_K_H'],
+    allowedAssessmentBases: ['SERVICE_IMPACT'],
     allowedRemediationKinds: [], requiredAnchors: ['affectedSystem', 'bcdrTriggered'],
   },
   DATA_BREACH: {
     assessmentScheme: 'IMPACT', reportBasisCandidates: ['PDPL_ART_9', 'TIR_II_C_24H'],
+    allowedAssessmentBases: ['DATA_IMPACT'],
     allowedRemediationKinds: ['CUSTOMER_NOTICE_LOGGED'], requiredAnchors: ['affectedCustomerCount', 'dataCategories'],
   },
   OUTSOURCING_FAILURE: {
     assessmentScheme: 'IMPACT', reportBasisCandidates: ['COMPANY_IV_H_1'],
+    allowedAssessmentBases: ['SERVICE_IMPACT'],
     allowedRemediationKinds: [], requiredAnchors: ['vendor', 'serviceImpact'],
   },
   ASSET_NONCOMPLIANCE: {
     assessmentScheme: 'IMPACT', reportBasisCandidates: [],
+    allowedAssessmentBases: ['SERVICE_IMPACT'],
     allowedRemediationKinds: ['ASSET_SUSPENSION_REF'], requiredAnchors: ['assetCode'],
   },
   STUCK_TRANSACTION_MAJOR: {
     assessmentScheme: 'MONETARY', reportBasisCandidates: ['TIR_K_H'],
+    allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: [], requiredAnchors: ['orderNo', 'customerNo', 'amount'],
   },
   PRUDENTIAL_BREACH: {
     assessmentScheme: 'SHORTFALL', reportBasisCandidates: ['COMPANY_VI_C_F'],
+    allowedAssessmentBases: ['SHORTFALL'],
     allowedRemediationKinds: [], requiredAnchors: ['metric', 'shortfallAmount'],
   },
   // 战役甲波五 Task 9：逐字镜像 incident-type-registry.ts 119-124 行（assessmentScheme:
@@ -301,6 +320,7 @@ export const INCIDENT_TYPE_REGISTRY_MIRROR: Record<string, IncidentTypeMirror> =
   // requiredAnchors: ['complaintNo', 'ownerCustomerNo']）。
   COMPLAINT_ESCALATION: {
     assessmentScheme: 'IMPACT', reportBasisCandidates: [],
+    allowedAssessmentBases: ['SERVICE_IMPACT'],
     allowedRemediationKinds: [], requiredAnchors: ['complaintNo', 'ownerCustomerNo'],
   },
 };

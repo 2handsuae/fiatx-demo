@@ -24,6 +24,7 @@ import {
   INCIDENT_STATUS_LABEL,
   INCIDENT_TYPE_LABEL,
   INCIDENT_TYPE_REGISTRY_MIRROR,
+  NO_REPORTING_NOTE,
   REMEDIATION_KIND_LABEL,
 } from '../utils/incidentStatusMap';
 // 战役甲波二（Task 9）：通报区块改脸为「Regulatory filings」表——deadline/tone helper 与
@@ -179,6 +180,8 @@ const IncidentDetailPage = () => {
   const [assessmentBasis, setAssessmentBasis] = useState<string>(ASSESSMENT_BASIS_BY_SCHEME.MONETARY[0]);
   const [impactSummary, setImpactSummary] = useState('');
   const [impactCount, setImpactCount] = useState('');
+  // 钱/缺口口径：登记时行上无币种 → 定损补填（spec §4.3）；行上有值则只读展示、不发这个键。
+  const [assessAssetCode, setAssessAssetCode] = useState('');
   const [reportRequired, setReportRequired] = useState(false);
   const [reportBasisCodes, setReportBasisCodes] = useState<string[]>([]);
 
@@ -213,15 +216,30 @@ const IncidentDetailPage = () => {
 
   // 战役甲波一 T10：口径/善后下拉按类型收窄后，一旦事故类型加载出来，把 stale 的初值
   // 纠正成该类型合法集合里的第一个（口径七选一/善后六选一此前是全类型共用的固定选项）。
+  // 定损结论按类型 allowedAssessmentBases 收窄（spec §4.1）：合法集只有 1 个值的类型，
+  // 这里就是把 state 钉成那个唯一值（表单渲染固定文本、不渲染下拉，提交的就是这个值）。
   useEffect(() => {
     if (!detail) return;
     const cfg = INCIDENT_TYPE_REGISTRY_MIRROR[detail.type];
-    const basisOptions = ASSESSMENT_BASIS_BY_SCHEME[cfg?.assessmentScheme ?? 'MONETARY'];
+    const basisOptions = cfg?.allowedAssessmentBases ?? ASSESSMENT_BASIS_BY_SCHEME[cfg?.assessmentScheme ?? 'MONETARY'];
     setAssessmentBasis((prev) => (basisOptions.includes(prev) ? prev : basisOptions[0]));
     const allowedKinds = cfg?.allowedRemediationKinds ?? [];
     setRemediationKind((prev) => (allowedKinds.includes(prev) ? prev : (allowedKinds[0] ?? '')));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail?.type]);
+
+  // spec §4.4：登记锚 → 定损预填（登记=初判、定损=查实，第二次可改）。按 incidentNo 触发而
+  // 非 detail 引用——fetchDetail 每次操作后都会换新 detail 对象，按引用触发会冲掉经办人
+  // 已改的值。subjectRefs 由 getView 解析成对象回传（与 Type-Specific Details 区块同一读法）。
+  useEffect(() => {
+    if (!detail) return;
+    const refs = detail.subjectRefs;
+    const pick = (k: string) => (refs?.[k] != null ? String(refs[k]) : '');
+    if (detail.type === 'DATA_BREACH') setImpactCount(pick('affectedCustomerCount'));
+    if (detail.type === 'PRUDENTIAL_BREACH') setAssessedAmount(pick('shortfallAmount'));
+    if (detail.type === 'OUTSOURCING_FAILURE') setImpactSummary(pick('serviceImpact'));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail?.incidentNo]);
 
   const post = async (path: string, body?: Record<string, unknown>) => {
     if (!detail) return false;
@@ -285,7 +303,7 @@ const IncidentDetailPage = () => {
   const canWrite = hasPermission(INCIDENT_OPERATOR_CAP_CODE[detail.type] ?? PERMISSIONS.INCIDENT_WRITE);
   const cfg = INCIDENT_TYPE_REGISTRY_MIRROR[detail.type];
   const scheme = cfg?.assessmentScheme ?? 'MONETARY';
-  const basisOptions = ASSESSMENT_BASIS_BY_SCHEME[scheme];
+  const allowedBases = cfg?.allowedAssessmentBases ?? ASSESSMENT_BASIS_BY_SCHEME[scheme];
   const reportBasisOptions = cfg?.reportBasisCandidates ?? [];
   const allowedRemediationKinds = cfg?.allowedRemediationKinds ?? [];
 
@@ -455,16 +473,18 @@ const IncidentDetailPage = () => {
             </div>
           </DetailCard>
 
-          {/* ③ 定损——口径按类型收窄（战役甲波一 Task 6/T10）：MONETARY/SHORTFALL 填金额，
-              IMPACT 填影响摘要，assessmentBasis 下拉与依据码候选集都按 assessmentScheme
-              过滤（brief 行为合同①）。 */}
+          {/* ③ 定损——口径按类型收窄（战役甲波一 Task 6/T10；2026-10-07 表单重设计 spec §4）：
+              结论 + 数字 + 说明 + 通报判定四段统一。MONETARY/SHORTFALL 填金额（带币种），
+              IMPACT 填影响数；三口径说明字段（复用 impactSummary 列）都必填；结论合法集
+              按类型 allowedAssessmentBases，只有 1 个值时渲染固定文本；依据码候选集按类型
+              reportBasisCandidates，零候选类型渲染静态说明。 */}
           <DetailCard title="Assessment" columns={assessed ? 3 : 1}>
             {assessed ? (
               <>
                 {detail.assessedAmount != null && (
                   <InfoField label="Assessed Amount" value={`${detail.assessedAmount} ${detail.assetCode ?? ''}`} mono accent />
                 )}
-                {detail.impactSummary != null && <InfoField label="Impact Summary" value={detail.impactSummary} />}
+                {detail.impactSummary != null && <InfoField label={scheme === 'IMPACT' ? 'Impact Summary' : 'Assessment Note'} value={detail.impactSummary} />}
                 {detail.impactCount != null && <InfoField label="Impact Count" value={String(detail.impactCount)} mono />}
                 <InfoField label="Assessment Basis" value={ASSESSMENT_BASIS_LABEL[detail.assessmentBasis ?? ''] ?? detail.assessmentBasis} />
                 <InfoField label="Reporting Required" value={detail.reportRequired ? 'Yes' : 'No'} />
@@ -475,31 +495,43 @@ const IncidentDetailPage = () => {
                   {scheme === 'IMPACT' ? (
                     <input value={impactCount} onChange={(e) => setImpactCount(e.target.value)} placeholder="Impact count (optional)" className="w-44 rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
                   ) : (
-                    <input value={assessedAmount} onChange={(e) => setAssessedAmount(e.target.value)} placeholder="Assessed amount" className="w-40 rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
+                    <>
+                      <input value={assessedAmount} onChange={(e) => setAssessedAmount(e.target.value)} placeholder="Assessed amount" className="w-40 rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
+                      {detail.assetCode ? (
+                        <span className="font-mono text-xs text-adm-t3">{detail.assetCode}</span>
+                      ) : (
+                        <input value={assessAssetCode} onChange={(e) => setAssessAssetCode(e.target.value)} placeholder="Asset code*" className="w-28 rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
+                      )}
+                    </>
                   )}
-                  <select value={assessmentBasis} onChange={(e) => setAssessmentBasis(e.target.value)} className="rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
-                    {basisOptions.map((v) => <option key={v} value={v}>{ASSESSMENT_BASIS_LABEL[v]}</option>)}
-                  </select>
-                  <label className="flex items-center gap-1 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={reportRequired}
-                      disabled={reportBasisOptions.length === 0}
-                      onChange={(e) => setReportRequired(e.target.checked)}
-                    /> Regulatory report required
-                  </label>
+                  {allowedBases.length === 1 ? (
+                    <span className="text-xs">{ASSESSMENT_BASIS_LABEL[allowedBases[0]]}</span>
+                  ) : (
+                    <select value={assessmentBasis} onChange={(e) => setAssessmentBasis(e.target.value)} className="rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
+                      {allowedBases.map((v) => <option key={v} value={v}>{ASSESSMENT_BASIS_LABEL[v]}</option>)}
+                    </select>
+                  )}
+                  {reportBasisOptions.length > 0 && (
+                    <label className="flex items-center gap-1 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={reportRequired}
+                        onChange={(e) => setReportRequired(e.target.checked)}
+                      /> Regulatory report required
+                    </label>
+                  )}
                 </div>
-                {scheme === 'IMPACT' && (
-                  <textarea
-                    value={impactSummary}
-                    onChange={(e) => setImpactSummary(e.target.value)}
-                    rows={2}
-                    className="w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs"
-                    placeholder="Impact summary (required for this incident type)"
-                  />
-                )}
-                {reportBasisOptions.length === 0 && (
-                  <p className="font-mono text-[10px] text-adm-t3">This incident type has no statutory reporting basis to select.</p>
+                <textarea
+                  value={impactSummary}
+                  onChange={(e) => setImpactSummary(e.target.value)}
+                  rows={2}
+                  className="w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs"
+                  placeholder={scheme === 'IMPACT'
+                    ? 'Impact summary (required for this incident type)'
+                    : 'Assessment note — basis for this determination (required)'}
+                />
+                {reportBasisOptions.length === 0 && NO_REPORTING_NOTE[detail.type] && (
+                  <p className="font-mono text-[10px] text-adm-t3">{NO_REPORTING_NOTE[detail.type]}</p>
                 )}
                 {reportRequired && reportBasisOptions.length > 0 && (
                   <div className="space-y-1">
@@ -510,7 +542,7 @@ const IncidentDetailPage = () => {
                         <label key={code} className="flex items-start gap-1.5 text-[11px]">
                           <input type="checkbox" checked={reportBasisCodes.includes(code)} onChange={() => toggleBasisCode(code)} className="mt-0.5" />
                           <span>
-                            {b?.label ?? code}
+                            <span className="font-mono">{code}</span> — {b?.label ?? ''}
                             {' — '}
                             <span className="font-mono text-[10px] text-adm-amber">{reportBasisClockText(code)}</span>
                           </span>
@@ -523,12 +555,16 @@ const IncidentDetailPage = () => {
                   type="button"
                   disabled={
                     busy
-                    || (scheme === 'IMPACT' ? !impactSummary.trim() : !assessedAmount.trim())
+                    || !impactSummary.trim()
+                    || (scheme !== 'IMPACT' && (!assessedAmount.trim() || (!detail.assetCode && !assessAssetCode.trim())))
                     || (reportRequired && reportBasisCodes.length === 0)
                   }
                   onClick={() => void submitAssessment({
                     assessedAmount: scheme === 'IMPACT' ? undefined : assessedAmount.trim(),
-                    impactSummary: scheme === 'IMPACT' ? impactSummary.trim() : undefined,
+                    // 三口径统一发 impactSummary 键（说明字段复用该列，spec §4.2）。
+                    impactSummary: impactSummary.trim(),
+                    // 钱/缺口口径：登记时行上无币种才带补填值，行上有值以后端行值为准（spec §4.3）。
+                    assetCode: scheme !== 'IMPACT' && !detail.assetCode ? assessAssetCode.trim() : undefined,
                     impactCount: scheme === 'IMPACT' && impactCount.trim() ? Number(impactCount.trim()) : undefined,
                     assessmentBasis, reportRequired, reportBasisCodes: reportRequired ? reportBasisCodes : undefined,
                   })}
@@ -640,7 +676,11 @@ const IncidentDetailPage = () => {
                           className="cursor-pointer border-t border-adm-border/60 hover:bg-adm-hover/40"
                         >
                           <td className="px-2 py-1 font-mono text-adm-blue">{f.filingNo}</td>
-                          <td className="px-2 py-1">{f.basisCode ? (INCIDENT_REPORT_BASES[f.basisCode]?.label ?? f.basisCode) : '—'}</td>
+                          <td className="px-2 py-1">
+                            {f.basisCode ? (
+                              <><span className="font-mono">{f.basisCode}</span> — {INCIDENT_REPORT_BASES[f.basisCode]?.label ?? ''}</>
+                            ) : '—'}
+                          </td>
                           <td className="px-2 py-1">{AUTHORITY_LABEL[f.authority] ?? f.authority}</td>
                           <td className="px-2 py-1"><StatusPill value={f.status} /></td>
                           <td className="px-2 py-1">
