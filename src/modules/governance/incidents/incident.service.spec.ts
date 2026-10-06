@@ -658,6 +658,18 @@ describe('IncidentService (Task 5)', () => {
       await expect(svc.assess('INC1', { assessmentBasis: 'SHORTFALL', reportRequired: false } as any, ops)).rejects.toThrow(BadRequestException);
     });
 
+    // 事件表单重设计 spec §4.1：合法集来源由「口径」收窄到「类型」——同为 IMPACT 口径，
+    // DATA_BREACH 只许 DATA_IMPACT，传 SERVICE_IMPACT 必须被拒（旧口径级合法集会放行）。
+    it('数据泄露类定损传 SERVICE_IMPACT 被拒（按类型收窄真门）', async () => {
+      const { svc, prisma } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.DATA_BREACH, status: S.INVESTIGATING, createdAt: new Date() },
+        heldMarkers: ['cap.incident.data'],
+      });
+      await expect(svc.assess('INC1', { assessmentBasis: 'SERVICE_IMPACT', impactSummary: 'x', reportRequired: false } as any, ops))
+        .rejects.toThrow(/must be one of \[DATA_IMPACT\]/);
+      expect(prisma.incident.update).not.toHaveBeenCalled();
+    });
+
     it('regression anchor: legacy UNAUTHORIZED_OUTFLOW MONETARY scheme still assesses cleanly under the new type-scoped rules', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
       const { svc, prisma, auditLogs } = makeService({

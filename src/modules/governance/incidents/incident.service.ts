@@ -19,7 +19,7 @@ import {
   IncidentRemediationKinds, IncidentStatus, IncidentTypes, LinkRemediationDto,
   RegisterIncidentDto,
 } from './incident.constants';
-import { ASSESSMENT_BASIS_BY_SCHEME, getIncidentTypeConfig, IncidentTypeConfig, TOP_LEVEL_ANCHOR_KEYS } from './incident-type-registry';
+import { getIncidentTypeConfig, IncidentTypeConfig, TOP_LEVEL_ANCHOR_KEYS } from './incident-type-registry';
 // 战役甲波二 T6：getView 横向只读通报现状（铁律③读放行）——单槽六列（reportDeadlineAt/
 // reportDraft/reportDraftedAt/reportedAt/reportedByUserId/reportReference）退役后，
 // 事故详情页改查报送单主体的 summaryForIncident。RegulatoryFilingsModule 不 import
@@ -411,8 +411,8 @@ export class IncidentService {
   /**
    * 定损：INVESTIGATING → ASSESSED。三档口径（MONETARY/IMPACT/SHORTFALL）共用一个入口
    * （战役甲波一 Task 6，brief 行为合同）：
-   * ① assessmentBasis 必须属于该事故类型 assessmentScheme 的合法集
-   *   （`ASSESSMENT_BASIS_BY_SCHEME`，registry 文件）；
+   * ① assessmentBasis 必须属于该事故类型的合法集
+   *   （`cfg.allowedAssessmentBases`，registry 文件；是 assessmentScheme 合法集的子集）；
    * ② reportRequired=true 时 reportBasisCodes 必须是该类型 `cfg.reportBasisCandidates` 的子集
    *   （空候选集类型勾任何码即 400，如 ASSET_NONCOMPLIANCE）；
    * ③ MONETARY/SHORTFALL 口径必填 assessedAmount，IMPACT 口径必填 impactSummary。
@@ -428,9 +428,9 @@ export class IncidentService {
   async assess(incidentNo: string, dto: AssessIncidentDto, actor: ApprovalActorContext): Promise<{ incidentNo: string; status: string }> {
     const row = await this.assertOperatorForIncident(incidentNo, actor);
     const cfg = getIncidentTypeConfig(row.type);
-    const allowedBases = ASSESSMENT_BASIS_BY_SCHEME[cfg.assessmentScheme];
+    const allowedBases = cfg.allowedAssessmentBases; // spec §4.1 真门：按类型，不再按口径
     if (!dto.assessmentBasis || !allowedBases.includes(dto.assessmentBasis)) {
-      throw new BadRequestException(`assessmentBasis must be one of [${allowedBases.join(', ')}] for ${cfg.assessmentScheme}-scheme incident type ${row.type}`);
+      throw new BadRequestException(`assessmentBasis must be one of [${allowedBases.join(', ')}] for incident type ${row.type}`);
     }
     if (cfg.assessmentScheme === 'IMPACT') {
       if (!dto.impactSummary) throw new BadRequestException('Assessment requires an impact summary');

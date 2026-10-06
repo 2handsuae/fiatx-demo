@@ -18,6 +18,7 @@ export interface IncidentTypeConfig {
   reportBasisCandidates: readonly string[]; // INCIDENT_REPORT_BASES 键，空集=不可勾通报
   requiredAnchors: readonly string[]; // 锚键：存量列名或 subjectRefs 内键
   assessmentScheme: AssessmentScheme;
+  allowedAssessmentBases: readonly string[]; // spec §4.1：按类型收窄的定损结论合法集，是 assessmentScheme 合法集的子集
   allowedRemediationKinds: readonly string[];
   enabled: boolean;
   // 甲波一 T5 修1（Ruling-6，C1 修复）：族独占能力码——rbac.catalog.ts 里 RBAC_PERMISSION_
@@ -51,6 +52,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
     reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
     requiredAnchors: [], // 存量：现有 service 校验原样保留（Task 5），锚声明空=沿用旧校验
     assessmentScheme: 'MONETARY',
+    allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: ['SUPPLEMENT', 'CLAIM', 'ADJUSTMENT', 'TRANSFER'], enabled: true,
   },
   LARGE_UNEXPLAINED: {
@@ -59,6 +61,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
     reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
     requiredAnchors: [],
     assessmentScheme: 'MONETARY',
+    allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: ['SUPPLEMENT', 'CLAIM', 'ADJUSTMENT', 'TRANSFER'], enabled: true,
   },
   CLIENT_SHORTFALL: {
@@ -67,6 +70,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
     reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
     requiredAnchors: [],
     assessmentScheme: 'MONETARY',
+    allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: ['SUPPLEMENT', 'CLAIM', 'ADJUSTMENT', 'TRANSFER'], enabled: true,
   },
   CYBER_BCDR: {
@@ -74,6 +78,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
     operatorGroup: 'INCIDENT_TECH_WRITE', operatorMarkerCode: 'cap.incident.tech', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
     reportBasisCandidates: ['TIR_K_H'],
     requiredAnchors: ['affectedSystem', 'bcdrTriggered'], assessmentScheme: 'IMPACT',
+    allowedAssessmentBases: ['SERVICE_IMPACT'],
     allowedRemediationKinds: [], enabled: true,
   },
   DATA_BREACH: {
@@ -81,6 +86,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
     operatorGroup: 'INCIDENT_DATA_WRITE', operatorMarkerCode: 'cap.incident.data', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
     reportBasisCandidates: ['PDPL_ART_9', 'TIR_II_C_24H'],
     requiredAnchors: ['affectedCustomerCount', 'dataCategories'], assessmentScheme: 'IMPACT',
+    allowedAssessmentBases: ['DATA_IMPACT'],
     allowedRemediationKinds: ['CUSTOMER_NOTICE_LOGGED'], enabled: true,
   },
   OUTSOURCING_FAILURE: {
@@ -88,12 +94,14 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
     operatorGroup: 'INCIDENT_TECH_WRITE', operatorMarkerCode: 'cap.incident.tech', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
     reportBasisCandidates: ['COMPANY_IV_H_1'],
     requiredAnchors: ['vendor', 'serviceImpact'], assessmentScheme: 'IMPACT',
+    allowedAssessmentBases: ['SERVICE_IMPACT'],
     allowedRemediationKinds: [], enabled: true,
   },
   ASSET_NONCOMPLIANCE: {
     family: 'OPERATIONS', label: 'Asset non-compliance', establishedBy: 'BD IV.E (duty = immediate suspension, not reporting)',
     operatorGroup: 'INCIDENT_OPS_WRITE', operatorMarkerCode: 'cap.incident.ops', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
     reportBasisCandidates: [], requiredAnchors: ['assetCode'], assessmentScheme: 'IMPACT',
+    allowedAssessmentBases: ['SERVICE_IMPACT'],
     allowedRemediationKinds: ['ASSET_SUSPENSION_REF'], enabled: true,
   },
   STUCK_TRANSACTION_MAJOR: {
@@ -101,6 +109,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
     operatorGroup: 'INCIDENT_OPS_WRITE', operatorMarkerCode: 'cap.incident.ops', closeActionType: 'INCIDENT_CLOSE_FINANCIAL',
     reportBasisCandidates: ['TIR_K_H'],
     requiredAnchors: ['orderNo', 'customerNo', 'amount'], assessmentScheme: 'MONETARY',
+    allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: [], enabled: true,
   },
   PRUDENTIAL_BREACH: {
@@ -108,6 +117,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
     operatorGroup: 'INCIDENT_FIN_WRITE', operatorMarkerCode: 'cap.incident.fin', closeActionType: 'INCIDENT_CLOSE_PRUDENTIAL',
     reportBasisCandidates: ['COMPANY_VI_C_F'],
     requiredAnchors: ['metric', 'shortfallAmount'], assessmentScheme: 'SHORTFALL',
+    allowedAssessmentBases: ['SHORTFALL'],
     allowedRemediationKinds: [], enabled: true,
   },
   // 战役甲波五 T4：通电——CUSTOMER 族只能经 IncidentService.registerFromComplaint
@@ -120,6 +130,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
     family: 'CUSTOMER', label: 'Complaint escalation', establishedBy: 'Market Conduct III.A',
     operatorGroup: 'INCIDENT_OPS_WRITE', operatorMarkerCode: 'cap.incident.ops', closeActionType: 'INCIDENT_CLOSE_CUSTOMER',
     reportBasisCandidates: [], requiredAnchors: ['complaintNo', 'ownerCustomerNo'], assessmentScheme: 'IMPACT',
+    allowedAssessmentBases: ['SERVICE_IMPACT'],
     allowedRemediationKinds: [], enabled: true,
   },
 };

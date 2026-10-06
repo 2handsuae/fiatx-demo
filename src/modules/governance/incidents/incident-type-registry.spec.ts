@@ -1,5 +1,5 @@
 // 战役甲波一 Task 2：类型注册表——spec §1 十类终盘（MANUAL 退役）。
-import { INCIDENT_TYPE_REGISTRY, getIncidentTypeConfig } from './incident-type-registry';
+import { ASSESSMENT_BASIS_BY_SCHEME, INCIDENT_TYPE_REGISTRY, getIncidentTypeConfig } from './incident-type-registry';
 import { IncidentTypes } from './incident.constants';
 
 describe('INCIDENT_TYPE_REGISTRY (spec §1 十类终盘)', () => {
@@ -52,5 +52,19 @@ describe('INCIDENT_TYPE_REGISTRY (spec §1 十类终盘)', () => {
     expect(c.assessmentScheme).toBe('IMPACT');
     expect(() => getIncidentTypeConfig('COMPLAINT_ESCALATION')).not.toThrow();
     expect(() => getIncidentTypeConfig('MANUAL')).toThrow(/unknown/i);
+  });
+  // 事件表单重设计 spec §4.1：定损结论按类型收窄的第九格。
+  it('每个类型的 allowedAssessmentBases 非空且是其口径合法集的子集', () => {
+    for (const [type, cfg] of Object.entries(INCIDENT_TYPE_REGISTRY)) {
+      const schemeSet = ASSESSMENT_BASIS_BY_SCHEME[cfg.assessmentScheme];
+      expect(cfg.allowedAssessmentBases.length).toBeGreaterThan(0);
+      for (const b of cfg.allowedAssessmentBases) expect(schemeSet).toContain(b);
+    }
+  });
+  it('影响口径六类中仅 DATA_BREACH 允许 DATA_IMPACT、其余固定 SERVICE_IMPACT', () => {
+    expect(INCIDENT_TYPE_REGISTRY.DATA_BREACH.allowedAssessmentBases).toEqual(['DATA_IMPACT']);
+    for (const t of ['CYBER_BCDR', 'OUTSOURCING_FAILURE', 'ASSET_NONCOMPLIANCE', 'COMPLAINT_ESCALATION']) {
+      expect(INCIDENT_TYPE_REGISTRY[t].allowedAssessmentBases).toEqual(['SERVICE_IMPACT']);
+    }
   });
 });
