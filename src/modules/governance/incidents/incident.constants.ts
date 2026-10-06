@@ -118,16 +118,17 @@ export const INCIDENT_REPORT_BASES: Record<string, { label: string; hours: numbe
 };
 
 /** 定损入参（战役甲波一 Task 6，brief Interfaces）。三档口径（MONETARY/IMPACT/SHORTFALL）
- * 共用一个入口——assessmentBasis 的合法子集按类型的 assessmentScheme 收窄，见
- * incident-type-registry.ts 的 ASSESSMENT_BASIS_BY_SCHEME；哪些附加字段必填（assessedAmount
+ * 共用一个入口——assessmentBasis 的合法子集按类型 `allowedAssessmentBases` 收窄（见
+ * incident-type-registry.ts）；哪些附加字段必填（assessedAmount
  * vs impactSummary）由 IncidentService.assess 按 scheme 校验（brief 行为合同④）。 */
 export interface AssessIncidentDto {
   assessmentBasis: 'RECOVERED' | 'FIRM_LOSS' | 'CLIENT_COLLECTION' | 'NO_LOSS'   // MONETARY
                  | 'SERVICE_IMPACT' | 'DATA_IMPACT'                              // IMPACT
                  | 'SHORTFALL';                                                  // SHORTFALL
   assessedAmount?: string;   // MONETARY/SHORTFALL 必填；IMPACT 可选
-  impactSummary?: string;    // IMPACT 必填
+  impactSummary?: string;    // 三口径统一必填（spec §4.2）
   impactCount?: number;      // 可选（如波及客户数）
+  assetCode?: string;        // spec §4.3：MONETARY/SHORTFALL 且登记时行上无币种 → 必填并落 assetCode 列；行上已有值则忽略传入
   reportRequired: boolean;
   reportBasisCodes?: string[];
 }

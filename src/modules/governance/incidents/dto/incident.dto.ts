@@ -56,9 +56,12 @@ export class AssessIncidentBodyDto {
   // MONETARY/SHORTFALL 必填、IMPACT 可选——服务层按类型 assessmentScheme 精确校验（400），
   // 这一层只做"字符串类型"的形状校验，不做哪个口径必填。
   @ApiPropertyOptional() @IsOptional() @IsString() assessedAmount?: string;
-  // IMPACT 必填——同上，必填与否留给服务层。
+  // 三口径统一必填（spec §4.2）——同上，必填与否留给服务层。
   @ApiPropertyOptional() @IsOptional() @IsString() impactSummary?: string;
   @ApiPropertyOptional() @IsOptional() @IsInt() impactCount?: number;
+  // spec §4.3：MONETARY/SHORTFALL 且登记时行上无币种才必填（服务层校验）；全局 ValidationPipe
+  // whitelist 会剥掉未声明字段，所以这里必须声明才到得了服务层。
+  @ApiPropertyOptional() @IsOptional() @IsString() assetCode?: string;
   @ApiProperty() @IsBoolean() reportRequired!: boolean;
   @ApiPropertyOptional({ type: [String] }) @IsOptional() @IsArray() @IsString({ each: true }) reportBasisCodes?: string[];
 }

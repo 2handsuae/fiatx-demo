@@ -482,6 +482,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
 
     const assessed = await assessmentWorkflow.assess(mainIncidentNo, {
       assessedAmount: mainAssessedAmountMajor, assessmentBasis: 'FIRM_LOSS',
+      impactSummary: 'e2e：外部托管方转出经核实，公司自担损失', assetCode: 'USDT',
       reportRequired: true, reportBasisCodes: ['CRM_IV_E_5', 'CRM_V_D_2'],
     } as any, treasury());
     expect(assessed.status).toBe('ASSESSED');
@@ -620,7 +621,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
 
     // 铺垫（走服务方法，不是本条断言的对象）：推到可结案态，提交结案。
     await incidents.startInvestigation(probeIncidentNo, treasury());
-    await incidents.assess(probeIncidentNo, { assessedAmount: '0', assessmentBasis: 'NO_LOSS', reportRequired: false } as any, treasury());
+    await incidents.assess(probeIncidentNo, { assessedAmount: '0', assessmentBasis: 'NO_LOSS', impactSummary: 'e2e：探针事件无损失', assetCode: 'AED', reportRequired: false } as any, treasury());
     const closeReq = await closeWorkflow.requestClose(probeIncidentNo, treasury());
 
     // 金库拿着 GOV_APPROVAL_READ 能点到 approve 端点，但角色不在候选人里（CLIENT_SHORTFALL→INCIDENT_CLOSE_FINANCIAL→单步 CFO）——403。
@@ -721,7 +722,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     await incidents.escalate(reg.incidentNo, { to: IncidentEscalationTargets.MLRO, note: '知会 MLRO' }, treasury());
     expect(await available()).toBe(before);
 
-    await incidents.assess(reg.incidentNo, { assessedAmount: '0', assessmentBasis: 'NO_LOSS', reportRequired: false } as any, treasury());
+    await incidents.assess(reg.incidentNo, { assessedAmount: '0', assessmentBasis: 'NO_LOSS', impactSummary: 'e2e：零账务验证无损失', assetCode: 'AED', reportRequired: false } as any, treasury());
     expect(await available()).toBe(before);
 
     const closeReq = await closeWorkflow.requestClose(reg.incidentNo, treasury());

@@ -538,23 +538,23 @@ describe('IncidentService (Task 5)', () => {
 
   describe('assess — assessment + basis codes + 72h countdown (Task 6)', () => {
     it('only allowed from INVESTIGATING (400)', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED, createdAt: new Date('2026-09-01T00:00:00.000Z') } });
-      await expect(svc.assess('INC1', { assessedAmount: '100', assessmentBasis: 'NO_LOSS', reportRequired: false }, ops)).rejects.toThrow(/Illegal incident status transition/);
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED, assetCode: 'AED', createdAt: new Date('2026-09-01T00:00:00.000Z') } });
+      await expect(svc.assess('INC1', { assessedAmount: '100', assessmentBasis: 'NO_LOSS', impactSummary: 'note', reportRequired: false }, ops)).rejects.toThrow(/Illegal incident status transition/);
     });
 
     it('missing assessedAmount/assessmentBasis → 400', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt: new Date() } });
-      await expect(svc.assess('INC1', { assessedAmount: '', assessmentBasis: 'NO_LOSS', reportRequired: false } as any, ops)).rejects.toThrow(BadRequestException);
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, assetCode: 'AED', createdAt: new Date() } });
+      await expect(svc.assess('INC1', { assessedAmount: '', assessmentBasis: 'NO_LOSS', impactSummary: 'note', reportRequired: false } as any, ops)).rejects.toThrow(/assessed amount/);
     });
 
     it('reportRequired=true but reportBasisCodes is empty → 400', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt: new Date() } });
-      await expect(svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: [] }, ops)).rejects.toThrow(BadRequestException);
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, assetCode: 'AED', createdAt: new Date() } });
+      await expect(svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', impactSummary: 'note', reportRequired: true, reportBasisCodes: [] }, ops)).rejects.toThrow(/must include basis codes/);
     });
 
     it('reportBasisCodes contains a code outside the directory → 400', async () => {
-      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt: new Date() } });
-      await expect(svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: ['NOT_A_BASIS'] }, ops)).rejects.toThrow(BadRequestException);
+      const { svc } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, assetCode: 'AED', createdAt: new Date() } });
+      await expect(svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', impactSummary: 'note', reportRequired: true, reportBasisCodes: ['NOT_A_BASIS'] }, ops)).rejects.toThrow(/Unknown basis code/);
     });
 
     // 甲波二 T6：钟锚计算已随 reportDeadlineAt 列一并迁到 RegulatoryFilingService.
@@ -570,10 +570,10 @@ describe('IncidentService (Task 5)', () => {
     it('happy path: STUCK_TRANSACTION_MAJOR + TIR_K_H accepted → ASSESSED + basisCodes persisted + audit top-level assessmentBasis', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
       const { svc, prisma, auditLogs } = makeService({
-        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.STUCK_TRANSACTION_MAJOR, status: S.INVESTIGATING, createdAt },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.STUCK_TRANSACTION_MAJOR, status: S.INVESTIGATING, assetCode: 'AED', createdAt },
         heldMarkers: ['cap.incident.ops'],
       });
-      const r = await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: ['TIR_K_H'] }, ops);
+      const r = await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', impactSummary: 'note', reportRequired: true, reportBasisCodes: ['TIR_K_H'] }, ops);
       expect(r.status).toBe(S.ASSESSED);
       expect(r).not.toHaveProperty('reportDeadlineAt');
       const updateCall = prisma.incident.update.mock.calls[0][0];
@@ -586,16 +586,16 @@ describe('IncidentService (Task 5)', () => {
 
     it('selecting a clockless basis (CRM_IV_E_5) → reportBasisCodes persists, assess does not compute a deadline at all', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
-      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt } });
-      await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'CLIENT_COLLECTION', reportRequired: true, reportBasisCodes: ['CRM_IV_E_5'] }, ops);
+      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, assetCode: 'AED', createdAt } });
+      await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'CLIENT_COLLECTION', impactSummary: 'note', reportRequired: true, reportBasisCodes: ['CRM_IV_E_5'] }, ops);
       const updateCall = prisma.incident.update.mock.calls[0][0];
       expect(updateCall.data.reportBasisCodes).toBe('CRM_IV_E_5');
       expect(updateCall.data).not.toHaveProperty('reportDeadlineAt');
     });
 
     it('reportRequired=false → reportBasisCodes persists as null', async () => {
-      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, createdAt: new Date() } });
-      await svc.assess('INC1', { assessedAmount: '0', assessmentBasis: 'RECOVERED', reportRequired: false }, ops);
+      const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, assetCode: 'AED', createdAt: new Date() } });
+      await svc.assess('INC1', { assessedAmount: '0', assessmentBasis: 'RECOVERED', impactSummary: 'note', reportRequired: false }, ops);
       const updateCall = prisma.incident.update.mock.calls[0][0];
       expect(updateCall.data.reportRequired).toBe(false);
       expect(updateCall.data.reportBasisCodes).toBeNull();
@@ -648,6 +648,7 @@ describe('IncidentService (Task 5)', () => {
       const updateCall = prisma.incident.update.mock.calls[0][0];
       expect(updateCall.data.reportBasisCodes).toBe('TIR_K_H');
       expect(updateCall.data).not.toHaveProperty('reportDeadlineAt');
+      expect(updateCall.data.assetCode).toBeNull(); // IMPACT 口径不要求币种（spec §4.3 仅钱/缺口口径）
     });
 
     it('PRUDENTIAL_BREACH — SHORTFALL scheme missing assessedAmount → 400 (behavior contract ④)', async () => {
@@ -655,7 +656,7 @@ describe('IncidentService (Task 5)', () => {
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.PRUDENTIAL_BREACH, status: S.INVESTIGATING, createdAt: new Date() },
         heldMarkers: ['cap.incident.fin'],
       });
-      await expect(svc.assess('INC1', { assessmentBasis: 'SHORTFALL', reportRequired: false } as any, ops)).rejects.toThrow(BadRequestException);
+      await expect(svc.assess('INC1', { assessmentBasis: 'SHORTFALL', impactSummary: 'note', reportRequired: false } as any, ops)).rejects.toThrow(/assessed amount/);
     });
 
     // 事件表单重设计 spec §4.1：合法集来源由「口径」收窄到「类型」——同为 IMPACT 口径，
@@ -670,13 +671,51 @@ describe('IncidentService (Task 5)', () => {
       expect(prisma.incident.update).not.toHaveBeenCalled();
     });
 
+    // 事件表单重设计 spec §4.2/§4.3：说明三口径统一必填；钱/缺口口径币种必有
+    // （登记留了用行值，没留则定损补填落 assetCode 列）。
+    it('钱口径定损缺说明被拒（三口径统一必填）', async () => {
+      const { svc, prisma } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, assetCode: 'AED', createdAt: new Date() },
+      });
+      await expect(svc.assess('INC1', { assessmentBasis: 'FIRM_LOSS', assessedAmount: '100', reportRequired: false } as any, ops))
+        .rejects.toThrow(/assessment note/i);
+      expect(prisma.incident.update).not.toHaveBeenCalled();
+    });
+
+    it('钱口径定损、登记未留币种且未补传被拒', async () => {
+      const { svc, prisma } = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, assetCode: null, createdAt: new Date() },
+      });
+      await expect(svc.assess('INC1', { assessmentBasis: 'FIRM_LOSS', assessedAmount: '100', impactSummary: 'why', reportRequired: false } as any, ops))
+        .rejects.toThrow(/asset code/i);
+      expect(prisma.incident.update).not.toHaveBeenCalled();
+    });
+
+    it('钱口径补传币种落列；行上已有值时忽略传入', async () => {
+      // 情形A：登记未留币种 → 定损补传的币种落 assetCode 列，并镜像进审计 metadata（R5）
+      const a = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, assetCode: null, createdAt: new Date() },
+      });
+      await a.svc.assess('INC1', { assessmentBasis: 'FIRM_LOSS', assessedAmount: '100', impactSummary: 'why', assetCode: 'USDT-TRON', reportRequired: false } as any, ops);
+      expect(a.prisma.incident.update.mock.calls[0][0].data.assetCode).toBe('USDT-TRON');
+      expect(a.auditLogs.recordByActor.mock.calls[0][0].metadata.assetCode).toBe('USDT-TRON');
+
+      // 情形B：登记已留币种 → 传入值被忽略，以行值为准
+      const b = makeService({
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, assetCode: 'AED', createdAt: new Date() },
+      });
+      await b.svc.assess('INC1', { assessmentBasis: 'FIRM_LOSS', assessedAmount: '100', impactSummary: 'why', assetCode: 'USDT-TRON', reportRequired: false } as any, ops);
+      expect(b.prisma.incident.update.mock.calls[0][0].data.assetCode).toBe('AED');
+      expect(b.auditLogs.recordByActor.mock.calls[0][0].metadata.assetCode).toBe('AED');
+    });
+
     it('regression anchor: legacy UNAUTHORIZED_OUTFLOW MONETARY scheme still assesses cleanly under the new type-scoped rules', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
       const { svc, prisma, auditLogs } = makeService({
-        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.UNAUTHORIZED_OUTFLOW, status: S.INVESTIGATING, createdAt },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.UNAUTHORIZED_OUTFLOW, status: S.INVESTIGATING, assetCode: 'AED', createdAt },
       });
       const r = await svc.assess('INC1', {
-        assessedAmount: '2500', assessmentBasis: 'FIRM_LOSS', reportRequired: true, reportBasisCodes: ['CRM_IV_E_5'],
+        assessedAmount: '2500', assessmentBasis: 'FIRM_LOSS', impactSummary: 'note', reportRequired: true, reportBasisCodes: ['CRM_IV_E_5'],
       }, ops);
       expect(r.status).toBe(S.ASSESSED);
       expect(r).not.toHaveProperty('reportDeadlineAt'); // 甲波二 T6：钟锚计算已迁到 RegulatoryFilingService

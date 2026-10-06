@@ -432,11 +432,15 @@ export class IncidentService {
     if (!dto.assessmentBasis || !allowedBases.includes(dto.assessmentBasis)) {
       throw new BadRequestException(`assessmentBasis must be one of [${allowedBases.join(', ')}] for incident type ${row.type}`);
     }
-    if (cfg.assessmentScheme === 'IMPACT') {
-      if (!dto.impactSummary) throw new BadRequestException('Assessment requires an impact summary');
-    } else if (!dto.assessedAmount) {
-      throw new BadRequestException('Assessment requires an assessed amount');
+    if (!dto.impactSummary) throw new BadRequestException('Assessment requires an assessment note (impact summary)'); // spec §4.2 三口径统一
+    if (cfg.assessmentScheme !== 'IMPACT') {
+      if (!dto.assessedAmount) throw new BadRequestException('Assessment requires an assessed amount');
+      if (!row.assetCode && !dto.assetCode) {
+        throw new BadRequestException('Assessment requires an asset code (none was recorded at registration)'); // spec §4.3
+      }
     }
+    // spec §4.3：行上已有币种以行值为准（忽略传入）；行上为空且口径要求币种时落定损补传值。
+    const effectiveAssetCode = row.assetCode ?? (cfg.assessmentScheme !== 'IMPACT' ? dto.assetCode ?? null : null);
     const basisCodes = dto.reportRequired ? (dto.reportBasisCodes ?? []) : [];
     if (dto.reportRequired) {
       if (!basisCodes.length) throw new BadRequestException('A determination requiring reporting must include basis codes');
@@ -454,6 +458,7 @@ export class IncidentService {
         assessmentBasis: dto.assessmentBasis,
         impactSummary: dto.impactSummary ?? null,
         impactCount: dto.impactCount ?? null,
+        assetCode: effectiveAssetCode,
         reportRequired: dto.reportRequired,
         reportBasisCodes: basisCodes.length ? basisCodes.join(',') : null,
       },
@@ -464,7 +469,7 @@ export class IncidentService {
       extra: { assessmentBasis: dto.assessmentBasis },
       metadata: {
         assessedAmount: dto.assessedAmount ?? null, impactSummary: dto.impactSummary ?? null,
-        impactCount: dto.impactCount ?? null, reportRequired: dto.reportRequired, reportBasisCodes: basisCodes,
+        impactCount: dto.impactCount ?? null, assetCode: effectiveAssetCode, reportRequired: dto.reportRequired, reportBasisCodes: basisCodes,
       },
     });
     return { incidentNo, status: updated.status as string };
