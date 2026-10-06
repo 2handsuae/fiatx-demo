@@ -451,7 +451,7 @@
 **账号**：`treasury@fiatx.com`（金库，开单/⚡推腿/⚡模拟到货/验收全程）→ `cfo@fiatx.com`（CFO，建档与开单两条审批的唯一裁决人）。
 
 **走查**：
-① 金库登录 → 侧栏 Custody → LP Exchanges → 「Initiate exchange」→ 弹窗选 Falcon Liquidity FZE（ACTIVE）+ Sell Asset=AED、Sell Amount（如 10000）+ Buy Asset=USDT-TRON、Buy Amount（如 2720）+ Prudential Purpose（必填，8 年安全港记录）+ Reason（必填）→ Initiate → 单据转 `PENDING_APPROVAL`，横幅带 approval 号。
+① 金库登录 → 侧栏 Treasury → LP Exchanges → 「Initiate exchange」→ 弹窗选 Falcon Liquidity FZE（ACTIVE）+ Sell Asset=AED、Sell Amount（如 10000）+ Buy Asset=USDT-TRON、Buy Amount（如 2720）+ Prudential Purpose（必填，8 年安全港记录）+ Reason（必填）→ Initiate → 单据转 `PENDING_APPROVAL`，横幅带 approval 号。
 ② 切 `cfo@` → 审批中心打开该单（`ACTION TYPE: LP_EXCHANGE_APPROVAL`，Impact 摘要一句话读到"the firm's AED operating balance decreases once the sell leg clears, and its USDT operating balance increases once the delivery is accepted"）→ Approve（二次确认弹层，同一按钮打开确认层再点一次同名按钮，本弧两处 CFO 批准均如此）→ 单据转 `EXECUTING`，卖出腿资金单已建。
 ③ 切回 `treasury@` → 打开卖出腿资金单详情（AED 法币腿）→ ⚡ Submit → ⚡ Settle → 腿转 `CLEARED`，兑换单转 `AWAITING_DELIVERY`——详情页蓝色横幅明写"Sell leg cleared, waiting for the LP to deliver the buy leg to the front desk — the firm's AED operating balance has already decreased."，八态时间线停在「Awaiting LP delivery」。
 ④ 打开 Ledger Accounts，按 Code 筛 `203 · FIRM_LIQ`：两条资产行（AED/USDT-TRON）余额均 `0.00`——前厅还空着；再筛 `200 · FIRM_OPS`：AED 行已比开单前少了卖出金额——运营户已经瘪。悬空期账实两头都能在账本页对照给观众看。

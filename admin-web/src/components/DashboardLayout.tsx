@@ -16,7 +16,6 @@ import {
   FileText,
   Zap,
   Activity,
-  Briefcase,
   Coins,
   Layers,
   Gauge,
@@ -155,6 +154,10 @@ const DashboardLayout = () => {
     navigate('/admin/login');
   };
 
+  // 2026-10-06 导航重组（业主拍板）：13 组 → 10 组，42 条二级不增不减。
+  // 排序原则 = 观众动线：客户 → 交易 → 钱的真相（资金单/账本/对账）→ 公司的钱 →
+  // 静态配置 → 治理 → 合规办公室 → 系统管理（IAM/审计）收尾。
+  // 组的显隐由儿子的权限过滤决定（visibleMenuItems），重排不改变任何人的可见面。
   const menuItems: MenuItem[] = [
     {
       path: '/admin',
@@ -162,32 +165,8 @@ const DashboardLayout = () => {
       label: 'Overview',
       requiredPermissions: [PERMISSIONS.BASE_ACCESS],
     },
-    // ─── Identity & Access ────────────────────────────────────────
-    {
-      label: 'Identity & Access',
-      icon: <UserCog size={12} />,
-      children: [
-        {
-          path: '/admin/iam/members',
-          label: 'Platform Members',
-          icon: <UserCheck size={13} />,
-          requiredPermissions: [PERMISSIONS.USERS_READ],
-        },
-        {
-          path: '/admin/iam/roles',
-          label: 'Role Management',
-          icon: <ShieldCheck size={13} />,
-          requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
-        },
-        {
-          path: '/admin/iam/role-change-requests',
-          label: 'Role Requests',
-          icon: <ClipboardList size={13} />,
-          requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
-        },
-      ],
-    },
     // ─── Customers ────────────────────────────────────────────────
+    // 组壳暂只此一条——业主拍板保留（客户域后续还会加二级入口，不升顶层直链）。
     {
       label: 'Customers',
       icon: <Users size={12} />,
@@ -200,21 +179,9 @@ const DashboardLayout = () => {
         },
       ],
     },
-    // ─── Compliance ───────────────────────────────────────────────
-    {
-      label: 'Compliance',
-      icon: <ClipboardList size={12} />,
-      children: [
-        {
-          path: '/admin/compliance/sumsub-events',
-          label: 'Sumsub Events',
-          icon: <Zap size={13} />,
-          requiredPermissions: [PERMISSIONS.SUMSUB_EVENTS_READ],
-        },
-        // Hidden from sidebar 2026-07-02 (route stays live for direct links)
-      ],
-    },
     // ─── Trading ──────────────────────────────────────────────────
+    // 报价单紧跟各自的域；Funds Orders 迁出至 Ledger & Funds——资金单是
+    // 全域共用的结算层（每一笔钱动的物理转账镜像），不只三域交易。
     {
       label: 'Trading',
       icon: <ArrowLeftRight size={12} />,
@@ -232,24 +199,16 @@ const DashboardLayout = () => {
           requiredPermissions: [PERMISSIONS.WITHDRAW_TRANSACTIONS_READ],
         },
         {
-          path: '/admin/trading/swaps',
-          label: 'Swap Transactions',
-          icon: <Repeat size={13} />,
-          requiredPermissions: [PERMISSIONS.SWAP_TRANSACTIONS_READ],
-        },
-        // Unified funds-orders surface (Round 2 / C6) — replaces the legacy
-        // Payin Records / Payout Records / Internal Funds entries.
-        {
-          path: '/admin/funds-orders',
-          label: 'Funds Orders',
-          icon: <Activity size={13} />,
-          requiredPermissions: [PERMISSIONS.FUNDS_ORDERS_READ],
-        },
-        {
           path: '/admin/trading/withdraw-quotes',
           label: 'Withdraw Quotes',
           icon: <FileText size={13} />,
           requiredPermissions: [PERMISSIONS.WITHDRAW_QUOTES_READ],
+        },
+        {
+          path: '/admin/trading/swaps',
+          label: 'Swap Transactions',
+          icon: <Repeat size={13} />,
+          requiredPermissions: [PERMISSIONS.SWAP_TRANSACTIONS_READ],
         },
         {
           path: '/admin/trading/swap-quotes',
@@ -259,113 +218,38 @@ const DashboardLayout = () => {
         },
       ],
     },
-    // ─── Custody ──────────────────────────────────────────────────
+    // ─── Ledger & Funds ───────────────────────────────────────────
+    // 资金单与账本三页同组——铁律⑤「资金单镜像 + 账本分录实时 1:1」的两面
+    // 放一起，对账演示翻页即可互证。资金单在 RBAC 里本就是独立域（非 Trading）。
     {
-      label: 'Custody',
-      icon: <Briefcase size={12} />,
+      label: 'Ledger & Funds',
+      icon: <Library size={12} />,
       children: [
+        // Unified funds-orders surface (Round 2 / C6) — replaces the legacy
+        // Payin Records / Payout Records / Internal Funds entries.
         {
-          path: '/admin/custody/wallets',
-          label: 'Custodian Wallets',
-          icon: <Wallet size={13} />,
-          requiredPermissions: [PERMISSIONS.WALLETS_READ],
+          path: '/admin/funds-orders',
+          label: 'Funds Orders',
+          icon: <Activity size={13} />,
+          requiredPermissions: [PERMISSIONS.FUNDS_ORDERS_READ],
         },
         {
-          path: '/admin/custody/withdrawal-addresses',
-          label: 'Withdrawal Addresses',
-          icon: <Upload size={13} />,
-          requiredPermissions: [PERMISSIONS.WITHDRAWAL_ADDRESSES_READ],
-        },
-        // 平账二期：公司 → 客户的补款 / 垫款划转单
-        {
-          path: '/admin/custody/internal-transfers',
-          label: 'Internal Transfers',
-          icon: <ArrowLeftRight size={13} />,
-          requiredPermissions: [PERMISSIONS.INTERNAL_TRANSFERS_READ],
-        },
-      ],
-    },
-    // ─── Treasury（战役乙波二 + 波三导航归并）────────────────────
-    // 公司自身资金动线——不是客户域。Task 6：注资单先落地；Task 7：付款单续补；
-    // Task 8：公司资金全景看板——恰四职务（金库/CFO/高管/内审）可见，运营/技术官
-    // 均不持 FUNDING_DASHBOARD_VIEW，导航无入口（同组的两条数据路由 OR 锚不改变这点，
-    // 见 rbac.catalog.ts cap.treasury.funding_dashboard 注释）。
-    // 战役乙波三（T10，§0 裁定 9）：LP Register / LP Exchanges 从 Custody 组迁入本组——
-    // LP 是外部对手方财资活动，与注资/付款/看板同属 V7 财资域，归队同组。
-    {
-      label: 'Treasury',
-      icon: <PiggyBank size={12} />,
-      children: [
-        {
-          path: '/admin/company-funds',
-          label: 'Company Funds',
-          icon: <Gauge size={13} />,
-          requiredPermissions: [PERMISSIONS.FUNDING_DASHBOARD_VIEW],
+          path: '/admin/ledger/accounts',
+          label: 'Ledger Accounts',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
         },
         {
-          path: '/admin/capital-injections',
-          label: 'Capital Injections',
-          icon: <Banknote size={13} />,
-          requiredPermissions: [PERMISSIONS.CAPITAL_INJECTIONS_READ],
-        },
-        // 战役乙波二 Task 7：付款单——金库开单，CFO 单步批，支付在册外包商。
-        {
-          path: '/admin/vendor-payments',
-          label: 'Vendor Payments',
-          icon: <Send size={13} />,
-          requiredPermissions: [PERMISSIONS.VENDOR_PAYMENTS_READ],
-        },
-        // 战役乙波一（Task 7）：LP 档案——金库注册 / CFO 批的流动性提供方登记册。
-        {
-          path: '/admin/lp-profiles',
-          label: 'LP Register',
-          icon: <Landmark size={13} />,
-          requiredPermissions: [PERMISSIONS.LP_PROFILES_READ],
-        },
-        // 战役乙波一（Task 8）：LP 兑换单——先款后货三腿，金库开单 / CFO 批。
-        {
-          path: '/admin/lp-exchanges',
-          label: 'LP Exchanges',
-          icon: <Repeat size={13} />,
-          requiredPermissions: [PERMISSIONS.LP_EXCHANGES_READ],
-        },
-      ],
-    },
-    // ─── Assets & Limits ──────────────────────────────────────────
-    {
-      label: 'Assets & Limits',
-      icon: <Coins size={12} />,
-      children: [
-        {
-          path: '/admin/assets',
-          label: 'Assets',
-          icon: <Coins size={13} />,
-          requiredPermissions: [PERMISSIONS.ASSETS_READ],
+          path: '/admin/ledger/transfer-evidence',
+          label: 'Transfer Evidence',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_TRANSFERS_READ],
         },
         {
-          path: '/admin/assets/transaction-limits',
-          label: 'Transaction Limits',
-          icon: <Gauge size={13} />,
-          requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_READ],
-        },
-      ],
-    },
-    // ─── Pricing ──────────────────────────────────────────────────
-    {
-      label: 'Pricing',
-      icon: <Coins size={12} />,
-      children: [
-        {
-          path: '/admin/pricing/withdrawal-fee-levels',
-          label: 'Withdrawal Fee Levels',
-          icon: <Layers size={13} />,
-          requiredPermissions: [PERMISSIONS.WITHDRAWAL_FEE_LEVELS_READ],
-        },
-        {
-          path: '/admin/pricing/swap-fee-levels',
-          label: 'Swap Fee Levels',
-          icon: <Repeat size={13} />,
-          requiredPermissions: [PERMISSIONS.SWAP_FEE_LEVELS_READ],
+          path: '/admin/ledger/flows',
+          label: 'Account Flows',
+          icon: <Database size={13} />,
+          requiredPermissions: [PERMISSIONS.TB_FLOWS_READ],
         },
       ],
     },
@@ -400,28 +284,104 @@ const DashboardLayout = () => {
         },
       ],
     },
-    // ─── Ledger ───────────────────────────────────────────────────
+    // ─── Treasury（战役乙波二 + 波三导航归并）────────────────────
+    // 公司自身资金动线——不是客户域。Task 6：注资单先落地；Task 7：付款单续补；
+    // Task 8：公司资金全景看板——恰四职务（金库/CFO/高管/内审）可见，运营/技术官
+    // 均不持 FUNDING_DASHBOARD_VIEW，导航无入口（同组的两条数据路由 OR 锚不改变这点，
+    // 见 rbac.catalog.ts cap.treasury.funding_dashboard 注释）。
+    // 战役乙波三（T10，§0 裁定 9）：LP Register / LP Exchanges 从 Custody 组迁入本组——
+    // LP 是外部对手方财资活动，与注资/付款/看板同属 V7 财资域，归队同组。
     {
-      label: 'Ledger',
-      icon: <Library size={12} />,
+      label: 'Treasury',
+      icon: <PiggyBank size={12} />,
       children: [
         {
-          path: '/admin/ledger/accounts',
-          label: 'Ledger Accounts',
-          icon: <Database size={13} />,
-          requiredPermissions: [PERMISSIONS.TB_ACCOUNTS_READ],
+          path: '/admin/company-funds',
+          label: 'Company Funds',
+          icon: <Gauge size={13} />,
+          requiredPermissions: [PERMISSIONS.FUNDING_DASHBOARD_VIEW],
         },
         {
-          path: '/admin/ledger/transfer-evidence',
-          label: 'Transfer Evidence',
-          icon: <Database size={13} />,
-          requiredPermissions: [PERMISSIONS.TB_TRANSFERS_READ],
+          path: '/admin/capital-injections',
+          label: 'Capital Injections',
+          icon: <Banknote size={13} />,
+          requiredPermissions: [PERMISSIONS.CAPITAL_INJECTIONS_READ],
+        },
+        // 战役乙波二 Task 7：付款单——金库开单，CFO 单步批，支付在册外包商。
+        {
+          path: '/admin/vendor-payments',
+          label: 'Vendor Payments',
+          icon: <Send size={13} />,
+          requiredPermissions: [PERMISSIONS.VENDOR_PAYMENTS_READ],
+        },
+        // 平账二期：公司 → 客户的补款 / 垫款划转单。2026-10-06 导航重组从原 Custody 组
+        // 迁入——与 LP 迁移（乙波三裁定 9）同理，V7 财资动线归队。路由保留 custody/ 前缀
+        // （2026-09-21 波五甲案统一的是路由前缀，前端路径非权限载体，组名与前缀自此脱钩）。
+        {
+          path: '/admin/custody/internal-transfers',
+          label: 'Internal Transfers',
+          icon: <ArrowLeftRight size={13} />,
+          requiredPermissions: [PERMISSIONS.INTERNAL_TRANSFERS_READ],
+        },
+        // 战役乙波一（Task 7）：LP 档案——金库注册 / CFO 批的流动性提供方登记册。
+        {
+          path: '/admin/lp-profiles',
+          label: 'LP Register',
+          icon: <Landmark size={13} />,
+          requiredPermissions: [PERMISSIONS.LP_PROFILES_READ],
+        },
+        // 战役乙波一（Task 8）：LP 兑换单——先款后货三腿，金库开单 / CFO 批。
+        {
+          path: '/admin/lp-exchanges',
+          label: 'LP Exchanges',
+          icon: <Repeat size={13} />,
+          requiredPermissions: [PERMISSIONS.LP_EXCHANGES_READ],
+        },
+      ],
+    },
+    // ─── Configuration ────────────────────────────────────────────
+    // V3 财务配置归一组（原 Assets & Limits + Pricing 两组，加原 Custody 组的
+    // 钱包地址行/提现地址簿，三组并一）——资产/地址/限额/费率同属
+    // 「交易的静态参数从哪来」（overview §1 V3）。
+    {
+      label: 'Configuration',
+      icon: <Coins size={12} />,
+      children: [
+        {
+          path: '/admin/assets',
+          label: 'Assets',
+          icon: <Coins size={13} />,
+          requiredPermissions: [PERMISSIONS.ASSETS_READ],
         },
         {
-          path: '/admin/ledger/flows',
-          label: 'Account Flows',
-          icon: <Database size={13} />,
-          requiredPermissions: [PERMISSIONS.TB_FLOWS_READ],
+          path: '/admin/custody/wallets',
+          label: 'Custodian Wallets',
+          icon: <Wallet size={13} />,
+          requiredPermissions: [PERMISSIONS.WALLETS_READ],
+        },
+        {
+          path: '/admin/custody/withdrawal-addresses',
+          label: 'Withdrawal Addresses',
+          icon: <Upload size={13} />,
+          requiredPermissions: [PERMISSIONS.WITHDRAWAL_ADDRESSES_READ],
+        },
+        {
+          path: '/admin/assets/transaction-limits',
+          label: 'Transaction Limits',
+          icon: <Gauge size={13} />,
+          requiredPermissions: [PERMISSIONS.TRANSACTION_LIMIT_READ],
+        },
+        {
+          path: '/admin/pricing/withdrawal-fee-levels',
+          label: 'Withdrawal Fee Levels',
+          icon: <Layers size={13} />,
+          requiredPermissions: [PERMISSIONS.WITHDRAWAL_FEE_LEVELS_READ],
+        },
+        {
+          path: '/admin/pricing/swap-fee-levels',
+          label: 'Swap Fee Levels',
+          icon: <Repeat size={13} />,
+          requiredPermissions: [PERMISSIONS.SWAP_FEE_LEVELS_READ],
         },
       ],
     },
@@ -507,6 +467,41 @@ const DashboardLayout = () => {
           label: 'Data Requests',
           icon: <FileSearch size={13} />,
           requiredPermissions: [PERMISSIONS.DSR_READ],
+        },
+        // 2026-10-06 导航重组（业主拍板）：从原 Compliance 单条组迁入（该组随之撤销）。
+        // 已知展示副作用：技术官/运营持 SUMSUB_EVENT_VIEW 但不持 COMPLIANCE_OFFICE_VIEW，
+        // 对他们本组只显示这一条——纯展示，权限面零变化。
+        {
+          path: '/admin/compliance/sumsub-events',
+          label: 'Sumsub Events',
+          icon: <Zap size={13} />,
+          requiredPermissions: [PERMISSIONS.SUMSUB_EVENTS_READ],
+        },
+      ],
+    },
+    // ─── Identity & Access ────────────────────────────────────────
+    // 2026-10-06 导航重组：从首组下移到治理簇——IAM 是系统管理，不排业务动线前面。
+    {
+      label: 'Identity & Access',
+      icon: <UserCog size={12} />,
+      children: [
+        {
+          path: '/admin/iam/members',
+          label: 'Platform Members',
+          icon: <UserCheck size={13} />,
+          requiredPermissions: [PERMISSIONS.USERS_READ],
+        },
+        {
+          path: '/admin/iam/roles',
+          label: 'Role Management',
+          icon: <ShieldCheck size={13} />,
+          requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
+        },
+        {
+          path: '/admin/iam/role-change-requests',
+          label: 'Role Requests',
+          icon: <ClipboardList size={13} />,
+          requiredPermissions: [PERMISSIONS.IAM_ROLES_READ],
         },
       ],
     },
