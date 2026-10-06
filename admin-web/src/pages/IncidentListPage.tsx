@@ -13,11 +13,13 @@ import { PERMISSIONS } from '../rbac/permissions';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import {
   INCIDENT_STATUS_LABEL,
+  INCIDENT_REGISTRATION_FORM,
   INCIDENT_STATUSES,
   INCIDENT_SUBJECT_REF_FIELDS,
   INCIDENT_TYPE_LABEL,
   INCIDENT_TYPE_REGISTRY_MIRROR,
   INCIDENT_TYPES,
+  MANUAL_DROPDOWN_TYPES,
   TOP_LEVEL_ANCHOR_KEYS,
 } from '../utils/incidentStatusMap';
 
@@ -39,6 +41,19 @@ interface Item {
 
 const PAGE_SIZE = 20;
 
+/** 登记弹窗 Type-specific 段里来路字段 / 顶层锚的展示规格（显隐与必填由 INCIDENT_REGISTRATION_FORM 定）。 */
+const SOURCE_FIELD_META: Record<string, { label: string; placeholder: string }> = {
+  sourceCaseNo: { label: 'Source Case No', placeholder: 'CASE-…' },
+  sourceDispositionNo: { label: 'Source Disposition Line No', placeholder: 'DISP-…' },
+  sourceAdvanceTransferNo: { label: 'Source Advance Transfer No', placeholder: 'TRF-…' },
+};
+const TOP_LEVEL_META: Record<string, { label: string; placeholder: string }> = {
+  customerNo: { label: 'Customer No', placeholder: 'Customer No' },
+  assetCode: { label: 'Asset', placeholder: 'Asset code' },
+  amount: { label: 'Amount', placeholder: 'Amount' },
+};
+const GRID_COLS: Record<number, string> = { 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3' };
+
 /** Task 12：案子详情页三入口跳转过来的预填——业务键 only（铁律⑥）。钱包 / 账单行
  * 参考号在这份表单里没有专用字段，由调用方拼进 description（人读、可编辑），不当
  * 结构化字段传。 */
@@ -52,7 +67,7 @@ export interface NewIncidentPrefill {
  * 另三个入口——案子定性升级 / 大额到线 / 退汇欠款——在案子详情页，通过 `prefill`
  * 带着业务键跳到这里，Task 12）。 */
 const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean; prefill?: NewIncidentPrefill; onClose: () => void; onCreated: (incidentNo: string) => void }) => {
-  const [type, setType] = useState<string>(INCIDENT_TYPES[0]);
+  const [type, setType] = useState<string>(MANUAL_DROPDOWN_TYPES[0]);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [sourceCaseNo, setSourceCaseNo] = useState('');
@@ -70,7 +85,7 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
   // 之间复用，不重置就会把上一次的预填带进下一次打开。
   useEffect(() => {
     if (!open) return;
-    setType(prefill?.type ?? INCIDENT_TYPES[0]);
+    setType(prefill?.type ?? MANUAL_DROPDOWN_TYPES[0]);
     setTitle(prefill?.title ?? '');
     setDescription(prefill?.description ?? '');
     setSourceCaseNo(prefill?.sourceCaseNo ?? '');
@@ -87,12 +102,25 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
   if (!open) return null;
 
   const reset = () => {
-    setType(INCIDENT_TYPES[0]); setTitle(''); setDescription('');
+    setType(MANUAL_DROPDOWN_TYPES[0]); setTitle(''); setDescription('');
     setSourceCaseNo(''); setSourceDispositionNo(''); setSourceAdvanceTransferNo('');
     setCustomerNo(''); setAssetCode(''); setAmount(''); setAnchorValues({}); setError('');
   };
 
-  const changeType = (next: string) => { setType(next); setAnchorValues({}); };
+  // 切类型：新类型不渲染的字段值一并清掉，免得看不见的旧值照常进 payload（动态锚本来就整体清）。
+  // 新旧类型都渲染的输入位（如 Customer No / Amount）保留已填值。只有下拉可达这里——prefill 带
+  // type 时类型控件已锁定、不会走到这；案件页预填里弹窗不渲染的值（如大额查不出带来的定性行号，
+  // 后端靠它把定损回写到那行）因此原样留在 state、照常进 payload。
+  const changeType = (next: string) => {
+    const f = INCIDENT_REGISTRATION_FORM[next];
+    setType(next); setAnchorValues({});
+    if (!f.sourceFields.includes('sourceCaseNo')) setSourceCaseNo('');
+    if (!f.sourceFields.includes('sourceDispositionNo')) setSourceDispositionNo('');
+    if (!f.sourceFields.includes('sourceAdvanceTransferNo')) setSourceAdvanceTransferNo('');
+    if (!('customerNo' in f.topLevel)) setCustomerNo('');
+    if (!('assetCode' in f.topLevel)) setAssetCode('');
+    if (!('amount' in f.topLevel)) setAmount('');
+  };
 
   const anchorFields = INCIDENT_SUBJECT_REF_FIELDS[type] ?? [];
 
@@ -120,24 +148,24 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
 
   const close = () => { reset(); onClose(); };
 
-  // 战役甲波一 T10：新七类顶层锚（assetCode/customerNo/amount 三键之一）是否必填——
-  // 存量三类维持既有硬编码判据（CLIENT_SHORTFALL），新类型按注册表镜像的 requiredAnchors。
+  // spec §2：来路字段与顶层锚（assetCode/customerNo/amount）的显隐/必填统一读 INCIDENT_REGISTRATION_FORM；
+  // 动态锚（subjectRefs 键）的必填仍按注册表镜像的 requiredAnchors。
+  const formSpec = INCIDENT_REGISTRATION_FORM[type];
+  const topLevelEntries = Object.entries(formSpec.topLevel);
+  const sourceValues: Record<string, string> = { sourceCaseNo, sourceDispositionNo, sourceAdvanceTransferNo };
+  const sourceSetters: Record<string, (v: string) => void> = { sourceCaseNo: setSourceCaseNo, sourceDispositionNo: setSourceDispositionNo, sourceAdvanceTransferNo: setSourceAdvanceTransferNo };
+  const topValues: Record<string, string> = { customerNo, assetCode, amount };
+  const topSetters: Record<string, (v: string) => void> = { customerNo: setCustomerNo, assetCode: setAssetCode, amount: setAmount };
   const cfgAnchors = INCIDENT_TYPE_REGISTRY_MIRROR[type]?.requiredAnchors ?? [];
-  const customerRequired = type === 'CLIENT_SHORTFALL' || cfgAnchors.includes('customerNo');
-  const amountRequired = type === 'CLIENT_SHORTFALL' || cfgAnchors.includes('amount');
-  const assetRequired = cfgAnchors.includes('assetCode');
 
   const submit = async () => {
     setError('');
     if (!title.trim() || !description.trim()) { setError('Title and description are required'); return; }
-    if ((type === 'UNAUTHORIZED_OUTFLOW' || type === 'LARGE_UNEXPLAINED') && !sourceCaseNo.trim()) {
-      setError('This type requires a source case number'); return;
+    for (const key of formSpec.requiredSources) {
+      if (!sourceValues[key].trim()) { setError(`${SOURCE_FIELD_META[key].label} is required`); return; }
     }
-    if (type === 'UNAUTHORIZED_OUTFLOW' && !sourceDispositionNo.trim()) {
-      setError('Unauthorized outflow requires a source disposition line number'); return;
-    }
-    if (type === 'CLIENT_SHORTFALL' && (!customerNo.trim() || !amount.trim())) {
-      setError('Client shortfall requires a customer number and amount'); return;
+    for (const [key, req] of topLevelEntries) {
+      if (req === 'required' && !topValues[key].trim()) { setError(`${TOP_LEVEL_META[key].label} is required`); return; }
     }
     // 新七类锚键校验（前端友好提示；真正裁决仍在后端 IncidentService.assertAnchors）。
     for (const key of cfgAnchors) {
@@ -184,113 +212,111 @@ const NewIncidentModal = ({ open, prefill, onClose, onCreated }: { open: boolean
       <div className="w-[560px] max-h-[85vh] overflow-y-auto rounded-lg border border-adm-border bg-adm-panel p-5" onClick={(e) => e.stopPropagation()}>
         <h3 className="mb-3 text-sm font-semibold text-adm-t1">Register Incident</h3>
 
-        <label className="mb-3 block text-xs">Type
-          <select value={type} onChange={(e) => changeType(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
-            {INCIDENT_TYPES.map((t) => <option key={t} value={t}>{INCIDENT_TYPE_LABEL[t]}</option>)}
-          </select>
-        </label>
+        <div className="space-y-3">
+          <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Common details</p>
 
-        <label className="mb-3 block text-xs">Title
-          <input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="e.g. Customer wallet ghost OUT" />
-        </label>
+          {/* spec §3：prefill 带 type（案件页三入口）时类型锁定为只读——被通用下拉砍掉的两类
+              （未授权转出 / 大额查不出）只经此路登记，也免得从案件页进来后手滑换类型。 */}
+          {prefill?.type ? (
+            <div className="text-xs">Type
+              <div className="mt-1 w-full rounded border border-adm-border bg-adm-hover/40 px-2 py-1 text-xs text-adm-t2">
+                {INCIDENT_TYPE_LABEL[prefill.type] ?? prefill.type} <span className="text-adm-t3">(entry-locked)</span>
+              </div>
+            </div>
+          ) : (
+            <label className="block text-xs">Type
+              <select value={type} onChange={(e) => changeType(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
+                {MANUAL_DROPDOWN_TYPES.map((t) => <option key={t} value={t}>{INCIDENT_TYPE_LABEL[t]}</option>)}
+              </select>
+            </label>
+          )}
 
-        <label className="mb-3 block text-xs">Description
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="What happened" />
-        </label>
+          <label className="block text-xs">Title*
+            <input value={title} onChange={(e) => setTitle(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="e.g. Customer wallet ghost OUT" />
+          </label>
 
-        {(type === 'UNAUTHORIZED_OUTFLOW' || type === 'LARGE_UNEXPLAINED') && (
-          <label className="mb-3 block text-xs">Source Case No
-            <input value={sourceCaseNo} onChange={(e) => setSourceCaseNo(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" placeholder="CASE-…" />
-          </label>
-        )}
-        {type === 'UNAUTHORIZED_OUTFLOW' && (
-          <label className="mb-3 block text-xs">Source Disposition Line No
-            <input value={sourceDispositionNo} onChange={(e) => setSourceDispositionNo(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" placeholder="DISP-…" />
-          </label>
-        )}
-        {type === 'CLIENT_SHORTFALL' && (
-          <label className="mb-3 block text-xs">Source Advance Transfer No (optional, if one already exists)
-            <input value={sourceAdvanceTransferNo} onChange={(e) => setSourceAdvanceTransferNo(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" placeholder="TRF-…" />
-          </label>
-        )}
-
-        <div className="mb-3 grid grid-cols-3 gap-2">
-          <label className="block text-xs">Customer No{customerRequired ? '*' : ' (optional)'}
-            <input value={customerNo} onChange={(e) => setCustomerNo(e.target.value)} placeholder="Customer No" className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
-          </label>
-          <label className="block text-xs">Asset{assetRequired ? '*' : ' (optional)'}
-            <input value={assetCode} onChange={(e) => setAssetCode(e.target.value)} placeholder="Asset code" className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
-          </label>
-          <label className="block text-xs">Amount{amountRequired ? '*' : ' (optional)'}
-            <input value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount" className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
+          <label className="block text-xs">Description*
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="What happened" />
           </label>
         </div>
 
-        {/* 战役甲波一 T10：新七类动态锚字段（subjectRefs 键，顶层键 assetCode/customerNo/
-            amount 不在这里——复用上面已有的输入位）。 */}
-        {anchorFields.length > 0 && (
-          <div className="mb-3 space-y-2 border-t border-adm-border pt-3">
-            <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Type-specific details</p>
-            {anchorFields.map((f) => {
-              if (f.kind === 'checkbox') {
-                return (
-                  <label key={f.key} className="flex items-center gap-1.5 text-xs">
-                    <input
-                      type="checkbox"
-                      checked={!!anchorValues[f.key]}
-                      onChange={(e) => setAnchorCheckbox(f.key, e.target.checked)}
-                    />
-                    {f.label}
-                  </label>
-                );
-              }
-              if (f.kind === 'select') {
-                return (
-                  <label key={f.key} className="block text-xs">{f.label}*
-                    <select
-                      value={typeof anchorValues[f.key] === 'string' ? (anchorValues[f.key] as string) : ''}
-                      onChange={(e) => setAnchorText(f.key, e.target.value)}
-                      className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs"
-                    >
-                      <option value="">Select…</option>
-                      {(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  </label>
-                );
-              }
-              if (f.kind === 'multiselect') {
-                const selected = Array.isArray(anchorValues[f.key]) ? (anchorValues[f.key] as string[]) : [];
-                return (
-                  <div key={f.key}>
-                    <p className="mb-1 text-xs">{f.label}*</p>
-                    <div className="flex flex-wrap gap-2">
-                      {(f.options ?? []).map((o) => (
-                        <label key={o.value} className="flex items-center gap-1 text-[11px]">
-                          <input
-                            type="checkbox"
-                            checked={selected.includes(o.value)}
-                            onChange={() => toggleAnchorMulti(f.key, o.value)}
-                          />
-                          {o.label}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                );
-              }
+        {/* spec §2：Type-specific 段 = 来路字段 → 顶层三框（顺序即 INCIDENT_REGISTRATION_FORM 键序）→ 动态锚。
+            顶层键 assetCode/customerNo/amount 仍落 payload 顶层，只是展示分组挪到这里。 */}
+        <div className="mb-3 mt-3 space-y-2 border-t border-adm-border pt-3">
+          <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Type-specific details</p>
+          {formSpec.sourceFields.map((key) => (
+            <label key={key} className="block text-xs">{SOURCE_FIELD_META[key].label}{formSpec.requiredSources.includes(key) ? '*' : ' (optional)'}
+              <input value={sourceValues[key]} onChange={(e) => sourceSetters[key](e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" placeholder={SOURCE_FIELD_META[key].placeholder} />
+            </label>
+          ))}
+          {topLevelEntries.length > 0 && (
+            <div className={`grid gap-2 ${GRID_COLS[topLevelEntries.length]}`}>
+              {topLevelEntries.map(([key, req]) => (
+                <label key={key} className="block text-xs">{TOP_LEVEL_META[key].label}{req === 'required' ? '*' : ' (optional)'}
+                  <input value={topValues[key]} onChange={(e) => topSetters[key](e.target.value)} placeholder={TOP_LEVEL_META[key].placeholder} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
+                </label>
+              ))}
+            </div>
+          )}
+          {anchorFields.map((f) => {
+            if (f.kind === 'checkbox') {
               return (
-                <label key={f.key} className="block text-xs">{f.label}*
+                <label key={f.key} className="flex items-center gap-1.5 text-xs">
                   <input
-                    value={typeof anchorValues[f.key] === 'string' ? (anchorValues[f.key] as string) : ''}
-                    onChange={(e) => setAnchorText(f.key, e.target.value)}
-                    placeholder={f.label}
-                    className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono"
+                    type="checkbox"
+                    checked={!!anchorValues[f.key]}
+                    onChange={(e) => setAnchorCheckbox(f.key, e.target.checked)}
                   />
+                  {f.label}
                 </label>
               );
-            })}
-          </div>
-        )}
+            }
+            if (f.kind === 'select') {
+              return (
+                <label key={f.key} className="block text-xs">{f.label}*
+                  <select
+                    value={typeof anchorValues[f.key] === 'string' ? (anchorValues[f.key] as string) : ''}
+                    onChange={(e) => setAnchorText(f.key, e.target.value)}
+                    className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs"
+                  >
+                    <option value="">Select…</option>
+                    {(f.options ?? []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </label>
+              );
+            }
+            if (f.kind === 'multiselect') {
+              const selected = Array.isArray(anchorValues[f.key]) ? (anchorValues[f.key] as string[]) : [];
+              return (
+                <div key={f.key}>
+                  <p className="mb-1 text-xs">{f.label}*</p>
+                  <div className="flex flex-wrap gap-2">
+                    {(f.options ?? []).map((o) => (
+                      <label key={o.value} className="flex items-center gap-1 text-[11px]">
+                        <input
+                          type="checkbox"
+                          checked={selected.includes(o.value)}
+                          onChange={() => toggleAnchorMulti(f.key, o.value)}
+                        />
+                        {o.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+            return (
+              <label key={f.key} className="block text-xs">{f.label}*
+                <input
+                  value={typeof anchorValues[f.key] === 'string' ? (anchorValues[f.key] as string) : ''}
+                  onChange={(e) => setAnchorText(f.key, e.target.value)}
+                  placeholder={f.label}
+                  className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono"
+                />
+              </label>
+            );
+          })}
+        </div>
 
         {error && <p className="mb-2 text-xs text-adm-red">{error}</p>}
         <div className="flex justify-end gap-2">

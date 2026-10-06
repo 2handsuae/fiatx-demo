@@ -330,3 +330,25 @@ export const INCIDENT_TYPE_REGISTRY_MIRROR: Record<string, IncidentTypeMirror> =
 // 通报时限，改读报送单自己的 deadlineAt/overdueMarkedAt（见 IncidentDetailPage.tsx 的
 // 「Regulatory Filings」表）；reportStatusLabel 随其唯一调用方（IncidentListPage.tsx 的
 // Report Status 列，评审黄1 已退役换单列 reportRequired）一并删除，不留孤儿。
+
+/** spec §2：登记弹窗 Type-specific 段的来路字段与顶层锚显隐/必填规格（展示层；后端校验不变仍是真门）。
+ * topLevel 的键序即渲染序（spec §2 表的字段顺序）。 */
+export interface IncidentRegistrationFormSpec {
+  sourceFields: readonly ('sourceCaseNo' | 'sourceDispositionNo' | 'sourceAdvanceTransferNo')[];
+  requiredSources: readonly string[];
+  topLevel: Partial<Record<'customerNo' | 'assetCode' | 'amount', 'required' | 'optional'>>;
+}
+export const INCIDENT_REGISTRATION_FORM: Record<string, IncidentRegistrationFormSpec> = {
+  UNAUTHORIZED_OUTFLOW:    { sourceFields: ['sourceCaseNo', 'sourceDispositionNo'], requiredSources: ['sourceCaseNo', 'sourceDispositionNo'], topLevel: { assetCode: 'optional', amount: 'optional' } },
+  LARGE_UNEXPLAINED:       { sourceFields: ['sourceCaseNo'], requiredSources: ['sourceCaseNo'], topLevel: { assetCode: 'optional', amount: 'optional' } },
+  CLIENT_SHORTFALL:        { sourceFields: ['sourceAdvanceTransferNo'], requiredSources: [], topLevel: { customerNo: 'required', amount: 'required', assetCode: 'optional' } },
+  CYBER_BCDR:              { sourceFields: [], requiredSources: [], topLevel: {} },
+  DATA_BREACH:             { sourceFields: [], requiredSources: [], topLevel: {} },
+  OUTSOURCING_FAILURE:     { sourceFields: [], requiredSources: [], topLevel: {} },
+  ASSET_NONCOMPLIANCE:     { sourceFields: [], requiredSources: [], topLevel: { assetCode: 'required' } },
+  STUCK_TRANSACTION_MAJOR: { sourceFields: [], requiredSources: [], topLevel: { customerNo: 'required', amount: 'required', assetCode: 'optional' } },
+  PRUDENTIAL_BREACH:       { sourceFields: [], requiredSources: [], topLevel: {} },
+};
+
+/** spec §3：通用下拉只给 7 类；对账族两类唯案件页 prefill 可达。 */
+export const MANUAL_DROPDOWN_TYPES = INCIDENT_TYPES.filter((t) => t !== 'UNAUTHORIZED_OUTFLOW' && t !== 'LARGE_UNEXPLAINED');
