@@ -395,7 +395,7 @@
 ③ 仍是 `admin@`：Clock Wall 页勾选「Only overdue」→ 一屏只剩这一条 `Complaint` 行，红色 Overdue——与 FILING/OBLIGATION 两类行同一张墙、同一套红黄绿三色语义。
 ④ 切回 `ops_officer@` → 回该投诉详情 → Workflow 区点 Escalate to Incident → **单击即生成事件**（无二次确认弹窗）→ 右栏出现「Escalated Incident」链接（`INC…`），投诉状态仍是 `Investigating Extended`（升级不改投诉状态，8 周义务继续跑）。
 ⑤ 点「Escalated Incident」链接跳事件详情：类型 `Complaint escalation`，Type-Specific Details 卡片「Complaint No」回链投诉详情（双向验证）。
-⑥ 仍是 `ops_officer@`：点 Start Investigation → 加一条调查笔记 → Assessment 区选 Service impact assessed、填 Impact summary（Regulatory report required 不勾——该类型 `reportBasisCandidates` 为空，页面提示「no statutory reporting basis to select」）→ Submit Assessment → 状态转 `Assessed`，Remediation 卡片提示「no remediation actions to attach — it can be closed directly once assessed」（`allowedRemediationKinds` 空集，Ruling-10 乙案，无需先挂善后单）。
+⑥ 仍是 `ops_officer@`：点 Start Investigation → 加一条调查笔记 → Assessment 区结论是固定文本 Service impact assessed（该类型只有这一种结论，不是下拉、无需选）、填 Impact summary（通报区没有 Regulatory report required 勾选框——该类型 `reportBasisCandidates` 为空，改为一行静态说明「No complaint-specific reporting obligation under VARA Market Conduct」）→ Submit Assessment → 状态转 `Assessed`，Remediation 卡片提示「no remediation actions to attach — it can be closed directly once assessed」（`allowedRemediationKinds` 空集，Ruling-10 乙案，无需先挂善后单）。
 ⑦ 点 Request Close → 直接开出 `INCIDENT_CLOSE_CUSTOMER` 审批单（无需二次表单）。
 ⑧ 切 `compliance_lead@` → 审批中心打开该单（`ACTION TYPE: INCIDENT_CLOSE_CUSTOMER`，Entity Ref 链回事件详情）→ Approve → 事件状态转 `Closed`。
 ⑨ 回投诉详情（`compliance_lead@` 只读，或切回 `ops_officer@`）：右栏「Escalated Incident」链接仍在，点开确认事件已 `Closed`；投诉本身仍是 `Investigating Extended`——升级出的事件结案不等于投诉结案，两条生命周期各走各的。
@@ -420,7 +420,7 @@
 **走查**：
 ① `tech_admin@` → Governance → Incident Register → Register Incident → Type 选 `Cyber / BCDR incident`（选中后表单动态长出 Type-specific 区）→ 填 Title/Description → Type-specific 区选 Affected system（如 Backend API）、勾 BCDR triggered → Register → 状态 `Registered`。
 ② 仍是 `tech_admin@`：Start Investigation → 加一条调查笔记（讲清排查结论：影响范围、是否波及客户资金/数据）→ 状态转 `Investigating`。
-③ Assessment 区：Impact summary 必填 + 勾 Regulatory report required → Report Basis 只有一个候选可勾——**「TIR Rulebook Section K + H … reporting to VARA within 72 hours — Report within 72h」**（`reportBasisCandidates=['TIR_K_H']`，单选不是多选，这就是"单钟"的字面证据）→ Submit Assessment → 状态转 `Assessed`，页面顶部弹出「Regulatory filing opened: FIL…」，下方 Regulatory Filings 卡片新增一行——Authority `VARA`、Deadline 倒计时约 `2d 23h`（从登记时刻起 72h）、状态 `Draft`。
+③ Assessment 区：Impact summary 必填 + 勾 Regulatory report required → Report Basis 只有一个候选可勾——**「TIR_K_H — TIR Rulebook Section K + H … reporting to VARA within 72 hours — Report within 72h」**（选项文案现带短码前缀 `TIR_K_H — `；`reportBasisCandidates=['TIR_K_H']`，单选不是多选，这就是"单钟"的字面证据）→ Submit Assessment → 状态转 `Assessed`，页面顶部弹出「Regulatory filing opened: FIL…」，下方 Regulatory Filings 卡片新增一行——Authority `VARA`、Deadline 倒计时约 `2d 23h`（从登记时刻起 72h）、状态 `Draft`。
 ④ 切 `compliance_lead@` → 打开该报送单详情 → Filing Draft 填正文（事件摘要 + 已采取的处置）→ Save Draft → Sign-off 区点 Submit for Sign-off → 状态转 `Pending Signoff`，开出一张 `REG_FILING_SUBMIT` 审批单（GENERAL 族通用签发链，与场景 19/20 的 AML 族"零签发"刻意对照）。
 ⑤ 切 `sm@` → 审批中心打开该单（Impact 摘要一句话读到"statutory deadline …"）→ Approve → 报送单转 `Signed Off — to submit`。
 ⑥ 切回 `compliance_lead@` → Mark Submitted → 填 External Reference（对外编号，如 `VARA-REG-2026-…` 样式，留痕不真发）→ 报送单转 `Submitted`。
