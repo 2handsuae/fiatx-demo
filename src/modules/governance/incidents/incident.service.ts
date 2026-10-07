@@ -415,7 +415,8 @@ export class IncidentService {
    *   （`cfg.allowedAssessmentBases`，registry 文件；是 assessmentScheme 合法集的子集）；
    * ② reportRequired=true 时 reportBasisCodes 必须是该类型 `cfg.reportBasisCandidates` 的子集
    *   （空候选集类型勾任何码即 400，如 ASSET_NONCOMPLIANCE）；
-   * ③ MONETARY/SHORTFALL 口径必填 assessedAmount，IMPACT 口径必填 impactSummary。
+   * ③ 三口径均必填 impactSummary（定损说明）；MONETARY/SHORTFALL 另必填 assessedAmount，且行上无
+   *   assetCode 时必须补传（行上有值以行值为准）。
    * 新增校验放在经办门（`assertOperatorForIncident`）之后、迁移守卫（`assertTransition`）
    * 之前——需要 `row.type` 才能取 cfg，经办门的 `findByNo` 顺带把行取到，不重复查询。
    *

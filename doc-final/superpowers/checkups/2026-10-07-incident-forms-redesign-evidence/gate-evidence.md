@@ -144,3 +144,30 @@ PREFILL type=LARGE_UNEXPLAINED: {"selectPresent":false}
 - 已订正（本 commit）：场景 24 ⑥ 两句（结论固定文本、旧 `no statutory reporting basis to select` 提示 → 静态说明行）；场景 25 ③ 的 Report Basis 选项原文加 `TIR_K_H — ` 前缀。
 - 边缘表述未改，留控制者定夺：场景 25 ① 括号「选中后表单动态长出 Type-specific 区」——两段化后 Type-specific 区**常驻**、只是字段随类型换，建议改「选中后 Type-specific 区换成网安专属字段」。
 - **范围外发现，已订正**：新定损真门使旧剧本步骤会 400——场景 31 ⑤（缺必填 Assessment note）、场景 32 ④（缺 Assessment note，且审慎登记无币种→还缺必填 Asset code；依据码选项现带 `COMPANY_VI_C_F — ` 前缀）、`script.md` 第 18 行表格行（认损定损同缺 note）三处已于 `9a1164e7` 订正；其后评审又逮到场景 32 ⑨ 审批 Impact 摘要引文（32 ④ 补币种后结案摘要带 ` AED`，拼接见 `incident-close-workflow.service.ts` `describeCloseImpact`）与场景 31 ④「客户号…全部预填」措辞偏旧（弹窗已不渲染客户号，隐藏值仍随提交），两处于修复轮 2 订正。场景 18 行「依据勾 TIR Rulebook K+H」对未授权转出本就不合法，属存量失真，已登 BACKLOG（不在本分支修）。
+
+## 9. 收尾闸⑥ `demo:all`（终审修复波补跑，HEAD 含全部前序 commit + 本波两处注释改动）
+
+序：`bash scripts/stack.sh reset self`（退出码 0，库从零铺种子——此前库里有证据造态与 e2e 残留，旧库跑 demo:all 会因脏数据假红，故先重铺）→ `bash scripts/stack.sh up self`（退出码 0，TB 3103 / 后端 3100 / 管理台 3101 / 客户端 3102 全起）→ `bash scripts/on-stack.sh self demo:all` → **退出码 0**。
+
+尾部关键输出（原样摘录）：
+
+```
+── DEPOSIT（18 笔）  … 全部 ✓（#1–#10、#21、#22、#24–#29，预期终态与实际一致）
+── SWAP（4 笔）      #11/#12/#23 SUCCESS ✓，#13 FROZEN ✓
+── WITHDRAW（7 笔）  #14/#15/#16 SUCCESS、#17 ACTION_PENDING、#18 PENDING_APPROVAL、#19 FROZEN、#20 PAYOUT_PENDING，全部 ✓
+
+花名册：29/29 符合预期
+  ✓ 花名册 29 笔逐条符合预期
+  ✓ COA CLIENT(AED): CLIENT_ASSET == Σ(…) (34107565 == 34107565)
+  ✓ COA FIRM(AED): FIRM_ASSET == Σ(…) (94620335 == 94620335)
+  ✓ COA CLIENT(USDT): CLIENT_ASSET == Σ(…) (7101620811 == 7101620811)
+  ✓ COA FIRM(USDT): FIRM_ASSET == Σ(…) (114013428189 == 114013428189)
+  ✓ data.md 生成区已更新
+
+  asserts: 5/5 PASS
+═══ demo:all DONE ✅ (all asserts pass) ═══
+```
+
+附：①输出里的 `MaxListenersExceededWarning`（4 条）与一行 `L1 FAIL: … DEPOSIT capability is blocked (enforcement)` 是预期的 Nest 日志（后者即花名册 #7「制裁冻结」充值被执法闸拦下的那一笔），不是断言失败；`grep` 全文无 `✗`。②跑完 `git status`：`doc-final/demo/data.md` 零 diff（生成区无漂移）。③`demo:all` 只覆盖充值/兑换/提现三条主线与 COA 恒等，不触事故中心表单，故它证明「本分支没有打坏既有主线」，不证明表单行为——后者由 §2 单测、§3 探针、§6 截图承担。
+
+收尾：`bash scripts/stack.sh down self` 已停本树栈。
