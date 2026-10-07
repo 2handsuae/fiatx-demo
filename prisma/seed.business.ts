@@ -1185,7 +1185,7 @@ type DemoIncidentSample = {
 };
 
 const DEMO_INCIDENTS: DemoIncidentSample[] = [
-  // DATA 族·IMPACT 口径·ASSESSED：双通报依据码已勾（PDPL_ART_9+TIR_II_C_24H）——两张
+  // DATA 族·IMPACT 口径·ASSESSED：双通报依据码已勾（DATA_BREACH_REPORT+DATA_BREACH_RE_REPORT_24H）——两张
   // filing 归位在 seedRegulatoryFilings（战役甲波二 T10，见下方 ③d）：PDPL 单已 SUBMITTED
   // （无钟）、TIR 链单 SIGNED_OFF 待提交（24h 钟在跑，还剩约 4h）。Request Close 仍灰态——
   // 现在按 incident-close-workflow.service.ts 的真实守卫判断（甲波二 T6 改判报送单口径）：
@@ -1200,7 +1200,7 @@ const DEMO_INCIDENTS: DemoIncidentSample[] = [
     impactSummary: '46 customer records (name, phone, partial ID document metadata) sent to a decommissioned third-party analytics endpoint across 3 export runs; vendor has confirmed non-retention but no independent verification yet.',
     impactCount: 46,
     reportRequired: true,
-    reportBasisCodes: ['PDPL_ART_9', 'TIR_II_C_24H'],
+    reportBasisCodes: ['DATA_BREACH_REPORT', 'DATA_BREACH_RE_REPORT_24H'],
   },
   // TECH_SECURITY 族·IMPACT 口径·INVESTIGATING：还没到定损，只有登记时就必填的两个锚。
   {
@@ -1340,9 +1340,9 @@ async function seedRegulatoryFilings(prisma: PrismaClient): Promise<void> {
   const incidentReportCfg = getFilingTypeConfig('INCIDENT_REPORT'); // direction OUTBOUND
   const now = Date.now();
 
-  // 样例一 · PDPL_ART_9（SUBMITTED）——statute 无钟（hours=null，见 INCIDENT_REPORT_BASES），
+  // 样例一 · DATA_BREACH_REPORT（SUBMITTED）——statute 无钟（hours=null，见 INCIDENT_REPORT_BASES），
   // deadlineAt 照真实 computeDeadline 结果留 null。
-  const pdplBase = INCIDENT_REPORT_BASES.PDPL_ART_9;
+  const pdplBase = INCIDENT_REPORT_BASES.DATA_BREACH_REPORT;
   const pdplFilingNo = buildDeterministicNo('FIL', 'data-breach-crm-export-pdpl');
   const pdplSubmittedAt = new Date(now - 20 * 3600 * 1000);
   const pdplFiling = await upsertFiling(pdplFilingNo, {
@@ -1350,7 +1350,7 @@ async function seedRegulatoryFilings(prisma: PrismaClient): Promise<void> {
     direction: incidentReportCfg.direction,
     type: 'INCIDENT_REPORT',
     authority: pdplBase.authority,
-    basisCode: 'PDPL_ART_9',
+    basisCode: 'DATA_BREACH_REPORT',
     incidentNo,
     title: `${incidentReportCfg.label} — ${incidentNo}`,
     body: 'Notification under PDPL Article 9: a weekly CRM segmentation export job was misconfigured and sent contact-field extracts for 46 customer records (name, phone, partial ID document metadata) to a decommissioned third-party analytics vendor endpoint across three consecutive export runs before an egress alert caught it. The vendor has confirmed non-retention of the data; independent verification of deletion is still pending.',
@@ -1372,11 +1372,11 @@ async function seedRegulatoryFilings(prisma: PrismaClient): Promise<void> {
     },
   });
 
-  // 样例一 · TIR_II_C_24H（SIGNED_OFF 链单，演示效果：已签发待提交、钟在跑——比 DRAFT
+  // 样例一 · DATA_BREACH_RE_REPORT_24H（SIGNED_OFF 链单，演示效果：已签发待提交、钟在跑——比 DRAFT
   // 更能演出"批完了、还剩不到 4 小时"的紧迫感）——deadline = PDPL submittedAt + 24h，
   // 照真实 markSubmitted 落定兄弟单 deadline 的算法（chainStart='NOTICE'，钟起点是
   // 通知发出时刻，不是登记/定损时刻）；now-20h+24h ≈ now+4h，还剩约 4 小时在跑。
-  const tirBase = INCIDENT_REPORT_BASES.TIR_II_C_24H;
+  const tirBase = INCIDENT_REPORT_BASES.DATA_BREACH_RE_REPORT_24H;
   const tirFilingNo = buildDeterministicNo('FIL', 'data-breach-crm-export-tir');
   const tirDeadlineAt = new Date(pdplSubmittedAt.getTime() + (tirBase.hours as number) * 3600 * 1000);
   await upsertFiling(tirFilingNo, {
@@ -1384,7 +1384,7 @@ async function seedRegulatoryFilings(prisma: PrismaClient): Promise<void> {
     direction: incidentReportCfg.direction,
     type: 'INCIDENT_REPORT',
     authority: tirBase.authority,
-    basisCode: 'TIR_II_C_24H',
+    basisCode: 'DATA_BREACH_RE_REPORT_24H',
     incidentNo,
     title: `${incidentReportCfg.label} — ${incidentNo}`,
     body: 'Technology incident report under TIR II.C: a misconfigured weekly CRM segmentation export job sent contact-field extracts for 46 customer records (name, phone, partial ID document metadata) to a decommissioned third-party analytics vendor endpoint over three consecutive export runs before detection via an egress alert. The export job has since been fixed; a full root-cause review is underway.',

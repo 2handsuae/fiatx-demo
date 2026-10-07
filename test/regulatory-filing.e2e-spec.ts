@@ -129,12 +129,12 @@ describe('Regulatory filing e2e (战役甲波二 · 报送台骨架, Task 8)', (
   //     供 ⑤ 续作，jest 按文件顺序串行）──────────────────────────────────────
   let cyberIncidentNo: string;
   let dataBreachIncidentNo: string;
-  let pdplFilingNo: string;   // PDPL_ART_9（不带钟）
-  let chainFilingNo: string;  // TIR_II_C_24H（chainStart='NOTICE'，钟链单）
+  let pdplFilingNo: string;   // DATA_BREACH_REPORT（不带钟）
+  let chainFilingNo: string;  // DATA_BREACH_RE_REPORT_24H（chainStart='NOTICE'，钟链单）
 
   // ── scenarios ────────────────────────────────────────────────────────────
 
-  it('① 出站全链：CYBER_BCDR 登记→调查→定损勾 TIR_K_H→开单 deadline=+72h→草拟→送签(REG_FILING_SUBMIT)→高管批→SIGNED_OFF→标提交→往来记录→办结→七码审计序列', async () => {
+  it('① 出站全链：CYBER_BCDR 登记→调查→定损勾 MAJOR_INCIDENT_72H→开单 deadline=+72h→草拟→送签(REG_FILING_SUBMIT)→高管批→SIGNED_OFF→标提交→往来记录→办结→七码审计序列', async () => {
     const reg = await registrationWorkflow.register({
       type: IncidentTypes.CYBER_BCDR, title: 'e2e 网络安全事件',
       description: '核心账本服务遭遇异常访问，触发 BCDR 预案',
@@ -148,13 +148,13 @@ describe('Regulatory filing e2e (战役甲波二 · 报送台骨架, Task 8)', (
     const incidentRow = await incidents.findByNo(cyberIncidentNo);
     const assessed = await assessmentWorkflow.assess(cyberIncidentNo, {
       assessmentBasis: 'SERVICE_IMPACT', impactSummary: '核心账本服务短暂不可用，已启用 BCDR 预案',
-      reportRequired: true, reportBasisCodes: ['TIR_K_H'],
+      reportRequired: true, reportBasisCodes: ['MAJOR_INCIDENT_72H'],
     } as any, techOfficer());
     expect(assessed.filingsOpened).toHaveLength(1);
     const [filingNo] = assessed.filingsOpened;
     expect(filingNo).toMatch(/^FIL/);
 
-    // deadline = 事故登记时刻（不是定损时刻）+ 72h（TIR_K_H）。
+    // deadline = 事故登记时刻（不是定损时刻）+ 72h（MAJOR_INCIDENT_72H）。
     const filingRow = await filings.findByNo(filingNo);
     expect(filingRow.deadlineAt).not.toBeNull();
     expect((filingRow.deadlineAt as Date).getTime()).toBe(incidentRow.createdAt.getTime() + 72 * 3600 * 1000);
@@ -213,7 +213,7 @@ describe('Regulatory filing e2e (战役甲波二 · 报送台骨架, Task 8)', (
     await waitUntil(async () => (await filings.findByNo(filingNo)).status === 'SIGNED_OFF');
   });
 
-  it('③ 钟链：DATA_BREACH 登记→定损勾 PDPL_ART_9+TIR_II_C_24H→两单开出、链单 deadline=null→提交 PDPL 单→链单 deadline=该 submittedAt+24h', async () => {
+  it('③ 钟链：DATA_BREACH 登记→定损勾 DATA_BREACH_REPORT+DATA_BREACH_RE_REPORT_24H→两单开出、链单 deadline=null→提交 PDPL 单→链单 deadline=该 submittedAt+24h', async () => {
     const reg = await registrationWorkflow.register({
       type: IncidentTypes.DATA_BREACH, title: 'e2e 个人数据泄露',
       description: '客户 KYC 材料存储桶被短暂公开访问',
@@ -225,16 +225,16 @@ describe('Regulatory filing e2e (战役甲波二 · 报送台骨架, Task 8)', (
     await incidents.startInvestigation(dataBreachIncidentNo, dpo());
     const assessed = await assessmentWorkflow.assess(dataBreachIncidentNo, {
       assessmentBasis: 'DATA_IMPACT', impactSummary: '约 120 名客户的 KYC 材料存在被访问风险',
-      reportRequired: true, reportBasisCodes: ['PDPL_ART_9', 'TIR_II_C_24H'],
+      reportRequired: true, reportBasisCodes: ['DATA_BREACH_REPORT', 'DATA_BREACH_RE_REPORT_24H'],
     } as any, dpo());
     expect(assessed.filingsOpened).toHaveLength(2);
     [pdplFilingNo, chainFilingNo] = assessed.filingsOpened;
 
     const pdplRow = await filings.findByNo(pdplFilingNo);
     const chainRow = await filings.findByNo(chainFilingNo);
-    expect(pdplRow.basisCode).toBe('PDPL_ART_9');
-    expect(chainRow.basisCode).toBe('TIR_II_C_24H');
-    // 两单在开单时都不落 deadline：PDPL_ART_9 本身无小时钟；TIR_II_C_24H 虽带 hours=24，
+    expect(pdplRow.basisCode).toBe('DATA_BREACH_REPORT');
+    expect(chainRow.basisCode).toBe('DATA_BREACH_RE_REPORT_24H');
+    // 两单在开单时都不落 deadline：DATA_BREACH_REPORT 本身无小时钟；DATA_BREACH_RE_REPORT_24H 虽带 hours=24，
     // 但 chainStart='NOTICE'——钟锚是兄弟单提交（通知发出）时刻，不是登记/定损时刻。
     expect(pdplRow.deadlineAt).toBeNull();
     expect(chainRow.deadlineAt).toBeNull();
@@ -322,10 +322,10 @@ describe('Regulatory filing e2e (战役甲波二 · 报送台骨架, Task 8)', (
   });
 
   it('⑥ 手工越界：openManual INCIDENT_REPORT 带不属该事故类型候选集的 basisCode → 400', async () => {
-    // cyberIncidentNo（① 的 CYBER_BCDR）候选集只有 ['TIR_K_H']；PDPL_ART_9 是已知依据码，
+    // cyberIncidentNo（① 的 CYBER_BCDR）候选集只有 ['MAJOR_INCIDENT_72H']；DATA_BREACH_REPORT 是已知依据码，
     // 但不是 CYBER_BCDR 类型的合法通报依据——越界。
     await expect(filings.openManual({
-      type: 'INCIDENT_REPORT', incidentNo: cyberIncidentNo, basisCode: 'PDPL_ART_9',
+      type: 'INCIDENT_REPORT', incidentNo: cyberIncidentNo, basisCode: 'DATA_BREACH_REPORT',
     }, compliance())).rejects.toThrow(/not a valid reporting basis/);
   });
 });

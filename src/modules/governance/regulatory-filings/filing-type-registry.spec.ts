@@ -228,9 +228,9 @@ describe('INCIDENT_REPORT_BASES authority 回填 (spec §2 依据码目录)', ()
     }
   });
 
-  it('PDPL_ART_9 归 UAE_DATA_OFFICE，其余六条归 VARA', () => {
-    expect(INCIDENT_REPORT_BASES.PDPL_ART_9.authority).toBe('UAE_DATA_OFFICE');
-    const others = Object.entries(INCIDENT_REPORT_BASES).filter(([code]) => code !== 'PDPL_ART_9');
+  it('DATA_BREACH_REPORT 归 UAE_DATA_OFFICE，其余六条归 VARA', () => {
+    expect(INCIDENT_REPORT_BASES.DATA_BREACH_REPORT.authority).toBe('UAE_DATA_OFFICE');
+    const others = Object.entries(INCIDENT_REPORT_BASES).filter(([code]) => code !== 'DATA_BREACH_REPORT');
     expect(others).toHaveLength(6);
     for (const [, base] of others) {
       expect(base.authority).toBe('VARA');

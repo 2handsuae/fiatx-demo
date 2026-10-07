@@ -119,16 +119,16 @@ describe('RegulatoryFilingService (Task 3)', () => {
 
   // ── ① openForIncident：两码开两单 ──────────────────────────────────
   describe('openForIncident', () => {
-    it('opens one filing per basis code, with per-code deadline (TIR_K_H = createdAt+72h, TIR_II_C_24H = null pending chain)', async () => {
+    it('opens one filing per basis code, with per-code deadline (MAJOR_INCIDENT_72H = createdAt+72h, DATA_BREACH_RE_REPORT_24H = null pending chain)', async () => {
       const createdAt = new Date('2026-09-20T10:00:00.000Z');
       const incident = { incidentNo: 'INC_FAKE_OPEN_1', type: 'DATA_BREACH', title: 'Data breach', createdAt, customerNo: 'CU_T3_1', traceId: randomUUID() };
-      const { filingNos } = await service.openForIncident(incident, ['TIR_K_H', 'TIR_II_C_24H'], ops);
+      const { filingNos } = await service.openForIncident(incident, ['MAJOR_INCIDENT_72H', 'DATA_BREACH_RE_REPORT_24H'], ops);
       createdFilingNos.push(...filingNos);
       expect(filingNos).toHaveLength(2);
 
       const rows = await Promise.all(filingNos.map((no) => service.findByNo(no)));
-      const tirKH = rows.find((r) => r.basisCode === 'TIR_K_H')!;
-      const tirIIC = rows.find((r) => r.basisCode === 'TIR_II_C_24H')!;
+      const tirKH = rows.find((r) => r.basisCode === 'MAJOR_INCIDENT_72H')!;
+      const tirIIC = rows.find((r) => r.basisCode === 'DATA_BREACH_RE_REPORT_24H')!;
 
       expect(tirKH.deadlineAt?.toISOString()).toBe(new Date(createdAt.getTime() + 72 * 3600 * 1000).toISOString());
       expect(tirKH.authority).toBe('VARA');
@@ -169,7 +169,7 @@ describe('RegulatoryFilingService (Task 3)', () => {
   // ── ③ openManual('INCIDENT_REPORT')：校验全在 service 内 ─────────────
   describe('openManual — INCIDENT_REPORT (validated in service, no workflow)', () => {
     it('rejects a missing incidentNo', async () => {
-      await expect(service.openManual({ type: 'INCIDENT_REPORT', basisCode: 'PDPL_ART_9' } as any, ops)).rejects.toThrow(BadRequestException);
+      await expect(service.openManual({ type: 'INCIDENT_REPORT', basisCode: 'DATA_BREACH_REPORT' } as any, ops)).rejects.toThrow(BadRequestException);
     });
 
     it('rejects a missing basisCode', async () => {
@@ -178,19 +178,19 @@ describe('RegulatoryFilingService (Task 3)', () => {
     });
 
     it('rejects when the incident does not exist', async () => {
-      await expect(service.openManual({ type: 'INCIDENT_REPORT', incidentNo: 'INC_NOPE_999', basisCode: 'PDPL_ART_9' } as any, ops))
+      await expect(service.openManual({ type: 'INCIDENT_REPORT', incidentNo: 'INC_NOPE_999', basisCode: 'DATA_BREACH_REPORT' } as any, ops))
         .rejects.toThrow(NotFoundException);
     });
 
-    it('rejects a basisCode that is not a reportBasisCandidate for the incident type (DATA_BREACH does not carry TIR_K_H)', async () => {
+    it('rejects a basisCode that is not a reportBasisCandidate for the incident type (DATA_BREACH does not carry MAJOR_INCIDENT_72H)', async () => {
       const incidentNo = await makeIncident({ type: 'DATA_BREACH' });
-      await expect(service.openManual({ type: 'INCIDENT_REPORT', incidentNo, basisCode: 'TIR_K_H' } as any, ops))
+      await expect(service.openManual({ type: 'INCIDENT_REPORT', incidentNo, basisCode: 'MAJOR_INCIDENT_72H' } as any, ops))
         .rejects.toThrow(BadRequestException);
     });
 
     it('accepts a valid basisCode for the incident type and opens a filing carrying the basis authority', async () => {
       const incidentNo = await makeIncident({ type: 'DATA_BREACH' });
-      const { filingNo } = await service.openManual({ type: 'INCIDENT_REPORT', incidentNo, basisCode: 'PDPL_ART_9' }, ops);
+      const { filingNo } = await service.openManual({ type: 'INCIDENT_REPORT', incidentNo, basisCode: 'DATA_BREACH_REPORT' }, ops);
       createdFilingNos.push(filingNo);
       const row = await service.findByNo(filingNo);
       expect(row.authority).toBe('UAE_DATA_OFFICE');
@@ -242,11 +242,11 @@ describe('RegulatoryFilingService (Task 3)', () => {
     it('sets the sibling NOTICE-chain deadline (submittedAt+24h) and returns chainDeadlineSetFor', async () => {
       const createdAt = new Date('2026-09-10T08:00:00.000Z');
       const incident = { incidentNo: `INC_CHAIN_${randomUUID().slice(0, 8)}`, type: 'DATA_BREACH', title: 't', createdAt, customerNo: null, traceId: randomUUID() };
-      const { filingNos } = await service.openForIncident(incident, ['PDPL_ART_9', 'TIR_II_C_24H'], ops);
+      const { filingNos } = await service.openForIncident(incident, ['DATA_BREACH_REPORT', 'DATA_BREACH_RE_REPORT_24H'], ops);
       createdFilingNos.push(...filingNos);
       const both = await Promise.all(filingNos.map((no) => service.findByNo(no)));
-      const primary = both.find((r) => r.basisCode === 'PDPL_ART_9')!;
-      const chainFiling = both.find((r) => r.basisCode === 'TIR_II_C_24H')!;
+      const primary = both.find((r) => r.basisCode === 'DATA_BREACH_REPORT')!;
+      const chainFiling = both.find((r) => r.basisCode === 'DATA_BREACH_RE_REPORT_24H')!;
       expect(chainFiling.deadlineAt).toBeNull();
 
       await service.markSignoffRequested(primary.filingNo, 'APR_CHAIN', ops);

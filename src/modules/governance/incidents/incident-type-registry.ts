@@ -49,7 +49,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   UNAUTHORIZED_OUTFLOW: {
     family: 'FUNDS', label: 'Unauthorized outflow', establishedBy: 'CRM IV.E.5 / V.D.2',
     operatorGroup: 'INCIDENT_WRITE', operatorMarkerCode: 'cap.incident.funds', closeActionType: 'INCIDENT_CLOSE_SECURITY',
-    reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
+    reportBasisCandidates: ['CLIENT_MONEY_DISCREPANCY', 'CLIENT_VA_DISCREPANCY'],
     requiredAnchors: [], // 存量：现有 service 校验原样保留（Task 5），锚声明空=沿用旧校验
     assessmentScheme: 'MONETARY',
     allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
@@ -58,7 +58,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   LARGE_UNEXPLAINED: {
     family: 'FUNDS', label: 'Large unexplained discrepancy', establishedBy: 'CRM IV.E.5 / V.D.2',
     operatorGroup: 'INCIDENT_WRITE', operatorMarkerCode: 'cap.incident.funds', closeActionType: 'INCIDENT_CLOSE_FINANCIAL',
-    reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
+    reportBasisCandidates: ['CLIENT_MONEY_DISCREPANCY', 'CLIENT_VA_DISCREPANCY'],
     requiredAnchors: [],
     assessmentScheme: 'MONETARY',
     allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
@@ -67,7 +67,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   CLIENT_SHORTFALL: {
     family: 'FUNDS', label: 'Client shortfall', establishedBy: 'CRM Client Money',
     operatorGroup: 'INCIDENT_WRITE', operatorMarkerCode: 'cap.incident.funds', closeActionType: 'INCIDENT_CLOSE_FINANCIAL',
-    reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
+    reportBasisCandidates: ['CLIENT_MONEY_DISCREPANCY', 'CLIENT_VA_DISCREPANCY'],
     requiredAnchors: [],
     assessmentScheme: 'MONETARY',
     allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
@@ -76,7 +76,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   CYBER_BCDR: {
     family: 'TECH_SECURITY', label: 'Cyber / BCDR incident', establishedBy: 'TIR Rulebook K + H',
     operatorGroup: 'INCIDENT_TECH_WRITE', operatorMarkerCode: 'cap.incident.tech', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
-    reportBasisCandidates: ['TIR_K_H'],
+    reportBasisCandidates: ['MAJOR_INCIDENT_72H'],
     requiredAnchors: ['affectedSystem', 'bcdrTriggered'], assessmentScheme: 'IMPACT',
     allowedAssessmentBases: ['SERVICE_IMPACT'],
     allowedRemediationKinds: [], enabled: true,
@@ -84,7 +84,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   DATA_BREACH: {
     family: 'DATA', label: 'Personal data breach', establishedBy: 'PDPL 45/2021 Art.9 + TIR II.C',
     operatorGroup: 'INCIDENT_DATA_WRITE', operatorMarkerCode: 'cap.incident.data', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
-    reportBasisCandidates: ['PDPL_ART_9', 'TIR_II_C_24H'],
+    reportBasisCandidates: ['DATA_BREACH_REPORT', 'DATA_BREACH_RE_REPORT_24H'],
     requiredAnchors: ['affectedCustomerCount', 'dataCategories'], assessmentScheme: 'IMPACT',
     allowedAssessmentBases: ['DATA_IMPACT'],
     allowedRemediationKinds: ['CUSTOMER_NOTICE_LOGGED'], enabled: true,
@@ -92,7 +92,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   OUTSOURCING_FAILURE: {
     family: 'TECH_SECURITY', label: 'Outsourcing failure', establishedBy: 'Company IV.H.1',
     operatorGroup: 'INCIDENT_TECH_WRITE', operatorMarkerCode: 'cap.incident.tech', closeActionType: 'INCIDENT_CLOSE_TECHSEC',
-    reportBasisCandidates: ['COMPANY_IV_H_1'],
+    reportBasisCandidates: ['OUTSOURCING_FAILURE_NOTICE'],
     requiredAnchors: ['vendor', 'serviceImpact'], assessmentScheme: 'IMPACT',
     allowedAssessmentBases: ['SERVICE_IMPACT'],
     allowedRemediationKinds: [], enabled: true,
@@ -107,7 +107,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   STUCK_TRANSACTION_MAJOR: {
     family: 'OPERATIONS', label: 'Major stuck transaction', establishedBy: 'TIR K.1 + I.H.1 + CRM I.E.4',
     operatorGroup: 'INCIDENT_OPS_WRITE', operatorMarkerCode: 'cap.incident.ops', closeActionType: 'INCIDENT_CLOSE_FINANCIAL',
-    reportBasisCandidates: ['TIR_K_H'],
+    reportBasisCandidates: ['MAJOR_INCIDENT_72H'],
     requiredAnchors: ['orderNo', 'customerNo', 'amount'], assessmentScheme: 'MONETARY',
     allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: [], enabled: true,
@@ -115,7 +115,7 @@ export const INCIDENT_TYPE_REGISTRY: Record<string, IncidentTypeConfig> = {
   PRUDENTIAL_BREACH: {
     family: 'FINANCIAL', label: 'Prudential (NLA) breach', establishedBy: 'Company VI.C / VI.F',
     operatorGroup: 'INCIDENT_FIN_WRITE', operatorMarkerCode: 'cap.incident.fin', closeActionType: 'INCIDENT_CLOSE_PRUDENTIAL',
-    reportBasisCandidates: ['COMPANY_VI_C_F'],
+    reportBasisCandidates: ['PRUDENTIAL_BREACH_NOTICE'],
     requiredAnchors: ['metric', 'shortfallAmount'], assessmentScheme: 'SHORTFALL',
     allowedAssessmentBases: ['SHORTFALL'],
     allowedRemediationKinds: [], enabled: true,

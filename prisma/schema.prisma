@@ -1776,7 +1776,7 @@ model Incident {
   impactSummary      String?   // IMPACT 口径类型的定损摘要（人话，非结构化）
   impactCount        Int?      // IMPACT 口径类型的受影响计数（如 affectedCustomerCount）
   reportRequired     Boolean   @default(false)
-  reportBasisCodes   String?   // 逗号分隔依据码，如 "TIR_K_H,CRM_V_D_2"
+  reportBasisCodes   String?   // 逗号分隔依据码，如 "MAJOR_INCIDENT_72H,CLIENT_VA_DISCREPANCY"
   // 甲波二 T6：单槽六列（reportDeadlineAt/reportDraft/reportDraftedAt/reportedAt/
   // reportedByUserId/reportReference）退役——通报草案/签发/提交/时限改统一落报送单主体
   // 自己的表（RegulatoryFiling，见 regulatory-filings 模块），事故侧只保留判定留痕

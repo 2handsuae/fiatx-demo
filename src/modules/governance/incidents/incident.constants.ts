@@ -102,19 +102,27 @@ export interface LinkRemediationDto {
 }
 
 /** 依据条款目录（spec §4/波一 §5）。一码=一项通报义务（一只钟+一个受文机构）。
+ * 键=材料语义名（报送台整备波 spec §2.3，原为法条坐标；命名规则：带小时钟的数字进名
+ * _72H/_24H、即时义务 _NOTICE 后缀、成对材料平行结构）；`label`=材料名（员工选择面与列表下钻
+ * 展示的第二层）；`statuteRef`=法条原文引述（副标签展示；报文正文与审计引用照旧用法条，不用 label）。
  * hours=null 且无 immediate → 条款未载明时限（不杜撰）；immediate=true → 即时义务（无小时钟）。
  * chainStart='NOTICE'（战役甲波一 Task 6）：钟链起点是另一码触发的"通知发出"时刻，不是定损/
  * 登记时刻——本码即便带 hours，也不参与钟锚计算（甲波二 T6：该计算已迁到
  * RegulatoryFilingService.computeDeadline，见 regulatory-filing.service.ts；本码到期即便带
  * hours 也不入首次开单的 deadlineAt，起算改由兄弟单提交时补落，见 markSubmitted 的钟链回填）。 */
-export const INCIDENT_REPORT_BASES: Record<string, { label: string; hours: number | null; immediate?: true; chainStart?: 'NOTICE'; authority: string }> = {
-  TIR_K_H: { label: 'TIR Rulebook Section K + H — material incident (cyber/BCDR, major stuck-transaction) reporting to VARA within 72 hours', hours: 72, authority: 'VARA' },
-  CRM_IV_E_5: { label: 'CRM IV.E.5 — Material Client Money discrepancy', hours: null, authority: 'VARA' },
-  CRM_V_D_2: { label: 'CRM V.D.2 — Material Client VA discrepancy', hours: null, authority: 'VARA' },
-  PDPL_ART_9: { label: 'PDPL (Federal Decree-Law 45/2021) Art.9 — personal data breach report to UAE Data Office (statute states no hour clock)', hours: null, authority: 'UAE_DATA_OFFICE' },
-  TIR_II_C_24H: { label: 'VARA TIR Part II Section C + CRM I.1.4 — re-report to VARA within 24 hours AFTER the breach notice is issued (clock starts at first notice, not detection)', hours: 24, chainStart: 'NOTICE', authority: 'VARA' },
-  COMPANY_IV_H_1: { label: 'Company Rulebook IV.H.1 — material outsourcing failure, notify VARA immediately', hours: null, immediate: true, authority: 'VARA' },
-  COMPANY_VI_C_F: { label: 'Company Rulebook VI.C / VI.F — NLA prudential breach, notify VARA immediately; daily updates until VARA is satisfied (calendar duty → wave 4)', hours: null, immediate: true, authority: 'VARA' },
+export const INCIDENT_REPORT_BASES: Record<string, { label: string; statuteRef: string; hours: number | null; immediate?: true; chainStart?: 'NOTICE'; authority: string }> = {
+  // 网安/BCDR 与大额卡单事件报 VARA，72 小时（从登记时刻起算）。
+  MAJOR_INCIDENT_72H: { label: 'Major incident report', statuteRef: 'TIR Rulebook Section K + H', hours: 72, authority: 'VARA' },
+  CLIENT_MONEY_DISCREPANCY: { label: 'Client Money discrepancy report', statuteRef: 'CRM IV.E.5', hours: null, authority: 'VARA' },
+  CLIENT_VA_DISCREPANCY: { label: 'Client VA discrepancy report', statuteRef: 'CRM V.D.2', hours: null, authority: 'VARA' },
+  // 个人数据泄露报 UAE 数据办公室；法条未载明小时钟。
+  DATA_BREACH_REPORT: { label: 'Personal data breach report', statuteRef: 'PDPL (Federal Decree-Law 45/2021) Art.9', hours: null, authority: 'UAE_DATA_OFFICE' },
+  // 泄露通知发出后 24 小时内向 VARA 二次上报；钟起点是首次通知而非发现时刻。
+  DATA_BREACH_RE_REPORT_24H: { label: 'Data breach re-report', statuteRef: 'VARA TIR Part II Section C + CRM I.1.4', hours: 24, chainStart: 'NOTICE', authority: 'VARA' },
+  // 重大外包故障，立即通知 VARA。
+  OUTSOURCING_FAILURE_NOTICE: { label: 'Outsourcing failure notice', statuteRef: 'Company Rulebook IV.H.1', hours: null, immediate: true, authority: 'VARA' },
+  // NLA 审慎缺口，立即通知 VARA；每日更新直到 VARA 满意（日历义务留待波四）。
+  PRUDENTIAL_BREACH_NOTICE: { label: 'Prudential (NLA) breach notice', statuteRef: 'Company Rulebook VI.C / VI.F', hours: null, immediate: true, authority: 'VARA' },
 };
 
 /** 定损入参（战役甲波一 Task 6，brief Interfaces）。三档口径（MONETARY/IMPACT/SHORTFALL）

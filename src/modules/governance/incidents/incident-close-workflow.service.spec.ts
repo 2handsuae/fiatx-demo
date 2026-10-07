@@ -94,8 +94,8 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
       const { wf } = makeWorkflow({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, reportRequired: true, traceId: 't' },
         filingsSummary: [
-          { filingNo: 'FIL1', basisCode: 'CRM_IV_E_5', status: 'SUBMITTED', submittedAt: '2026-09-26T00:00:00.000Z' },
-          { filingNo: 'FIL2', basisCode: 'CRM_V_D_2', status: 'SIGNED_OFF', submittedAt: null },
+          { filingNo: 'FIL1', basisCode: 'CLIENT_MONEY_DISCREPANCY', status: 'SUBMITTED', submittedAt: '2026-09-26T00:00:00.000Z' },
+          { filingNo: 'FIL2', basisCode: 'CLIENT_VA_DISCREPANCY', status: 'SIGNED_OFF', submittedAt: null },
         ],
       });
       await expect(wf.requestClose('INC1', treasury)).rejects.toThrow(/have not yet been submitted — it cannot be closed \(FIL2\)/);
@@ -105,7 +105,7 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
       const { wf } = makeWorkflow({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, reportRequired: true, traceId: 't' },
         filingsSummary: [
-          { filingNo: 'FIL1', basisCode: 'CRM_IV_E_5', status: 'SUBMITTED', submittedAt: '2026-09-26T00:00:00.000Z' },
+          { filingNo: 'FIL1', basisCode: 'CLIENT_MONEY_DISCREPANCY', status: 'SUBMITTED', submittedAt: '2026-09-26T00:00:00.000Z' },
         ],
       });
       await expect(wf.requestClose('INC1', treasury)).resolves.toBeDefined();
@@ -115,8 +115,8 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
       const { wf } = makeWorkflow({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING, reportRequired: true, traceId: 't' },
         filingsSummary: [
-          { filingNo: 'FIL1', basisCode: 'CRM_IV_E_5', status: 'SUBMITTED', submittedAt: '2026-09-26T00:00:00.000Z' },
-          { filingNo: 'FIL2', basisCode: 'CRM_V_D_2', status: 'CANCELLED', submittedAt: null },
+          { filingNo: 'FIL1', basisCode: 'CLIENT_MONEY_DISCREPANCY', status: 'SUBMITTED', submittedAt: '2026-09-26T00:00:00.000Z' },
+          { filingNo: 'FIL2', basisCode: 'CLIENT_VA_DISCREPANCY', status: 'CANCELLED', submittedAt: null },
         ],
       });
       await expect(wf.requestClose('INC1', treasury)).resolves.toBeDefined();
@@ -298,7 +298,7 @@ describe('IncidentCloseWorkflowService (Task 7)', () => {
           reportRequired: true, customerNo: 'CU1', sourceCaseNo: 'REC1', traceId: 'trace-9',
         },
         remediations: ['ITR9'],
-        filingsSummary: [{ filingNo: 'FIL1', basisCode: 'CRM_IV_E_5', status: 'SUBMITTED', submittedAt: '2026-09-26T00:00:00.000Z' }],
+        filingsSummary: [{ filingNo: 'FIL1', basisCode: 'CLIENT_MONEY_DISCREPANCY', status: 'SUBMITTED', submittedAt: '2026-09-26T00:00:00.000Z' }],
       });
       const r = await wf.requestClose('INC1', treasury);
       expect(r).toEqual({ incidentNo: 'INC1', approvalNo: 'AC1' });

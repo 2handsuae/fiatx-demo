@@ -473,17 +473,17 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
 
   // 甲波二 T6（事件联动 + 事故侧收编）：assess 改经 IncidentAssessmentWorkflowService——
   // reportRequired=true 按勾选的依据码逐码自动开报送单（不再是事故自己收草案/自己标已通报，
-  // 单槽退役，统一走报送单主体）。两码均无钟（CRM_IV_E_5/CRM_V_D_2 唯二合法码，hours=null）
+  // 单槽退役，统一走报送单主体）。两码均无钟（CLIENT_MONEY_DISCREPANCY/CLIENT_VA_DISCREPANCY 唯二合法码，hours=null）
   // → 两单 deadlineAt 均 null、authority 均 VARA；逐单走真实签发链（草拟→申请签发→高管
   // 批→标提交），中途只提交一单时结案仍被拒；两单都提交后（连同 Test 5 的善后挂载）Test 6
   // 的真实结案才能通过——filingsOpened 与结案守卫的联动在这一条 e2e 里首尾闭环。
-  it('4 · 定损 FIRM_LOSS + 需通报（CRM_IV_E_5 + CRM_V_D_2，UNAUTHORIZED_OUTFLOW 唯二合法码）→ assess 联动自动开两单（deadlineAt 均 null、authority 均 VARA）；逐单走签发链提交，仅一单提交时结案仍拒', async () => {
+  it('4 · 定损 FIRM_LOSS + 需通报（CLIENT_MONEY_DISCREPANCY + CLIENT_VA_DISCREPANCY，UNAUTHORIZED_OUTFLOW 唯二合法码）→ assess 联动自动开两单（deadlineAt 均 null、authority 均 VARA）；逐单走签发链提交，仅一单提交时结案仍拒', async () => {
     mainAssessedAmountMajor = bigintToDecimal(LOSS_MINOR, usdtDecimals).toFixed(usdtDecimals);
 
     const assessed = await assessmentWorkflow.assess(mainIncidentNo, {
       assessedAmount: mainAssessedAmountMajor, assessmentBasis: 'FIRM_LOSS',
       impactSummary: 'e2e：外部托管方转出经核实，公司自担损失', assetCode: 'USDT',
-      reportRequired: true, reportBasisCodes: ['CRM_IV_E_5', 'CRM_V_D_2'],
+      reportRequired: true, reportBasisCodes: ['CLIENT_MONEY_DISCREPANCY', 'CLIENT_VA_DISCREPANCY'],
     } as any, treasury());
     expect(assessed.status).toBe('ASSESSED');
     expect(assessed.filingsOpened).toHaveLength(2);

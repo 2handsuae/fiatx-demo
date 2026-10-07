@@ -526,12 +526,12 @@ describe('IncidentService (Task 5)', () => {
   });
 
   describe('INCIDENT_REPORT_BASES — reporting basis directory (hours are sourced directly from the regulatory clause, must not be changed)', () => {
-    it('TIR_K_H has a statutory 72h clock, the two CRM bases have no clock (hours=null)', () => {
-      expect(REPORT_BASES.TIR_K_H.hours).toBe(72);
-      expect(REPORT_BASES.CRM_IV_E_5.hours).toBeNull();
-      expect(REPORT_BASES.CRM_V_D_2.hours).toBeNull();
+    it('MAJOR_INCIDENT_72H has a statutory 72h clock, the two CRM bases have no clock (hours=null)', () => {
+      expect(REPORT_BASES.MAJOR_INCIDENT_72H.hours).toBe(72);
+      expect(REPORT_BASES.CLIENT_MONEY_DISCREPANCY.hours).toBeNull();
+      expect(REPORT_BASES.CLIENT_VA_DISCREPANCY.hours).toBeNull();
       expect(Object.keys(REPORT_BASES)).toEqual([
-        'TIR_K_H', 'CRM_IV_E_5', 'CRM_V_D_2', 'PDPL_ART_9', 'TIR_II_C_24H', 'COMPANY_IV_H_1', 'COMPANY_VI_C_F',
+        'MAJOR_INCIDENT_72H', 'CLIENT_MONEY_DISCREPANCY', 'CLIENT_VA_DISCREPANCY', 'DATA_BREACH_REPORT', 'DATA_BREACH_RE_REPORT_24H', 'OUTSOURCING_FAILURE_NOTICE', 'PRUDENTIAL_BREACH_NOTICE',
       ]);
     });
   });
@@ -563,33 +563,33 @@ describe('IncidentService (Task 5)', () => {
     // assess() 自己仍要管的事：按类型收窄 reportBasisCandidates、basisCodes 落库、
     // 状态机与审计。
     //
-    // 甲波一 T6：改用 STUCK_TRANSACTION_MAJOR（reportBasisCandidates=['TIR_K_H']）——
-    // CLIENT_SHORTFALL 的候选集只有 ['CRM_IV_E_5','CRM_V_D_2']，勾 TIR_K_H 在新增的口径②
+    // 甲波一 T6：改用 STUCK_TRANSACTION_MAJOR（reportBasisCandidates=['MAJOR_INCIDENT_72H']）——
+    // CLIENT_SHORTFALL 的候选集只有 ['CLIENT_MONEY_DISCREPANCY','CLIENT_VA_DISCREPANCY']，勾 MAJOR_INCIDENT_72H 在新增的口径②
     // （reportBasisCodes ⊆ cfg.reportBasisCandidates）下会变成 400，原用例的类型/码组合
     // 已不成立，换一个合法组合延续同一断言意图（审计顶层 assessmentBasis）。
-    it('happy path: STUCK_TRANSACTION_MAJOR + TIR_K_H accepted → ASSESSED + basisCodes persisted + audit top-level assessmentBasis', async () => {
+    it('happy path: STUCK_TRANSACTION_MAJOR + MAJOR_INCIDENT_72H accepted → ASSESSED + basisCodes persisted + audit top-level assessmentBasis', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
       const { svc, prisma, auditLogs } = makeService({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.STUCK_TRANSACTION_MAJOR, status: S.INVESTIGATING, assetCode: 'AED', createdAt },
         heldMarkers: ['cap.incident.ops'],
       });
-      const r = await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', impactSummary: 'note', reportRequired: true, reportBasisCodes: ['TIR_K_H'] }, ops);
+      const r = await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'FIRM_LOSS', impactSummary: 'note', reportRequired: true, reportBasisCodes: ['MAJOR_INCIDENT_72H'] }, ops);
       expect(r.status).toBe(S.ASSESSED);
       expect(r).not.toHaveProperty('reportDeadlineAt');
       const updateCall = prisma.incident.update.mock.calls[0][0];
       expect(updateCall.data.status).toBe(S.ASSESSED);
-      expect(updateCall.data.reportBasisCodes).toBe('TIR_K_H');
+      expect(updateCall.data.reportBasisCodes).toBe('MAJOR_INCIDENT_72H');
       expect(updateCall.data).not.toHaveProperty('reportDeadlineAt');
       const call = auditLogs.recordByActor.mock.calls[0][0];
       expect(call).toMatchObject({ action: 'INCIDENT_ASSESSED', assessmentBasis: 'FIRM_LOSS', fromStatus: S.INVESTIGATING, toStatus: S.ASSESSED });
     });
 
-    it('selecting a clockless basis (CRM_IV_E_5) → reportBasisCodes persists, assess does not compute a deadline at all', async () => {
+    it('selecting a clockless basis (CLIENT_MONEY_DISCREPANCY) → reportBasisCodes persists, assess does not compute a deadline at all', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
       const { svc, prisma } = makeService({ incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING, assetCode: 'AED', createdAt } });
-      await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'CLIENT_COLLECTION', impactSummary: 'note', reportRequired: true, reportBasisCodes: ['CRM_IV_E_5'] }, ops);
+      await svc.assess('INC1', { assessedAmount: '5000', assessmentBasis: 'CLIENT_COLLECTION', impactSummary: 'note', reportRequired: true, reportBasisCodes: ['CLIENT_MONEY_DISCREPANCY'] }, ops);
       const updateCall = prisma.incident.update.mock.calls[0][0];
-      expect(updateCall.data.reportBasisCodes).toBe('CRM_IV_E_5');
+      expect(updateCall.data.reportBasisCodes).toBe('CLIENT_MONEY_DISCREPANCY');
       expect(updateCall.data).not.toHaveProperty('reportDeadlineAt');
     });
 
@@ -610,11 +610,11 @@ describe('IncidentService (Task 5)', () => {
       });
       await expect(svc.assess('INC1', {
         assessmentBasis: 'SERVICE_IMPACT', impactSummary: 'Asset suspended pending review',
-        reportRequired: true, reportBasisCodes: ['TIR_K_H'],
+        reportRequired: true, reportBasisCodes: ['MAJOR_INCIDENT_72H'],
       }, ops)).rejects.toThrow(BadRequestException);
     });
 
-    it('DATA_BREACH — checking both PDPL_ART_9 and TIR_II_C_24H (chainStart=NOTICE) → both basis codes accepted and persisted, no deadline column touched', async () => {
+    it('DATA_BREACH — checking both DATA_BREACH_REPORT and DATA_BREACH_RE_REPORT_24H (chainStart=NOTICE) → both basis codes accepted and persisted, no deadline column touched', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
       const { svc, prisma } = makeService({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.DATA_BREACH, status: S.INVESTIGATING, createdAt },
@@ -622,19 +622,19 @@ describe('IncidentService (Task 5)', () => {
       });
       // 目录条目本身携带 chainStart='NOTICE'（钟链起点是通知发出，不是本次定损起算点）——
       // 该语义只影响 RegulatoryFilingService.computeDeadline（Task 3），本文件不重测。
-      expect(REPORT_BASES.TIR_II_C_24H.chainStart).toBe('NOTICE');
-      expect(REPORT_BASES.TIR_II_C_24H.hours).toBe(24);
+      expect(REPORT_BASES.DATA_BREACH_RE_REPORT_24H.chainStart).toBe('NOTICE');
+      expect(REPORT_BASES.DATA_BREACH_RE_REPORT_24H.hours).toBe(24);
       const r = await svc.assess('INC1', {
         assessmentBasis: 'DATA_IMPACT', impactSummary: 'Customer PII exposed',
-        reportRequired: true, reportBasisCodes: ['PDPL_ART_9', 'TIR_II_C_24H'],
+        reportRequired: true, reportBasisCodes: ['DATA_BREACH_REPORT', 'DATA_BREACH_RE_REPORT_24H'],
       }, ops);
       expect(r.status).toBe(S.ASSESSED);
       const updateCall = prisma.incident.update.mock.calls[0][0];
-      expect(updateCall.data.reportBasisCodes).toBe('PDPL_ART_9,TIR_II_C_24H');
+      expect(updateCall.data.reportBasisCodes).toBe('DATA_BREACH_REPORT,DATA_BREACH_RE_REPORT_24H');
       expect(updateCall.data).not.toHaveProperty('reportDeadlineAt');
     });
 
-    it('CYBER_BCDR — checking TIR_K_H → accepted and persisted (behavior contract ③, deadline computation lives in RegulatoryFilingService now)', async () => {
+    it('CYBER_BCDR — checking MAJOR_INCIDENT_72H → accepted and persisted (behavior contract ③, deadline computation lives in RegulatoryFilingService now)', async () => {
       const createdAt = new Date('2026-09-01T00:00:00.000Z');
       const { svc, prisma } = makeService({
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.CYBER_BCDR, status: S.INVESTIGATING, createdAt },
@@ -642,11 +642,11 @@ describe('IncidentService (Task 5)', () => {
       });
       const r = await svc.assess('INC1', {
         assessmentBasis: 'SERVICE_IMPACT', impactSummary: 'Trading platform outage',
-        reportRequired: true, reportBasisCodes: ['TIR_K_H'],
+        reportRequired: true, reportBasisCodes: ['MAJOR_INCIDENT_72H'],
       }, ops);
       expect(r.status).toBe(S.ASSESSED);
       const updateCall = prisma.incident.update.mock.calls[0][0];
-      expect(updateCall.data.reportBasisCodes).toBe('TIR_K_H');
+      expect(updateCall.data.reportBasisCodes).toBe('MAJOR_INCIDENT_72H');
       expect(updateCall.data).not.toHaveProperty('reportDeadlineAt');
       expect(updateCall.data.assetCode).toBeNull(); // IMPACT 口径不要求币种（spec §4.3 仅钱/缺口口径）
     });
@@ -715,7 +715,7 @@ describe('IncidentService (Task 5)', () => {
         incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.UNAUTHORIZED_OUTFLOW, status: S.INVESTIGATING, assetCode: 'AED', createdAt },
       });
       const r = await svc.assess('INC1', {
-        assessedAmount: '2500', assessmentBasis: 'FIRM_LOSS', impactSummary: 'note', reportRequired: true, reportBasisCodes: ['CRM_IV_E_5'],
+        assessedAmount: '2500', assessmentBasis: 'FIRM_LOSS', impactSummary: 'note', reportRequired: true, reportBasisCodes: ['CLIENT_MONEY_DISCREPANCY'],
       }, ops);
       expect(r.status).toBe(S.ASSESSED);
       expect(r).not.toHaveProperty('reportDeadlineAt'); // 甲波二 T6：钟锚计算已迁到 RegulatoryFilingService
@@ -835,7 +835,7 @@ describe('IncidentService (Task 5)', () => {
         id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.INVESTIGATING,
         title: 't', description: 'd', customerNo: null, sourceCaseNo: null, sourceDispositionNo: null,
         sourceAdvanceTransferNo: null, assetCode: null, amount: null,
-        assessedAmount: null, assessmentBasis: null, reportRequired: true, reportBasisCodes: 'CRM_IV_E_5',
+        assessedAmount: null, assessmentBasis: null, reportRequired: true, reportBasisCodes: 'CLIENT_MONEY_DISCREPANCY',
         approvalNo: null, registeredByUserId: 'ADM-OPS',
         closedAt: null, withdrawnReason: null, createdAt,
       };
@@ -843,7 +843,7 @@ describe('IncidentService (Task 5)', () => {
       const remediations = [{ kind: 'ADJUSTMENT', referenceNo: 'ADJ1', linkedByUserId: 'ADM-OPS', createdAt }];
       const adjustments = [{ adjustmentNo: 'ADJ1', status: 'POSTED' }];
       const filingsSummary = [{
-        filingNo: 'FIL1', status: 'SUBMITTED', authority: 'VARA', basisCode: 'CRM_IV_E_5',
+        filingNo: 'FIL1', status: 'SUBMITTED', authority: 'VARA', basisCode: 'CLIENT_MONEY_DISCREPANCY',
         deadlineAt: null, overdueMarkedAt: null, submittedAt: '2026-09-26T00:00:00.000Z',
       }];
       const { svc, filings } = makeService({ incidentRow, notes, remediations, adjustments, filingsSummary });
@@ -886,20 +886,30 @@ describe('IncidentService (Task 5)', () => {
 });
 
 describe('INCIDENT_REPORT_BASES catalog (wave1)', () => {
+  // 整备波 T2（spec §2.3）：依据码从法条坐标改为材料语义键；法条降为 statuteRef 副标签。
+  it('依据码新键集与 statuteRef 齐全，旧键不存在', () => {
+    const NEW = ['MAJOR_INCIDENT_72H', 'CLIENT_MONEY_DISCREPANCY', 'CLIENT_VA_DISCREPANCY', 'DATA_BREACH_REPORT', 'DATA_BREACH_RE_REPORT_24H', 'OUTSOURCING_FAILURE_NOTICE', 'PRUDENTIAL_BREACH_NOTICE'];
+    expect(Object.keys(REPORT_BASES).sort()).toEqual([...NEW].sort());
+    for (const k of NEW) {
+      expect(REPORT_BASES[k].statuteRef).toBeTruthy();
+      expect(REPORT_BASES[k].label).toBeTruthy();
+    }
+  });
   it('carries the four new obligation codes with correct clock semantics', () => {
-    expect(REPORT_BASES.PDPL_ART_9.hours).toBeNull();
-    expect(REPORT_BASES.PDPL_ART_9.immediate).toBeUndefined();
-    expect(REPORT_BASES.TIR_II_C_24H.hours).toBe(24);
+    expect(REPORT_BASES.DATA_BREACH_REPORT.hours).toBeNull();
+    expect(REPORT_BASES.DATA_BREACH_REPORT.immediate).toBeUndefined();
+    expect(REPORT_BASES.DATA_BREACH_RE_REPORT_24H.hours).toBe(24);
     // 甲波一 T6：钟链起点是通知发出而非定损时刻——本码不参与钟锚计算（甲波二 T6：该计算
     // 已迁到 RegulatoryFilingService.computeDeadline，事故自己不再落这只钟）。
-    expect(REPORT_BASES.TIR_II_C_24H.chainStart).toBe('NOTICE');
-    expect(REPORT_BASES.TIR_K_H.chainStart).toBeUndefined();
-    expect(REPORT_BASES.COMPANY_IV_H_1.immediate).toBe(true);
-    expect(REPORT_BASES.COMPANY_IV_H_1.hours).toBeNull();
-    expect(REPORT_BASES.COMPANY_VI_C_F.immediate).toBe(true);
+    expect(REPORT_BASES.DATA_BREACH_RE_REPORT_24H.chainStart).toBe('NOTICE');
+    expect(REPORT_BASES.MAJOR_INCIDENT_72H.chainStart).toBeUndefined();
+    expect(REPORT_BASES.OUTSOURCING_FAILURE_NOTICE.immediate).toBe(true);
+    expect(REPORT_BASES.OUTSOURCING_FAILURE_NOTICE.hours).toBeNull();
+    expect(REPORT_BASES.PRUDENTIAL_BREACH_NOTICE.immediate).toBe(true);
   });
-  it('TIR_K_H remains a single 72h obligation covering both cyber and stuck-order triggers', () => {
-    expect(REPORT_BASES.TIR_K_H.hours).toBe(72);
-    expect(REPORT_BASES.TIR_K_H.label).toContain('72');
+  it('MAJOR_INCIDENT_72H remains a single 72h obligation covering both cyber and stuck-order triggers', () => {
+    expect(REPORT_BASES.MAJOR_INCIDENT_72H.hours).toBe(72);
+    // label 现为材料名（不含钟）；72 的法条出处住 statuteRef。
+    expect(REPORT_BASES.MAJOR_INCIDENT_72H.statuteRef).toBe('TIR Rulebook Section K + H');
   });
 });

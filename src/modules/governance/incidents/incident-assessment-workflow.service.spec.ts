@@ -24,13 +24,13 @@ function makeWorkflow(o: Partial<Record<'assessResult' | 'incidentRow' | 'filing
 describe('IncidentAssessmentWorkflowService (甲波二 T6：定损→自动开单)', () => {
   it('①reportRequired=true + 两码 → IncidentService.assess 先跑判定留痕，再横向调 filings.openForIncident(row, 两码, actor)；filingsOpened 回传两单号', async () => {
     const { wf, incidents, filings, incidentRow } = makeWorkflow();
-    const dto = { assessmentBasis: 'FIRM_LOSS', assessedAmount: '5000', reportRequired: true, reportBasisCodes: ['CRM_IV_E_5', 'CRM_V_D_2'] };
+    const dto = { assessmentBasis: 'FIRM_LOSS', assessedAmount: '5000', reportRequired: true, reportBasisCodes: ['CLIENT_MONEY_DISCREPANCY', 'CLIENT_VA_DISCREPANCY'] };
 
     const r = await wf.assess('INC1', dto as any, treasury);
 
     expect(incidents.assess).toHaveBeenCalledWith('INC1', dto, treasury);
     expect(incidents.findByNo).toHaveBeenCalledWith('INC1');
-    expect(filings.openForIncident).toHaveBeenCalledWith(incidentRow, ['CRM_IV_E_5', 'CRM_V_D_2'], treasury);
+    expect(filings.openForIncident).toHaveBeenCalledWith(incidentRow, ['CLIENT_MONEY_DISCREPANCY', 'CLIENT_VA_DISCREPANCY'], treasury);
     expect(r).toEqual({ incidentNo: 'INC1', status: 'ASSESSED', filingsOpened: ['FIL1', 'FIL2'] });
   });
 

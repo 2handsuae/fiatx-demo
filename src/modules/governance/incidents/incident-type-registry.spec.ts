@@ -1,6 +1,6 @@
 // 战役甲波一 Task 2：类型注册表——spec §1 十类终盘（MANUAL 退役）。
 import { ASSESSMENT_BASIS_BY_SCHEME, INCIDENT_TYPE_REGISTRY, getIncidentTypeConfig } from './incident-type-registry';
-import { IncidentTypes } from './incident.constants';
+import { IncidentTypes, INCIDENT_REPORT_BASES } from './incident.constants';
 
 describe('INCIDENT_TYPE_REGISTRY (spec §1 十类终盘)', () => {
   it('has exactly the 10 chartered types and MANUAL is gone', () => {
@@ -13,13 +13,18 @@ describe('INCIDENT_TYPE_REGISTRY (spec §1 十类终盘)', () => {
     // 此前那句话只是承诺，实际没有断言 IncidentTypes 键集，这条把它兑现成真的。
     expect(Object.keys(IncidentTypes).sort()).toEqual(Object.keys(INCIDENT_TYPE_REGISTRY).sort());
   });
+  it('reportBasisCandidates 每个码都是 INCIDENT_REPORT_BASES 的键（改名漏一处即红）', () => {
+    for (const c of Object.values(INCIDENT_TYPE_REGISTRY)) {
+      for (const code of c.reportBasisCandidates) expect(Object.keys(INCIDENT_REPORT_BASES)).toContain(code);
+    }
+  });
   it('DATA_BREACH: DPO 经办、CISO 单步结案、双码候选、影响口径', () => {
     const c = INCIDENT_TYPE_REGISTRY.DATA_BREACH;
     expect(c.operatorGroup).toBe('INCIDENT_DATA_WRITE');
     // 甲波一 T5 修1（Ruling-6）：族独占能力码——assertOperator 实际消费的是这个，不是 operatorGroup。
     expect(c.operatorMarkerCode).toBe('cap.incident.data');
     expect(c.closeActionType).toBe('INCIDENT_CLOSE_TECHSEC');
-    expect([...c.reportBasisCandidates].sort()).toEqual(['PDPL_ART_9', 'TIR_II_C_24H']);
+    expect([...c.reportBasisCandidates].sort()).toEqual(['DATA_BREACH_REPORT', 'DATA_BREACH_RE_REPORT_24H']);
     expect(c.assessmentScheme).toBe('IMPACT');
     expect(c.allowedRemediationKinds).toEqual(['CUSTOMER_NOTICE_LOGGED']);
   });
