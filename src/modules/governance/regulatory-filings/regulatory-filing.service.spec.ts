@@ -145,9 +145,9 @@ describe('RegulatoryFilingService (Task 3)', () => {
 
   // ── ② openManual：INBOUND 类型 deadline + authority 必给且在目录内 ────
   describe('openManual — non-incident types', () => {
-    it('INBOUND (REG_INFO_REQUEST_RESPONSE) computes receivedAt+48h and stores the given authority', async () => {
+    it('INBOUND (INFO_REQUEST_RESPONSE) computes receivedAt+48h and stores the given authority', async () => {
       const receivedAt = '2026-09-20T00:00:00.000Z';
-      const { filingNo } = await service.openManual({ type: 'REG_INFO_REQUEST_RESPONSE', authority: 'UAE_FIU', receivedAt }, ops);
+      const { filingNo } = await service.openManual({ type: 'INFO_REQUEST_RESPONSE', authority: 'UAE_FIU', receivedAt }, ops);
       createdFilingNos.push(filingNo);
       const row = await service.findByNo(filingNo);
       expect(row.direction).toBe('INBOUND');
@@ -155,13 +155,13 @@ describe('RegulatoryFilingService (Task 3)', () => {
       expect(row.deadlineAt?.toISOString()).toBe(new Date(new Date(receivedAt).getTime() + 48 * 3600 * 1000).toISOString());
     });
 
-    it('rejects REG_INFO_REQUEST_RESPONSE with no authority given (no registry default for this type)', async () => {
-      await expect(service.openManual({ type: 'REG_INFO_REQUEST_RESPONSE', receivedAt: '2026-09-20T00:00:00.000Z' } as any, ops))
+    it('rejects INFO_REQUEST_RESPONSE with no authority given (no registry default for this type)', async () => {
+      await expect(service.openManual({ type: 'INFO_REQUEST_RESPONSE', receivedAt: '2026-09-20T00:00:00.000Z' } as any, ops))
         .rejects.toThrow(BadRequestException);
     });
 
     it('rejects an authority outside the regulator directory', async () => {
-      await expect(service.openManual({ type: 'REG_INFO_REQUEST_RESPONSE', authority: 'FBI', receivedAt: '2026-09-20T00:00:00.000Z' } as any, ops))
+      await expect(service.openManual({ type: 'INFO_REQUEST_RESPONSE', authority: 'FBI', receivedAt: '2026-09-20T00:00:00.000Z' } as any, ops))
         .rejects.toThrow(BadRequestException);
     });
   });
@@ -639,11 +639,11 @@ describe('RegulatoryFilingService (Task 3)', () => {
     });
 
     // 回归断言（T3 交付要求）：GENERAL 族既有小时钟行为零漂移——EXTERNAL 分支的加入
-    // 不改变 REG_INFO_REQUEST_RESPONSE 的 receivedAt+48h 既有算法（见上方②描述块的
+    // 不改变 INFO_REQUEST_RESPONSE 的 receivedAt+48h 既有算法（见上方②描述块的
     // 同名断言；此处只重申回归口径，不重复整条用例）。
-    it('regression: GENERAL family hour-clock (REG_INFO_REQUEST_RESPONSE, receivedAt+48h) is unaffected by the EXTERNAL branch', async () => {
+    it('regression: GENERAL family hour-clock (INFO_REQUEST_RESPONSE, receivedAt+48h) is unaffected by the EXTERNAL branch', async () => {
       const receivedAt = '2026-09-20T00:00:00.000Z';
-      const { filingNo } = await service.openManual({ type: 'REG_INFO_REQUEST_RESPONSE', authority: 'UAE_FIU', receivedAt }, ops);
+      const { filingNo } = await service.openManual({ type: 'INFO_REQUEST_RESPONSE', authority: 'UAE_FIU', receivedAt }, ops);
       createdFilingNos.push(filingNo);
       const row = await service.findByNo(filingNo);
       expect(row.deadlineAt?.toISOString()).toBe(new Date(new Date(receivedAt).getTime() + 48 * 3600 * 1000).toISOString());

@@ -1395,14 +1395,14 @@ async function seedRegulatoryFilings(prisma: PrismaClient): Promise<void> {
   });
 
   // 样例二 · 入站来函：VARA 信息请求响应，DRAFT，48h 钟在跑（receivedAt=now-6h）。
-  const infoCfg = getFilingTypeConfig('REG_INFO_REQUEST_RESPONSE'); // direction INBOUND, defaultHours 48
+  const infoCfg = getFilingTypeConfig('INFO_REQUEST_RESPONSE'); // direction INBOUND, defaultHours 48
   const infoFilingNo = buildDeterministicNo('FIL', 'vara-info-request-q3');
   const infoReceivedAt = new Date(now - 6 * 3600 * 1000);
   const infoDeadlineAt = new Date(infoReceivedAt.getTime() + (infoCfg.defaultHours as number) * 3600 * 1000);
   await upsertFiling(infoFilingNo, {
     filingNo: infoFilingNo,
     direction: infoCfg.direction,
-    type: 'REG_INFO_REQUEST_RESPONSE',
+    type: 'INFO_REQUEST_RESPONSE',
     authority: RegulatoryAuthorities.VARA,
     title: 'VARA information request — Q3 liquidity reporting follow-up',
     receivedAt: infoReceivedAt,

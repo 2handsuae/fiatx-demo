@@ -196,7 +196,7 @@ describe('Compliance office e2e (战役甲波四 · 合规办公室骨架, Task 
 
   it('② 报送单 ⚡ 超时：自建带钟 DRAFT 单 → simulateDeadlineTimeout 回拨 deadlineAt 至 1h 前 → filing sweep 直调 → overdueMarkedAt 落地 + FILING_OVERDUE_MARKED 审计 → clock-wall 行 overdue=true', async () => {
     const { filingNo } = await filings.openManual({
-      type: 'REG_INFO_REQUEST_RESPONSE', authority: 'VARA', title: 'e2e 监管问询答复（⚡超时演示）',
+      type: 'INFO_REQUEST_RESPONSE', authority: 'VARA', title: 'e2e 监管问询答复（⚡超时演示）',
       receivedAt: new Date().toISOString(),
     }, compliance());
 
@@ -318,11 +318,11 @@ describe('Compliance office e2e (战役甲波四 · 合规办公室骨架, Task 
   });
 
   it('④ clock-wall 行集：按时提交的单不在墙上；DISABLED 义务不在墙上', async () => {
-    // 按时提交：一张新 REG_INFO_REQUEST_RESPONSE 走满 DRAFT→PENDING_SIGNOFF→SIGNED_OFF→
+    // 按时提交：一张新 INFO_REQUEST_RESPONSE 走满 DRAFT→PENDING_SIGNOFF→SIGNED_OFF→
     // SUBMITTED（正常路径，未逾期）——先验它在 DRAFT 态确实上墙，排除"查询本身失灵"这个
     // 假阴性解释，再验提交后下墙。
     const { filingNo } = await filings.openManual({
-      type: 'REG_INFO_REQUEST_RESPONSE', authority: 'VARA', title: 'e2e 监管问询答复（按时提交）',
+      type: 'INFO_REQUEST_RESPONSE', authority: 'VARA', title: 'e2e 监管问询答复（按时提交）',
       receivedAt: new Date().toISOString(),
     }, compliance());
 

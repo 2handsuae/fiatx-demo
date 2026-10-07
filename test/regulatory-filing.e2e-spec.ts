@@ -254,11 +254,11 @@ describe('Regulatory filing e2e (战役甲波二 · 报送台骨架, Task 8)', (
     expect((chainAfterSubmit.deadlineAt as Date).getTime()).toBe((pdplAfterSubmit.submittedAt as Date).getTime() + 24 * 3600 * 1000);
   });
 
-  it('④ 入站：手工开单 REG_INFO_REQUEST_RESPONSE（authority VARA、receivedAt 46h 前）→ deadline=receivedAt+48h → sweep(now=+3h) → overdueMarkedAt 落地 + 一条 FILING_OVERDUE_MARKED → 再 sweep 不重复', async () => {
+  it('④ 入站：手工开单 INFO_REQUEST_RESPONSE（authority VARA、receivedAt 46h 前）→ deadline=receivedAt+48h → sweep(now=+3h) → overdueMarkedAt 落地 + 一条 FILING_OVERDUE_MARKED → 再 sweep 不重复', async () => {
     const base = new Date();
     const receivedAt = new Date(base.getTime() - 46 * 3600 * 1000);
     const { filingNo } = await filings.openManual({
-      type: 'REG_INFO_REQUEST_RESPONSE', authority: 'VARA', title: 'e2e 监管问询答复',
+      type: 'INFO_REQUEST_RESPONSE', authority: 'VARA', title: 'e2e 监管问询答复',
       receivedAt: receivedAt.toISOString(),
     }, compliance());
 

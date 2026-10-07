@@ -11,8 +11,8 @@ describe('FILING_TYPE_REGISTRY (spec §2 类型目录五行 + 波三六行 + 波
   it('恰好 12 键，且全部 enabled', () => {
     const keys = Object.keys(FILING_TYPE_REGISTRY).sort();
     expect(keys).toEqual([
-      'AUDITOR_APPOINTMENT_NOTICE', 'CNMR', 'HRC', 'HRCA', 'INCIDENT_REPORT', 'MARKET_OFFENCE_DUAL_REPORT',
-      'MATERIAL_CHANGE_NOTIFICATION', 'PERIODIC_RETURN', 'PNMR', 'REG_INFO_REQUEST_RESPONSE', 'SAR', 'STR',
+      'AUDITOR_APPOINTMENT_NOTICE', 'CNMR', 'HRC', 'HRCA', 'INCIDENT_REPORT', 'INFO_REQUEST_RESPONSE',
+      'MARKET_OFFENCE_DUAL_REPORT', 'MATERIAL_CHANGE_NOTIFICATION', 'PERIODIC_RETURN', 'PNMR', 'SAR', 'STR',
     ]);
     for (const key of keys) {
       expect(FILING_TYPE_REGISTRY[key].enabled).toBe(true);
@@ -26,12 +26,12 @@ describe('FILING_TYPE_REGISTRY (spec §2 类型目录五行 + 波三六行 + 波
     expect(requiresIncident).toEqual(['INCIDENT_REPORT']);
   });
 
-  it('REG_INFO_REQUEST_RESPONSE 是唯一 INBOUND 类型，且 defaultHours===48', () => {
+  it('INFO_REQUEST_RESPONSE 是唯一 INBOUND 类型，且 defaultHours===48', () => {
     const inbound = Object.entries(FILING_TYPE_REGISTRY)
       .filter(([, c]) => c.direction === 'INBOUND')
       .map(([type]) => type);
-    expect(inbound).toEqual(['REG_INFO_REQUEST_RESPONSE']);
-    expect(FILING_TYPE_REGISTRY.REG_INFO_REQUEST_RESPONSE.defaultHours).toBe(48);
+    expect(inbound).toEqual(['INFO_REQUEST_RESPONSE']);
+    expect(FILING_TYPE_REGISTRY.INFO_REQUEST_RESPONSE.defaultHours).toBe(48);
   });
 
   it('getFilingTypeConfig 未知类型抛 BadRequest', () => {
@@ -41,8 +41,8 @@ describe('FILING_TYPE_REGISTRY (spec §2 类型目录五行 + 波三六行 + 波
   it('既有五行回填 family=GENERAL 与隐式锚显式化的 anchorKind（T1 摘要表）', () => {
     expect(FILING_TYPE_REGISTRY.INCIDENT_REPORT.family).toBe('GENERAL');
     expect(FILING_TYPE_REGISTRY.INCIDENT_REPORT.anchorKind).toBe('BASIS');
-    expect(FILING_TYPE_REGISTRY.REG_INFO_REQUEST_RESPONSE.family).toBe('GENERAL');
-    expect(FILING_TYPE_REGISTRY.REG_INFO_REQUEST_RESPONSE.anchorKind).toBe('RECEIVED_AT');
+    expect(FILING_TYPE_REGISTRY.INFO_REQUEST_RESPONSE.family).toBe('GENERAL');
+    expect(FILING_TYPE_REGISTRY.INFO_REQUEST_RESPONSE.anchorKind).toBe('RECEIVED_AT');
     for (const type of ['MATERIAL_CHANGE_NOTIFICATION', 'AUDITOR_APPOINTMENT_NOTICE', 'MARKET_OFFENCE_DUAL_REPORT']) {
       expect(FILING_TYPE_REGISTRY[type].family).toBe('GENERAL');
       expect(FILING_TYPE_REGISTRY[type].anchorKind).toBe('NONE');
@@ -55,8 +55,8 @@ describe('FILING_TYPE_REGISTRY (spec §2 类型目录五行 + 波三六行 + 波
       .map(([type]) => type)
       .sort();
     expect(generalTypes).toEqual([
-      'AUDITOR_APPOINTMENT_NOTICE', 'INCIDENT_REPORT', 'MARKET_OFFENCE_DUAL_REPORT',
-      'MATERIAL_CHANGE_NOTIFICATION', 'PERIODIC_RETURN', 'REG_INFO_REQUEST_RESPONSE',
+      'AUDITOR_APPOINTMENT_NOTICE', 'INCIDENT_REPORT', 'INFO_REQUEST_RESPONSE', 'MARKET_OFFENCE_DUAL_REPORT',
+      'MATERIAL_CHANGE_NOTIFICATION', 'PERIODIC_RETURN',
     ]);
   });
 
@@ -122,6 +122,42 @@ describe('FILING_TYPE_REGISTRY (spec §2 类型目录五行 + 波三六行 + 波
       expect(cfg.requiresExternalCaseRef).toBeUndefined();
       expect(cfg.allowNoFilingClose).toBeUndefined();
     }
+  });
+
+  // 整备波 Task 1（spec §2.1）：来源 origin 六值封闭、类型→唯一来源。
+  it('每个类型恰有一个 origin 且取值在六值集内', () => {
+    const ORIGINS = ['INCIDENT', 'PERIODIC_OBLIGATION', 'REGULATOR_REQUEST', 'SANCTIONS_HIT', 'AML_MONITORING', 'SELF_DISCLOSURE'];
+    for (const cfg of Object.values(FILING_TYPE_REGISTRY)) expect(ORIGINS).toContain(cfg.origin);
+  });
+
+  it('origin→类型分组与 spec §2.1 一致（六桶全量钉死）', () => {
+    expect(FILING_TYPE_REGISTRY.INCIDENT_REPORT.origin).toBe('INCIDENT');
+    expect(FILING_TYPE_REGISTRY.PERIODIC_RETURN.origin).toBe('PERIODIC_OBLIGATION');
+    expect(FILING_TYPE_REGISTRY.INFO_REQUEST_RESPONSE.origin).toBe('REGULATOR_REQUEST');
+    for (const t of ['CNMR', 'PNMR']) expect(FILING_TYPE_REGISTRY[t].origin).toBe('SANCTIONS_HIT');
+    for (const t of ['STR', 'SAR', 'HRC', 'HRCA']) expect(FILING_TYPE_REGISTRY[t].origin).toBe('AML_MONITORING');
+    for (const t of ['MATERIAL_CHANGE_NOTIFICATION', 'AUDITOR_APPOINTMENT_NOTICE', 'MARKET_OFFENCE_DUAL_REPORT']) {
+      expect(FILING_TYPE_REGISTRY[t].origin).toBe('SELF_DISCLOSURE');
+    }
+  });
+
+  // 旧键不存在由上方"恰好 12 键"的穷举断言守住（不在此写旧键字面，免得全仓零残留 grep 反咬自己）。
+  it('INFO_REQUEST_RESPONSE（去 REG_ 前缀的改名）界面词为 "Information request response"', () => {
+    expect(FILING_TYPE_REGISTRY.INFO_REQUEST_RESPONSE.label).toBe('Information request response');
+  });
+
+  it('AML 六缩写界面词统一「缩写 — 全称」；MARKET_OFFENCE_DUAL_REPORT 界面词 "Market offence report (dual-filed)"（spec §2.2）', () => {
+    for (const t of ['STR', 'SAR', 'CNMR', 'PNMR', 'HRC', 'HRCA']) {
+      expect(FILING_TYPE_REGISTRY[t].label.startsWith(`${t} — `)).toBe(true);
+    }
+    expect(FILING_TYPE_REGISTRY.MARKET_OFFENCE_DUAL_REPORT.label).toBe('Market offence report (dual-filed)');
+  });
+
+  it('HRCA 全称订正为 High Risk Country Activity Report（活动型，非交易属性不全时的替代报文）', () => {
+    const cfg = FILING_TYPE_REGISTRY.HRCA;
+    expect(cfg.label).toBe('HRCA — High Risk Country Activity Report');
+    expect(cfg.establishedBy).toMatch(/activity/i);
+    expect(cfg.establishedBy).not.toMatch(/alternative|incomplete/i);
   });
 
   it('defaultHours 与 deadlineBusinessDays 互斥：任何一行不得两者同时设值', () => {
