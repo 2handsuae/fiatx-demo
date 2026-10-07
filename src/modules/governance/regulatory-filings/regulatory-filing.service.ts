@@ -388,8 +388,10 @@ export class RegulatoryFilingService {
 
     await this.recordAudit(updated, AuditActions.FILING_SUBMITTED, actor, {
       fromStatus: row.status, toStatus: updated.status,
+      // R5 修订（整备波 C）：externalRef 镜像进 metadata——extra 顶层只供 assertActionSpec 校验、
+      // 建库时不落专列；镜像后审计行本身可查"提交时落的外部编号是什么"。
       extra: { externalRef: dto.externalRef },
-      metadata: { chainDeadlineSetFor },
+      metadata: { chainDeadlineSetFor, externalRef: dto.externalRef },
     });
     return { filingNo, chainDeadlineSetFor };
   }
@@ -431,7 +433,8 @@ export class RegulatoryFilingService {
       },
     });
     await this.recordAudit(row, AuditActions.FILING_ENTRY_LOGGED, actor, {
-      extra: { kind: dto.kind }, metadata: { body: dto.body, externalRef: dto.externalRef ?? null, commDraftedBy: dto.commDraftedBy ?? null },
+      // R5 修订（整备波 C）：kind 镜像进 metadata——同上，extra 顶层不落库。
+      extra: { kind: dto.kind }, metadata: { kind: dto.kind, body: dto.body, externalRef: dto.externalRef ?? null, commDraftedBy: dto.commDraftedBy ?? null },
     });
     return { filingNo };
   }
@@ -573,6 +576,39 @@ export class RegulatoryFilingService {
         authority: row.authority, deadlineAt: deadlineAt ? deadlineAt.toISOString() : null,
       },
       extra: { type: 'PERIODIC_RETURN' },
+    });
+    return { filingNo: row.filingNo };
+  }
+
+  /** 整备波 T3（spec §3，供 RiReplacementWorkflowService 调用）：RI 换人批准落地后自动开
+   * 一张 MATERIAL_CHANGE_NOTIFICATION——系统动作，无 actor（调用方是审批裁决驱动的
+   * workflow，没有人在场按按钮，同 openForObligation 的 recordSystem 先例，不走 assertFamily；
+   * 合规官接手后走 GENERAL 族六态全链原样）。标题携席位与新旧任；DRAFT 态、无钟
+   * （MATERIAL_CHANGE_NOTIFICATION 无钟配置，deadlineAt 恒由注册表算出 null，不杜撰）。
+   * 入参全是调用方直传的 RI 快照——本服务不越域读 RI 表（铁律③）；RI 行不回填 filingNo、
+   * 不建外键（零 schema），双向可查靠标题与审计 metadata 的 riNo/approvalNo。 */
+  async openForRiChange(change: {
+    riNo: string; approvalNo: string; position: string; fromIncumbent: string; toIncumbent: string;
+  }): Promise<{ filingNo: string }> {
+    const cfg = getFilingTypeConfig('MATERIAL_CHANGE_NOTIFICATION');
+    const deadlineAt = this.computeDeadline(cfg, undefined, {});
+    const traceId = randomUUID();
+    const row = await this.prisma.regulatoryFiling.create({
+      data: {
+        filingNo: generateReferenceNo('FIL'), direction: cfg.direction, type: 'MATERIAL_CHANGE_NOTIFICATION',
+        authority: cfg.defaultAuthority as string,
+        title: `Responsible Individual change — ${change.position}: ${change.fromIncumbent} → ${change.toIncumbent}`,
+        deadlineAt, status: FilingStatus.DRAFT,
+        createdByUserId: 'SYSTEM', traceId,
+      },
+    });
+
+    await this.recordAudit(row, AuditActions.FILING_OPENED, null, {
+      metadata: {
+        source: 'RI_REPLACEMENT', riNo: change.riNo, approvalNo: change.approvalNo,
+        authority: row.authority, deadlineAt: deadlineAt ? deadlineAt.toISOString() : null,
+      },
+      extra: { type: 'MATERIAL_CHANGE_NOTIFICATION' },
     });
     return { filingNo: row.filingNo };
   }

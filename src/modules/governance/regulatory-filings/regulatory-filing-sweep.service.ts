@@ -5,8 +5,9 @@
 // 审计信封没有走 RegulatoryFilingService.recordAudit（Task 3 的 private helper，跨 service
 // 不可复用）——照 swap-sla.service.ts 先例直调 auditLogsService.recordSystem。
 // FILING_OVERDUE_MARKED 声明 requiredFields=['deadlineAt']；assertActionSpec 只查 input
-// 顶层字段（audit-logs.service.ts assertActionSpec），故 deadlineAt 在 input 顶层展开，
-// 不塞进 metadata。
+// 顶层字段（audit-logs.service.ts assertActionSpec），故 deadlineAt 在 input 顶层展开；
+// 顶层字段建库时不落专列，所以整备波 C 起 deadlineAt 同时镜像进 metadata（R5 判例修法：
+// 顶层校验形态保留、审计行本身可查"超的是哪个截止时刻"）。
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { randomUUID } from 'node:crypto';
@@ -71,7 +72,7 @@ export class RegulatoryFilingSweepService {
           correlationId: row.traceId,
           deadlineAt: row.deadlineAt!.toISOString(),
           reason: `Filing deadline passed without submission (status=${row.status})`,
-          metadata: { filingNo: row.filingNo, type: row.type, status: row.status },
+          metadata: { filingNo: row.filingNo, type: row.type, status: row.status, deadlineAt: row.deadlineAt!.toISOString() },
           requestId: `FILING_OVERDUE_MARKED_${row.filingNo}_${randomUUID()}`,
           sourcePlatform: 'SYSTEM',
         } as any);

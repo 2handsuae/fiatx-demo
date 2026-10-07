@@ -299,6 +299,23 @@ describe('Compliance office e2e (战役甲波四 · 合规办公室骨架, Task 
     const appliedMetadata = JSON.parse(appliedEvent.metadata);
     expect(appliedMetadata).toMatchObject({ fromIncumbent: 'e2e Incumbent A', toIncumbent: 'e2e Incumbent B', approvalNo: approvalNo1 });
 
+    // 整备波 T3：批准落地之后，报送台自动出现一张 SYSTEM 源 MATERIAL_CHANGE_NOTIFICATION DRAFT 单
+    // （标题携席位与新旧任，无钟），FILING_OPENED 审计 metadata 带 riNo/approvalNo。
+    // 开单发生在 applyReplacement 之后（pending 清空的瞬间告知单可能还没出），故 waitUntil；
+    // 按 approvalNo 经审计 metadata 反查——approvalNo 每次运行唯一，重跑共享库不串单（RI 行不回填
+    // filingNo，双向可查正是靠这条审计 metadata）。
+    const findAutoOpened = (approvalNo: string) => (prisma as any).auditLogEvent.findFirst({
+      where: { primarySubjectType: 'REGULATORY_FILING', action: AuditActions.FILING_OPENED, metadata: { contains: approvalNo } },
+    });
+    await waitUntil(async () => !!(await findAutoOpened(approvalNo1)));
+    const autoOpened = await findAutoOpened(approvalNo1);
+    expect(JSON.parse(autoOpened.metadata)).toMatchObject({ source: 'RI_REPLACEMENT', riNo, approvalNo: approvalNo1 });
+    const autoFiling = await filings.findByNo(autoOpened.primarySubjectNo);
+    expect(autoFiling).toMatchObject({
+      type: 'MATERIAL_CHANGE_NOTIFICATION', status: 'DRAFT', createdByUserId: 'SYSTEM', deadlineAt: null, authority: 'VARA',
+      title: 'Responsible Individual change — MLRO: e2e Incumbent A → e2e Incumbent B',
+    });
+
     // 驳回分支：再提一次换人，高管 DECLINE——pending 清空，incumbent 不变（不是 D）。
     const { approvalNo: approvalNo2 } = await riReplacementWorkflow.initiateReplacement(riNo, {
       newIncumbentName: 'e2e Incumbent D (should not land)', effectiveFrom: '2026-03-01T00:00:00.000Z',
@@ -310,6 +327,9 @@ describe('Compliance office e2e (战役甲波四 · 合规办公室骨架, Task 
     const afterReject = await responsibleIndividuals.findByNo(riNo);
     expect(afterReject.incumbentName).toBe('e2e Incumbent B'); // 未换
     expect(afterReject.pendingApprovalNo).toBeNull();
+    // 驳回没换人 = 没有重大变更可告知：不开单（给一个事件循环周期的余量，再断言无单）。
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(await findAutoOpened(approvalNo2)).toBeNull();
 
     expect(await auditActionsFor('RESPONSIBLE_INDIVIDUAL', riNo)).toEqual([
       AuditActions.RI_SEAT_REGISTERED, AuditActions.RI_REPLACEMENT_PROPOSED, AuditActions.RI_REPLACEMENT_APPLIED,

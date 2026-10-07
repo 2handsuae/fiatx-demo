@@ -260,6 +260,19 @@ describe('RegulatoryFilingService (Task 3)', () => {
     });
   });
 
+  // ── 整备波 T3 · C：FILING_SUBMITTED 的 externalRef 镜像进 metadata（R5 判例修法）──────
+  // extra.externalRef 只供 assertActionSpec 校验、不落库；镜像进 metadata 后审计行本身可查
+  // "提交时落的外部编号是什么"，不必反查报送单当前值。
+  describe('markSubmitted — audit metadata mirrors externalRef (整备波 C)', () => {
+    it('FILING_SUBMITTED 审计 metadata 携 externalRef（extra 校验形态保留）', async () => {
+      const filingNo = await toSubmittedFiling();
+      const call = auditLogs.recordByActor.mock.calls.find((c) => c[0].action === 'FILING_SUBMITTED' && c[0].primarySubjectNo === filingNo);
+      expect(call).toBeDefined();
+      expect(call![0].metadata).toMatchObject({ externalRef: `EXT_${filingNo}` });
+      expect(call![0].externalRef).toBe(`EXT_${filingNo}`); // extra 顶层形态原样（assertActionSpec 读它）
+    });
+  });
+
   // ── ⑦ addEntry：非 SUBMITTED 拒、kind 越枚举拒 ──────────────────────
   describe('addEntry', () => {
     it('rejects logging a correspondence entry when the filing is not SUBMITTED', async () => {
@@ -276,6 +289,16 @@ describe('RegulatoryFilingService (Task 3)', () => {
       expect(view.entries).toHaveLength(1);
       expect(view.entries[0]).toMatchObject({ kind: 'RECEIPT_ACK', body: 'Received by VARA' });
       expect(view.entries[0]).not.toHaveProperty('id');
+    });
+
+    // 整备波 T3 · C：FILING_ENTRY_LOGGED 的 kind 镜像进 metadata（R5 判例修法）。
+    it('FILING_ENTRY_LOGGED 审计 metadata 携 kind（extra 校验形态保留）', async () => {
+      const filingNo = await toSubmittedFiling();
+      await service.addEntry(filingNo, { kind: 'RECEIPT_ACK', body: 'Received by VARA' }, ops);
+      const call = auditLogs.recordByActor.mock.calls.find((c) => c[0].action === 'FILING_ENTRY_LOGGED' && c[0].primarySubjectNo === filingNo);
+      expect(call).toBeDefined();
+      expect(call![0].metadata).toMatchObject({ kind: 'RECEIPT_ACK', body: 'Received by VARA' });
+      expect(call![0].kind).toBe('RECEIPT_ACK'); // extra 顶层形态原样（assertActionSpec 读它）
     });
   });
 
@@ -629,6 +652,40 @@ describe('RegulatoryFilingService (Task 3)', () => {
     });
   });
 
+  // ── 整备波 T3 · B：openForRiChange（供 RiReplacementWorkflowService 在 RI 换人批准落地后
+  //    调用，SYSTEM 源，照 openForObligation 同款薄方法；RI 行不回填 filingNo、不建外键）────
+  describe('openForRiChange (整备波 §3; SYSTEM 源 DRAFT 无钟)', () => {
+    const change = {
+      riNo: 'RI260101000001', approvalNo: 'APR_RI_T3_1',
+      position: 'Head of Compliance', fromIncumbent: 'Alice Tan', toIncumbent: 'Bob Lee',
+    };
+
+    it('opens a MATERIAL_CHANGE_NOTIFICATION DRAFT with the exact title, SYSTEM creator, VARA authority and no clock', async () => {
+      const { filingNo } = await service.openForRiChange(change);
+      createdFilingNos.push(filingNo);
+      const row = await service.findByNo(filingNo);
+      expect(row.type).toBe('MATERIAL_CHANGE_NOTIFICATION');
+      expect(row.direction).toBe('OUTBOUND');
+      expect(row.status).toBe('DRAFT');
+      expect(row.authority).toBe('VARA');
+      expect(row.createdByUserId).toBe('SYSTEM');
+      expect(row.title).toBe('Responsible Individual change — Head of Compliance: Alice Tan → Bob Lee');
+      expect(row.deadlineAt).toBeNull(); // MATERIAL_CHANGE_NOTIFICATION 无钟配置不变
+    });
+
+    it('records FILING_OPENED via recordSystem (no actor), metadata carries source/riNo/approvalNo', async () => {
+      const { filingNo } = await service.openForRiChange(change);
+      createdFilingNos.push(filingNo);
+      expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+      const call = auditLogs.recordSystem.mock.calls[0][0];
+      expect(call.action).toBe('FILING_OPENED');
+      expect(call.primarySubjectNo).toBe(filingNo);
+      expect(call.metadata).toMatchObject({ source: 'RI_REPLACEMENT', riNo: change.riNo, approvalNo: change.approvalNo });
+      expect(call.type).toBe('MATERIAL_CHANGE_NOTIFICATION'); // extra.type——assertActionSpec 必填顶层字段
+    });
+  });
+
   // ── T3 ④：computeDeadline EXTERNAL 分支 + 手工开单不传锚留 null（不杜撰）───────
   describe('computeDeadline EXTERNAL branch (manual open vs. workflow-anchored open)', () => {
     it('openManual on an EXTERNAL-anchor type (CNMR) leaves deadlineAt null — no anchorAt to compute from, not fabricated', async () => {
@@ -859,6 +916,38 @@ describe('RegulatoryFilingService (Task 3)', () => {
       expect((events[0] as any).sourcePlatform).toBe('SYSTEM');
       const row = await realService.findByNo(filingNo);
       expect(row.deadlineAt?.toISOString()).toBe(dueAt.toISOString());
+    });
+
+    // 整备波 T3：openForRiChange 同走 recordSystem 的 FILING_OPENED（requiredFields=['type']），
+    // 且 metadata 的 riNo/approvalNo 真的落进审计行（不只是 mock 入参里有）。
+    it('walks openForRiChange (system actor) without the real assertActionSpec rejecting FILING_OPENED, and persists riNo/approvalNo in metadata', async () => {
+      const { filingNo } = await realService.openForRiChange({
+        riNo: 'RI_REAL_1', approvalNo: 'APR_RI_REAL_1', position: 'MLRO', fromIncumbent: 'Real A', toIncumbent: 'Real B',
+      });
+      createdFilingNos.push(filingNo);
+
+      const events = await prisma.auditLogEvent.findMany({ where: { primarySubjectType: 'REGULATORY_FILING', primarySubjectNo: filingNo }, orderBy: { seq: 'asc' } });
+      expect(events.map((e) => e.action)).toEqual(['FILING_OPENED']);
+      expect((events[0] as any).sourcePlatform).toBe('SYSTEM');
+      expect(JSON.parse(events[0].metadata as string)).toMatchObject({ source: 'RI_REPLACEMENT', riNo: 'RI_REAL_1', approvalNo: 'APR_RI_REAL_1' });
+      const row = await realService.findByNo(filingNo);
+      expect(row.title).toBe('Responsible Individual change — MLRO: Real A → Real B');
+    });
+
+    // 整备波 T3 · C：三键镜像在持久化的审计行上也成立（真 AuditLogsService，读回 metadata JSON）。
+    it('persists externalRef (FILING_SUBMITTED) and kind (FILING_ENTRY_LOGGED) in the stored audit metadata', async () => {
+      const { filingNo } = await realService.openManual({ type: 'MATERIAL_CHANGE_NOTIFICATION', title: 'Real-audit metadata mirror' }, ops);
+      createdFilingNos.push(filingNo);
+      await realService.markSignoffRequested(filingNo, `APR_MIRROR_${filingNo}`, ops);
+      await realService.applySignoffDecision(filingNo, 'APPROVED', { approvalNo: `APR_MIRROR_${filingNo}`, approvalId: `apid_mirror_${filingNo}` });
+      await realService.markSubmitted(filingNo, { externalRef: `EXT_MIRROR_${filingNo}` }, ops);
+      await realService.addEntry(filingNo, { kind: 'RECEIPT_ACK', body: 'Mirror receipt' }, ops);
+
+      const events = await prisma.auditLogEvent.findMany({ where: { primarySubjectType: 'REGULATORY_FILING', primarySubjectNo: filingNo }, orderBy: { seq: 'asc' } });
+      const submitted = events.find((e) => e.action === 'FILING_SUBMITTED')!;
+      const logged = events.find((e) => e.action === 'FILING_ENTRY_LOGGED')!;
+      expect(JSON.parse(submitted.metadata as string)).toMatchObject({ externalRef: `EXT_MIRROR_${filingNo}` });
+      expect(JSON.parse(logged.metadata as string)).toMatchObject({ kind: 'RECEIPT_ACK' });
     });
 
     // 甲波四 T5：FILING_DEADLINE_FASTFORWARDED 是在 COMPLIANCE_OFFICE_AUDIT_ACTIONS 组注册

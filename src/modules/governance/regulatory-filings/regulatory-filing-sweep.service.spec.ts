@@ -77,6 +77,9 @@ describe('RegulatoryFilingSweepService (Task 7)', () => {
       primarySubjectNo: filingNo,
       deadlineAt: past.toISOString(),
     });
+    // 整备波 T3 · C：deadlineAt 同时镜像进 metadata（顶层形态保留给 assertActionSpec）——
+    // 审计行本身可查"超的是哪个截止时刻"。
+    expect(call.metadata).toMatchObject({ filingNo, deadlineAt: past.toISOString() });
   });
 
   it('② 已 SUBMITTED（按时交）→ 不标（SUBMITTED 不在扫描状态集合内）', async () => {
@@ -178,6 +181,8 @@ describe('RegulatoryFilingSweepService (Task 7)', () => {
       const events = await prisma.auditLogEvent.findMany({ where: { primarySubjectType: 'REGULATORY_FILING', primarySubjectNo: filingNo } });
       expect(events.map((e) => e.action)).toEqual(['FILING_OVERDUE_MARKED']);
       expect(events[0].correlationId).toBeTruthy();
+      // 整备波 T3 · C：持久化的审计行 metadata 里真的有 deadlineAt（不只是 mock 入参）。
+      expect(JSON.parse(events[0].metadata as string)).toMatchObject({ deadlineAt: past.toISOString() });
     });
   });
 });

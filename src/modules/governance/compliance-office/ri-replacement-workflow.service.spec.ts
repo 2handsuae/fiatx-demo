@@ -29,12 +29,20 @@ function makeDecidedEvent(overrides: Partial<ApprovalDecidedEvent> = {}): Approv
 }
 
 /** 行为化 mock——不是无脑 resolve：assertNoPendingReplacement 真的会按当前 mock 状态
- *  抛错，供「在途查重」用例断言开单被挡住（同 sanction-disposition-workflow 先例）。 */
+ *  抛错，供「在途查重」用例断言开单被挡住（同 sanction-disposition-workflow 先例）。
+ *  整备波 T3：RI 席位行带状态——applyReplacement 真的把 incumbentName 换掉，findByNo
+ *  每次返回当前值；于是「换人前的旧任」必须在 applyReplacement 之前读，否则标题会
+ *  变成 "Bob Lee → Bob Lee"（读序错了测试会红）。 */
 function buildDeps() {
+  const seat = { riNo: RI_NO, position: 'Head of Compliance', incumbentName: 'Alice Tan' };
   const responsibleIndividuals = {
     assertNoPendingReplacement: jest.fn().mockResolvedValue(undefined),
     recordProposal: jest.fn().mockResolvedValue({ riNo: RI_NO }),
-    applyReplacement: jest.fn().mockResolvedValue({ riNo: RI_NO }),
+    findByNo: jest.fn(async () => ({ ...seat })),
+    applyReplacement: jest.fn(async (_riNo: string, _approvalNo: string, dto: { newIncumbentName: string }) => {
+      seat.incumbentName = dto.newIncumbentName;
+      return { riNo: RI_NO };
+    }),
     clearReplacement: jest.fn().mockResolvedValue({ riNo: RI_NO }),
   } as any;
   const approvalsService = {
@@ -44,9 +52,12 @@ function buildDeps() {
       items: [{ objectSnapshot: { newIncumbentName: 'Bob Lee', effectiveFrom: '2026-06-01T00:00:00.000Z', reason: 'Alice resigned', varaRef: 'VARA-REF-1' } }],
     }),
   } as any;
+  const filings = {
+    openForRiChange: jest.fn().mockResolvedValue({ filingNo: 'FIL260601000001' }),
+  } as any;
 
-  const svc = new RiReplacementWorkflowService(responsibleIndividuals, approvalsService);
-  return { svc, responsibleIndividuals, approvalsService };
+  const svc = new RiReplacementWorkflowService(responsibleIndividuals, approvalsService, filings);
+  return { svc, responsibleIndividuals, approvalsService, filings };
 }
 
 describe('RiReplacementWorkflowService.initiateReplacement', () => {
@@ -118,16 +129,47 @@ describe('RiReplacementWorkflowService.onDecided', () => {
     expect(responsibleIndividuals.clearReplacement).not.toHaveBeenCalled();
   });
 
+  it('RI 换人批准落地后自动开重大变更告知单（席位 + 新旧任 + riNo/approvalNo 一并交给报送台，且在 applyReplacement 之后）', async () => {
+    const { svc, responsibleIndividuals, filings } = buildDeps();
+
+    await svc.onDecided(makeDecidedEvent());
+
+    expect(filings.openForRiChange).toHaveBeenCalledTimes(1);
+    expect(filings.openForRiChange).toHaveBeenCalledWith({
+      riNo: RI_NO,
+      approvalNo: 'APR-RI-1',
+      position: 'Head of Compliance',
+      fromIncumbent: 'Alice Tan', // 换人前的旧任——applyReplacement 之后席位行已是 Bob Lee
+      toIncumbent: 'Bob Lee',
+    });
+    // 先换人、后开单：告知单是换人生效的后果，不是它的前提。
+    const applyOrder = responsibleIndividuals.applyReplacement.mock.invocationCallOrder[0];
+    const openOrder = filings.openForRiChange.mock.invocationCallOrder[0];
+    expect(applyOrder).toBeLessThan(openOrder);
+  });
+
+  it('开单失败不回滚换人：异常冒泡（不吞），换人已落地，也不补调 clearReplacement（非原子，照实）', async () => {
+    const { svc, responsibleIndividuals, filings } = buildDeps();
+    filings.openForRiChange.mockRejectedValue(new Error('filing desk down'));
+
+    await expect(svc.onDecided(makeDecidedEvent())).rejects.toThrow('filing desk down');
+
+    expect(responsibleIndividuals.applyReplacement).toHaveBeenCalledTimes(1);
+    expect(responsibleIndividuals.clearReplacement).not.toHaveBeenCalled();
+  });
+
   it.each(['DECLINED', 'CANCELLED', 'EXPIRED'] as const)(
-    '%s：只调 clearReplacement（不换人），不查快照、不调 applyReplacement',
+    '%s：只调 clearReplacement（不换人），不查快照、不调 applyReplacement、不开告知单',
     async (decision) => {
-      const { svc, responsibleIndividuals, approvalsService } = buildDeps();
+      const { svc, responsibleIndividuals, approvalsService, filings } = buildDeps();
 
       await svc.onDecided(makeDecidedEvent({ decision }));
 
       expect(approvalsService.list).not.toHaveBeenCalled();
       expect(responsibleIndividuals.applyReplacement).not.toHaveBeenCalled();
       expect(responsibleIndividuals.clearReplacement).toHaveBeenCalledWith(RI_NO, 'APR-RI-1', decision);
+      // 没换人 = 没有重大变更可告知：驳回/撤单/过期三条路都不开单。
+      expect(filings.openForRiChange).not.toHaveBeenCalled();
     },
   );
 
