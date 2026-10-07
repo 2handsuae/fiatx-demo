@@ -1,6 +1,6 @@
 # 合规办公室（闹钟墙 · 合规日历 · 登记册）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-10-03（战役丙波四：闹钟墙加第四类灯 DSR，见 §1）；此前 2026-09-27（战役甲波四：闹钟墙 / 合规日历 / 登记册两本落地，首次实数点验：15 域 73 桶 81 组）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-10-08（报送台整备波：RI 换人批准落地后报送台自动开重大变更告知单，见 §3；`FILING_OVERDUE_MARKED` 等三键审计 metadata 对称补齐，见 §4）；此前 2026-10-03（战役丙波四：闹钟墙加第四类灯 DSR，见 §1）；此前 2026-09-27（战役甲波四：闹钟墙 / 合规日历 / 登记册两本落地，首次实数点验：15 域 73 桶 81 组）
 > 演示幕次：第八幕场景 21/22（战役甲波五收官定稿）｜ 验收：场景 21/22 走查（`demo/script.md`）+ 本篇 §5
 
 ## 0. 这是什么
@@ -70,7 +70,7 @@
 对外业务键 `riNo`（前缀 `RI`）。字段：`position`（岗位名自由文本，演示合理集非法定名录）、`incumbentName`（自然人姓名，与 IAM 账号无外键无联动）、`varaRef?`、`effectiveFrom`、`pendingApprovalNo?`（在途换人审批单号，一席一在途，非空时再提 400）、`status`（`ACTIVE` 常驻，v1 无退席位边）。
 
 - **建席位**：合规官（`RI_REGISTER_WRITE`）。
-- **换人（事前审批，本册唯一流程戏）**：合规官提 `RI_REPLACEMENT` 审批（新任姓名 + 生效日 + 理由 + `varaRef?`）→ **高管单步批**（`ApprovalActionTypes.RI_REPLACEMENT`，策略 `{steps:[{stepNo:1,roles:['SENIOR_MANAGEMENT_OFFICER']}], timeoutHours:48, allowCancel:true}`，照 `SANCTION_DISPOSITION` 先例注册）→ `ri-replacement-workflow.service.ts`（`onDecided` 监听，照 `sanction-disposition-workflow.service.ts` 先例）调服务方法落地：换 `incumbentName`/`effectiveFrom`/`varaRef`、清 `pendingApprovalNo`、审计 `RI_REPLACEMENT_APPLIED`（携 `fromIncumbent`/`toIncumbent`）。驳回 / 撤单 / 过期 → 只清 `pendingApprovalNo` + 审计 `RI_REPLACEMENT_REJECTED`。
+- **换人（事前审批，本册唯一流程戏）**：合规官提 `RI_REPLACEMENT` 审批（新任姓名 + 生效日 + 理由 + `varaRef?`）→ **高管单步批**（`ApprovalActionTypes.RI_REPLACEMENT`，策略 `{steps:[{stepNo:1,roles:['SENIOR_MANAGEMENT_OFFICER']}], timeoutHours:48, allowCancel:true}`，照 `SANCTION_DISPOSITION` 先例注册）→ `ri-replacement-workflow.service.ts`（`onDecided` 监听，照 `sanction-disposition-workflow.service.ts` 先例）调服务方法落地：换 `incumbentName`/`effectiveFrom`/`varaRef`、清 `pendingApprovalNo`、审计 `RI_REPLACEMENT_APPLIED`（携 `fromIncumbent`/`toIncumbent`）；**落地后紧接着横向调 `RegulatoryFilingService.openForRiChange()`，在报送台自动开一张 `MATERIAL_CHANGE_NOTIFICATION`（DRAFT、`SYSTEM` 开单、无钟，标题 `Responsible Individual change — <席位>: <旧任> → <新任>`；2026-10-08 报送台整备波），合规官接手走 GENERAL 六态原样**——不建外键、RI 行不回填 `filingNo`，双向可查靠标题与该单 `FILING_OPENED` 审计的 `riNo`/`approvalNo`；开单失败时换人不回滚（非原子，已记 `PRODUCTION-NOTES.md`）。驳回 / 撤单 / 过期 → 只清 `pendingApprovalNo` + 审计 `RI_REPLACEMENT_REJECTED`，不换人、不开单。详见 `modules/v9-regulatory-filing.md` §2.2。
 - 换人史靠审计链可查：`RI_REPLACEMENT_APPLIED` 这条审计的 `metadata` 里直接落着 `fromIncumbent`/`toIncumbent`/`approvalNo` 三键（T8 评审修复——`extra` 顶层字段此前只供 `assertActionSpec` 校验、不落库，已镜像进 `metadata`，见 §5 R5），管理台审计详情页 Payload/Metadata 区可直接读到「谁换了谁」，场景 22 走查已实证（`doc-final/superpowers/checkups/2026-09-27-act-a-wave4-evidence/22-04-ri-replacement-audit-from-to.png`）。
 
 ## 4. 权限、审计、RBAC
@@ -88,7 +88,7 @@
 
 **审计名册十三码**（domain GOVERNANCE，`COMPLIANCE_OFFICE_AUDIT_ACTIONS`，独立常量组照 filing 先例）：`OBLIGATION_REGISTERED` / `OBLIGATION_UPDATED` / `OBLIGATION_STATUS_CHANGED` / `OBLIGATION_FILING_GENERATED` / `OBLIGATION_DUE_FASTFORWARDED` / `VENDOR_REGISTERED` / `VENDOR_UPDATED` / `VENDOR_TERMINATED` / `RI_SEAT_REGISTERED` / `RI_REPLACEMENT_PROPOSED` / `RI_REPLACEMENT_APPLIED` / `RI_REPLACEMENT_REJECTED` / `FILING_DEADLINE_FASTFORWARDED`（后者挂本组而非 `REG_FILING_AUDIT_ACTIONS`，单步演示动作无旅程可继承）。审计现役码全量目录 273→**286**（`audit:vocab` 实跑数，GOVERNANCE 域 20→33）。
 
-**R5 修复（T8 评审）**：`RI_REPLACEMENT_APPLIED` 等码此前 `fromIncumbent`/`toIncumbent`/`frequency`/`criticality`/`position`/`nextDueAt`/`dueAt`/`filingType`/`deadlineAt`/`approvalNo`/`decision` 这些展示级字段只在写入时供 `assertActionSpec` 校验必填、不落任何持久化列——审计详情页查不到。已把这些字段镜像进 `metadata` JSON（`extra` 校验形态保留不动，双落而非改字段结构）。**已知不对称**（登记 BACKLOG）：波二遗留的 `FILING_OVERDUE_MARKED`（`regulatory-filing-sweep.service.ts`）的 `deadlineAt` 字段未随本轮修复同步镜像，仍是 `extra`-only、审计详情查不到具体拨到了哪个时刻——与本波新写点的处理方式不对称，见 `BACKLOG.md`。
+**R5 修复（T8 评审）**：`RI_REPLACEMENT_APPLIED` 等码此前 `fromIncumbent`/`toIncumbent`/`frequency`/`criticality`/`position`/`nextDueAt`/`dueAt`/`filingType`/`deadlineAt`/`approvalNo`/`decision` 这些展示级字段只在写入时供 `assertActionSpec` 校验必填、不落任何持久化列——审计详情页查不到。已把这些字段镜像进 `metadata` JSON（`extra` 校验形态保留不动，双落而非改字段结构）。波二遗留的同类写点已于 2026-10-08 报送台整备波补齐：`FILING_OVERDUE_MARKED` 的 `deadlineAt`、`FILING_SUBMITTED` 的 `externalRef`、`FILING_ENTRY_LOGGED` 的 `kind` 三键现均镜像进 `metadata`，与本波新写点处理方式对称（`extra` 校验形态同样保留）。
 
 **`verify:rbac` 扩判据**：新域四处齐（route / 桶目录 / 职务绑定）＋ 三写组唯合规官 ＋ `COMPLIANCE_OFFICE_VIEW` 恰五职务 ＋ 行为探针（合规官三写面可写、其余职务 403、RI 在途重复提 400、高管可批换人、内审仍零写、⚡ 唯金库/超管）。收尾口径（Ruling R4）：本波新增判据全绿，既有红集（`S7`/`BACKLOG:234` COMPLIANCE_OFFICER 孤儿组）与波前基线恒等、不新增。
 
@@ -96,7 +96,7 @@
 
 **场景 21 · 闹钟墙与合规日历**（墙现为四类灯——报送单 / 周期义务 / 投诉 / DSR；本场景只走前两类，投诉灯与 DSR 灯分别在各自场景里演）：看墙（报送单钟 + 三条义务倒计时）→ ⚡ 义务快进 → 工单当场出现在墙上与报送台 → 合规官起草送签 → 高管签发 → 标已提交 → 义务翻期；再 ⚡ 报送单超时 → 墙上变红 + 审计留痕 → 口播「升级出口 = 人工登记事故」（不实际登记，指给观众看入口）。
 
-**场景 22 · 登记册**：外包商登记 / 修改 / 终止 → RI 换人提单 → 高管批准 → 名册翻新 → 审计链回查（`RI_REPLACEMENT_APPLIED` 携 from/to）。
+**场景 22 · 登记册**：外包商登记 / 修改 / 终止 → RI 换人提单 → 高管批准 → 名册翻新 → 报送台自动多出一张重大变更告知草稿单 → 审计链回查（`RI_REPLACEMENT_APPLIED` 携 from/to）。
 
 完整走查步骤见 `demo/script.md`「场景 21」「场景 22」两节；走查截图（真实 self 栈渲染，含账号切换与判据核对）入 `doc-final/superpowers/checkups/2026-09-27-act-a-wave4-evidence/`（`21-01`~`21-06`、`22-01`~`22-04`）。
 
@@ -111,5 +111,4 @@
 
 - HRC/HRCA 3 工作日 FIU 不反对窗不上墙（随交易 HOLD 边一起做，`BACKLOG.md`）
 - 报送单结构化正文表单（按报文类型细分字段）——现行通用形式（`body` 自由文本 + 外部引用号）不变，待合规同事提需求后按类型追加
-- `FILING_OVERDUE_MARKED` 的 `deadlineAt` 仍 `extra`-only 不入 `metadata`（§4 已记账）
 - 推送提醒、内幕名单登记册：按裁定判组织件 / 非本波范围，不建

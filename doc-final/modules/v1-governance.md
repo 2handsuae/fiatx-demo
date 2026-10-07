@@ -1,6 +1,6 @@
 # V1 · 治理底座（审批 / 审计 / 权限 / 管理员生命周期）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-28（战役甲波五：`COMPLAINT_ESCALATION` 通电启用，结案链四条→五条，新增 `INCIDENT_CLOSE_CUSTOMER`（合规官单步），空集善后白名单四类→五类；详见 `modules/complaints.md`）；此前 2026-09-26（战役甲波二：事故通报单槽退役，通报过程收编进独立主体报送台，事故域审计 11→9 码，结案守卫改判，见 §7 + `modules/v9-regulatory-filing.md`）；此前 2026-09-25（战役甲波一：事故登记 §7 四类→十类终盘、结案两链→四链、权限两桶→六桶，见 §7）；此前 2026-09-12（波三红项修复：审计页实体跳转甲案落地 + 幽灵字段清除，见 §5）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-10-08（报送台整备波：§7 依据码七个由法条坐标改为材料语义名并拆 `statuteRef` 法条副标签，见 §7 码表与 `modules/v9-regulatory-filing.md` §2.2）；此前 2026-09-28（战役甲波五：`COMPLAINT_ESCALATION` 通电启用，结案链四条→五条，新增 `INCIDENT_CLOSE_CUSTOMER`（合规官单步），空集善后白名单四类→五类；详见 `modules/complaints.md`）；此前 2026-09-26（战役甲波二：事故通报单槽退役，通报过程收编进独立主体报送台，事故域审计 11→9 码，结案守卫改判，见 §7 + `modules/v9-regulatory-filing.md`）；此前 2026-09-25（战役甲波一：事故登记 §7 四类→十类终盘、结案两链→四链、权限两桶→六桶，见 §7）；此前 2026-09-12（波三红项修复：审计页实体跳转甲案落地 + 幽灵字段清除，见 §5）
 > 演示幕次：第一幕「开业」+ 第六幕「账对」（事故登记末段）+ 第七幕「事后说得清」 ｜ 验收：第一幕 + 第七幕走查（`demo/script.md`）+ 本篇 §4；事故登记见第六幕末段 + `modules/v8-recon.md` §4
 
 ## 0. 一句话定位
@@ -96,7 +96,7 @@
 
 `ASSESSED` 有两条出边：**乙案**（Ruling-10，2026-09-25 战役甲波一 T8 修）——`assessmentBasis==='NO_LOSS'` 或该类型 `allowedRemediationKinds` 为空集（上表右列「空集」的五类，2026-09-28 战役甲波五 `COMPLAINT_ESCALATION` 通电后从四类扩至五类）→ 直接 `CLOSED`（`CLOSE_NO_ACTION`）；否则须先挂至少一张善后单 → `RESOLVING`，收尾再结案。旧版（迁移前）曾把这条边误判成「`assessmentBasis` 字面等于 `NO_LOSS` 才放行」，导致 IMPACT/SHORTFALL 口径四类（无 `NO_LOSS` 取值）永远走不到直接结案，是 T8 修复轮 1 的 Critical 修复。
 
-**定损表单（2026-10-07 事件中心表单重设计）**：统一骨架「结论 + 数字 + 说明 + 通报判定」，三处收紧都落在服务层真门（`IncidentService.assess()`——前端收后端放是假门）：① **结论按类型收窄**——注册表新增列 `allowedAssessmentBases`（`incident-type-registry.ts`，是 `assessmentScheme` 合法集的子集）：资金三类 + 大额卡单 = 四选（追回 / 认损 / 追索 / 无损失）；网安 / 外包故障 / 资产不合规 / 投诉升级 = 仅 `SERVICE_IMPACT`；数据泄露 = 仅 `DATA_IMPACT`；审慎穿底 = 仅 `SHORTFALL`；越集 400（如数据泄露传 `SERVICE_IMPACT` → `must be one of [DATA_IMPACT]`），堵住「网安事件可选数据影响」的语义漏洞。合法集只有 1 个值的类型，前端结论控件渲染为固定文本、不渲染下拉。② **说明三口径必填**——复用 `impactSummary` 列（零迁移）；钱 / 缺口口径此前「认损 1200 依据什么」无处落，现与影响口径一样必填（缺则 400 `assessment note`）；展示名按口径分：影响口径仍叫 `Impact summary`，钱 / 缺口口径叫 `Assessment note`。③ **钱 / 缺口口径币种必有**——登记时已有币种 → 定损页只读显示、以行值为准（请求体里再传也被忽略）；登记时为空 → 定损必须补 `assetCode`（缺则 400 `asset code`），落 `assetCode` 列。配套：登记锚预填定损（登记 = 初判、定损 = 查实，第二次可改）——数据泄露 `affectedCustomerCount` → 受影响人数、审慎穿底 `shortfallAmount` → 定损金额、外包故障 `serviceImpact` → 说明；零依据码类型（资产不合规 / 投诉升级）通报区不再置灰勾选框，改一行静态说明（原因：义务是立即暂停资产 / 无投诉专项通报义务）；依据码选项与报送单 Basis 列渲染为 `` `TIR_K_H` — <法条全文> `` 形态（仅渲染处拼接，依据目录本体不动）。
+**定损表单（2026-10-07 事件中心表单重设计）**：统一骨架「结论 + 数字 + 说明 + 通报判定」，三处收紧都落在服务层真门（`IncidentService.assess()`——前端收后端放是假门）：① **结论按类型收窄**——注册表新增列 `allowedAssessmentBases`（`incident-type-registry.ts`，是 `assessmentScheme` 合法集的子集）：资金三类 + 大额卡单 = 四选（追回 / 认损 / 追索 / 无损失）；网安 / 外包故障 / 资产不合规 / 投诉升级 = 仅 `SERVICE_IMPACT`；数据泄露 = 仅 `DATA_IMPACT`；审慎穿底 = 仅 `SHORTFALL`；越集 400（如数据泄露传 `SERVICE_IMPACT` → `must be one of [DATA_IMPACT]`），堵住「网安事件可选数据影响」的语义漏洞。合法集只有 1 个值的类型，前端结论控件渲染为固定文本、不渲染下拉。② **说明三口径必填**——复用 `impactSummary` 列（零迁移）；钱 / 缺口口径此前「认损 1200 依据什么」无处落，现与影响口径一样必填（缺则 400 `assessment note`）；展示名按口径分：影响口径仍叫 `Impact summary`，钱 / 缺口口径叫 `Assessment note`。③ **钱 / 缺口口径币种必有**——登记时已有币种 → 定损页只读显示、以行值为准（请求体里再传也被忽略）；登记时为空 → 定损必须补 `assetCode`（缺则 400 `asset code`），落 `assetCode` 列。配套：登记锚预填定损（登记 = 初判、定损 = 查实，第二次可改）——数据泄露 `affectedCustomerCount` → 受影响人数、审慎穿底 `shortfallAmount` → 定损金额、外包故障 `serviceImpact` → 说明；零依据码类型（资产不合规 / 投诉升级）通报区不再置灰勾选框，改一行静态说明（原因：义务是立即暂停资产 / 无投诉专项通报义务）；依据码选项与报送单 Basis 列渲染为 `<材料名> — <statuteRef>` 形态（如 `Major incident report — TIR Rulebook Section K + H`，定损勾选项后面再缀钟文案；2026-10-08 报送台整备波起材料名为主、法条降为副标签，码表见下方「通报判定与过程分家」）。
 
 **审批（结案按性质分五条链，2026-09-25 战役甲波一由两条扩至四条；2026-09-28 战役甲波五再扩至五条，见下表第五行）**：
 
@@ -110,19 +110,21 @@
 
 每类在注册表里显式点名归属链（`closeActionType` 字段），不再是「未授权转出 vs 其余全部」的二元判断。结案前置两道闸，少一道都是 400：① 定损未完成（`REGISTERED`/`INVESTIGATING`）不许结案；② **判定需要监管通报但报送单未全部提交不许结案**（2026-09-26 战役甲波二起改判，语义不变、证据源换了主体：`reportRequired=true` 时，该事故名下全部 `INCIDENT_REPORT` 类型报送单——排除已作废——必须 `submittedAt` 非空，任一未提交或名下零单均 400；判断横向只读 `RegulatoryFilingService.summaryForIncident()`，事故域不再自己存 `reportedAt`，见下方「通报判定与过程分家」与 `modules/v9-regulatory-filing.md`）。开单人（金库/技术官/DPO/运营/CFO 五族经办人）与裁决人（MLRO/CFO/CISO/高管）职务互斥，无自批死锁。
 
-**通报判定与过程分家**（2026-09-26 战役甲波二起，岔口②业主裁决）：定损时仍在事故域判定「该不该通报」——可勾「需要监管通报」，勾了必须选依据条款；**通报的过程（起草 / 送签 / 标已提交 / 往来记录 / 办结）整体搬到独立主体「报送台」**（`RegulatoryFiling`，见 `modules/v9-regulatory-filing.md`），事故域自己不再存草稿或已通报标记。依据条款目录从三条扩到七条（`hours=null` 代表没有法定钟，界面显式「未设时限」，不杜撰；每码只对它所属类型的 `reportBasisCandidates` 候选集开放，如 `UNAUTHORIZED_OUTFLOW` 只能勾 `CRM_IV_E_5`/`CRM_V_D_2`，勾其它类型的码 400；`authority` 字段本波回填，自动开单时受文机构直接从码上取，不再从人话 label 解析）：
+**通报判定与过程分家**（2026-09-26 战役甲波二起，岔口②业主裁决）：定损时仍在事故域判定「该不该通报」——可勾「需要监管通报」，勾了必须选依据条款；**通报的过程（起草 / 送签 / 标已提交 / 往来记录 / 办结）整体搬到独立主体「报送台」**（`RegulatoryFiling`，见 `modules/v9-regulatory-filing.md`），事故域自己不再存草稿或已通报标记。依据条款目录从三条扩到七条（`hours=null` 代表没有法定钟，界面显式「未设时限」，不杜撰；每码只对它所属类型的 `reportBasisCandidates` 候选集开放，如 `UNAUTHORIZED_OUTFLOW` 只能勾 `CLIENT_MONEY_DISCREPANCY`/`CLIENT_VA_DISCREPANCY`，勾其它类型的码 400；`authority` 字段本波回填，自动开单时受文机构直接从码上取，不再从人话 label 解析）：
 
-| 依据码 | 依据 | 时限 | 受文机构 | 适用族/类型 |
+**码名是材料语义名，法条是副标签**（2026-10-08 报送台整备波；此前七个键是法条坐标，没人看得懂）：键 = 员工认得的材料名（带小时钟的数字进名 `_72H`/`_24H`、即时义务 `_NOTICE` 后缀、成对材料平行结构）；`INCIDENT_REPORT_BASES` 每条拆两个字段——`label` = 材料名（定损勾选项、开单弹窗、列表下钻、详情 Report Basis 的主文案），`statuteRef` = 法条原文引述（只做副标签，常量字段、非 DB 列，零 schema 迁移）；**报文正文与审计引用照旧用法条**（正文是写给监管看的，不用 label）。后端服务代码从不读 `label`（只读 `hours`/`authority`/`chainStart`），改键后服务零改动；前端镜像 `incidentStatusMap.ts` 逐字同步。存量行（`incidents.reportBasisCodes` / `regulatory_filings.basisCode`）里的旧码靠重铺作废，不留别名、不做映射。
+
+| 依据码（键） | 材料名（`label`）· 法条（`statuteRef`） | 时限 | 受文机构 | 适用族/类型 |
 |---|---|---|---|---|
-| `TIR_K_H` | TIR Rulebook Section K + H —— 网安/BCDR 与大额卡单事件报 VARA | 72 小时，从登记时刻起算 | VARA | `CYBER_BCDR`/`STUCK_TRANSACTION_MAJOR` |
-| `CRM_IV_E_5` | CRM IV.E.5 —— Client Money 重大未平差异 | 未设时限 | VARA | FUNDS 三类 |
-| `CRM_V_D_2` | CRM V.D.2 —— Client VAs 重大未平差异 | 未设时限 | VARA | FUNDS 三类 |
-| `PDPL_ART_9` | PDPL（联邦第 45/2021 号法令）第 9 条 —— 个人数据泄露报 UAE 数据办公室 | 未设时限（法条未载明钟） | UAE_DATA_OFFICE | `DATA_BREACH` |
-| `TIR_II_C_24H` | VARA TIR Part II Section C + CRM I.1.4 —— 泄露通知发出后 24 小时内向 VARA 二次上报 | 24 小时，**钟链起点是另一码触发的"通知发出"时刻，不参与本码自身的倒计时计算** | VARA | `DATA_BREACH` |
-| `COMPANY_IV_H_1` | Company Rulebook IV.H.1 —— 重大外包故障，立即通知 VARA | 即时义务，无小时钟 | VARA | `OUTSOURCING_FAILURE` |
-| `COMPANY_VI_C_F` | Company Rulebook VI.C / VI.F —— NLA 审慎缺口，立即通知 VARA（每日更新直到 VARA 满意，日历义务留待波四） | 即时义务，无小时钟 | VARA | `PRUDENTIAL_BREACH` |
+| `MAJOR_INCIDENT_72H` | Major incident report · TIR Rulebook Section K + H —— 网安/BCDR 与大额卡单事件报 VARA | 72 小时，从登记时刻起算 | VARA | `CYBER_BCDR`/`STUCK_TRANSACTION_MAJOR` |
+| `CLIENT_MONEY_DISCREPANCY` | Client Money discrepancy report · CRM IV.E.5 —— Client Money 重大未平差异 | 未设时限 | VARA | FUNDS 三类 |
+| `CLIENT_VA_DISCREPANCY` | Client VA discrepancy report · CRM V.D.2 —— Client VAs 重大未平差异 | 未设时限 | VARA | FUNDS 三类 |
+| `DATA_BREACH_REPORT` | Personal data breach report · PDPL（联邦第 45/2021 号法令）第 9 条 —— 个人数据泄露报 UAE 数据办公室 | 未设时限（法条未载明钟） | UAE_DATA_OFFICE | `DATA_BREACH` |
+| `DATA_BREACH_RE_REPORT_24H` | Data breach re-report · VARA TIR Part II Section C + CRM I.1.4 —— 泄露通知发出后 24 小时内向 VARA 二次上报 | 24 小时，**钟链起点是另一码触发的"通知发出"时刻，不参与本码自身的倒计时计算** | VARA | `DATA_BREACH` |
+| `OUTSOURCING_FAILURE_NOTICE` | Outsourcing failure notice · Company Rulebook IV.H.1 —— 重大外包故障，立即通知 VARA | 即时义务，无小时钟 | VARA | `OUTSOURCING_FAILURE` |
+| `PRUDENTIAL_BREACH_NOTICE` | Prudential (NLA) breach notice · Company Rulebook VI.C / VI.F —— NLA 审慎缺口，立即通知 VARA（每日更新直到 VARA 满意，日历义务留待波四） | 即时义务，无小时钟 | VARA | `PRUDENTIAL_BREACH` |
 
-**一码一单，自动开单**：提交定损时按**每个勾选的依据码各开一张** `INCIDENT_REPORT` 报送单——不再是「一个事故一份通报记录、多选依据合并算一个倒计时」，而是每码各自的单据、各自的钟、各自的受文机构（`incident-assessment-workflow.service.ts` 先调 `IncidentService.assess()` 判定留痕，再逐码调 `RegulatoryFilingService.openForIncident()` 建单，铁律③：跨主体协作只在 workflow）。数据泄露勾 `PDPL_ART_9`+`TIR_II_C_24H` 两码 → 两张单、两只钟——「同事件双钟」由此自然成立，`TIR_II_C_24H` 那张的 `deadlineAt` 在另一张提交时才落定（钟链机制，详见 `modules/v9-regulatory-filing.md` §2）。留痕（起草 / 送签 / 标已提交 / 往来记录）与结案前置门的证据源，均详见 `modules/v9-regulatory-filing.md` §1/§3。
+**一码一单，自动开单**：提交定损时按**每个勾选的依据码各开一张** `INCIDENT_REPORT` 报送单——不再是「一个事故一份通报记录、多选依据合并算一个倒计时」，而是每码各自的单据、各自的钟、各自的受文机构（`incident-assessment-workflow.service.ts` 先调 `IncidentService.assess()` 判定留痕，再逐码调 `RegulatoryFilingService.openForIncident()` 建单，铁律③：跨主体协作只在 workflow）。数据泄露勾 `DATA_BREACH_REPORT`+`DATA_BREACH_RE_REPORT_24H` 两码 → 两张单、两只钟——「同事件双钟」由此自然成立，`DATA_BREACH_RE_REPORT_24H` 那张的 `deadlineAt` 在另一张提交时才落定（钟链机制，详见 `modules/v9-regulatory-filing.md` §2）。留痕（起草 / 送签 / 标已提交 / 往来记录）与结案前置门的证据源，均详见 `modules/v9-regulatory-filing.md` §1/§3。
 
 **第五入口（升级专用，不接受人工登记）**：`COMPLAINT_ESCALATION` 不出现在事故列表页「Register Incident」下拉里，`/admin/incidents` 手工登记该类型显式拒绝（`MANUAL_REGISTRATION_BLOCKED_TYPES` 清单，任意 actor 400，门在 `assertOperator` 之前）——唯一入口是投诉详情页「Escalate to Incident」按钮，经 `IncidentService.registerFromComplaint()` 落库（`requiredAnchors=[complaintNo, ownerCustomerNo]`），详见 `modules/complaints.md` §3。
 

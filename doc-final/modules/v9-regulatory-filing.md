@@ -1,7 +1,7 @@
 # V9 · 监管报送（报送台，跟监管交差记录在哪）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-28（战役甲波五收官：第八幕「异常与监管」定稿，场景 19/20/21 编号终定 + 新增场景 25 补齐 `CYBER_BCDR` 网安事件 72h 单钟全链走查，详见 `demo/script.md`）；此前 2026-09-27（战役甲波四：类型目录扩到十二行——新增 `PERIODIC_RETURN`，周期义务到期自动开单，详见 §2.1 与 `modules/compliance-office.md`；此前 2026-09-26 战役甲波三：报文族台账与联动——类型目录扩到十一行、AML 族独立边集与工作日钟、制裁定性裁决三出口联动、tipping-off 登记本、MLRO 无签发链亲办；此前 2026-09-26 战役甲波二：报送台骨架落地，事故通报单槽退役统一收编）
-> 演示幕次：第六幕场景 18（事故通报环节）＋第八幕场景 19/20（AML 报文族）＋场景 21（周期申报，主篇在 `modules/compliance-office.md`）＋场景 25（`CYBER_BCDR` 网安事件 72h 单钟全链，GENERAL 族通用签发对照）｜ 验收：第六幕走查 + 第八幕场景 19/20/21/25 走查（`demo/script.md`）+ 本篇 §5
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-10-08（报送台整备波：类型两层化——注册表加 `origin` 来源列、依据码七个改材料语义名并拆 `statuteRef` 法条副标签、来函应答类型去掉冗余 `REG_` 前缀改名 `INFO_REQUEST_RESPONSE`、RI 换人批准自动开重大变更告知单、HRCA 官方口径订正为活动型，见 §2.2/§4.2/§6）；此前 2026-09-28（战役甲波五收官：第八幕「异常与监管」定稿，场景 19/20/21 编号终定 + 新增场景 25 补齐 `CYBER_BCDR` 网安事件 72h 单钟全链走查，详见 `demo/script.md`）；此前 2026-09-27（战役甲波四：类型目录扩到十二行——新增 `PERIODIC_RETURN`，周期义务到期自动开单，详见 §2.1 与 `modules/compliance-office.md`；此前 2026-09-26 战役甲波三：报文族台账与联动——类型目录扩到十一行、AML 族独立边集与工作日钟、制裁定性裁决三出口联动、tipping-off 登记本、MLRO 无签发链亲办；此前 2026-09-26 战役甲波二：报送台骨架落地，事故通报单槽退役统一收编）
+> 演示幕次：第六幕场景 18（事故通报环节）＋第八幕场景 19/20（AML 报文族）＋场景 21（周期申报，主篇在 `modules/compliance-office.md`）＋场景 25（`CYBER_BCDR` 网安事件 72h 单钟全链，GENERAL 族通用签发对照）＋场景 22（RI 换人批准落地后自动开出重大变更告知单，登记册主篇在 `modules/compliance-office.md`）｜ 验收：第六幕走查 + 第八幕场景 19/20/21/25 走查（`demo/script.md`）+ 本篇 §5
 
 ## 0. 这是什么
 
@@ -13,7 +13,7 @@
 
 ## 1. 主体与状态机
 
-**RegulatoryFiling**（表 `regulatory_filings`）核心字段：`filingNo`（对外业务键）、`direction`（OUTBOUND 我方上报 / INBOUND 监管来函应答，由类型决定不可自选）、`type`（类型目录键，见 §2）、`authority` / `ccAuthorities`（受文 / 抄送机构）、`basisCode`（依据码，仅 `INCIDENT_REPORT` 类型有值，一单一码）、`incidentNo`（关联事故，非唯一——一事故可开多单，仅 GENERAL 族用）、`title` / `body`（正文草稿）、`receivedAt`（INBOUND 专用，来函收到时刻）、`deadlineAt`（法定截止，算法见 §2）、`externalRef`（对外编号，标已提交时必填）、**`externalCaseRef`**（波三新列，对外案件引用——STR/SAR 记 Sumsub 案件/applicant 引用、CNMR/PNMR 记 EOCN 名单条目引用，四个 AML 类型开单时必填，GENERAL 族不用）、**`noFilingReason`**（波三新列，决定不报的理由，仅「决定不报」这条 `DRAFT→CLOSED` 边使用，`closeNoFiling()` 强制非空并落进该次审计的 `reason` 列）、`submittedAt`/`submittedByUserId`、`overdueMarkedAt`（超时软标，见 §2）、`closedAt`。
+**RegulatoryFiling**（表 `regulatory_filings`）核心字段：`filingNo`（对外业务键）、`direction`（OUTBOUND 我方上报 / INBOUND 监管来函应答，由类型决定不可自选）、`type`（类型目录键，见 §2）、`authority` / `ccAuthorities`（受文 / 抄送机构）、`basisCode`（依据码，仅 `INCIDENT_REPORT` 类型有值，一单一码；码名是材料语义名，见 §2.2）、`incidentNo`（关联事故，非唯一——一事故可开多单，仅 GENERAL 族用）、`title` / `body`（正文草稿）、`receivedAt`（INBOUND 专用，来函收到时刻）、`deadlineAt`（法定截止，算法见 §2）、`externalRef`（对外编号，标已提交时必填）、**`externalCaseRef`**（波三新列，对外案件引用——STR/SAR 记 Sumsub 案件/applicant 引用、CNMR/PNMR 记 EOCN 名单条目引用，四个 AML 类型开单时必填，GENERAL 族不用）、**`noFilingReason`**（波三新列，决定不报的理由，仅「决定不报」这条 `DRAFT→CLOSED` 边使用，`closeNoFiling()` 强制非空并落进该次审计的 `reason` 列）、`submittedAt`/`submittedByUserId`、`overdueMarkedAt`（超时软标，见 §2）、`closedAt`。
 
 往来记录子表 **RegulatoryFilingEntry**（`regulatory_filing_entries`，只增不改，波三新列 `commDraftedBy`——自由文本拟稿人，仅 `CUSTOMER_COMM` 用）——五种受控 `kind`，「哪族能用 / 态限是什么」按 `FILING_ENTRY_KIND_RULES` 一张显式表查（不写散 if）：
 
@@ -51,22 +51,22 @@ DRAFT ──标已提交+externalRef(MLRO)──► SUBMITTED ──办结(MLRO)
 
 十二类（`filing-type-registry.ts`，代码注册表——GENERAL 五类波二原有、AML 六类波三新增、`PERIODIC_RETURN` 波四新增）：
 
-| 类型键 | 族 | 方向 | 受文机构 | 钟 | 锚 | 备注 |
-|---|---|---|---|---|---|---|
-| `INCIDENT_REPORT` | GENERAL | OUTBOUND | 按依据码带出 | 按依据码（小时制） | `BASIS` | 唯一可被自动开单的 GENERAL 类型——事故定损联动 |
-| `REG_INFO_REQUEST_RESPONSE` | GENERAL | INBOUND | 手工选 | 48h | `RECEIVED_AT` | 锚来函收到时刻 |
-| `MATERIAL_CHANGE_NOTIFICATION` | GENERAL | OUTBOUND | VARA | 无 | `NONE` | |
-| `AUDITOR_APPOINTMENT_NOTICE` | GENERAL | OUTBOUND | VARA | 无 | `NONE` | |
-| `MARKET_OFFENCE_DUAL_REPORT` | GENERAL | OUTBOUND | VARA（第二受文机构手工选入 `ccAuthorities`） | 无 | `NONE` | |
-| `PERIODIC_RETURN`（波四） | GENERAL | OUTBOUND | 从义务行带出（种子皆 VARA） | 无（`deadlineBusinessDays:0` → `deadlineAt=` 期末日本身） | `EXTERNAL` | 唯一由**周期义务**（非事故）自动开单的类型，详见 §2.1 与 `modules/compliance-office.md` |
-| `STR`（波三） | AML | OUTBOUND | UAE_FIU | 无（形成怀疑即报，不杜撰法定时限） | `NONE` | `allowNoFilingClose`＋`requiresExternalCaseRef`；叙事锚交易单号，不建列 |
-| `SAR`（波三） | AML | OUTBOUND | UAE_FIU | 无 | `NONE` | 同上；叙事锚客户（无交易可锚——这正是台账要与 STR 分两行的原因） |
-| `CNMR`（波三） | AML | OUTBOUND | EOCN | **5 工作日** | `EXTERNAL` | `requiresExternalCaseRef`；锚制裁便签 `openedAt`（官方口径「自冻结起算」） |
-| `PNMR`（波三） | AML | OUTBOUND | EOCN | **5 工作日** | `EXTERNAL` | `requiresExternalCaseRef`；锚制裁便签 `openedAt`（官方口径「自暂停起算」；10 工作日补证窗并行走，不是本钟） |
-| `HRC`（波三） | AML | OUTBOUND | UAE_FIU | 无（本台账不建钟） | `NONE` | 报后 3 工作日 FIU 不反对方可执行——交易 HOLD 边移交三域细化，台账只记「报了没有」 |
-| `HRCA`（波三） | AML | OUTBOUND | UAE_FIU | 无 | `NONE` | 交易属性不全时的替代报文，同上钟备注 |
+| 类型键 | 族 | 来源 `origin`（整备波） | 方向 | 受文机构 | 钟 | 锚 | 备注 |
+|---|---|---|---|---|---|---|---|
+| `INCIDENT_REPORT` | GENERAL | `INCIDENT` | OUTBOUND | 按依据码带出 | 按依据码（小时制） | `BASIS` | 唯一可被自动开单的 GENERAL 类型——事故定损联动；**容器型**，员工可见的材料是依据码（§2.2） |
+| `INFO_REQUEST_RESPONSE`（整备波去 `REG_` 前缀改名） | GENERAL | `REGULATOR_REQUEST` | INBOUND | 手工选 | 48h | `RECEIVED_AT` | 锚来函收到时刻；界面词 `Information request response` |
+| `MATERIAL_CHANGE_NOTIFICATION` | GENERAL | `SELF_DISCLOSURE` | OUTBOUND | VARA | 无 | `NONE` | 手工开单，或 **RI 换人批准落地时系统自动开**（`openForRiChange`，见 §2.2「自动开单来路」） |
+| `AUDITOR_APPOINTMENT_NOTICE` | GENERAL | `SELF_DISCLOSURE` | OUTBOUND | VARA | 无 | `NONE` | |
+| `MARKET_OFFENCE_DUAL_REPORT` | GENERAL | `SELF_DISCLOSURE` | OUTBOUND | VARA（第二受文机构手工选入 `ccAuthorities`） | 无 | `NONE` | 枚举保留，界面词 `Market offence report (dual-filed)`（双报是机制不是材料名） |
+| `PERIODIC_RETURN`（波四） | GENERAL | `PERIODIC_OBLIGATION` | OUTBOUND | 从义务行带出（种子皆 VARA） | 无（`deadlineBusinessDays:0` → `deadlineAt=` 期末日本身） | `EXTERNAL` | 唯一由**周期义务**（非事故）自动开单的类型，详见 §2.1 与 `modules/compliance-office.md`；**容器型**，员工可见的材料是义务台账行（§2.2） |
+| `STR`（波三） | AML | `AML_MONITORING` | OUTBOUND | UAE_FIU | 无（形成怀疑即报，不杜撰法定时限） | `NONE` | `allowNoFilingClose`＋`requiresExternalCaseRef`；叙事锚交易单号，不建列 |
+| `SAR`（波三） | AML | `AML_MONITORING` | OUTBOUND | UAE_FIU | 无 | `NONE` | 同上；叙事锚客户（无交易可锚——这正是台账要与 STR 分两行的原因） |
+| `CNMR`（波三） | AML | `SANCTIONS_HIT` | OUTBOUND | EOCN | **5 工作日** | `EXTERNAL` | `requiresExternalCaseRef`；锚制裁便签 `openedAt`（官方口径「自冻结起算」） |
+| `PNMR`（波三） | AML | `SANCTIONS_HIT` | OUTBOUND | EOCN | **5 工作日** | `EXTERNAL` | `requiresExternalCaseRef`；锚制裁便签 `openedAt`（官方口径「自暂停起算」；10 工作日补证窗并行走，不是本钟） |
+| `HRC`（波三） | AML | `AML_MONITORING` | OUTBOUND | UAE_FIU | 无（本台账不建钟） | `NONE` | **交易型**报文；报后 3 工作日 FIU 不反对方可执行——交易 HOLD 边移交三域细化，台账只记「报了没有」 |
+| `HRCA`（波三；全称 High Risk Country Activity Report） | AML | `AML_MONITORING` | OUTBOUND | UAE_FIU | 无 | `NONE` | **活动型**（非交易）报文，与 HRC 的交易型二分、平行于 STR/SAR；3 工作日不反对窗同 HRC；一手出处 goAML Web Submission Guide v2.2 p2/p3/p5（§4.2） |
 
-受文机构目录仍五家：`VARA` / `UAE_FIU` / `EOCN` / `UAE_DATA_OFFICE` / `CBUAE`。
+受文机构目录仍五家：`VARA` / `UAE_FIU` / `EOCN` / `UAE_DATA_OFFICE` / `CBUAE`。**机构维度与来源正交**——来源问「法律上为什么要报」，机构问「报给谁」，五机构监管地图另讲，不进来源树。
 
 ### 2.1 `PERIODIC_RETURN` 与合规日历联动（战役甲波四）
 
@@ -75,7 +75,8 @@ DRAFT ──标已提交+externalRef(MLRO)──► SUBMITTED ──办结(MLRO)
 **`FilingTypeConfig` 波三新增的族相关字段**：
 
 - `family: 'GENERAL' | 'AML'`——服务层按族独占的判据（见 §3 `cap.filing.*`）。
-- `anchorKind: 'BASIS' | 'RECEIVED_AT' | 'EXTERNAL' | 'NONE'`——钟的起算点，四值穷举、不留隐式：`BASIS`＝依据码事故创建时刻（`INCIDENT_REPORT` 专用，波二既有）；`RECEIVED_AT`＝收件时刻（`REG_INFO_REQUEST_RESPONSE`，波二既有）；**`EXTERNAL`＝workflow 显式外传 `anchorAt`（波三新增，CNMR/PNMR 专用）**——锚只能来自 `openForSanction()` 的调用方传入，手工开单拿不到锚、`deadlineAt` 留 `null`，不杜撰；`NONE`＝无钟。
+- `origin`（整备波新增，六值封闭）——触发来源，一行一字面值，类型→唯一来源，**不落库**（可从 type 唯一推导，落库即冗余）；定义写死在注册表头注释：**来源=法定触发事由，非操作路径**。详见 §2.2。
+- `anchorKind: 'BASIS' | 'RECEIVED_AT' | 'EXTERNAL' | 'NONE'`——钟的起算点，四值穷举、不留隐式：`BASIS`＝依据码事故创建时刻（`INCIDENT_REPORT` 专用，波二既有）；`RECEIVED_AT`＝收件时刻（`INFO_REQUEST_RESPONSE`，波二既有）；**`EXTERNAL`＝workflow 显式外传 `anchorAt`（波三新增，CNMR/PNMR 专用）**——锚只能来自 `openForSanction()` 的调用方传入，手工开单拿不到锚、`deadlineAt` 留 `null`，不杜撰；`NONE`＝无钟。
 - `deadlineBusinessDays`——工作日制钟（周一至五），与小时制 `defaultHours` 互斥，两者不得同时设值；`computeDeadline()` 按 `anchorKind==='EXTERNAL'` 分支走 `addBusinessDays(anchorAt, deadlineBusinessDays)`。
 - `allowNoFilingClose`——仅 STR/SAR 为 `true`，见 §4.2「决定不报」。
 - `requiresExternalCaseRef`——STR/SAR/CNMR/PNMR 四类型 `true`（HRC/HRCA 锚交易属性、无外部案件可引，不填）。
@@ -84,13 +85,44 @@ DRAFT ──标已提交+externalRef(MLRO)──► SUBMITTED ──办结(MLRO)
 
 **工作日钟纯函数**（`business-days.ts → addBusinessDays`）：按**迪拜日历**（UTC+4，无夏令时）判周末（周六、周日），复用 `business-date.util.ts` 的 `DUBAI_UTC_OFFSET_MS` 毫秒步进、与账务业务日同一口径——**T1 升档评审红项修复**：原实现按宿主进程时区判周末，同一份代码在不同部署时区会算出不同的截止日，已用「周六起算」+「迪拜跨日边界」两用例、四时区矩阵单测坐实修复。
 
-**GENERAL 族一码一单，自动开单**（波二机制，本波未改）：事故定损时勾「需要监管通报」并选中依据码，按每个依据码各开一张 `INCIDENT_REPORT` 单——`incident-assessment-workflow.service.ts`（铁律③）先调 `IncidentService.assess()` 判定留痕，再逐码调 `RegulatoryFilingService.openForIncident()` 建单。**钟锚算法**：`INCIDENT_REPORT` 按依据码的 `hours`，从事故登记时刻起算；`REG_INFO_REQUEST_RESPONSE` 按 48h，从 `receivedAt` 起算；两者都没有依据则 `deadlineAt=null`。**钟链机制**（`chainStart='NOTICE'`，目前仅 `TIR_II_C_24H`）原样不动。
+**GENERAL 族一码一单，自动开单**（波二机制，本波未改）：事故定损时勾「需要监管通报」并选中依据码，按每个依据码各开一张 `INCIDENT_REPORT` 单——`incident-assessment-workflow.service.ts`（铁律③）先调 `IncidentService.assess()` 判定留痕，再逐码调 `RegulatoryFilingService.openForIncident()` 建单。**钟锚算法**：`INCIDENT_REPORT` 按依据码的 `hours`，从事故登记时刻起算；`INFO_REQUEST_RESPONSE` 按 48h，从 `receivedAt` 起算；两者都没有依据则 `deadlineAt=null`。**钟链机制**（`chainStart='NOTICE'`，目前仅 `DATA_BREACH_RE_REPORT_24H`）原样不动。
 
 **AML 族一单一钟，不复用钟链**（波三脑暴裁定②——CNMR/PNMR 的语义与「同一事故两只独立钟」不同，是「同一制裁便签下按定性结果分别开单」）：确认命中开 CNMR 单、部分命中开 PNMR 单，部分命中后续升级为确认命中**再开一张新 CNMR 单**（不复用旧 PNMR 单、不改它的钟），各单各走各自 5 工作日钟——落地细节见 §4.1。「24h 冻结」不建倒计时钟：⚡ 命中即冻瞬时完成，制裁便签的 `openedAt` 本身就是 `EXTERNAL` 锚的数据源，兼作留痕；闹钟墙式的倒计时展示留给波四。
 
-**手工开单**：合规官可开全部启用 GENERAL 类型；MLRO 可开全部启用 AML 类型（`openManual()` 内先过族独占断言，合规官打不开 STR/SAR，MLRO 打不开 GENERAL 五类，见 §3）；`INCIDENT_REPORT` 手工开单须给 `incidentNo` + 合法 `basisCode`（必须属该事故类型的 `reportBasisCandidates` 候选集）；`requiresExternalCaseRef` 类型（STR/SAR/CNMR/PNMR）手工开单缺 `externalCaseRef` 即 400；CNMR/PNMR 手工开单拿不到 `anchorAt`，`deadlineAt` 留 `null`——现场演示 SAR/HRC/HRCA 就是走这条手工路（§4.2/§5「演示脚本」）。
+**手工开单**：合规官可开全部启用 GENERAL 类型；MLRO 可开全部启用 AML 类型（`openManual()` 内先过族独占断言，合规官打不开 STR/SAR，MLRO 打不开 GENERAL 五类，见 §3）；`INCIDENT_REPORT` 手工开单须给 `incidentNo` + 合法 `basisCode`（必须属该事故类型的 `reportBasisCandidates` 候选集，不在集内 400）；开单弹窗的类型下拉按来源分六组（见 §2.2）；`requiresExternalCaseRef` 类型（STR/SAR/CNMR/PNMR）手工开单缺 `externalCaseRef` 即 400；CNMR/PNMR 手工开单拿不到 `anchorAt`，`deadlineAt` 留 `null`——现场演示 SAR/HRC/HRCA 就是走这条手工路（§4.2/§5「演示脚本」）。
 
-**超时持久软标**（`regulatory-filing-sweep.service.ts`，@Cron 每 30 秒，两族十二类共用，本波未改）：`deadlineAt < now` 且 `overdueMarkedAt IS NULL` 且状态 ∈ {DRAFT, PENDING_SIGNOFF, SIGNED_OFF}（AML 族因无 `PENDING_SIGNOFF`/`SIGNED_OFF` 两态，实际只在 DRAFT 触发）→ 落 `overdueMarkedAt` + 记一条 `FILING_OVERDUE_MARKED`（系统 actor）。按时提交过的单子永不触发；标记留着不清，迟交的照样红着。**⚡ 演示快进**（战役甲波四新增，挂 `modules/compliance-office.md` 闹钟墙）：`POST /admin/regulatory-filings/:filingNo/simulate-deadline-timeout` 把该单 `deadlineAt` 回拨到过去，30 秒内被本 sweep 标红，供闹钟墙走查现场触发；审计码 `FILING_DEADLINE_FASTFORWARDED` 挂在 `COMPLIANCE_OFFICE_AUDIT_ACTIONS`（域 GOVERNANCE，非本篇 `REG_FILING_AUDIT_ACTIONS`），因为它是单步演示动作、没有旅程可继承。
+**超时持久软标**（`regulatory-filing-sweep.service.ts`，@Cron 每 30 秒，两族十二类共用，本波未改）：`deadlineAt < now` 且 `overdueMarkedAt IS NULL` 且状态 ∈ {DRAFT, PENDING_SIGNOFF, SIGNED_OFF}（AML 族因无 `PENDING_SIGNOFF`/`SIGNED_OFF` 两态，实际只在 DRAFT 触发）→ 落 `overdueMarkedAt` + 记一条 `FILING_OVERDUE_MARKED`（系统 actor；整备波起 `deadlineAt` 同时镜像进审计 `metadata`，详情页查得到「超的是哪个截止时刻」）。按时提交过的单子永不触发；标记留着不清，迟交的照样红着。**⚡ 演示快进**（战役甲波四新增，挂 `modules/compliance-office.md` 闹钟墙）：`POST /admin/regulatory-filings/:filingNo/simulate-deadline-timeout` 把该单 `deadlineAt` 回拨到过去，30 秒内被本 sweep 标红，供闹钟墙走查现场触发；审计码 `FILING_DEADLINE_FASTFORWARDED` 挂在 `COMPLIANCE_OFFICE_AUDIT_ACTIONS`（域 GOVERNANCE，非本篇 `REG_FILING_AUDIT_ACTIONS`），因为它是单步演示动作、没有旅程可继承。
+
+### 2.2 类型两层树：来源 × 材料（报送台整备波，2026-10-08）
+
+**为什么要分两层。** 注册表 `type` 单字段混着两个海拔：`INCIDENT_REPORT` / `PERIODIC_RETURN` 是**容器**（真正报什么，在依据码 / 义务行那一层），`STR` / `CNMR` 一类本身就是材料——员工开单要先在脑子里翻译一遍，列表 Type 列也扫不出每一行到底报的是什么。整备波把它拆成两层，**零 schema 迁移、零状态机新边、零新审批类型、零新权限**。
+
+**第一层 · 来源 `origin`**（注册表 `FilingTypeConfig` 新列，六值封闭，类型→唯一来源，不落库）。**定义写死在注册表头注释：来源=法定触发事由，非操作路径**——问的是「法律上为什么要报」，不问「谁点的开单」；自动 / 手工只是开单方式，与来源正交（例：RI 换人自动开出的告知单与合规官手工开的，同属 `SELF_DISCLOSURE`）。机构维度同样正交、不进树（§2 表后一句）。
+
+**第二层 · 材料**。员工可见的选择面与展示面只出现材料，`INCIDENT_REPORT` / `PERIODIC_RETURN` 两个枚举退居**幕后工作流路由键**，不出现在任何员工可见的选择面。第二层有三种形态——
+
+| 来源 `origin` | 界面词 | 员工可见的第二层 | 形态 | 幕后路由键 |
+|---|---|---|---|---|
+| `INCIDENT` | Incident-driven | 依据码七个材料：`MAJOR_INCIDENT_72H` / `CLIENT_MONEY_DISCREPANCY` / `CLIENT_VA_DISCREPANCY` / `DATA_BREACH_REPORT` / `DATA_BREACH_RE_REPORT_24H` / `OUTSOURCING_FAILURE_NOTICE` / `PRUDENTIAL_BREACH_NOTICE`（材料名与法条见 `modules/v1-governance.md` §7） | **封闭码表** | `INCIDENT_REPORT` |
+| `PERIODIC_OBLIGATION` | Periodic obligation | 义务台账里的行（动态读 ACTIVE 义务，种子现 3 行，注册几个显示几个） | **配置开放** | `PERIODIC_RETURN` |
+| `REGULATOR_REQUEST` | Regulator request | 单项 `Information request response`（来函内容开放，不枚举） | 开放自由标题 | `INFO_REQUEST_RESPONSE` |
+| `SANCTIONS_HIT` | Sanctions hit | `CNMR` `PNMR` | 类型即材料 | — |
+| `AML_MONITORING` | AML monitoring | `STR` `SAR` `HRC` `HRCA` | 类型即材料 | — |
+| `SELF_DISCLOSURE` | Company disclosure | `MATERIAL_CHANGE_NOTIFICATION` `AUDITOR_APPOINTMENT_NOTICE` `MARKET_OFFENCE_DUAL_REPORT`（市场违规双报留此桶，不单列第七桶） | 类型即材料 | — |
+
+为什么 INCIDENT 下挂依据码而不是事故类型：**事故类型 ↔ 材料是多对多**——网安与大额卡单共用 72h 码、数据泄露一家出两份材料——只有依据码与材料一一对应。
+
+**类型层改名与界面词。** 唯一枚举改名：来函应答类型去掉冗余 `REG_` 前缀成 `INFO_REQUEST_RESPONSE`；其余十一值保留（行业缩写 `STR`/`SAR`/`CNMR`/`PNMR`/`HRC`/`HRCA` 是监管自己的叫法，改了没人对得上号，可读性靠界面词）。AML 六缩写的界面词统一为「缩写 — 全称」（如 `HRCA — High Risk Country Activity Report`）；`MARKET_OFFENCE_DUAL_REPORT` 枚举保留，界面词 `Market offence report (dual-filed)`。怀疑型（STR/SAR）/ 名单型（HRC/HRCA）亚类**不进 UI**，只进文档与界面词全称。存量行里的旧类型串 / 旧依据码靠重铺作废，不留别名、不做映射。
+
+**界面三处**（管理台报送台列表页，选择面与展示面都用材料层）：
+
+- **开单弹窗**：类型下拉按来源分六个 optgroup，组内选项=上表「员工可见的第二层」。Incident-driven 组直接列七个材料（选中=幕后 `INCIDENT_REPORT` + 该依据码预选，下拉下方缀副标签 `<statuteRef> — <钟文案>`）；表单照旧必填事故号，已填事故号且查到事故类型时材料列表按该类型候选集收窄（只是提示过滤，真门在后端——码不在候选集 400）。Periodic obligation 组动态列 ACTIVE 义务行（无 ACTIVE 义务时一行置灰占位 `No active obligations`），选中=幕后 `PERIODIC_RETURN`，**仅预填**标题（`<义务名> — make-up filing`）与受文机构，提交 payload 不带义务号——补报无锚无钟的语义不变，义务行回链仍只在自动开单那条路。其余四组列类型本身（界面词）。
+- **来源筛选**：列表页新增来源下拉，按注册表 `origin` 对已加载的行过滤（来源不落库、列表接口也不带来源参数）。
+- **Type 列容器型下钻**：事故通报行显示 `Incident report — <材料名> (<钟>)`，如 `Incident report — Major incident report (72h)`（钟短文案由依据码的 `hours`/`immediate`/`chainStart` 推导：`72h` / `24h from first notice` / `immediate` / `no stated deadline`）；周期申报行显示 `Periodic return — <标题>`（标题自带义务名与期别，如 `… — due 2026-10-31`）；其余类型显示界面词。
+
+**自动开单来路现共四条**（来源与开单方式正交，四条都不依赖员工先选来源）：事故定损 → `INCIDENT_REPORT`（一码一单）｜ 制裁定性 CONFIRMED / PARTIAL → `CNMR` / `PNMR`（§4.1）｜ 周期义务到期 → `PERIODIC_RETURN`（§2.1）｜ **RI 换人批准落地 → `MATERIAL_CHANGE_NOTIFICATION`（整备波新增）**。
+
+**RI 换人自动开「重大变更告知」单。** 现实中 RI（受托责任人）变更是 VARA 牌照事项、须告知监管，此前零联动。现：`RiReplacementWorkflowService.onDecided` 批准分支在 `applyReplacement` 落地之后，横向调 `RegulatoryFilingService.openForRiChange()`（铁律③：workflow 只调主体服务方法）开一张 `MATERIAL_CHANGE_NOTIFICATION`——`DRAFT` 态、`createdByUserId='SYSTEM'`（照义务开单先例）、无钟（该类型无钟配置，`deadlineAt=null`）、受文机构 VARA、标题 `Responsible Individual change — <席位>: <旧任> → <新任>`；`FILING_OPENED` 审计 `metadata` 带 `source: 'RI_REPLACEMENT'` / `riNo` / `approvalNo`。**不建外键、RI 行不回填 `filingNo`**（零 schema）——双向可查靠标题与审计 metadata。合规官接手后走 GENERAL 族六态全链原样（起草 → 送签 → 高管签发 → 标已提交 → 办结）。驳回 / 撤单 / 过期没有换人，不开单。**非原子（照实）**：开单失败时换人不回滚、不补偿，异常被 event-emitter 默认吞掉（仅日志），结果是「已换人、无告知单」，与制裁 CONFIRMED 出口同形，已记 `PRODUCTION-NOTES.md`（2026-10-08），演示范围内不修。外包商册的登记 / 终止是否同样联动开告知单，业主判留下次讨论，本波不做。
 
 ## 3. 权限与审批
 
@@ -139,6 +171,8 @@ DRAFT ──标已提交+externalRef(MLRO)──► SUBMITTED ──办结(MLRO)
 
 MLRO 开 STR（叙事上锚交易单号）或 SAR（叙事上锚客户，无交易可锚）——起草 → 标已提交（`externalRef`=goAML 回执号样式）→ 往来 → 办结，全程一人、`DRAFT→SUBMITTED` 一步到位（见 §1/§3）。**「决定不报」**（`closeNoFiling()`，`DRAFT→CLOSED` 边，仅 `allowNoFilingClose` 类型即 STR/SAR）：`noFilingReason` 必填，法定可辩护留痕落进该次审计 `FILING_CLOSED_NO_FILING` 的 `reason` 列；`close()`（原有的「办结」动作）维持只认 `SUBMITTED` 态，DRAFT 态调 `close()` 端点 400（动作级守卫——评审黄项：防「法定必报单被无理由 Close」误用错方法绕开理由必填闸）。
 
+**HRC / HRCA：交易型与活动型二分**（整备波订正，业主已采信官方一手口径）：两者都是 goAML 的高风险国家报文，按**报的对象**二分——`HRC`（High Risk Country Transaction Report）报**交易**，`HRCA`（High Risk Country Activity Report）报**活动**（非交易），与 STR（交易）/ SAR（活动）的二分平行；**HRCA 不是「交易属性不全时的替代报文」**（此前二手多源交叉的误读，已订正）。两者报后 3 工作日 FIU 不反对窗相同，窗口到期后的动作（交易 HOLD 放行）属交易 HOLD 边，本台账仍只记「报了没有」、不建钟（`BACKLOG.md` 留账）。证据：UAE FIU goAML Web Submission Guide v2.2 的 p2（术语表）、p3（目录）、p5（定义节）三处；注册表 HRCA 行 `establishedBy` 同步订正为官方定义。
+
 ### 4.3 tipping-off 登记本 ＋ EOCN 指令留痕
 
 往来记录新增两种受控 `kind`（均仅 AML 族，见 §1 表）：
@@ -158,12 +192,12 @@ MLRO 开 STR（叙事上锚交易单号）或 SAR（叙事上锚客户，无交�
 
 **双钟链现场走法**（两种都可用于演示）：
 
-1. **现场登记走一遍**：管理台事故列表页登记一个 `DATA_BREACH` 类型事故 → 调查 → 定损时勾 `PDPL_ART_9` + `TIR_II_C_24H` 两个依据码、需要通报 → 提交，联动开出两张报送单——`PDPL_ART_9` 那张无钟（deadline 为 null，前端显示「No deadline set」），`TIR_II_C_24H` 那张 `deadlineAt=null`（钟链未落定）→ 把 `PDPL_ART_9` 那张走完全链标已提交 → 回看 `TIR_II_C_24H` 那张，`deadlineAt` 已经落定为「刚才那次提交时刻 + 24h」，倒计时随之出现——这一步是钟链机制唯一直观可见的证据。
-2. **用种子样例直接讲解**（`data-breach-crm-export` 事故，`incidentNo=INC2601011480`）：省去现场操作时间，种子已经铺好两张单——`FIL...`（`PDPL_ART_9`）态 `SUBMITTED`，挂一条 `RECEIPT_ACK` 往来记录；`FIL...`（`TIR_II_C_24H`）链单态 `SIGNED_OFF` 待提交，`deadlineAt` = 前者 `submittedAt`+24h，铺场时还剩约 4 小时在跑——直接打开这两张单的详情页对照讲「同一泄露事件、两项独立的监管义务、两只独立的钟」。种子另铺一张**入站在途**样例：`REG_INFO_REQUEST_RESPONSE`（`authority=VARA`，`receivedAt` 近期）草拟中，48h 倒计时在跑，用于讲解 INBOUND 方向共用同一条生命周期。
+1. **现场登记走一遍**：管理台事故列表页登记一个 `DATA_BREACH` 类型事故 → 调查 → 定损时勾 `Personal data breach report`（`DATA_BREACH_REPORT`）+ `Data breach re-report`（`DATA_BREACH_RE_REPORT_24H`）两个材料、需要通报 → 提交，联动开出两张报送单——`DATA_BREACH_REPORT` 那张无钟（deadline 为 null，前端显示「No deadline set」），`DATA_BREACH_RE_REPORT_24H` 那张 `deadlineAt=null`（钟链未落定）→ 把 `DATA_BREACH_REPORT` 那张走完全链标已提交 → 回看 `DATA_BREACH_RE_REPORT_24H` 那张，`deadlineAt` 已经落定为「刚才那次提交时刻 + 24h」，倒计时随之出现——这一步是钟链机制唯一直观可见的证据。
+2. **用种子样例直接讲解**（`data-breach-crm-export` 事故，`incidentNo=INC2601011480`）：省去现场操作时间，种子已经铺好两张单——`FIL...`（`DATA_BREACH_REPORT`）态 `SUBMITTED`，挂一条 `RECEIPT_ACK` 往来记录；`FIL...`（`DATA_BREACH_RE_REPORT_24H`）链单态 `SIGNED_OFF` 待提交，`deadlineAt` = 前者 `submittedAt`+24h，铺场时还剩约 4 小时在跑——直接打开这两张单的详情页对照讲「同一泄露事件、两项独立的监管义务、两只独立的钟」。种子另铺一张**入站在途**样例：`INFO_REQUEST_RESPONSE`（`authority=VARA`，`receivedAt` 近期）草拟中，48h 倒计时在跑，用于讲解 INBOUND 方向共用同一条生命周期。
 
-三种类型（`MATERIAL_CHANGE_NOTIFICATION`/`AUDITOR_APPOINTMENT_NOTICE`/`MARKET_OFFENCE_DUAL_REPORT`）本波不建种子，演示时可现场手工开单讲解（合规官账号，报送台列表页「Open Filing」，类型下拉选中后按 `requiresIncident`/`defaultAuthority` 决定表单字段显隐）。
+三种类型（`MATERIAL_CHANGE_NOTIFICATION`/`AUDITOR_APPOINTMENT_NOTICE`/`MARKET_OFFENCE_DUAL_REPORT`）本波不建种子，演示时可现场手工开单讲解（合规官账号，报送台列表页「Open Filing」，类型下拉里在 `Company disclosure` 组下，选中后按 `requiresIncident`/`defaultAuthority` 决定表单字段显隐）；其中 `MATERIAL_CHANGE_NOTIFICATION` 另有一条自动来路——RI 换人批准落地后系统自动开单——在第八幕场景 22 现场可见（§2.2）。
 
-**`CYBER_BCDR` 单钟全链**（第八幕场景 25，2026-09-28 战役甲收官补齐）：与上面 `DATA_BREACH` 的"双钟链"对照——`CYBER_BCDR` 的 `reportBasisCandidates` 只有 `TIR_K_H` 一码、一只 72h 钟，定损勾选后只开一张报送单，全程走 GENERAL 族标准六态六边（含高管签发），演示时正好与 §4 AML 族"零签发"对照。
+**`CYBER_BCDR` 单钟全链**（第八幕场景 25，2026-09-28 战役甲收官补齐）：与上面 `DATA_BREACH` 的"双钟链"对照——`CYBER_BCDR` 的 `reportBasisCandidates` 只有 `MAJOR_INCIDENT_72H` 一码（材料名 `Major incident report`）、一只 72h 钟，定损勾选后只开一张报送单，全程走 GENERAL 族标准六态六边（含高管签发），演示时正好与 §4 AML 族"零签发"对照。
 
 **AML 报文族**（第八幕场景 19/20，战役甲波三交付、波五收官定稿，详见 `demo/script.md`）：
 
@@ -171,3 +205,11 @@ MLRO 开 STR（叙事上锚交易单号）或 SAR（叙事上锚客户，无交�
 - **场景 20 · A 线**（STR/SAR 与 tipping-off 登记本）：种子已铺 STR 已提交样例（锚 Frank HighRisk，`FIL2601017376`，挂一条 `CUSTOMER_COMM` + 一条 `RECEIPT_ACK`）；现场再开一张新 STR 走「起草→标已提交→往来」全链，一张「决定不报」独立小单，SAR 现场开一张讲透「锚客户不锚交易」。`mlro@` 全程一人对照第七幕事故通报那条链 `compliance_lead@`→`sm@` 的两人两步。
 
 种子三样例与关键客户（Leo Confirmed / Mona Partial）种子详情见 `demo/data.md`「报文族种子」节；⚠️ Task 9 前端截图走查因容器无 TigerBeetle 二进制（出站策略同时拒 `tigerbeetle.com`/`github`，无法离线补装）而暂缺，收尾闸⑥⑧、`demo:all`、场景 19/20 现场走查、`verify:rbac` 行为探针均需本地补跑（详见 `TOOLING-DEBT.md` 对应条目）。
+
+## 6. 关键技术节点
+
+- **来源列 `origin`**：`filing-type-registry.ts` 的 `FilingOrigin`（六值联合类型）+ `FilingTypeConfig.origin`（十二行各一个字面值，头注释写死「来源=法定触发事由，非操作路径」）；不落库、可从 type 唯一推导。前端镜像 `admin-web/src/utils/regulatoryFilingMap.ts`（`FILING_TYPE_MIRROR` 带 `origin`、`FILING_ORIGIN_LABEL` 界面词、`filingTypeDisplay` 列表 Type 列下钻）。
+- **依据码材料语义**：`incident.constants.ts` 的 `INCIDENT_REPORT_BASES`——键=材料语义名，`label`=材料名，`statuteRef`=法条副标签（常量字段、非 DB 列）；前端镜像 `incidentStatusMap.ts`（`reportBasisDisplay` = `<材料名> — <statuteRef>`）逐字同步。后端服务代码只读 `hours`/`authority`/`chainStart`，不读 `label`。
+- **RI 自动开单**：`ri-replacement-workflow.service.ts#onDecided`（批准分支，`applyReplacement` 之后）→ `RegulatoryFilingService.openForRiChange()`；无新表、无外键、无新审计码（复用 `FILING_OPENED`，metadata 带 `source`/`riNo`/`approvalNo`）。
+- **审计 metadata 对称**：`FILING_SUBMITTED` 的 `externalRef`、`FILING_ENTRY_LOGGED` 的 `kind`、`FILING_OVERDUE_MARKED` 的 `deadlineAt` 三键镜像进 `metadata`（`extra` 顶层校验形态保留，双落而非改字段结构——R5 判例修法）。
+- **整备波整体**：零 schema 迁移、零状态机新边、零新审批类型、零新权限；旧类型串 / 旧依据码存量行靠重铺作废，未留兼容映射。

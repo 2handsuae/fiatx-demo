@@ -112,4 +112,4 @@ RECEIVED ──acknowledge──▶ ACKNOWLEDGED ──startInvestigation──�
 
 ## 7. 演示缺口（BACKLOG 有账）
 
-无本波新登业务缺口——本波扫账结论见 `BACKLOG.md` 末尾 Last Updated 行；波二遗留的 `FILING_OVERDUE_MARKED` `metadata` 不对称行与本波无关，不在此重复。
+无本波新登业务缺口——本波扫账结论见 `BACKLOG.md` 末尾 Last Updated 行；波二遗留的 `FILING_OVERDUE_MARKED` `metadata` 不对称与本波无关（已于 2026-10-08 报送台整备波补齐）。

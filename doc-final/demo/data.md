@@ -64,7 +64,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 | 类型 | 状态 | 族 | 关键字段 |
 |---|---|---|---|
-| `DATA_BREACH` | ASSESSED | DATA | `subjectRefs`（受影响客户数 46 / 数据类别 `CONTACT,ID_DOCUMENT`）+ `impactSummary`；双通报依据码已勾（`PDPL_ART_9`+`TIR_II_C_24H`），战役甲波二 T10 起两张 filing 已归位（`seedRegulatoryFilings`，见下方「报送台种子」节）——`PDPL_ART_9` 单 `SUBMITTED`（无钟，已挂一条 `RECEIPT_ACK` 往来记录）、`TIR_II_C_24H` 链单 `SIGNED_OFF` 待提交（deadline=PDPL submittedAt+24h，还剩约 4 小时在跑）。Request Close 仍灰态——**按 `closeGateReason` 真实判断顺序**：先命中"该类型白名单非空（`CUSTOMER_NOTICE_LOGGED`）且未挂载善后单，须先进 Resolving"（`IncidentDetailPage.tsx:134-135`），报送单未全部提交的检查（:144-151）排在其后、这次仍未触发到——即便 TIR 那张已提交也一样，灰态 tooltip 显示的照样是前一条 |
+| `DATA_BREACH` | ASSESSED | DATA | `subjectRefs`（受影响客户数 46 / 数据类别 `CONTACT,ID_DOCUMENT`）+ `impactSummary`；双通报依据码已勾（`DATA_BREACH_REPORT`+`DATA_BREACH_RE_REPORT_24H`），战役甲波二 T10 起两张 filing 已归位（`seedRegulatoryFilings`，见下方「报送台种子」节）——`DATA_BREACH_REPORT` 单 `SUBMITTED`（无钟，已挂一条 `RECEIPT_ACK` 往来记录）、`DATA_BREACH_RE_REPORT_24H` 链单 `SIGNED_OFF` 待提交（deadline=PDPL submittedAt+24h，还剩约 4 小时在跑）。Request Close 仍灰态——**按 `closeGateReason` 真实判断顺序**：先命中"该类型白名单非空（`CUSTOMER_NOTICE_LOGGED`）且未挂载善后单，须先进 Resolving"（`IncidentDetailPage.tsx:134-135`），报送单未全部提交的检查（:144-151）排在其后、这次仍未触发到——即便 TIR 那张已提交也一样，灰态 tooltip 显示的照样是前一条 |
 | `OUTSOURCING_FAILURE` | INVESTIGATING | TECH_SECURITY | `subjectRefs`（vendor=`SUMSUB` + serviceImpact，登记时必填的两个锚）——还没定损 |
 | `ASSET_NONCOMPLIANCE` | RESOLVING | OPERATIONS | 顶层 `assetCode=USDT-TRON`（唯一必填锚，命中顶层锚分流规则、不进 `subjectRefs`）+ 已挂一条 `ASSET_SUSPENSION_REF` 善后单——结案前只差提结案这一步 |
 | `STUCK_TRANSACTION_MAJOR` | REGISTERED | OPERATIONS | 顶层 `customerNo`（Alice）+ `amount=15000.00` + `subjectRefs.orderNo`（动态锚）——刚登记，四态里最早的一态 |
@@ -76,9 +76,9 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 | 样例 | filingNo | type / basisCode | authority | 状态 | 关键字段 |
 |---|---|---|---|---|---|
-| 一 · 事故通报双钟链（挂 `data-breach-crm-export`，`incidentNo=INC2601011480`） | `FIL2601016500` | `INCIDENT_REPORT` / `PDPL_ART_9` | `UAE_DATA_OFFICE` | `SUBMITTED` | statute 无钟（`deadlineAt=null`）；`externalRef=DATAOFFICE-ACK-2026-0001`；`submittedAt`=铺场时刻−20h；挂一条 `RECEIPT_ACK` 往来记录 |
-| 一（续）· 同一事故的链单 | `FIL2601013167` | `INCIDENT_REPORT` / `TIR_II_C_24H` | `VARA` | `SIGNED_OFF` | `deadlineAt`=PDPL `submittedAt`+24h（≈铺场时刻+4h）——钟链起点是 PDPL 那次「通知发出」，不是登记/定损时刻，照真实 `markSubmitted` 落定兄弟单 deadline 的算法（`regulatory-filing.service.ts:300-314`）；签发已批、待标已提交，演示"还剩不到 4 小时"的紧迫感 |
-| 二 · 入站来函 | `FIL2601010266` | `REG_INFO_REQUEST_RESPONSE`（无 basisCode） | `VARA` | `DRAFT` | `direction=INBOUND`；`receivedAt`=铺场时刻−6h；`deadlineAt`=`receivedAt`+48h（≈铺场时刻+42h）；标题「VARA information request — Q3 liquidity reporting follow-up」 |
+| 一 · 事故通报双钟链（挂 `data-breach-crm-export`，`incidentNo=INC2601011480`） | `FIL2601016500` | `INCIDENT_REPORT` / `DATA_BREACH_REPORT` | `UAE_DATA_OFFICE` | `SUBMITTED` | statute 无钟（`deadlineAt=null`）；`externalRef=DATAOFFICE-ACK-2026-0001`；`submittedAt`=铺场时刻−20h；挂一条 `RECEIPT_ACK` 往来记录 |
+| 一（续）· 同一事故的链单 | `FIL2601013167` | `INCIDENT_REPORT` / `DATA_BREACH_RE_REPORT_24H` | `VARA` | `SIGNED_OFF` | `deadlineAt`=PDPL `submittedAt`+24h（≈铺场时刻+4h）——钟链起点是 PDPL 那次「通知发出」，不是登记/定损时刻，照真实 `markSubmitted` 落定兄弟单 deadline 的算法（`regulatory-filing.service.ts:300-314`）；签发已批、待标已提交，演示"还剩不到 4 小时"的紧迫感 |
+| 二 · 入站来函 | `FIL2601010266` | `INFO_REQUEST_RESPONSE`（无 basisCode） | `VARA` | `DRAFT` | `direction=INBOUND`；`receivedAt`=铺场时刻−6h；`deadlineAt`=`receivedAt`+48h（≈铺场时刻+42h）；标题「VARA information request — Q3 liquidity reporting follow-up」 |
 
 ⚠️ 三行 `deadlineAt`/`submittedAt`/`receivedAt` 都锚在**铺场时刻**（`seedRegulatoryFilings` 运行那一刻的 `Date.now()`），不是固定日期——每次 `stack.sh reset` 重铺，剩余时长会重新从 20h/4h/6h/42h 起算，但 `filingNo` 逐字不变（`buildDeterministicNo` 只吃 seedKey，不吃时间）。
 
