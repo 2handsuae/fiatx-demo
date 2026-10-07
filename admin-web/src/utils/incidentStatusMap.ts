@@ -95,19 +95,28 @@ export const REMEDIATION_KIND_LABEL: Record<string, string> = {
 
 /**
  * 依据条款目录（spec §5）——镜像后端 incident.constants.ts 的 INCIDENT_REPORT_BASES。
+ * 整备波（spec §2.3）：键=材料语义名；`label`=材料名（员工选择面与列表下钻的第二层，逐字照抄后端）；
+ * `statuteRef`=法条原文引述（副标签，显示形态 `<材料名> — <statuteRef>`）。
  * hours=null 且无 immediate → 条款未载明时限（不杜撰）；immediate=true → 即时义务（无小时
  * 钟）；chainStart='NOTICE' → 钟链起点是另一码触发的"通知发出"时刻，界面显式加注，不
  * 暗示本码自己起钟。
  */
-export const INCIDENT_REPORT_BASES: Record<string, { label: string; hours: number | null; immediate?: true; chainStart?: 'NOTICE' }> = {
-  TIR_K_H: { label: 'TIR Rulebook Section K + H — material incident (cyber/BCDR, major stuck-transaction) reporting to VARA within 72 hours', hours: 72 },
-  CRM_IV_E_5: { label: 'CRM IV.E.5 — Material Client Money discrepancy', hours: null },
-  CRM_V_D_2: { label: 'CRM V.D.2 — Material Client VA discrepancy', hours: null },
-  PDPL_ART_9: { label: 'PDPL (Federal Decree-Law 45/2021) Art.9 — personal data breach report to UAE Data Office (statute states no hour clock)', hours: null },
-  TIR_II_C_24H: { label: 'VARA TIR Part II Section C + CRM I.1.4 — re-report to VARA within 24 hours AFTER the breach notice is issued (clock starts at first notice, not detection)', hours: 24, chainStart: 'NOTICE' },
-  COMPANY_IV_H_1: { label: 'Company Rulebook IV.H.1 — material outsourcing failure, notify VARA immediately', hours: null, immediate: true },
-  COMPANY_VI_C_F: { label: 'Company Rulebook VI.C / VI.F — NLA prudential breach, notify VARA immediately; daily updates until VARA is satisfied (calendar duty → wave 4)', hours: null, immediate: true },
+export const INCIDENT_REPORT_BASES: Record<string, { label: string; statuteRef: string; hours: number | null; immediate?: true; chainStart?: 'NOTICE' }> = {
+  MAJOR_INCIDENT_72H: { label: 'Major incident report', statuteRef: 'TIR Rulebook Section K + H', hours: 72 },
+  CLIENT_MONEY_DISCREPANCY: { label: 'Client Money discrepancy report', statuteRef: 'CRM IV.E.5', hours: null },
+  CLIENT_VA_DISCREPANCY: { label: 'Client VA discrepancy report', statuteRef: 'CRM V.D.2', hours: null },
+  DATA_BREACH_REPORT: { label: 'Personal data breach report', statuteRef: 'PDPL (Federal Decree-Law 45/2021) Art.9', hours: null },
+  DATA_BREACH_RE_REPORT_24H: { label: 'Data breach re-report', statuteRef: 'VARA TIR Part II Section C + CRM I.1.4', hours: 24, chainStart: 'NOTICE' },
+  OUTSOURCING_FAILURE_NOTICE: { label: 'Outsourcing failure notice', statuteRef: 'Company Rulebook IV.H.1', hours: null, immediate: true },
+  PRUDENTIAL_BREACH_NOTICE: { label: 'Prudential (NLA) breach notice', statuteRef: 'Company Rulebook VI.C / VI.F', hours: null, immediate: true },
 };
+
+/** 依据码的显示形态 `<材料名> — <statuteRef>`（整备波 spec §2.3：材料名为主，法条降副标签；
+ * 事故页定损复选项 / 事故页 Filings 卡 Basis 列 / 报送单详情 Report Basis 共用）。未知码退回原码。 */
+export function reportBasisDisplay(code: string): string {
+  const b = INCIDENT_REPORT_BASES[code];
+  return b ? `${b.label} — ${b.statuteRef}` : code;
+}
 
 /** 零候选依据码类型（reportBasisCandidates 为空集）的定损页通报区静态说明——替换原来置灰的
  * "Regulatory report required" 勾选框；其余类型有候选码，不渲染该行（spec §4.5）。 */
@@ -271,32 +280,32 @@ export interface IncidentTypeMirror {
  * 是两件事。 */
 export const INCIDENT_TYPE_REGISTRY_MIRROR: Record<string, IncidentTypeMirror> = {
   UNAUTHORIZED_OUTFLOW: {
-    assessmentScheme: 'MONETARY', reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
+    assessmentScheme: 'MONETARY', reportBasisCandidates: ['CLIENT_MONEY_DISCREPANCY', 'CLIENT_VA_DISCREPANCY'],
     allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: ['SUPPLEMENT', 'CLAIM', 'ADJUSTMENT', 'TRANSFER'], requiredAnchors: [],
   },
   LARGE_UNEXPLAINED: {
-    assessmentScheme: 'MONETARY', reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
+    assessmentScheme: 'MONETARY', reportBasisCandidates: ['CLIENT_MONEY_DISCREPANCY', 'CLIENT_VA_DISCREPANCY'],
     allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: ['SUPPLEMENT', 'CLAIM', 'ADJUSTMENT', 'TRANSFER'], requiredAnchors: [],
   },
   CLIENT_SHORTFALL: {
-    assessmentScheme: 'MONETARY', reportBasisCandidates: ['CRM_IV_E_5', 'CRM_V_D_2'],
+    assessmentScheme: 'MONETARY', reportBasisCandidates: ['CLIENT_MONEY_DISCREPANCY', 'CLIENT_VA_DISCREPANCY'],
     allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: ['SUPPLEMENT', 'CLAIM', 'ADJUSTMENT', 'TRANSFER'], requiredAnchors: [],
   },
   CYBER_BCDR: {
-    assessmentScheme: 'IMPACT', reportBasisCandidates: ['TIR_K_H'],
+    assessmentScheme: 'IMPACT', reportBasisCandidates: ['MAJOR_INCIDENT_72H'],
     allowedAssessmentBases: ['SERVICE_IMPACT'],
     allowedRemediationKinds: [], requiredAnchors: ['affectedSystem', 'bcdrTriggered'],
   },
   DATA_BREACH: {
-    assessmentScheme: 'IMPACT', reportBasisCandidates: ['PDPL_ART_9', 'TIR_II_C_24H'],
+    assessmentScheme: 'IMPACT', reportBasisCandidates: ['DATA_BREACH_REPORT', 'DATA_BREACH_RE_REPORT_24H'],
     allowedAssessmentBases: ['DATA_IMPACT'],
     allowedRemediationKinds: ['CUSTOMER_NOTICE_LOGGED'], requiredAnchors: ['affectedCustomerCount', 'dataCategories'],
   },
   OUTSOURCING_FAILURE: {
-    assessmentScheme: 'IMPACT', reportBasisCandidates: ['COMPANY_IV_H_1'],
+    assessmentScheme: 'IMPACT', reportBasisCandidates: ['OUTSOURCING_FAILURE_NOTICE'],
     allowedAssessmentBases: ['SERVICE_IMPACT'],
     allowedRemediationKinds: [], requiredAnchors: ['vendor', 'serviceImpact'],
   },
@@ -306,12 +315,12 @@ export const INCIDENT_TYPE_REGISTRY_MIRROR: Record<string, IncidentTypeMirror> =
     allowedRemediationKinds: ['ASSET_SUSPENSION_REF'], requiredAnchors: ['assetCode'],
   },
   STUCK_TRANSACTION_MAJOR: {
-    assessmentScheme: 'MONETARY', reportBasisCandidates: ['TIR_K_H'],
+    assessmentScheme: 'MONETARY', reportBasisCandidates: ['MAJOR_INCIDENT_72H'],
     allowedAssessmentBases: ['RECOVERED', 'FIRM_LOSS', 'CLIENT_COLLECTION', 'NO_LOSS'],
     allowedRemediationKinds: [], requiredAnchors: ['orderNo', 'customerNo', 'amount'],
   },
   PRUDENTIAL_BREACH: {
-    assessmentScheme: 'SHORTFALL', reportBasisCandidates: ['COMPANY_VI_C_F'],
+    assessmentScheme: 'SHORTFALL', reportBasisCandidates: ['PRUDENTIAL_BREACH_NOTICE'],
     allowedAssessmentBases: ['SHORTFALL'],
     allowedRemediationKinds: [], requiredAnchors: ['metric', 'shortfallAmount'],
   },

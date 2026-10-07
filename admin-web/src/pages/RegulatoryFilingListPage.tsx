@@ -2,7 +2,7 @@
 // 战役甲波二 · 报送台骨架（Task 9）：报送单列表 + 手工开单入口。
 // 铁律⑥：列表投影零 UUID（后端 RegulatoryFilingService.list 已保证）。
 // 模板：IncidentListPage.tsx 的表格 + 弹层结构。
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
 import { adminButtonClass, adminIconButtonClass } from '../components/common/adminButtonStyles';
@@ -11,18 +11,22 @@ import { StatusPill } from '../components/ui/StatusPill';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
-import { INCIDENT_REPORT_BASES } from '../utils/incidentStatusMap';
+import { INCIDENT_REPORT_BASES, INCIDENT_TYPE_LABEL, INCIDENT_TYPE_REGISTRY_MIRROR } from '../utils/incidentStatusMap';
 import {
   AUTHORITY_LABEL,
+  FILING_ORIGIN_LABEL,
+  FILING_ORIGINS,
   FILING_STATUS_LABEL,
   FILING_STATUSES,
   FILING_TYPE_LABEL,
   FILING_TYPE_MIRROR,
   FILING_TYPES,
+  filingTypeDisplay,
   REGULATORY_AUTHORITIES,
   REPORT_DEADLINE_TONE_CLASS,
   reportBasisClockText,
   reportDeadlineDisplay,
+  type FilingOrigin,
 } from '../utils/regulatoryFilingMap';
 
 interface Item {
@@ -43,15 +47,38 @@ interface Item {
   createdAt: string;
 }
 
-/** 手工开单弹窗——受控枚举纪律（Ruling-14）：authority/basisCode/entry kind 全下拉受控，
- * 零自由文本机构（spec §9）。字段显隐按类型注册表四格（direction/requiresIncident）决定：
- * INCIDENT_REPORT 显 incidentNo + basisCode；INBOUND（REG_INFO_REQUEST_RESPONSE）显
- * receivedAt + authority；双头类（MARKET_OFFENCE_DUAL_REPORT）显 ccAuthorities 多选。 */
+// 后台路由键（幕后 type，只进提交 payload 与弹窗内部编码，**不渲染成任何员工可见文案**——
+// 员工可见的第二层是"材料"，见整备波 spec §2.1/§2.4）。
+const INCIDENT_ROUTE_TYPE = 'INCIDENT_REPORT';
+const PERIODIC_ROUTE_TYPE = 'PERIODIC_RETURN';
+
+// 弹窗下拉 value 的内部编码 `TYPE::code`（仅前端内部，提交 payload 仍是 type/basisCode/title/authority
+// 既有字段，后端零感知）：事故材料 = `<路由键>::<basisCode>`，义务行 = `<路由键>::<obligationNo>`，
+// 类型即材料的选项 = 裸 type。
+const SEL_SEP = '::';
+const encodeSel = (type: string, code?: string) => (code ? `${type}${SEL_SEP}${code}` : type);
+const decodeSel = (sel: string) => {
+  const i = sel.indexOf(SEL_SEP);
+  return i < 0 ? { type: sel, code: '' } : { type: sel.slice(0, i), code: sel.slice(i + SEL_SEP.length) };
+};
+
+interface ObligationOption { obligationNo: string; name: string; authority: string }
+interface SelectOption { value: string; label: string; disabled?: boolean }
+
+/** 手工开单弹窗——受控枚举纪律（Ruling-14）：authority/材料/entry kind 全下拉受控，
+ * 零自由文本机构（spec §9）。整备波 spec §2.4：Type 下拉按来源（origin）分六组 optgroup，
+ * 组内选项 = 员工可见的"材料层"——事故组列七个材料（选中 = 幕后事故通报类型 + 该材料码预选；
+ * 已填事故号时按该事故类型的候选集过滤）、周期义务组动态列 ACTIVE 义务行（选中仅预填标题/
+ * 受文机构，payload 不带义务号）、其余组列类型本身。字段显隐按类型注册表镜像决定：
+ * 事故通报显 incidentNo；无默认受文机构的非事故类型（来函回复、周期补报）显 authority；
+ * INBOUND（来函回复）另显 receivedAt；双头类（MARKET_OFFENCE_DUAL_REPORT）显 ccAuthorities 多选。 */
 const OpenFilingModal = ({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (filingNo: string) => void }) => {
-  const [type, setType] = useState<string>(FILING_TYPES[0]);
+  const [selection, setSelection] = useState<string>(() => encodeSel(INCIDENT_ROUTE_TYPE, Object.keys(INCIDENT_REPORT_BASES)[0]));
+  const [obligations, setObligations] = useState<ObligationOption[]>([]);
   const [title, setTitle] = useState('');
+  const autoTitle = useRef('');   // 上一次由义务行预填的标题——换选项时若用户没改过则一并清掉
   const [incidentNo, setIncidentNo] = useState('');
-  const [basisCode, setBasisCode] = useState<string>(Object.keys(INCIDENT_REPORT_BASES)[0]);
+  const [incidentLookup, setIncidentLookup] = useState<{ no: string; type: string } | null>(null);
   const [receivedAt, setReceivedAt] = useState('');
   const [authority, setAuthority] = useState<string>(REGULATORY_AUTHORITIES[0]);
   const [ccAuthorities, setCcAuthorities] = useState<string[]>([]);
@@ -61,26 +88,117 @@ const OpenFilingModal = ({ open, onClose, onCreated }: { open: boolean; onClose:
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
+  const { type, code } = decodeSel(selection);
+
+  // 事故组材料：已填事故号且查到事故类型 → 只列该类型候选集内的材料；查不到 / 候选集为空 → 列全七个
+  // （前端只是提示过滤，真门在后端 openManual：码不在该事故候选集即 400）。
+  const allMaterials = Object.keys(INCIDENT_REPORT_BASES);
+  const lookupCandidates = incidentLookup && incidentLookup.no === incidentNo.trim()
+    ? INCIDENT_TYPE_REGISTRY_MIRROR[incidentLookup.type]?.reportBasisCandidates ?? []
+    : [];
+  const incidentMaterials = lookupCandidates.length > 0 ? allMaterials.filter((c) => lookupCandidates.includes(c)) : allMaterials;
+  const materialsKey = incidentMaterials.join(',');
+
   useEffect(() => {
     if (!open) return;
-    setType(FILING_TYPES[0]);
+    setSelection(encodeSel(INCIDENT_ROUTE_TYPE, allMaterials[0]));
+    setObligations([]);
     setTitle('');
+    autoTitle.current = '';
     setIncidentNo('');
-    setBasisCode(Object.keys(INCIDENT_REPORT_BASES)[0]);
+    setIncidentLookup(null);
     setReceivedAt('');
     setAuthority(REGULATORY_AUTHORITIES[0]);
     setCcAuthorities([]);
     setExternalCaseRef('');
     setError('');
+    // 周期义务组：每次打开弹窗读一次 ACTIVE 义务行（无读权 / 失败 → 该组显示"无义务"占位，不报错）。
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/compliance-obligations`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled || !Array.isArray(data)) return;
+        setObligations(
+          (data as Array<ObligationOption & { status: string }>)
+            .filter((o) => o.status === 'ACTIVE')
+            .map((o) => ({ obligationNo: o.obligationNo, name: o.name, authority: o.authority })),
+        );
+      } catch {
+        // 会话失效已由 adminFetch 跳转登录；无读权（403）则义务组为空，其余五组照常可用。
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // 事故号查出类型后材料列表收窄；当前选中的事故材料若被筛掉，落到收窄后的第一个。
+  useEffect(() => {
+    if (type === INCIDENT_ROUTE_TYPE && !incidentMaterials.includes(code)) {
+      setSelection(encodeSel(INCIDENT_ROUTE_TYPE, incidentMaterials[0]));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [materialsKey]);
 
   if (!open) return null;
 
   const cfg = FILING_TYPE_MIRROR[type];
+  const basisCode = type === INCIDENT_ROUTE_TYPE ? code : '';
   const isDualHeaded = type === 'MARKET_OFFENCE_DUAL_REPORT';
+  // 非事故类型且注册表没有默认受文机构（来函回复、周期补报）→ 开单人必须选机构。
+  const needsAuthority = !cfg.requiresIncident && cfg.defaultAuthority === null;
 
-  const toggleCc = (code: string) => {
-    setCcAuthorities((prev) => (prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]));
+  // 六组 optgroup：组内选项 = spec §2.1 "员工可见第二层"。
+  const groups: Array<{ origin: FilingOrigin; options: SelectOption[] }> = FILING_ORIGINS.map((origin) => {
+    if (origin === 'INCIDENT') {
+      return { origin, options: incidentMaterials.map((c) => ({ value: encodeSel(INCIDENT_ROUTE_TYPE, c), label: INCIDENT_REPORT_BASES[c].label })) };
+    }
+    if (origin === 'PERIODIC_OBLIGATION') {
+      return {
+        origin,
+        options: obligations.length > 0
+          ? obligations.map((o) => ({ value: encodeSel(PERIODIC_ROUTE_TYPE, o.obligationNo), label: o.name }))
+          : [{ value: '', label: 'No active obligations', disabled: true }],
+      };
+    }
+    return { origin, options: FILING_TYPES.filter((t) => FILING_TYPE_MIRROR[t].origin === origin).map((t) => ({ value: t as string, label: FILING_TYPE_LABEL[t] })) };
+  });
+
+  const pick = (value: string) => {
+    setSelection(value);
+    const next = decodeSel(value);
+    if (next.type === PERIODIC_ROUTE_TYPE) {
+      const ob = obligations.find((o) => o.obligationNo === next.code);
+      if (ob) {
+        // 仅预填：标题 + 受文机构；补报无锚无钟语义不变，payload 不带义务号。
+        const prefill = `${ob.name} — make-up filing`;
+        autoTitle.current = prefill;
+        setTitle(prefill);
+        setAuthority(ob.authority);
+      }
+    } else if (autoTitle.current && title === autoTitle.current) {
+      autoTitle.current = '';
+      setTitle('');
+    }
+  };
+
+  const lookupIncident = async () => {
+    const no = incidentNo.trim();
+    if (!no) { setIncidentLookup(null); return; }
+    try {
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/incidents/${encodeURIComponent(no)}`);
+      if (!res.ok) { setIncidentLookup(null); return; }
+      const data = await res.json();
+      setIncidentLookup(typeof data?.type === 'string' ? { no, type: data.type } : null);
+    } catch (e) {
+      if (e instanceof AdminSessionError) return;
+      setIncidentLookup(null);   // 无读权 / 网络失败：不收窄，后端照旧是真门
+    }
+  };
+
+  const toggleCc = (auth: string) => {
+    setCcAuthorities((prev) => (prev.includes(auth) ? prev.filter((c) => c !== auth) : [...prev, auth]));
   };
 
   const close = () => { onClose(); };
@@ -97,9 +215,11 @@ const OpenFilingModal = ({ open, onClose, onCreated }: { open: boolean; onClose:
         body.incidentNo = incidentNo.trim();
         body.basisCode = basisCode;
       }
-      if (cfg.direction === 'INBOUND') {
+      if (needsAuthority) {
         body.authority = authority;
-        if (receivedAt) body.receivedAt = new Date(receivedAt).toISOString();
+      }
+      if (cfg.direction === 'INBOUND' && receivedAt) {
+        body.receivedAt = new Date(receivedAt).toISOString();
       }
       if (isDualHeaded && ccAuthorities.length > 0) {
         body.ccAuthorities = ccAuthorities;
@@ -126,10 +246,19 @@ const OpenFilingModal = ({ open, onClose, onCreated }: { open: boolean; onClose:
       <div className="w-[540px] max-h-[85vh] overflow-y-auto rounded-lg border border-adm-border bg-adm-panel p-5" onClick={(e) => e.stopPropagation()}>
         <h3 className="mb-3 text-sm font-semibold text-adm-t1">Open Filing</h3>
 
-        <label className="mb-3 block text-xs">Type
-          <select value={type} onChange={(e) => setType(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
-            {FILING_TYPES.map((t) => <option key={t} value={t}>{FILING_TYPE_LABEL[t]}</option>)}
+        <label className="mb-3 block text-xs">Filing Type
+          <select value={selection} onChange={(e) => pick(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
+            {groups.map((g) => (
+              <optgroup key={g.origin} label={FILING_ORIGIN_LABEL[g.origin]}>
+                {g.options.map((o) => <option key={o.value || o.label} value={o.value} disabled={o.disabled}>{o.label}</option>)}
+              </optgroup>
+            ))}
           </select>
+          {basisCode && INCIDENT_REPORT_BASES[basisCode] && (
+            <span className="mt-1 block font-mono text-[10px] text-adm-amber">
+              {INCIDENT_REPORT_BASES[basisCode].statuteRef} — {reportBasisClockText(basisCode)}
+            </span>
+          )}
         </label>
 
         <label className="mb-3 block text-xs">Title
@@ -137,31 +266,39 @@ const OpenFilingModal = ({ open, onClose, onCreated }: { open: boolean; onClose:
         </label>
 
         {cfg.requiresIncident && (
-          <>
-            <label className="mb-3 block text-xs">Incident No
-              <input value={incidentNo} onChange={(e) => setIncidentNo(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" placeholder="INC-…" />
-            </label>
-            <label className="mb-3 block text-xs">Report Basis
-              <select value={basisCode} onChange={(e) => setBasisCode(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
-                {Object.keys(INCIDENT_REPORT_BASES).map((code) => (
-                  <option key={code} value={code}>{INCIDENT_REPORT_BASES[code].label}</option>
-                ))}
-              </select>
-              <span className="mt-1 block font-mono text-[10px] text-adm-amber">{reportBasisClockText(basisCode)}</span>
-            </label>
-          </>
+          <label className="mb-3 block text-xs">Incident No
+            <input
+              value={incidentNo}
+              onChange={(e) => setIncidentNo(e.target.value)}
+              onBlur={() => void lookupIncident()}
+              className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono"
+              placeholder="INC-…"
+            />
+            {incidentLookup && incidentLookup.no === incidentNo.trim() && (
+              <span className="mt-1 block font-mono text-[10px] text-adm-t3">
+                {INCIDENT_TYPE_LABEL[incidentLookup.type] ?? incidentLookup.type}
+                {lookupCandidates.length > 0
+                  ? ` — ${lookupCandidates.length} reportable material(s) for this incident type`
+                  : ' — no reporting basis is defined for this incident type'}
+              </span>
+            )}
+          </label>
         )}
 
-        {cfg.direction === 'INBOUND' && (
+        {(needsAuthority || cfg.direction === 'INBOUND') && (
           <div className="mb-3 grid grid-cols-2 gap-2">
-            <label className="block text-xs">Authority
-              <select value={authority} onChange={(e) => setAuthority(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
-                {REGULATORY_AUTHORITIES.map((a) => <option key={a} value={a}>{AUTHORITY_LABEL[a]}</option>)}
-              </select>
-            </label>
-            <label className="block text-xs">Received At (optional)
-              <input type="datetime-local" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" />
-            </label>
+            {needsAuthority && (
+              <label className="block text-xs">Authority
+                <select value={authority} onChange={(e) => setAuthority(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs">
+                  {REGULATORY_AUTHORITIES.map((a) => <option key={a} value={a}>{AUTHORITY_LABEL[a]}</option>)}
+                </select>
+              </label>
+            )}
+            {cfg.direction === 'INBOUND' && (
+              <label className="block text-xs">Received At (optional)
+                <input type="datetime-local" value={receivedAt} onChange={(e) => setReceivedAt(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" />
+              </label>
+            )}
           </div>
         )}
 
@@ -204,6 +341,9 @@ const RegulatoryFilingListPage = () => {
   const [items, setItems] = useState<Item[]>([]);
   const [status, setStatus] = useState('');
   const [type, setType] = useState('');
+  // 整备波 spec §2.4：来源筛选。注册表 origin 不落库、列表接口也不带来源参数——按类型镜像的
+  // origin 在前端对已加载的行过滤，切换来源无需重新请求。
+  const [origin, setOrigin] = useState<'' | FilingOrigin>('');
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
 
@@ -234,12 +374,14 @@ const RegulatoryFilingListPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const visibleItems = origin ? items.filter((it) => FILING_TYPE_MIRROR[it.type]?.origin === origin) : items;
+
   return (
     <div className="flex h-full flex-col">
       <PageTitleBar
         title="Regulatory Filings"
         subtitle="The compliance desk's filing tracker — incident reports, regulator correspondence, and standing notifications, all on one clock"
-        meta={`${items.length} filing(s)`}
+        meta={`${visibleItems.length} filing(s)`}
       >
         {canWrite && (
           <button type="button" onClick={() => setShowNew(true)} className={adminButtonClass('listPrimary')}>
@@ -261,6 +403,14 @@ const RegulatoryFilingListPage = () => {
           {FILING_STATUSES.map((s) => <option key={s} value={s}>{FILING_STATUS_LABEL[s]}</option>)}
         </select>
         <select
+          value={origin}
+          onChange={(e) => setOrigin(e.target.value as '' | FilingOrigin)}
+          className="rounded border border-adm-border bg-adm-panel px-2 py-1"
+        >
+          <option value="">All sources</option>
+          {FILING_ORIGINS.map((o) => <option key={o} value={o}>{FILING_ORIGIN_LABEL[o]}</option>)}
+        </select>
+        <select
           value={type}
           onChange={(e) => { setType(e.target.value); void fetchItems(status, e.target.value); }}
           className="rounded border border-adm-border bg-adm-panel px-2 py-1"
@@ -280,7 +430,7 @@ const RegulatoryFilingListPage = () => {
             </tr>
           </thead>
           <tbody>
-            {items.map((it) => {
+            {visibleItems.map((it) => {
               const deadline = reportDeadlineDisplay(it.deadlineAt, it.submittedAt, it.overdueMarkedAt, it.basisCode);
               return (
                 <tr
@@ -289,7 +439,7 @@ const RegulatoryFilingListPage = () => {
                   className={`cursor-pointer border-b border-adm-border/60 hover:bg-adm-hover/40 ${it.overdueMarkedAt ? 'bg-adm-red/10' : ''}`}
                 >
                   <td className="px-4 py-2 font-mono text-adm-blue">{it.filingNo}</td>
-                  <td className="px-4 py-2">{FILING_TYPE_LABEL[it.type] ?? it.type}</td>
+                  <td className="px-4 py-2">{filingTypeDisplay(it.type, it.basisCode, it.title)}</td>
                   <td className="px-4 py-2">{it.direction === 'INBOUND' ? 'Inbound' : 'Outbound'}</td>
                   <td className="px-4 py-2">{AUTHORITY_LABEL[it.authority] ?? it.authority}</td>
                   <td className="px-4 py-2"><StatusPill value={it.status} /></td>
@@ -312,7 +462,7 @@ const RegulatoryFilingListPage = () => {
                 </tr>
               );
             })}
-            {!loading && items.length === 0 && (
+            {!loading && visibleItems.length === 0 && (
               <tr>
                 <td colSpan={7} className="px-4 py-8 text-center text-adm-t3">
                   No regulatory filings yet — filings open automatically when an incident assessment requires reporting, or click "Open Filing" to open one manually

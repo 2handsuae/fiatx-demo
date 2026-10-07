@@ -20,11 +20,11 @@ import {
   ESCALATION_TARGET_LABEL,
   formatSubjectRefValue,
   INCIDENT_OPERATOR_CAP_CODE,
-  INCIDENT_REPORT_BASES,
   INCIDENT_STATUS_LABEL,
   INCIDENT_TYPE_LABEL,
   INCIDENT_TYPE_REGISTRY_MIRROR,
   NO_REPORTING_NOTE,
+  reportBasisDisplay,
   REMEDIATION_KIND_LABEL,
 } from '../utils/incidentStatusMap';
 // 战役甲波二（Task 9）：通报区块改脸为「Regulatory filings」表——deadline/tone helper 与
@@ -551,19 +551,16 @@ const IncidentDetailPage = () => {
                 {reportRequired && reportBasisOptions.length > 0 && (
                   <div className="space-y-1">
                     <p className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Report Basis (multi-select)</p>
-                    {reportBasisOptions.map((code) => {
-                      const b = INCIDENT_REPORT_BASES[code];
-                      return (
-                        <label key={code} className="flex items-start gap-1.5 text-[11px]">
-                          <input type="checkbox" checked={reportBasisCodes.includes(code)} onChange={() => toggleBasisCode(code)} className="mt-0.5" />
-                          <span>
-                            <span className="font-mono">{code}</span> — {b?.label ?? ''}
-                            {' — '}
-                            <span className="font-mono text-[10px] text-adm-amber">{reportBasisClockText(code)}</span>
-                          </span>
-                        </label>
-                      );
-                    })}
+                    {reportBasisOptions.map((code) => (
+                      <label key={code} className="flex items-start gap-1.5 text-[11px]">
+                        <input type="checkbox" checked={reportBasisCodes.includes(code)} onChange={() => toggleBasisCode(code)} className="mt-0.5" />
+                        <span>
+                          {reportBasisDisplay(code)}
+                          {' — '}
+                          <span className="font-mono text-[10px] text-adm-amber">{reportBasisClockText(code)}</span>
+                        </span>
+                      </label>
+                    ))}
                   </div>
                 )}
                 <button
@@ -693,7 +690,7 @@ const IncidentDetailPage = () => {
                           <td className="px-2 py-1 font-mono text-adm-blue">{f.filingNo}</td>
                           <td className="px-2 py-1">
                             {f.basisCode ? (
-                              <><span className="font-mono">{f.basisCode}</span> — {INCIDENT_REPORT_BASES[f.basisCode]?.label ?? ''}</>
+                              reportBasisDisplay(f.basisCode)
                             ) : '—'}
                           </td>
                           <td className="px-2 py-1">{AUTHORITY_LABEL[f.authority] ?? f.authority}</td>

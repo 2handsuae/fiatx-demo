@@ -62,8 +62,30 @@ export const AUTHORITY_LABEL: Record<string, string> = {
   CBUAE: 'Central Bank of the UAE',
 };
 
+/** 触发来源六桶（filing-type-registry.ts FilingOrigin 镜像，整备波 spec §2.1；顺序=弹窗 optgroup /
+ * 来源筛选的显示顺序）。来源=法定触发事由，非操作路径（自动/手工是开单方式，与来源正交）。 */
+export type FilingOrigin =
+  | 'INCIDENT' | 'PERIODIC_OBLIGATION' | 'REGULATOR_REQUEST'
+  | 'SANCTIONS_HIT' | 'AML_MONITORING' | 'SELF_DISCLOSURE';
+
+export const FILING_ORIGINS: readonly FilingOrigin[] = [
+  'INCIDENT', 'PERIODIC_OBLIGATION', 'REGULATOR_REQUEST', 'SANCTIONS_HIT', 'AML_MONITORING', 'SELF_DISCLOSURE',
+];
+
+/** 来源界面词（后端 filing-type-registry.ts 头注释的六个界面词）。 */
+export const FILING_ORIGIN_LABEL: Record<FilingOrigin, string> = {
+  INCIDENT: 'Incident-driven',
+  PERIODIC_OBLIGATION: 'Periodic obligation',
+  REGULATOR_REQUEST: 'Regulator request',
+  SANCTIONS_HIT: 'Sanctions hit',
+  AML_MONITORING: 'AML monitoring',
+  SELF_DISCLOSURE: 'Company disclosure',
+};
+
 export interface FilingTypeMirrorRow {
   label: string;
+  /** 整备波：触发来源（唯一，由 type 推导，不落库）——弹窗分组与列表来源筛选的依据。 */
+  origin: FilingOrigin;
   direction: 'OUTBOUND' | 'INBOUND';
   requiresIncident: boolean;
   defaultAuthority: string | null;
@@ -79,23 +101,28 @@ export interface FilingTypeMirrorRow {
 }
 
 /** 类型目录镜像（filing-type-registry.ts 的 FILING_TYPE_REGISTRY，仅取前端渲染需要的
- * 七格：label / direction / requiresIncident / defaultAuthority / family /
+ * 八格：label / origin / direction / requiresIncident / defaultAuthority / family /
  * allowNoFilingClose / requiresExternalCaseRef——开单弹窗与详情页按这几格决定显隐哪些
- * 字段/动作，见 spec §9 行为合同、波三 spec §3）。 */
+ * 字段/动作，见 spec §9 行为合同、波三 spec §3）。label 与后端逐字一致（整备波 Task 1 定稿：
+ * AML 六型「缩写 — 全称」、HRCA 官方全称、INFO_REQUEST_RESPONSE 改名）。 */
 export const FILING_TYPE_MIRROR: Record<string, FilingTypeMirrorRow> = {
-  INCIDENT_REPORT: { label: 'Incident report to regulator', direction: 'OUTBOUND', requiresIncident: true, defaultAuthority: null, family: 'GENERAL' },
-  REG_INFO_REQUEST_RESPONSE: { label: 'Regulator information request — response', direction: 'INBOUND', requiresIncident: false, defaultAuthority: null, family: 'GENERAL' },
-  MATERIAL_CHANGE_NOTIFICATION: { label: 'Material change notification', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'VARA', family: 'GENERAL' },
-  AUDITOR_APPOINTMENT_NOTICE: { label: 'External auditor appointment notice', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'VARA', family: 'GENERAL' },
-  MARKET_OFFENCE_DUAL_REPORT: { label: 'Market offence dual-headed report', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'VARA', family: 'GENERAL' },
+  INCIDENT_REPORT: { label: 'Incident report to regulator', origin: 'INCIDENT', direction: 'OUTBOUND', requiresIncident: true, defaultAuthority: null, family: 'GENERAL' },
+  INFO_REQUEST_RESPONSE: { label: 'Information request response', origin: 'REGULATOR_REQUEST', direction: 'INBOUND', requiresIncident: false, defaultAuthority: null, family: 'GENERAL' },
+  MATERIAL_CHANGE_NOTIFICATION: { label: 'Material change notification', origin: 'SELF_DISCLOSURE', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'VARA', family: 'GENERAL' },
+  AUDITOR_APPOINTMENT_NOTICE: { label: 'External auditor appointment notice', origin: 'SELF_DISCLOSURE', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'VARA', family: 'GENERAL' },
+  MARKET_OFFENCE_DUAL_REPORT: { label: 'Market offence report (dual-filed)', origin: 'SELF_DISCLOSURE', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'VARA', family: 'GENERAL' },
 
   // --- 波三 AML 族六行（spec §1③⑤⑥、§3 点 1；照 filing-type-registry.ts 逐字镜像 label）。
-  STR: { label: 'Suspicious Transaction Report (STR)', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'UAE_FIU', family: 'AML', allowNoFilingClose: true, requiresExternalCaseRef: true },
-  SAR: { label: 'Suspicious Activity Report (SAR)', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'UAE_FIU', family: 'AML', allowNoFilingClose: true, requiresExternalCaseRef: true },
-  CNMR: { label: 'Confirmed Name Match Report (CNMR)', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'EOCN', family: 'AML', requiresExternalCaseRef: true },
-  PNMR: { label: 'Partial Name Match Report (PNMR)', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'EOCN', family: 'AML', requiresExternalCaseRef: true },
-  HRC: { label: 'High-Risk Country/Transaction Report (HRC)', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'UAE_FIU', family: 'AML' },
-  HRCA: { label: 'High-Risk Country/Transaction Report — Alternative (HRCA)', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'UAE_FIU', family: 'AML' },
+  STR: { label: 'STR — Suspicious Transaction Report', origin: 'AML_MONITORING', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'UAE_FIU', family: 'AML', allowNoFilingClose: true, requiresExternalCaseRef: true },
+  SAR: { label: 'SAR — Suspicious Activity Report', origin: 'AML_MONITORING', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'UAE_FIU', family: 'AML', allowNoFilingClose: true, requiresExternalCaseRef: true },
+  CNMR: { label: 'CNMR — Confirmed Name Match Report', origin: 'SANCTIONS_HIT', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'EOCN', family: 'AML', requiresExternalCaseRef: true },
+  PNMR: { label: 'PNMR — Partial Name Match Report', origin: 'SANCTIONS_HIT', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'EOCN', family: 'AML', requiresExternalCaseRef: true },
+  HRC: { label: 'HRC — High Risk Country Transaction Report', origin: 'AML_MONITORING', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'UAE_FIU', family: 'AML' },
+  HRCA: { label: 'HRCA — High Risk Country Activity Report', origin: 'AML_MONITORING', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: 'UAE_FIU', family: 'AML' },
+
+  // --- 波四周期义务报送：系统到期自动开单（title=`<义务名> — due <日期>`）；手工补报走弹窗
+  // PERIODIC_OBLIGATION 组（选义务行预填标题/机构，不带 obligationNo）。无默认机构，开单必选。
+  PERIODIC_RETURN: { label: 'Periodic regulatory return', origin: 'PERIODIC_OBLIGATION', direction: 'OUTBOUND', requiresIncident: false, defaultAuthority: null, family: 'GENERAL' },
 };
 
 export const FILING_TYPES = Object.keys(FILING_TYPE_MIRROR) as Array<keyof typeof FILING_TYPE_MIRROR>;
@@ -114,6 +141,27 @@ export function reportBasisClockText(code: string): string {
   if (b.hours == null) return 'No statutory deadline stated';
   const base = `Report within ${b.hours}h`;
   return b.chainStart === 'NOTICE' ? `${base} (clock starts at first notice)` : base;
+}
+
+/** 依据码钟短文案（列表下钻括号里用，由 hours/immediate/chainStart 推导，口径同 reportBasisClockText）：
+ * `72h` / `24h from first notice` / `immediate` / `no stated deadline`。 */
+export function reportBasisClockBrief(code: string): string {
+  const b = INCIDENT_REPORT_BASES[code];
+  if (!b) return '';
+  if (b.immediate) return 'immediate';
+  if (b.hours == null) return 'no stated deadline';
+  return b.chainStart === 'NOTICE' ? `${b.hours}h from first notice` : `${b.hours}h`;
+}
+
+/** 报送台列表 Type 列的容器型下钻（整备波 spec §2.4）：事故通报行 `Incident report — <材料名> (<钟>)`
+ * （读 basisCode 的新名）；周期申报行 `Periodic return — <标题期别>`（标题自带义务名与期别，如
+ * `… — due 2026-10-31`）；其余类型显示界面词。 */
+export function filingTypeDisplay(type: string, basisCode: string | null, title: string): string {
+  if (type === 'INCIDENT_REPORT' && basisCode && INCIDENT_REPORT_BASES[basisCode]) {
+    return `Incident report — ${INCIDENT_REPORT_BASES[basisCode].label} (${reportBasisClockBrief(basisCode)})`;
+  }
+  if (type === 'PERIODIC_RETURN') return `Periodic return — ${title}`;
+  return FILING_TYPE_LABEL[type] ?? type;
 }
 
 export type ReportDeadlineTone = 'none' | 'normal' | 'breached' | 'done';

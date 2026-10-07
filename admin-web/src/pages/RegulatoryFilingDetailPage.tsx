@@ -12,7 +12,7 @@ import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
-import { INCIDENT_REPORT_BASES } from '../utils/incidentStatusMap';
+import { reportBasisDisplay } from '../utils/incidentStatusMap';
 import {
   AML_FILING_ENTRY_KINDS,
   AUTHORITY_LABEL,
@@ -269,7 +269,7 @@ const RegulatoryFilingDetailPage = () => {
               <InfoField label="CC Authorities" value={detail.ccAuthorities.map((a) => AUTHORITY_LABEL[a] ?? a).join(', ')} />
             )}
             {detail.basisCode && (
-              <InfoField label="Report Basis" value={INCIDENT_REPORT_BASES[detail.basisCode]?.label ?? detail.basisCode} />
+              <InfoField label="Report Basis" value={reportBasisDisplay(detail.basisCode)} />
             )}
             <InfoField
               label="Incident"
