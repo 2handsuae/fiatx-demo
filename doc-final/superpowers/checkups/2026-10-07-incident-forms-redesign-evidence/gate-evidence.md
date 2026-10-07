@@ -99,7 +99,7 @@ PREFILL type=LARGE_UNEXPLAINED: {"selectPresent":false}
 ## 5. 造态披露（读截图前必看）
 
 - 事件均经 API 登记推进，标题 `[EVIDENCE] …` 前缀；种子五行（INC2601014584/16037/14294/12762/11480）原样使用。
-- **两处直写 DB（仅为让详情页渲染对账族字段，非行为证据）**：本 worktree 无对账场景数据（`reconciliation_cases/dispositions/internal_transfers` 均 0 行），对账族登记锚有真校验、API 登记不了——① `INSERT` 一行 `INC261007999901`（UNAUTHORIZED_OUTFLOW，sourceCaseNo=RC-EVID-0001、sourceDispositionNo=DSP-EVID-0001，标题 `[EVIDENCE-FIXTURE]`）→ 截图 16；② 对 `INC261007637872` 执行 `UPDATE … SET sourceAdvanceTransferNo='TRF2610070001'` → 截图 16b。两处 SQL 绕过了服务层，**只证明详情页展示，不证明登记/审计行为**。案件页三入口的端到端登记（含隐藏值落库）本 worktree 未复现，留甲段正式验收场景 31（plan Ruling 已记）。
+- **两处直写 DB（仅为让详情页渲染对账族字段，非行为证据）**：本 worktree 无对账场景数据（`reconciliation_cases/dispositions/internal_transfers` 均 0 行），对账族登记锚有真校验、API 登记不了——① `INSERT` 一行 `INC261007999901`（UNAUTHORIZED_OUTFLOW，sourceCaseNo=RC-EVID-0001、sourceDispositionNo=DSP-EVID-0001，标题 `[EVIDENCE-FIXTURE]`）→ 截图 16；② 对 `INC261007637872` 执行 `UPDATE … SET sourceAdvanceTransferNo='TRF2610070001'` → 截图 16b。两处 SQL 绕过了服务层，**只证明详情页展示，不证明登记/审计行为**。案件页三入口的端到端登记（含隐藏值落库）本 worktree 未复现，留甲段正式验收场景 31——理由：案件页入口的端到端登记需要真实对账锚（对账案件/定性行），本 worktree 无 recon 场景数据，造不出。
 
 ## 6. 截图索引（均 Chrome 无头渲染，`scripts/demo-shot.js`，admin 暗色默认主题，1440 宽；sha256 互不相同）
 
@@ -143,4 +143,4 @@ PREFILL type=LARGE_UNEXPLAINED: {"selectPresent":false}
 - 场景 25 ①–③ 在本栈用 demo-shot 逐步实走（tech_admin@ → 登记 INC261007881068 → Start Investigation + 笔记 → 定损勾 TIR_K_H），除下条外措辞成立：Impact summary 必填 ✓、唯一候选码 ✓、横幅 `Regulatory filing opened: FIL…` ✓、Filings 卡 VARA / Draft / 约 2d 23h ✓。
 - 已订正（本 commit）：场景 24 ⑥ 两句（结论固定文本、旧 `no statutory reporting basis to select` 提示 → 静态说明行）；场景 25 ③ 的 Report Basis 选项原文加 `TIR_K_H — ` 前缀。
 - 边缘表述未改，留控制者定夺：场景 25 ① 括号「选中后表单动态长出 Type-specific 区」——两段化后 Type-specific 区**常驻**、只是字段随类型换，建议改「选中后 Type-specific 区换成网安专属字段」。
-- **范围外发现（只记录，按任务书"其余剧本不要改"未动）**：新定损真门使以下旧剧本步骤会 400 —— 场景 31 ⑤（未授权转出定损：只写了 Assessed amount / basis，缺必填 Assessment note）；场景 32 ④（审慎穿底定损：缺必填 Assessment note，且审慎登记无币种→还缺必填 Asset code；依据码选项现带 `COMPANY_VI_C_F — ` 前缀；金额已由 `shortfallAmount` 预填）；`script.md` 第 18 行表格行（认损定损同缺 note）。场景 31 ④「客户号…全部预填」措辞偏旧（弹窗已不渲染客户号，隐藏值仍随提交）。
+- **范围外发现，已订正**：新定损真门使旧剧本步骤会 400——场景 31 ⑤（缺必填 Assessment note）、场景 32 ④（缺 Assessment note，且审慎登记无币种→还缺必填 Asset code；依据码选项现带 `COMPANY_VI_C_F — ` 前缀）、`script.md` 第 18 行表格行（认损定损同缺 note）三处已于 `9a1164e7` 订正；其后评审又逮到场景 32 ⑨ 审批 Impact 摘要引文（32 ④ 补币种后结案摘要带 ` AED`，拼接见 `incident-close-workflow.service.ts` `describeCloseImpact`）与场景 31 ④「客户号…全部预填」措辞偏旧（弹窗已不渲染客户号，隐藏值仍随提交），两处于修复轮 2 订正。场景 18 行「依据勾 TIR Rulebook K+H」对未授权转出本就不合法，属存量失真，已登 BACKLOG（不在本分支修）。

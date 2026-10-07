@@ -571,7 +571,7 @@ bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash script
 
 ③ 差异行点「Register incident」→ 弹层「Register incident · What caused this difference?」，唯一成因选项「Unauthorized outflow」（Clue: We hold no order for it, and the customer did not initiate it，单选已默认命中）→ 填 Finding note（查证说明：核对内部单据/提现/兑换记录，均无匹配，确系未授权转出）→「Continue」→ 定性落库（`sourceDispositionNo` 自动生成），差异行成因回填「Unauthorized outflow」。
 
-④ 提交后自动跳转事故登记表单 `/admin/governance/incidents?type=UNAUTHORIZED_OUTFLOW&…`——类型/标题/说明/来源案号/**定性行号**/客户号/资产/金额（250000.00）全部预填、`sourceDispositionNo` 已带上 → 同一账号点「Register」→ 事故 `INC260930949208` 落库，状态 `Registered`，右栏提示「Freeze via Customer page (not automatic — freezing goes through the separate customer restriction gate)」（登记不等于自动冻户）；差异行下方随即出现「Incident · INC260930949208」徽标。
+④ 提交后自动跳转事故登记表单 `/admin/governance/incidents?type=UNAUTHORIZED_OUTFLOW&…`——类型锁定为只读的 Unauthorized outflow，标题/说明/来源案号/**定性行号**/资产/金额（250000.00）预填（客户号随入口隐式带入、弹窗不显示，提交时照常落库）、`sourceDispositionNo` 已带上 → 同一账号点「Register」→ 事故 `INC260930949208` 落库，状态 `Registered`，右栏提示「Freeze via Customer page (not automatic — freezing goes through the separate customer restriction gate)」（登记不等于自动冻户）；差异行下方随即出现「Incident · INC260930949208」徽标。
 
 ⑤ 事故详情页「Start Investigation」→ 状态转 `Investigating` → 「Add Investigation Note」填查证记录（钱包地址史/充值-提现-兑换日志核对无匹配单据，提现地址簿也查不到该目的地，未触发任何限额或 KYT 拦截，结论：外部幽灵转出）→「Add Note」→ 下滑到「Assessment」区：Assessed amount 填 `250000.00`（币种 AED 随登记带入、只读）、Assessment basis 选 **Loss recognized**（=`FIRM_LOSS`，公司认损）、Assessment note 必填——写明依据（如「外部托管方转出经核实，公司自担损失」）、勾选「Regulatory report required」→ 报送依据自动展开两个候选，勾 **CRM IV.E.5 — Material Client Money discrepancy**（唯一勾选，`CRM V.D.2` 不勾）→「Submit Assessment」→ 状态转 `Assessed`，页面顶部横幅「Regulatory filing opened: `FIL260930017382`」——提交定损联动自动开出的 `INCIDENT_REPORT` 报送单，本场景不展开、留到场景 32 起草送签。
 
@@ -624,7 +624,7 @@ bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash script
 
 ⑧ 切 Company Funds 看板：红横幅消失，「Net Liquid Assets (regulatory)」区转绿，NLA **AED 1,414,752.25**（1,114,752.25 + 300,000.00）、Floor AED 1,200,000.00、Headroom **AED 214,752.25**；运营户 AED 水位 996,089.35（696,089.35 + 300,000.00），回到见底线 900,000 上方转绿——再点「Run prudential check」→ 结果卡转绿：「NLA_OK — NLA AED 1,414,752.25, Floor AED 1,200,000.00, Headroom AED 214,752.25. Logged to audit trail.」，与①的红卡成对照，`PRUDENTIAL_CHECK_PERFORMED`（`reasonCode=NLA_OK`）第二条审计落痕。
 
-⑨ 切 `cfo@` 回 `INC260930508979` 详情页「Request Close」→ 结案审批 `APR260930835666` 开（`INCIDENT_CLOSE_PRUDENTIAL`，单步）→ 切 `sm@` 审批中心 Approve（Impact 摘要「Closing incident INC260930508979 (Prudential (NLA) breach): Assessment: shortfall assessed 85247.75, no remediation, reported to VARA」）→ 事故转 **`Closed`**——高管单步结案，前置门二证齐全：定损✓（SHORTFALL 85,247.75）+ 名下报送单已提交✓（`FIL260930300016` Submitted）。
+⑨ 切 `cfo@` 回 `INC260930508979` 详情页「Request Close」→ 结案审批 `APR260930835666` 开（`INCIDENT_CLOSE_PRUDENTIAL`，单步）→ 切 `sm@` 审批中心 Approve（Impact 摘要「Closing incident INC260930508979 (Prudential (NLA) breach): Assessment: shortfall assessed 85247.75 AED, no remediation, reported to VARA」）→ 事故转 **`Closed`**——高管单步结案，前置门二证齐全：定损✓（SHORTFALL 85,247.75）+ 名下报送单已提交✓（`FIL260930300016` Submitted）。
 
 ⑩ 场景 31 事故收尾：金库回 `INC260930949208` 详情页 Remediation 区 Type 选 **Transfer**、Reference No 填补款划转单号 `ITR260930393123` →「Link」→ 挂载成功（认损 `ADJUSTMENT`／补款 `TRANSFER` 两条引用齐全，均在 Remediation 表）→「Request Close」→ 结案审批 `APR260930277119` 开（`INCIDENT_CLOSE_SECURITY`，两步）→ 切 `mlro@` Approve（Step 1）→ 切 `cfo@` Approve（Step 2，终批）→ 事故转 **`Closed`**。
 
