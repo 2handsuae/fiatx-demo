@@ -682,6 +682,7 @@ describe('RegulatoryFilingService (Task 3)', () => {
       expect(call.action).toBe('FILING_OPENED');
       expect(call.primarySubjectNo).toBe(filingNo);
       expect(call.metadata).toMatchObject({ source: 'RI_REPLACEMENT', riNo: change.riNo, approvalNo: change.approvalNo });
+      expect(call.approvalNo).toBe(change.approvalNo); // 终审：审计行 approvalNo 专列（按审批号检索 / Authorization 区），metadata 里那份保留
       expect(call.type).toBe('MATERIAL_CHANGE_NOTIFICATION'); // extra.type——assertActionSpec 必填顶层字段
     });
   });
@@ -930,6 +931,8 @@ describe('RegulatoryFilingService (Task 3)', () => {
       expect(events.map((e) => e.action)).toEqual(['FILING_OPENED']);
       expect((events[0] as any).sourcePlatform).toBe('SYSTEM');
       expect(JSON.parse(events[0].metadata as string)).toMatchObject({ source: 'RI_REPLACEMENT', riNo: 'RI_REAL_1', approvalNo: 'APR_RI_REAL_1' });
+      // 终审：approvalNo 专列真的落进审计行（不只 metadata JSON 里有）——审计页 Authorization 区 / 按审批号检索靠这一列。
+      expect((events[0] as any).approvalNo).toBe('APR_RI_REAL_1');
       const row = await realService.findByNo(filingNo);
       expect(row.title).toBe('Responsible Individual change — MLRO: Real A → Real B');
     });

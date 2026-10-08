@@ -604,6 +604,7 @@ export class RegulatoryFilingService {
     });
 
     await this.recordAudit(row, AuditActions.FILING_OPENED, null, {
+      approvalNo: change.approvalNo,   // 审计行专列：按审批号检索 / 审计页 Authorization 区看得到（metadata 里那份保留）
       metadata: {
         source: 'RI_REPLACEMENT', riNo: change.riNo, approvalNo: change.approvalNo,
         authority: row.authority, deadlineAt: deadlineAt ? deadlineAt.toISOString() : null,
