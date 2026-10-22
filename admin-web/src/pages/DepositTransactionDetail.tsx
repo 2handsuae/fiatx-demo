@@ -1000,6 +1000,32 @@ const DepositTransactionDetail = () => {
             </SidebarGroup>
           )}
 
+          {/* Attribution Simulation — demo backdoor：站在 Sumsub 一侧（Travel Rule 引擎）
+              告诉我方「这笔入金的对手方是谁」。仅 COMPLIANCE_PENDING 的 crypto 单可喂
+              （后端同款守卫：非该态 409、法币 400）；喂完刷新详情，Unhosted 超线会就此
+              挂起等客户认领。属操作段，排在信息段（SLA → Identity → Lifecycle）之前
+              （module-parity.spec 规则③）。 */}
+          {showAttributionSimulation && (
+            <SidebarGroup title="Attribution Simulation ⚡">
+              <p className="font-mono text-[10px] text-adm-t3">
+                Demo backdoor — feeds who the sender is, as if returned by Sumsub&apos;s Travel Rule engine.
+              </p>
+              {attributionError && <p className="text-[11px] text-adm-red">{attributionError}</p>}
+              <div className="flex flex-col gap-2">
+                {ATTRIBUTION_SIM_BUTTONS.map((b) => (
+                  <button
+                    key={b.key}
+                    onClick={() => void handleFeedAttribution(b)}
+                    disabled={attributionBusy !== null}
+                    className={adminButtonClass('simulationAction', 'w-full')}
+                  >
+                    {attributionBusy === b.key ? 'Running...' : b.label}
+                  </button>
+                ))}
+              </div>
+            </SidebarGroup>
+          )}
+
           {/* Manual checking — no action buttons; disposition happens in
               Sumsub, not here (see 2026-07-29 deposit-frontend spec §2.2). */}
           {data.status === 'MANUAL_CHECKING' && (
@@ -1021,31 +1047,6 @@ const DepositTransactionDetail = () => {
               >
                 {slaSubmitting ? 'Processing...' : 'Simulate SLA Timeout'}
               </button>
-            </SidebarGroup>
-          )}
-
-          {/* Attribution Simulation — demo backdoor：站在 Sumsub 一侧（Travel Rule 引擎）
-              告诉我方「这笔入金的对手方是谁」。仅 COMPLIANCE_PENDING 的 crypto 单可喂
-              （后端同款守卫：非该态 409、法币 400）；喂完刷新详情，Unhosted 超线会就此
-              挂起等客户认领。 */}
-          {showAttributionSimulation && (
-            <SidebarGroup title="Attribution Simulation ⚡">
-              <p className="font-mono text-[10px] text-adm-t3">
-                Demo backdoor — feeds who the sender is, as if returned by Sumsub&apos;s Travel Rule engine.
-              </p>
-              {attributionError && <p className="text-[11px] text-adm-red">{attributionError}</p>}
-              <div className="flex flex-col gap-2">
-                {ATTRIBUTION_SIM_BUTTONS.map((b) => (
-                  <button
-                    key={b.key}
-                    onClick={() => void handleFeedAttribution(b)}
-                    disabled={attributionBusy !== null}
-                    className={adminButtonClass('simulationAction', 'w-full')}
-                  >
-                    {attributionBusy === b.key ? 'Running...' : b.label}
-                  </button>
-                ))}
-              </div>
             </SidebarGroup>
           )}
 
