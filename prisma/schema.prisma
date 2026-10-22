@@ -745,7 +745,16 @@ model WithdrawalAddress {
   counterpartyVaspDid  String?
 
   ownershipDeclaredAt  DateTime?
-  ownershipProofType   String?
+  ownershipProofType   String?       // 2026-10-22 波一值集：SIGNATURE（自托管×本人）/ DECLARATION（托管或银行×本人）/ ATTESTATION（任意×第三方）
+
+  // 2026-10-22 对手方波一：受益人三档 × 托管自报 2×2（登记后申报证据冻结，仅 label 可改）
+  ownerType               String    @default("SELF") // SELF / THIRD_PARTY
+  beneficiaryRelationship String?                    // 自由文本；THIRD_PARTY 必填（DTO 层校验）
+  declaredHosting         String?                    // SELF_CUSTODY / VASP；crypto 必填，法币恒 null
+  hostingMismatch         Boolean   @default(false)  // 自报托管 ≠ 归因结果
+  screeningAnswer         String?                    // GREEN / YELLOW / RED（mock 筛查结论）
+  screenedAt              DateTime?
+  ownershipVerifiedAt     DateTime?                  // 仅 SIGNATURE 路径写入
 
   status               String       @default("PENDING_ACTIVATION")
   activatesAt          DateTime
