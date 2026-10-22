@@ -1,0 +1,44 @@
+[on-stack/self] DATABASE_URL=file:/tmp/exchange_js_wt_counterparty_wave2/dev.db
+[on-stack/self] TB_ADDRESS=127.0.0.1:3113
+[on-stack/self] TB_DATA_FILE=/tmp/exchange_js_wt_counterparty_wave2/0_0.tigerbeetle
+[on-stack/self] script 'verify:act1' -> ts-node -r tsconfig-paths/register scripts/verify-act1.ts 
+API base: http://127.0.0.1:3110
+
+── 登录 8 个探针账号 ──
+  ✓ admin@fiatx.com
+  ✓ sm@fiatx.com
+  ✓ mlro@fiatx.com
+  ✓ ciso@fiatx.com
+  ✓ tech_admin@fiatx.com
+  ✓ ops_officer@fiatx.com
+  ✓ treasury@fiatx.com
+  ✓ auditor@fiatx.com
+
+✓ B0 POST simulate-timeout(caseA) → 201
+  …轮询 caseA 转 EXPIRED（cron 每分钟一次，预算 90s）
+✓ B1 caseA 在 90s 内被 cron 判 EXPIRED
+✓ B2 caseB（未到期）同轮状态=PENDING
+✓ B3 POST simulate-timeout(已过期 caseA) → 400（期望 400，不是 500）
+✓ B4 GET /admin/control-gates/approvals/<approvalNo> → 200
+✓ B5 同路径拿内部 UUID → 404（期望 404）
+✓ B6 users 200/404=200/404；wallets 200/404=200/404
+✓ B7 POST reactivate(ACTIVE 资产, ops_officer@) → 409 {"message":"Invalid transition: asset in ACTIVE cannot REACTIVATE","error":"Conflict","statusCode":409}（期望 409 + 'Invalid transition'）
+✓ B8 APPROVAL_EXPIRED 行数=1，fromStatus=PENDING，toStatus=EXPIRED
+✓ B9 sm/mlro 投票 → 201/201；APPROVAL_GRANTED 行数=2（期望恰 2）
+✓ B10 POST reject → 201；roleDefinitionModifyRequest.status=REJECTED（期望 REJECTED）
+✓ B11 POST recon/runs/wallet(auditor) → 403；ADMIN_ACCESS_DENIED 行 actorNo=ADM2501010009
+✓ B12 POST reactivate(ACTIVE 管理员) → 409（期望 409）
+✓ B14 GET audit-logs?subjectNo=<B9 entityRef> → 200，命中行数=2，含 APPROVAL_CASE 主体=true
+✓ V3 暂停期间入金 scan → depositIds=["232d2d81-5186-43b3-a979-b68cb8861669"] status=COMPLIANCE_PENDING hold=ASSET_SUSPENDED sumsubTxnId=有 DEPOSIT_L1_HELD=有
+✓ V4 run-verdict(V1_APPROVED) → 201；DEPOSIT_HELD from=COMPLIANCE_PENDING to=OPERATION_PENDING reason=ASSET_SUSPENDED
+✓ V5 恢复后 Release Hold → 201，终态=SUCCESS；ASSET_SUSPENDED 行 from/to=ACTIVE/SUSPENDED
+✓ V7 登记链上地址 → 201 PENDING_VERIFICATION；审计 actorType=CUSTOMER requestId=有
+✓ V8 同网络第 4 条 → 400 ADDRESS_LIMIT_REACHED；DENIED 行=有
+✓ V1 暂停中建兑换单 → 403 L1_GATE_BLOCKED；SWAP_L1_BLOCKED reason=ASSET_SUSPENDED
+✓ V2 暂停中建提现单 → 403 L1_GATE_BLOCKED；WITHDRAW_L1_BLOCKED=有
+✓ V6 恢复后同一客户建兑换单 → 201（对照：门不是永远关着）
+✓ V9 Grace 预览 tierId=VIP-USDT-AED-TIER-002 vs Alice STD-USDT-AED-TIER-002；Grace 报价 level=VIP-USDT-AED
+✓ V10 GET audit-logs?subjectNo=AS2601012024 → 200，含 SWAP_L1_BLOCKED+DEPOSIT_HELD
+
+24/24 PASS
+ALL ACT1 CHECKS PASS

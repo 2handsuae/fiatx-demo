@@ -1,0 +1,45 @@
+  ✓ # 7 充值 · 制裁冻结                DEP261022642495  预期 FROZEN
+  ✓ # 8 充值 · 没收（钱进公司）            DEP261022297569  预期 CONFISCATED
+  ✓ # 9 充值 · 退回原发款方              DEP261022575149  预期 RETURNED
+  ✓ #10 充值 · 上缴（政府移交）            DEP261022257348  预期 SEIZED
+  ✓ #21 充值 · FRANK 本金（供 #13 建单垫资） DEP261022796259  预期 SUCCESS
+  ✓ #22 充值 · 素材（Grace USDT）      DEP261022279803  预期 SUCCESS
+  ✓ #24 充值 · 素材（Jack AED 大额）     DEP261022643104  预期 SUCCESS
+  ✓ #25 充值 · 素材（Jack AED 小额）     DEP261022880819  预期 SUCCESS
+  ✓ #26 充值 · 素材（Jack USDT）       DEP261022463888  预期 SUCCESS
+  ✓ #27 充值 · 素材（Kate AED 大额）     DEP261022665159  预期 SUCCESS
+  ✓ #28 充值 · 素材（Kate AED 小额）     DEP261022024450  预期 SUCCESS
+  ✓ #29 充值 · 素材（Kate USDT）       DEP261022590345  预期 SUCCESS
+  ✓ #30 充值 · 认领甲（本人钱包）           DEP261022694105  预期 SUCCESS
+  ✓ #31 充值 · 认领乙（第三方个人）          DEP261022175420  预期 SUCCESS
+  ✓ #32 充值 · 同源免问（对照甲）           DEP261022089447  预期 SUCCESS
+  ✓ #33 充值 · VASP 不合格退回          DEP261022707769  预期 RETURNED
+
+── SWAP（4 笔）
+  ✓ #11 兑换 · USDT→AED 成功         SWP261022121095  预期 SUCCESS
+  ✓ #12 兑换 · AED→USDT 成功         SWP261022330422  预期 SUCCESS
+  ✓ #13 兑换 · 制裁冻结（押锁待处置）         SWP261022925343  预期 FROZEN
+  ✓ #23 兑换 · 素材（Grace AED→USDT）  SWP261022263145  预期 SUCCESS
+
+── WITHDRAW（9 笔）
+  ✓ #14 提现 · 法币成功                WDR261022488516  预期 SUCCESS
+  ✓ #15 提现 · 虚拟币成功               WDR261022651119  预期 SUCCESS
+  ✓ #16 提现 · 法币成功（二）             WDR261022405623  预期 SUCCESS
+  ✓ #17 提现 · 等客户补料               WDR261022217575  预期 ACTION_PENDING
+  ✓ #18 提现 · 大额待审批               WDR261022684458  预期 PENDING_APPROVAL
+  ✓ #19 提现 · MLRO 冻结             WDR261022355821  预期 FROZEN
+  ✓ #20 提现 · 卡在半路（对账用）           WDR261022700006  预期 PAYOUT_PENDING
+  ✓ #34 提现 · TR 快照（VASP 已交换）     WDR261022500241  预期 SUCCESS
+  ✓ #35 提现 · TR 快照（自托管无交换）       WDR261022574019  预期 SUCCESS
+
+花名册：35/35 符合预期
+  ✓ 花名册 35 笔逐条符合预期
+  ✓ COA CLIENT(AED): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) (34107565 == 34107565)
+  ✓ COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) (94620335 == 94620335)
+  ✓ COA CLIENT(USDT): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) (8201620811 == 8201620811)
+  ✓ COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) (114035428189 == 114035428189)
+  ✓ data.md 生成区已更新
+
+  asserts: 5/5 PASS
+
+═══ demo:all DONE ✅ (all asserts pass) ═══

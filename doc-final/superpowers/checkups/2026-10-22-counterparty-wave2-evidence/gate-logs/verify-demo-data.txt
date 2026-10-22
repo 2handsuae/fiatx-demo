@@ -1,0 +1,7 @@
+[on-stack/self] DATABASE_URL=file:/tmp/exchange_js_wt_counterparty_wave2/dev.db
+[on-stack/self] TB_ADDRESS=127.0.0.1:3113
+[on-stack/self] TB_DATA_FILE=/tmp/exchange_js_wt_counterparty_wave2/0_0.tigerbeetle
+[on-stack/self] script 'verify:demo-data' -> ts-node -r tsconfig-paths/register scripts/verify-demo-data.ts 
+
+verify:demo-data ALL PASS
+

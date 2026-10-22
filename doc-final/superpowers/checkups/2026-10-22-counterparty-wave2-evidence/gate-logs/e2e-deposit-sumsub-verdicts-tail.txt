@@ -1,0 +1,22 @@
+    ✓ PEP 补料: ③ → ACTION_PENDING + 报文含 PEP_APPLICANT tag (29 ms)
+    ✓ 制裁: ⑧ → FROZEN + 零记账 (19 ms)
+    ✓ MLRO 冻结: ⑪ → ⑨ → MANUAL_CHECKING → FROZEN (28 ms)
+    ✓ MLRO 退回: ⑪ → ⑩ → 开 DEPOSIT_RETURN 审批, 留 MANUAL_CHECKING (34 ms)
+    ✓ 挂起有证据: ⑥ → 状态不变(COMPLIANCE_PENDING) + sumsubScore=55 + 报文非空 (17 ms)
+    ✓ travelRule 分型: VASP + 3000 USDT 单投 ① → 报文 data.type===travelRule 且 travelRuleInfo 存在 (69 ms)
+    ✓ travelRule 分型不看对手方: 非 VASP(自报链拆除后订单列仅作归因产物)的 3000 USDT 单投 ① → 同样 travelRule 且 travelRuleInfo 存在 (66 ms)
+    ✓ finance 分型: 法币单投 ① → 报文 data.type===finance 且 travelRuleInfo 不存在 (66 ms)
+    ✓ 幂等: ① ① → 只流转一次, 第二次 no-op (75 ms)
+    ✓ 补料完整弧：awaitUser → 取会话 → 提交 → 状态未动 → 操作员放行 → SUCCESS (87 ms)
+    ✓ 接口不可区分：已提交的单，ACTION_PENDING 与 FROZEN 的会话响应体全等 (33 ms)
+    ✓ 多条 action：交完前两条仍 ACTION REQUIRED，交完第三条才算全部交齐 (100 ms)
+    ✓ 逐条不可区分：同一条 action 在 ACTION_PENDING 与 FROZEN 下会话响应体全等 (34 ms)
+
+Test Suites: 1 passed, 1 total
+Tests:       18 passed, 18 total
+Snapshots:   0 total
+Time:        7.498 s
+Ran all test suites matching test/deposit-sumsub-verdicts.e2e-spec.ts.
+Jest did not exit one second after the test run has completed.
+
+'This usually means that there are asynchronous operations that weren't stopped in your tests. Consider running Jest with `--detectOpenHandles` to troubleshoot this issue.

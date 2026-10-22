@@ -1,0 +1,10 @@
+[on-stack/self] DATABASE_URL=file:/tmp/exchange_js_wt_counterparty_wave2/dev.db
+[on-stack/self] TB_ADDRESS=127.0.0.1:3113
+[on-stack/self] TB_DATA_FILE=/tmp/exchange_js_wt_counterparty_wave2/0_0.tigerbeetle
+[on-stack/self] script 'verify:coa' -> ts-node -r tsconfig-paths/register scripts/verify-realtime-coa.ts 
+✓ ledger 1 CLIENT 恒等 34107565
+✓ ledger 1 FIRM 恒等 94620335
+✓ ledger 2 CLIENT 恒等 14701620811
+✓ ledger 2 FIRM 恒等 114035428189
+✓ 负余额检查 通过 (67 个科目全部 ≥ 0)
+ALL INVARIANTS PASS

@@ -1,0 +1,12 @@
+
+  [R5] SKIP CUSTOMER_DEPOSIT_ADDRESS_SEEDED — no live wallet rows matching ownerType='CUSTOMER' yet (demo-lib.ts#ensureSetup hasn't run in this DB); not a violation
+  [R5] SKIP WITHDRAWAL_ADDRESS_SEEDED — no live withdrawalAddress rows matching traceId startsWith 'demo-setup-withdrawal-address' yet (demo-lib.ts#ensureSetup hasn't run in this DB); not a violation
+
+verify:demo-data ALL PASS
+
+
+[wt_counterparty_wave2] business reset complete
+Database: /tmp/exchange_js_wt_counterparty_wave2/dev.db
+Run next:
+  npm run runtime:diagnose
+  bash scripts/stack.sh up self   # (or 'up main' from the root worktree)

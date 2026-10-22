@@ -2970,8 +2970,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     // 对手方波二 V12:对手方 VASP 不合格 → 落人工复核台并标明原因(manualReason)。
     // 与下面的 FINAL_REJECTED 刻意不同:V12 在复核态**不直通**退款(REJECT_REFUND +
-    // releaseLock)——运营看完 VASP 区块后在复核台自己执行退款(既有弧,MANUAL_CHECKING
-    // 上的 REJECT_REFUND),maker 位留人;本分支只负责把单子带到复核台,所以复核态再收到
+    // releaseLock)——复核态经 ⚡⑩(FINAL_REJECTED)直接执行退款(既有弧,MANUAL_CHECKING
+    // 上的 REJECT_REFUND),UI 无手动按钮;本分支只负责把单子带到复核台,所以复核态再收到
     // 它是 no-op。FROZEN 与 PAYOUT_PENDING 在 decideVerdictLanding 已分流,到不了这里。
     if (dispoTag === 'VASP_UNQUALIFIED') {
       if (w.status === WithdrawTransactionStatus.MANUAL_CHECKING) return; // already in review — repeat webhook

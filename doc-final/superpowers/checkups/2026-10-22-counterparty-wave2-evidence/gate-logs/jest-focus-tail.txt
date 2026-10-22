@@ -1,0 +1,40 @@
+[95m[Nest] 77106  - [39m10/22/2026, 7:41:17 PM [95m  DEBUG[39m [38;5;3m[BinanceRateProvider] [39m[95mBinance bookTicker fetch failed for USDTBTC: Error: USDTBTC not found[39m
+PASS src/modules/audit-logging/constants/internal-transfer-audit-codes.spec.ts
+PASS src/modules/sumsub-shared/sumsub-txn-client.mock.spec.ts
+PASS src/modules/sumsub-shared/travel-rule/mock-tr-rules.service.spec.ts
+PASS src/modules/trading/deposit-transactions/dto/ownership-claim.dto.spec.ts
+PASS src/modules/trading/pricing-center/pricing-engine.service.spec.ts
+PASS src/modules/trading/deposit-transactions/deposit-transactions.controller.spec.ts
+PASS src/modules/identity/material-requests/material-request-order-cancel.listener.spec.ts
+PASS src/modules/deposit-sumsub/deposit-demo.module.spec.ts (11.701 s)
+[31m[Nest] 77105  - [39m10/22/2026, 7:41:17 PM [31m  ERROR[39m [38;5;3m[InboundTransferSignalsService] [39m[31mSupplement SIG1 processSignal failed: Funds order fo-9 is FAILED[39m
+PASS src/modules/identity/material-requests/material-requests.admin.controller.spec.ts
+PASS src/modules/trading/deposit-transactions/inbound-transfer-signals.service.spec.ts
+[33m[Nest] 77112  - [39m10/22/2026, 7:41:17 PM [33m   WARN[39m [38;5;3m[MaterialRequestOrderCancelListener] [39m[33mFailed to settle material request MRQ1 after DEPOSIT/DP1 reached SUCCESS: boom[39m
+PASS src/modules/sumsub-shared/travel-rule/mock-travel-rule.adapter.spec.ts
+PASS src/modules/trading/deposit-transactions/deposit-customer-view.spec.ts
+PASS src/modules/trading/shared/fee-level-transitions.constant.spec.ts
+PASS src/modules/withdraw-sumsub/withdraw-demo.module.spec.ts
+PASS src/modules/trading/deposit-transactions/deposit-transactions.service.spec.ts
+PASS src/modules/deposit-sumsub/fixtures/verdict-buttons.spec.ts
+PASS src/modules/asset-treasury/withdrawal-addresses/constants/withdrawal-address-transitions.constant.spec.ts
+PASS src/modules/identity/material-requests/material-request-issuer.service.spec.ts
+PASS src/modules/identity/material-requests/material-requests.client.controller.spec.ts
+PASS src/modules/withdraw-sumsub/fixtures/verdict-buttons.spec.ts
+PASS src/modules/trading/shared/freeze-scan.util.spec.ts
+PASS src/modules/trading/shared/spread-amount.util.spec.ts
+PASS src/modules/trading/shared/fee-audience.util.spec.ts
+PASS src/modules/deposit-sumsub/fixtures/txn-report.builder.spec.ts
+PASS src/modules/sumsub-shared/kyt-txn-type.resolver.spec.ts
+PASS src/modules/identity/material-requests/material-requests.service.spec.ts
+PASS src/modules/trading/shared/customer-timeline.util.spec.ts
+PASS src/modules/identity/material-requests/constants/material-request.constant.spec.ts
+PASS src/modules/identity/material-requests/material-request-review.service.spec.ts
+PASS src/modules/identity/material-requests/material-request.contract.spec.ts
+PASS src/modules/identity/material-requests/material-policy.spec.ts
+
+Test Suites: 80 passed, 80 total
+Tests:       1535 passed, 1535 total
+Snapshots:   0 total
+Time:        12.804 s, estimated 14 s
+Ran all test suites matching src/modules/trading|src/modules/sumsub-shared|src/modules/deposit-sumsub|src/modules/withdraw-sumsub|src/modules/identity/material-requests|src/modules/audit-logging|src/modules/asset-treasury/withdrawal-addresses.

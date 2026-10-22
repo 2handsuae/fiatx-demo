@@ -1,0 +1,12 @@
+ ✓ src/utils/withdrawStatusView.spec.ts (28 tests) 3ms
+ ✓ src/utils/disclosureCopy.spec.ts (2 tests) 13ms
+ ✓ src/utils/depositStatusView.spec.ts (37 tests) 4ms
+ ✓ src/utils/dsrView.spec.ts (8 tests) 16ms
+ ✓ src/utils/customerFetch.spec.ts (3 tests) 16ms
+ ✓ src/utils/confirmationDisplay.spec.ts (5 tests) 1ms
+
+ Test Files  12 passed (12)
+      Tests  142 passed (142)
+   Start at  19:41:23
+   Duration  503ms (transform 308ms, setup 0ms, collect 459ms, tests 70ms, environment 1ms, prepare 691ms)
+

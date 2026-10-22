@@ -2,7 +2,7 @@
 
 > worktree `counterparty-wave2`，branch `worktree-counterparty-wave2`，HEAD `b122954e`（Task 1–12 全合），栈端口 3110–3113。
 > plan：`superpowers/plans/2026-10-22-counterparty-wave2-transaction-wiring-plan.md` Task 13。
-> 截图与响应物证都在本目录；闸门日志摘录在 `gate-logs/`；命名 = `<序号>-<站点>-<端>-<拍的是什么>.png`。
+> 截图与响应物证都在本目录；闸门日志摘录在 `gate-logs/*.txt`（原为 `.log`，被 `.gitignore` 的 `*.log` 挡住，改后缀入库）；命名 = `<序号>-<站点>-<端>-<拍的是什么>.png`。
 
 ## 一、闸门（命令 · 退出码 · 关键行）
 
@@ -12,8 +12,8 @@
 | ② 管理台 tsc | `cd admin-web && npx tsc -b --noEmit` | 0 | 无输出 |
 | ③ 客户端 tsc | `cd client-web && npx tsc -b --noEmit` | 0 | 无输出 |
 | ④ jest（禁 `-t`） | `DATABASE_URL=file:<已迁移空库> npx jest src/modules/trading src/modules/sumsub-shared src/modules/deposit-sumsub src/modules/withdraw-sumsub src/modules/identity/material-requests src/modules/audit-logging src/modules/asset-treasury/withdrawal-addresses` | 0 | `Test Suites: 80 passed, 80 total` / `Tests: 1535 passed, 1535 total`（波二开工基线 67 套 / 1326 例） |
-| ⑤ 客户端 vitest | `npm run test:client` | 0 | `Test Files 12 passed (12)` / `Tests 142 passed (142)` |
-| ⑥ e2e | `TB_ADDRESS=127.0.0.1:3119 npx jest --config ./test/jest-e2e.json test/deposit-sumsub-verdicts.e2e-spec.ts`（专用库 + 专用 TB，见下「偏差」） | 0 | `Tests: 18 passed, 18 total` |
+| ④ 客户端 vitest（§7④ 附带） | `npm run test:client` | 0 | `Test Files 12 passed (12)` / `Tests 142 passed (142)` |
+| e2e（`CLAUDE.md §7` 无对应编号） | `TB_ADDRESS=127.0.0.1:3119 npx jest --config ./test/jest-e2e.json test/deposit-sumsub-verdicts.e2e-spec.ts`（专用库 + 专用 TB，见下「偏差」） | 0 | `Tests: 18 passed, 18 total` |
 | ⑧ 重铺 | `bash scripts/stack.sh reset self` → `bash scripts/stack.sh up self` | 0 / 0 | `verify:demo-data ALL PASS`（链内，R5 两块 SKIP = ensureSetup 未跑的合法中间态）；三端口 up |
 | ⑥ demo:all | `bash scripts/on-stack.sh self demo:all`（不接管道，直接重定向到文件） | 0 | `花名册：35/35 符合预期`、COA 四恒等式 ✓、`asserts: 5/5 PASS`、`demo:all DONE ✅`；`git diff doc-final/demo/data.md` **零 diff**（生成区与 HEAD 一致） |
 | ⑧ verify:demo-data | `bash scripts/on-stack.sh self verify:demo-data`（demo:all 刚铺完的干净库） | 0 | `verify:demo-data ALL PASS`（R5 两块此时不再 SKIP） |
@@ -103,7 +103,7 @@
 | 1 | 持久状态变化留痕（4 新码写点 + 显式 requestId）| ✓ 四个写点（`deposit-workflow.service.ts:880/901/961`、`withdraw-workflow.service.ts:2595`）全经 `depositAudit` / `withdrawAudit` 包装，包装内统一 `requestId: \`${action}_${no}_${randomUUID()}\``（`deposit-workflow.service.ts:2059`、`withdraw-workflow.service.ts:1998`）；走查里 3.10 同一单连喂三次归因落三行（未被去重）| 审计 JSON ×6 |
 | 2 | 新增审计码四属性冻结 | ✓ `audit-actions.constant.ts:909–911 / :971` 四码均带 `domain` + `correlationMode: I` + `requiredFields:['afterData']` + `requiresCausation:false`；词表 352 = DEPOSIT 50 + WITHDRAW 34，`audit-actions.constant.spec.ts` 随闸 ④ 绿 | 闸 ④ |
 | 3 | 新状态 / 新结局：零新态零新边；SLA 显式回答 | ✓ 本波 diff 无任何迁移表文件；deposit 的 `brief lists exactly 29 edges` 断言（`deposit-transactions.service.spec.ts:1420`）零 diff 且全绿；**SLA：认领挂起复用 ACTION_PENDING 既有 7 天钟，无新钟**（`03-…png` SLA = 6d 23h）；V12 落 MANUAL_CHECKING 沿既有 3 天只标红钟 | `03`、`25`、闸 ④ |
-| 4 | 动了钱：走既有退回/退款弧 + verify:coa | ✓ V12→⑩ 走既有 `initiateReturn` → MLRO 审批 → 退回腿资金单（`28–30`）；`verify:coa` 铺完 / 走查后两次全绿含负余额断言 | `gate-logs/verify-coa-*.log` |
+| 4 | 动了钱：走既有退回/退款弧 + verify:coa | ✓ V12→⑩ 走既有 `initiateReturn` → MLRO 审批 → 退回腿资金单（`28–30`）；`verify:coa` 铺完 / 走查后两次全绿含负余额断言 | `gate-logs/verify-coa-after-demo-all.txt`、`gate-logs/verify-coa-after-walkthrough.txt` |
 | 5 | maker-checker：走既有审批正门、零新策略 | ✓ 审批类型 `DEPOSIT_RETURN`、Step 1 = MLRO（`27`）；本波 diff 不含 `approval.constants` / `MAKER_GROUP_BY_POLICY`（`git diff --name-only 03cc4796..HEAD` 无此二文件）| `27`、`28` |
 | 6 | 新增权限组：零 | ✓ 仅在既有 `DEMO_VERDICT_WRITE` 组下加一条 `route()`；admin-web `permissions.ts` 只加一个路由镜像键 `DEPOSIT_FEED_ATTRIBUTION`（`git diff` 两文件共 +11 行，无 `PermissionGroup` 联合类型改动）| diff |
 | 7 | 新增 admin 端点：`route()` 登记 + `db:base:sync` + 重启 | ✓ `rbac.catalog.ts:410` 已登记，S7 认活；self 栈经 reset（含 base sync）后 RBAC 实测 compliance_lead 通过 / treasury、ops 403。**合并 main 后仍须 `db:base:sync` + 重启后端**（见 §五待办）| verify:rbac、RBAC 实测 |
