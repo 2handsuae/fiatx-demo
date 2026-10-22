@@ -11,7 +11,7 @@
 | 链上（入金信号 / 提现广播 / 确认） | 🎭 纯占位 | 无真实链：txHash 是伪造值（0x 以太坊格式，对 TRON 不真实——登记在案）；确认/失败由模拟端点触发；无确认数、重组、合约失败现实 | ⚡ 面板 ＋ 各域 demo 场景服务 | —（生产接托管方/节点服务时另立契约） |
 | 银行（法币入出金） | 🎭 纯占位 | 入账/出账确认由模拟端点触发；「银行对账单」由 `recon:demo` 脚本铸造；IBAN 只有格式校验 | `src/modules/asset-treasury/withdrawal-addresses/bank-validator.util.ts` ＋ recon 脚本 | — |
 | 托管方回单（内部划转腿） | 🎭 纯占位（演示装置） | 划转腿一提交，模拟托管方就写外部对账单 OUT/IN 两行并增减当日收盘 | 见 `simulated-externals.md` 托管方行 | — |
-| VASP 归属判断（对手方是否 VASP） | 🎭 纯占位 | 当前由客户端弹窗人工勾选（模拟 Sumsub wallet-attribution）；真实应由链上地址归属服务自动得出 | `PRODUCTION-NOTES.md` 2026-07-31「真实 VASP 归属服务未接」条 | Sumsub wallet-attribution |
+| VASP 归属判断（对手方是否 VASP） | 🎭 纯占位 | 由 mock Sumsub 侧判定：充值靠操作员 ⚡喂归因（替 Sumsub 告知 VASP / Unhosted），地址簿登记靠测试地址尾号；客户端“自报对手方”弹窗已退役（2026-10-22 对手方波二）；真实应由链上地址归属服务自动得出 | `src/modules/sumsub-shared/travel-rule/`；触点明细 `reference/sumsub-mock-touchpoints.md` ①⑤–⑧；`PRODUCTION-NOTES.md` 2026-07-31「真实 VASP 归属服务未接」条 | Sumsub wallet-attribution |
 | 价源（Binance）与 AED 钉住汇率 | 🎭 配置写死 | 无实时行情，价源与汇率随上币配置以版本上架；「按什么价」的语义在客户端报价预览讲清 | 上币配置（`decisions.md` 2026-09-03） | 生产接行情源时另立契约 |
 | 时间（SLA / 账龄） | 🎭 可拨钟（演示装置） | 各域「Simulate SLA Timeout」与账龄拨钟把截止时间拨到过去，生产不存在此能力 | ⚡ 面板 | — |
 

@@ -61,7 +61,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 | 11 | jack | TRON，地址尾号 `3333` | 本人 × 自托管，签名**未**验证 | SIGNATURE | **RED** | **REJECTED**（展品：客户端读到 `Not approved`，管理台读到 RED） |
 | 12 | bob | TRON，地址尾号 `4444`（归因 Grey Harbor Exchange，`did:mock:grey-harbor-001`；整串 `TL8iS45FvNkqJqbohP3cvF9CnNrM9s4444`） | 本人 × 托管（自报 VASP） | DECLARATION | GREEN | ACTIVE（展品：名录档案**不合格**的 VASP——管理台地址详情 Attribution 区读到 Grey Harbor；提现到它会在 Counterparty / Travel Rule 区读到三项不合格档案） |
 
-#9–12 的地址 = `fakeTronAddress(种子).slice(0,30)` + 尾号，与 mock 测试地址规则自洽（把它们再登记一遍得到同一结局）。**alice 名下故意不放第二条 ACTIVE TRON**：站 5 ④ a/b/d 要在她名下现场再登记，每网络 3 条的上限不能被种子占满。**bob 自 #12 起名下已有 2 条生效 TRON（#8 自托管 + #12 的 4444）**，不能再演 ④e（要连登 1111 / 3333 / 普通自托管三枚，第三枚起撞 3 条上限）——④e 改由 `demo_kate` 演（种子只占她 1 条〔#10〕）。**尚无法币账户的种子客户**：Henry Acme（`demo_acme@example.com`，企业客户）——不在 `demo:setup` 那六人名单内，没有走地址簿种子；站 5 ④c 用他演"首个法币账户即时生效"。
+#9–12 的地址 = `fakeTronAddress(种子).slice(0,30)` + 尾号，与 mock 测试地址规则自洽（把它们再登记一遍得到同一结局）。**alice 名下故意不放第二条 ACTIVE TRON**：站 5 ④ a/b/d 要在她名下现场再登记，每网络 3 条的上限不能被种子占满。**bob 自 #12 起名下已有 2 条生效 TRON（#8 自托管 + #12 的 4444）**，不能再演 ④e（要连登 1111 / 3333 / 普通自托管三枚，第三枚起撞 3 条上限）——④e 改由 `demo_kate` 演（种子只占她 1 条〔#10〕；登完 1111 与普通自托管两枚后刚好用满 3 条，所以须在新铸库上演、不可预演）。**尚无法币账户的种子客户**：Henry Acme（`demo_acme@example.com`，企业客户）——不在 `demo:setup` 那六人名单内，没有走地址簿种子；站 5 ④c 用他演"首个法币账户即时生效"。
 
 **费率**：`STD-USDT-AED` / `STD-AED-USDT`（默认档）+ `VIP-USDT-AED`（requiredTags `["VIP"]`，各档比 STD 便宜；Grace 带 VIP 标签命中它）+ `NEWCUST-USDT-AED`（requiredTags `["NEW_CUSTOMER"]`，各档比 STD 便宜、比 VIP 贵；开户 30 天内的客户命中它——种子客户开户日已回填 2026-06-15、早出新客窗，只有第二幕②③现场开户的新客户能命中）；demo:all 会把 `STD-USDT-AED` Tier 1 平费改成 10（`demo-lib.ts` FEE_PLAN，造数取整），所以舞台上对照用 1000 USDT（Tier 2：VIP 12 < NEWCUST 16 < STD 20）；提现 `STD-AED-AED_ZAND` / `STD-USDT-TRON`。**限额**：15 条（单笔 6 / 累计 8 / 大额 1）。
 
