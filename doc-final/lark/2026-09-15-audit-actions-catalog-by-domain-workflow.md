@@ -199,7 +199,7 @@
 | `WITHDRAWAL_ADDRESS_SUSPENDED` | 金库专员强制暂停 | I 继承 | reason |  |
 | `WITHDRAWAL_ADDRESS_UNSUSPENDED` | 金库专员恢复 | I 继承 | reason |  |
 | `WITHDRAWAL_ADDRESS_DEACTIVATED` | 客户停用地址 | I 继承 | reason |  |
-| `WITHDRAWAL_ADDRESS_UPDATED` | 改标签/收款人信息 | I 继承 | beforeData, afterData |  |
+| `WITHDRAWAL_ADDRESS_UPDATED` | 改标签（2026-10-22 对手方波一起编辑收窄为仅 label，收款人信息登记后冻结） | I 继承 | beforeData, afterData |  |
 | `WITHDRAWAL_ADDRESS_COOLING_SKIPPED` | ⚡ 后门跳过冷却期（理由必填，留痕是这条码的演示点） | I 继承 | reason |  |
 | `WITHDRAWAL_ADDRESS_REQUEST_DENIED` | 地址五门拒绝留痕（数量上限/冷却未到/最后一个法币地址等） | N 单步 | reasonCode |  |
 | `WITHDRAWAL_ADDRESS_SCREENED` | ⚡ 喂筛查结论 GREEN/YELLOW（operator 记操作人，reason 必填，afterData 带 answer；只覆写筛查结论、不迁移状态，RED 走 REJECTED 码）（对手方波一） | I 继承 | afterData |  |

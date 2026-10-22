@@ -1,6 +1,6 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-10-22 ｜ 基线 main `0f255599` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 生成于 2026-10-22 ｜ 基线 main `eb90e42a` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
 > 现役 **348 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
@@ -199,7 +199,7 @@
 | `WITHDRAWAL_ADDRESS_SUSPENDED` | 金库专员强制暂停 | I 继承 | reason |  |  |
 | `WITHDRAWAL_ADDRESS_UNSUSPENDED` | 金库专员恢复 | I 继承 | reason |  |  |
 | `WITHDRAWAL_ADDRESS_DEACTIVATED` | 客户停用地址 | I 继承 | reason |  |  |
-| `WITHDRAWAL_ADDRESS_UPDATED` | 改标签/收款人信息 | I 继承 | beforeData, afterData |  |  |
+| `WITHDRAWAL_ADDRESS_UPDATED` | 改标签（2026-10-22 对手方波一起编辑收窄为仅 label，收款人信息登记后冻结） | I 继承 | beforeData, afterData |  |  |
 | `WITHDRAWAL_ADDRESS_COOLING_SKIPPED` | ⚡ 后门跳过冷却期（理由必填，留痕是这条码的演示点） | I 继承 | reason |  |  |
 | `WITHDRAWAL_ADDRESS_REQUEST_DENIED` | 地址五门拒绝留痕（数量上限/冷却未到/最后一个法币地址等） | N 单步 | reasonCode |  |  |
 | `WITHDRAWAL_ADDRESS_SCREENED` | ⚡ 喂筛查结论 GREEN/YELLOW（operator 记操作人，reason 必填，afterData 带 answer；只覆写筛查结论、不迁移状态，RED 走 REJECTED 码）（对手方波一） | I 继承 | afterData |  |  |
