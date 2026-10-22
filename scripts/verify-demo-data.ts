@@ -250,17 +250,19 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
   });
 
   // 提现地址（withdrawal_addresses 表）。生产侧唯一运行时写路径是
-  // withdrawal-address.service.ts（客户自行登记，ownershipProofType 不是 DEMO_FIXTURE），
-  // demo-lib.ts 种的两处（银行账号 + alice/bob 的链上地址）都固定写 DEMO_FIXTURE——按这个判别式
-  // 限定作用域，只对种子地址要求留痕，不会误判客户自行登记的真实地址。
+  // withdrawal-address.service.ts（客户自行登记，traceId 是随机 UUID），demo-lib.ts 种的 11 条
+  // （六人各一条银行账号 + alice/bob 的本人×自托管链上地址 + grace/kate/jack 三条地址簿样本）traceId
+  // 都以 'demo-setup-withdrawal-address' 起头——按这个前缀限定作用域，只对种子地址要求留痕，
+  // 不会误判客户自行登记的真实地址。（此前的判别式是 ownershipProofType 的一个固定演示值；
+  // 2026-10-22 对手方波一把该列真值化成 SIGNATURE/DECLARATION/ATTESTATION，原判别式会空转，故改认 traceId 前缀。）
   const withdrawalAddresses: any[] = await (prisma as any).withdrawalAddress.findMany({
-    where: { ownershipProofType: 'DEMO_FIXTURE' },
+    where: { traceId: { startsWith: 'demo-setup-withdrawal-address' } },
     select: { addressNo: true },
   });
   blocks.push({
     action: 'WITHDRAWAL_ADDRESS_SEEDED',
     entity: 'withdrawalAddress',
-    scope: "ownershipProofType='DEMO_FIXTURE'",
+    scope: "traceId startsWith 'demo-setup-withdrawal-address'",
     actorNo: 'DEMO_SEED',
     skipIfEmpty: true,
     keys: withdrawalAddresses.map((a) => a.addressNo),
@@ -268,7 +270,7 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
 
   for (const block of blocks) {
     // 七块在 demo:all 跑过一次之后都不可能为空（资产 2 / 平台钱包 7 / 限额 15 / 兑换费率 3 /
-    // 提现费率 2 / 客户收款钱包 12 / 提现地址 8——后两块数随花名册人数变而变，此处只是现场实测值）。
+    // 提现费率 2 / 客户收款钱包 12 / 提现地址 11——后两块数随花名册人数变而变，此处只是现场实测值）。
     // 空表就跳过 = 「没装载任何配置」也算「装载都留了痕」——正是本判据上一版栽的那种空真绿。
     const actorNo = block.actorNo ?? 'RELEASE';
     if (block.keys.length === 0) {

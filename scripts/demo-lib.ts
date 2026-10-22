@@ -118,6 +118,52 @@ export const WITHDRAW_PLAN: Record<string, { fiatAed: number; cryptoUsdt?: numbe
   'demo_grace@example.com': { fiatAed: 100 },
 };
 
+// 对手方波一·地址簿样本（种子终盘表 #9–11，grace / kate / jack 各一条 TRON 提现地址）。
+// 地址尾号对应 MockTravelRuleAdapter 的确定性规则：1111 → 归因 VASP / 3333 → 筛查 RED 登记即拒——
+// 演示者把这串地址再登记一遍得到的也是同一结局（种子与魔法规则自洽）。
+// 尾号改造法 = 替换 fakeTronAddress 的末 4 位，长度（34）与 Base58 字符集不变。
+const MOCK_VASP_TAIL = '1111';
+const MOCK_RED_TAIL = '3333';
+const withMockTail = (addr: string, tail: string) => `${addr.slice(0, -tail.length)}${tail}`;
+
+const MOCK_VASP_FIELDS = {
+  addressType: 'VASP',
+  counterpartyVaspName: 'Mock VASP Exchange',
+  counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+  declaredHosting: 'VASP',
+} as const;
+
+type AddressBookSample = {
+  tag: 'vasp' | 'rejected'; // 进业务号 / traceId / 地址种子
+  tail: string;
+  status: 'ACTIVE' | 'REJECTED';
+  fields: Partial<Prisma.WithdrawalAddressUncheckedCreateInput> & { addressType: string };
+};
+
+const ADDRESS_BOOK_SAMPLES: Record<string, AddressBookSample> = {
+  // #9 本人×托管（DECLARATION）
+  'demo_grace@example.com': {
+    tag: 'vasp', tail: MOCK_VASP_TAIL, status: 'ACTIVE',
+    fields: { ...MOCK_VASP_FIELDS, ownerType: 'SELF', ownershipProofType: 'DECLARATION', screeningAnswer: 'GREEN' },
+  },
+  // #10 第三方×托管（ATTESTATION：姓名+关系即证据）
+  'demo_kate@example.com': {
+    tag: 'vasp', tail: MOCK_VASP_TAIL, status: 'ACTIVE',
+    fields: {
+      ...MOCK_VASP_FIELDS, ownerType: 'THIRD_PARTY', beneficiaryName: 'Li Hua', beneficiaryRelationship: 'Spouse',
+      ownershipProofType: 'ATTESTATION', screeningAnswer: 'GREEN',
+    },
+  },
+  // #11 REJECTED 展品：自托管×本人，SIGNATURE 未验证（无 ownershipVerifiedAt），筛查 RED 登记即拒
+  'demo_jack@example.com': {
+    tag: 'rejected', tail: MOCK_RED_TAIL, status: 'REJECTED',
+    fields: {
+      addressType: 'SELF_CUSTODY', ownerType: 'SELF', declaredHosting: 'SELF_CUSTODY',
+      ownershipProofType: 'SIGNATURE', screeningAnswer: 'RED',
+    },
+  },
+};
+
 // Non-zero fees so FEE_INCOME / SPREAD_INCOME actually populate ("data must be full").
 export const FEE_PLAN: Array<['swapFeeLevel' | 'withdrawalFeeLevel', string, string, string]> = [
   ['swapFeeLevel', 'STD-USDT-AED', 'SWAP_SERVICE_FEE', '10'], // 10 AED flat
@@ -363,17 +409,23 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
     // very first deposit approval, which is what actually surfaces the gap
     // (an existing worktree with accumulated prior demo runs already has one
     // from an earlier successful withdrawal and never notices).
+    // 种子终盘表 #1–6：六人各一条 BANK ACTIVE——本人×银行，证据档 DECLARATION，筛查 GREEN
+    // （管理台 Screening 区块只在 screeningAnswer 有值时渲染，所以每条种子行都要配 screeningAnswer+screenedAt）。
+    // 类型标注为 Prisma 的 UncheckedCreateInput：ctx.prisma 是 any，字段名写错 tsc 看不见，靠这一层标注把关。
     const wdAddrNo = buildDeterministicNo('WA', SIM, 'WD_BANK', c.customerNo);
+    const seededAt = new Date();
+    const bankRow: Prisma.WithdrawalAddressUncheckedCreateInput = {
+      addressNo: wdAddrNo, customerId: c.id, customerNo: c.customerNo,
+      network: 'AED_ZAND', address: vibanIban, addressType: 'BANK', iban: vibanIban,
+      ownerType: 'SELF', ownershipDeclaredAt: seededAt, ownershipProofType: 'DECLARATION',
+      screeningAnswer: 'GREEN', screenedAt: seededAt,
+      status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
+      traceId: `demo-setup-withdrawal-address-${c.customerNo}`,
+    };
     await ctx.prisma.withdrawalAddress.upsert({
       where: { customerId_network_address: { customerId: c.id, network: 'AED_ZAND', address: vibanIban } },
       update: { status: 'ACTIVE' },
-      create: {
-        addressNo: wdAddrNo, customerId: c.id, customerNo: c.customerNo,
-        network: 'AED_ZAND', address: vibanIban, addressType: 'BANK', iban: vibanIban,
-        ownershipDeclaredAt: new Date(), ownershipProofType: 'DEMO_FIXTURE',
-        status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
-        traceId: `demo-setup-withdrawal-address-${c.customerNo}`,
-      },
+      create: bankRow,
     });
     await writeSeedAudit(ctx.prisma, {
       action: 'WITHDRAWAL_ADDRESS_SEEDED', subjectType: 'WITHDRAWAL_ADDRESS', subjectNo: wdAddrNo, actorNo: 'DEMO_SEED', ownerCustomerNo: c.customerNo,
@@ -389,20 +441,51 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
       const idx = customerIdx(c.email);
       const cryptoWdAddr = fakeTronAddress(`${SIM}wd${idx}`);
       const cryptoWdAddrNo = buildDeterministicNo('WA', SIM, 'WD_CRYPTO', c.customerNo);
+      // 种子终盘表 #7–8：alice/bob 的 TRON 地址——四格之"本人×自托管已签名"（SIGNATURE，已验证）
+      const cryptoRow: Prisma.WithdrawalAddressUncheckedCreateInput = {
+        addressNo: cryptoWdAddrNo, customerId: c.id, customerNo: c.customerNo,
+        network: 'TRON', address: cryptoWdAddr, addressType: 'SELF_CUSTODY',
+        ownerType: 'SELF', declaredHosting: 'SELF_CUSTODY',
+        ownershipDeclaredAt: seededAt, ownershipProofType: 'SIGNATURE', ownershipVerifiedAt: seededAt,
+        screeningAnswer: 'GREEN', screenedAt: seededAt,
+        status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
+        traceId: `demo-setup-withdrawal-address-crypto-${c.customerNo}`,
+      };
       await ctx.prisma.withdrawalAddress.upsert({
         where: { customerId_network_address: { customerId: c.id, network: 'TRON', address: cryptoWdAddr } },
         update: { status: 'ACTIVE' },
-        create: {
-          addressNo: cryptoWdAddrNo, customerId: c.id, customerNo: c.customerNo,
-          network: 'TRON', address: cryptoWdAddr, addressType: 'SELF_CUSTODY',
-          ownershipDeclaredAt: new Date(), ownershipProofType: 'DEMO_FIXTURE',
-          status: 'ACTIVE', activatesAt: new Date(Date.now() - 1000),
-          traceId: `demo-setup-withdrawal-address-crypto-${c.customerNo}`,
-        },
+        create: cryptoRow,
       });
       await writeSeedAudit(ctx.prisma, {
         action: 'WITHDRAWAL_ADDRESS_SEEDED', subjectType: 'WITHDRAWAL_ADDRESS', subjectNo: cryptoWdAddrNo, actorNo: 'DEMO_SEED', ownerCustomerNo: c.customerNo,
         afterData: { network: 'TRON', addressType: 'SELF_CUSTODY', address: cryptoWdAddr },
+      });
+    }
+
+    // 种子终盘表 #9–11：地址簿样本（grace / kate / jack）——补全 2×2 的另外两格 + REJECTED 展品。
+    // alice 名下不加新 ACTIVE TRON 条目：站 5 ④ 她要现场再登记，3 条上限不能被种子占满。
+    const sample = ADDRESS_BOOK_SAMPLES[c.email];
+    if (sample) {
+      const sampleAddr = withMockTail(fakeTronAddress(`${SIM}wd-${sample.tag}${customerIdx(c.email)}`), sample.tail);
+      const sampleAddrNo = buildDeterministicNo('WA', SIM, `WD_${sample.tag.toUpperCase()}`, c.customerNo);
+      const sampleRow: Prisma.WithdrawalAddressUncheckedCreateInput = {
+        addressNo: sampleAddrNo, customerId: c.id, customerNo: c.customerNo,
+        network: 'TRON', address: sampleAddr,
+        ownershipDeclaredAt: seededAt, screenedAt: seededAt,
+        status: sample.status,
+        // REJECTED 与服务层"登记即拒"同形：activatesAt=登记时刻、无 activatedAt；ACTIVE 沿既有种子写法（冷却已过）
+        activatesAt: sample.status === 'REJECTED' ? seededAt : new Date(Date.now() - 1000),
+        traceId: `demo-setup-withdrawal-address-${sample.tag}-${c.customerNo}`,
+        ...sample.fields,
+      };
+      await ctx.prisma.withdrawalAddress.upsert({
+        where: { customerId_network_address: { customerId: c.id, network: 'TRON', address: sampleAddr } },
+        update: { status: sample.status },
+        create: sampleRow,
+      });
+      await writeSeedAudit(ctx.prisma, {
+        action: 'WITHDRAWAL_ADDRESS_SEEDED', subjectType: 'WITHDRAWAL_ADDRESS', subjectNo: sampleAddrNo, actorNo: 'DEMO_SEED', ownerCustomerNo: c.customerNo,
+        afterData: { network: 'TRON', addressType: sample.fields.addressType, address: sampleAddr },
       });
     }
   }

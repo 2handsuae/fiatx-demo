@@ -151,7 +151,7 @@ async function ensureFiatWithdrawalAddress(token: string, customerId: string, cu
   const iban = `DE${computeIbanCheckDigits('DE', bban)}${bban}`;
   const r = await call('POST', '/client/withdrawal-addresses/bank-accounts', token, {
     beneficiaryName: 'Verify Act1 V Group', bankName: 'Deutsche Bank',
-    iban, swiftBic: 'DEUTDEFF', ownershipDeclaration: true,
+    iban, swiftBic: 'DEUTDEFF', ownerType: 'SELF', ownershipDeclaration: true,
   });
   if (r.status >= 300) throw new Error(`夹具：开首个法币提现地址失败（交易起始前置门）→ ${r.status} ${r.text}`);
 }
@@ -549,17 +549,22 @@ async function main(): Promise<void> {
   // ── V7/V8：地址登记 actor 与四门之一（同时给 V2 备一个 ACTIVE 的 TRON 地址）
   const { fakeTronAddress } = await import('../src/common/utils/tron-address.util');
   // 客户路由不在 RBAC_PERMISSION_DEFINITIONS 里，不走 precheckRoute（它只核管理端路由）
-  const reg1 = await call('POST', '/client/withdrawal-addresses', aliceTok, { network: 'TRON', address: fakeTronAddress(`act1-${txSeed}-1`), ownershipDeclaration: true, label: 'verify:act1 V7' });
+  // 登记链上地址现要自报 ownerType + declaredHosting（对手方波一）。本探针一律「本人×自托管」：
+  // 证据档 SIGNATURE，落点 PENDING_VERIFICATION（等签名），签名通过才进 24h 冷却——不再直接是 PENDING_ACTIVATION。
+  // 地址由 fakeTronAddress 派生，尾号撞 mock 魔法规则（1111 归因 VASP / 2222 YELLOW / 3333 RED 登记即拒）的概率
+  // 约 3×58⁻⁴ ≈ 3e-7 每枚，不为它加兜底。
+  const selfCustodyBySelf = { ownerType: 'SELF', declaredHosting: 'SELF_CUSTODY' } as const;
+  const reg1 = await call('POST', '/client/withdrawal-addresses', aliceTok, { network: 'TRON', address: fakeTronAddress(`act1-${txSeed}-1`), ...selfCustodyBySelf, ownershipDeclaration: true, label: 'verify:act1 V7' });
   const addr1No: string | undefined = reg1.json?.addressNo;
   const v7row = addr1No ? await prisma.auditLogEvent.findFirst({ where: { action: 'WITHDRAWAL_ADDRESS_REGISTERED', primarySubjectNo: addr1No } }) : null;
-  judge('V7', reg1.status < 300 && reg1.json?.status === 'PENDING_ACTIVATION' && v7row?.actorType === 'CUSTOMER' && !!v7row?.requestId,
+  judge('V7', reg1.status < 300 && reg1.json?.status === 'PENDING_VERIFICATION' && v7row?.actorType === 'CUSTOMER' && !!v7row?.requestId,
     `登记链上地址 → ${reg1.status} ${reg1.json?.status}；审计 actorType=${v7row?.actorType} requestId=${v7row?.requestId ? '有' : '无'}`);
 
-  const existingActive = await prisma.withdrawalAddress.count({ where: { customerId: alice.id, network: 'TRON', status: { in: ['PENDING_ACTIVATION', 'ACTIVE'] } } });
+  const existingActive = await prisma.withdrawalAddress.count({ where: { customerId: alice.id, network: 'TRON', status: { in: ['PENDING_VERIFICATION', 'PENDING_ACTIVATION', 'ACTIVE'] } } });
   for (let i = existingActive; i < MAX_ADDRESSES_PER_NETWORK; i += 1) {
-    await call('POST', '/client/withdrawal-addresses', aliceTok, { network: 'TRON', address: fakeTronAddress(`act1-${txSeed}-fill${i}`), ownershipDeclaration: true });
+    await call('POST', '/client/withdrawal-addresses', aliceTok, { network: 'TRON', address: fakeTronAddress(`act1-${txSeed}-fill${i}`), ...selfCustodyBySelf, ownershipDeclaration: true });
   }
-  const reg4 = await call('POST', '/client/withdrawal-addresses', aliceTok, { network: 'TRON', address: fakeTronAddress(`act1-${txSeed}-4`), ownershipDeclaration: true });
+  const reg4 = await call('POST', '/client/withdrawal-addresses', aliceTok, { network: 'TRON', address: fakeTronAddress(`act1-${txSeed}-4`), ...selfCustodyBySelf, ownershipDeclaration: true });
   const v8row = await prisma.auditLogEvent.findFirst({
     where: { action: 'WITHDRAWAL_ADDRESS_REQUEST_DENIED', reasonCode: 'ADDRESS_LIMIT_REACHED', ownerCustomerNo: alice.customerNo, recordedAt: { gte: vStart } },
   });
@@ -567,6 +572,12 @@ async function main(): Promise<void> {
     `同网络第 4 条 → ${reg4.status} ${reg4.json?.code}；DENIED 行=${v8row ? '有' : '无'}`);
 
   if (addr1No) {
+    // reg1 此刻在 PENDING_VERIFICATION；skip-cooling 只走 PENDING_ACTIVATION→ACTIVE 一条边，所以先过签名（mock 即点即过，
+    // 客户路由不在 RBAC 清单里、不走 precheckRoute）放行进冷却，再由金库后门跳过冷却。V2 需要的那个 ACTIVE 地址还是它。
+    const sign = await call('POST', `/client/withdrawal-addresses/${addr1No}/verify-signature`, aliceTok);
+    if (sign.status >= 300 || sign.json?.status !== 'PENDING_ACTIVATION') {
+      throw new Error(`verify-signature ${addr1No} → ${sign.status} status=${sign.json?.status} ${sign.text}`);
+    }
     precheckRoute('POST', '/admin/withdrawal-addresses/:addressNo/skip-cooling');
     const skipCooling = await call('POST', `/admin/withdrawal-addresses/${addr1No}/skip-cooling`, tokens.treasury, { reason: 'verify:act1 V2 需要一个 ACTIVE 地址' });
     if (skipCooling.status >= 300) throw new Error(`skip-cooling ${addr1No} → ${skipCooling.status} ${skipCooling.text}`);
