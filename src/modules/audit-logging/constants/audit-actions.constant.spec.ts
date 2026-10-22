@@ -34,8 +34,10 @@ describe('第一批 · V1 词表守则', () => {
     + '+ 7 波一(2026-09-04)T14：种子身世七码——ASSET_SEEDED/CUSTODIAN_WALLET_SEEDED/'
     + 'TRANSACTION_LIMIT_SEEDED/SWAP_FEE_LEVEL_SEEDED/WITHDRAWAL_FEE_LEVEL_SEEDED/'
     + 'CUSTOMER_DEPOSIT_ADDRESS_SEEDED/WITHDRAWAL_ADDRESS_SEEDED（配置随版本装载，装载即留痕），得 101；'
-    + '+ 1 波二(2026-09-05)T2：WITHDRAWAL_ADDRESS_REQUEST_DENIED（地址五门拒绝留痕，Task3/5 消费），得 102）', () => {
-    expect(codes).toHaveLength(102);
+    + '+ 1 波二(2026-09-05)T2：WITHDRAWAL_ADDRESS_REQUEST_DENIED（地址五门拒绝留痕，Task3/5 消费），得 102；'
+    + '+ 5 对手方波一(2026-10-22)T6：提现地址簿登记落点 2x2 + 登记时筛查 + 归属验证五码——'
+    + 'WITHDRAWAL_ADDRESS_SCREENED/REJECTED/OWNERSHIP_VERIFIED/THIRD_PARTY_DECLARED/HOSTING_MISMATCH_FLAGGED，得 107）', () => {
+    expect(codes).toHaveLength(107);
   });
 
   it('全部全局唯一（键即字面量，无重复）', () => {
@@ -63,7 +65,10 @@ describe('第一批 · V1 词表守则', () => {
     // RETIRED：波一(2026-09-04)T11 SWAP_FEE_LEVEL_RETIRED/WITHDRAWAL_FEE_LEVEL_RETIRED 新增裸 RETIRED
     // 后缀（*_RETIRE_REQUESTED/*_RETIRE_CANCELLED 已含在既有 REQUESTED/CANCELLED 后缀里，不必新增）
     // SEEDED：波一(2026-09-04)T14 种子身世七码新增裸 SEEDED 后缀（配置随版本装载，装载即留痕）
-    const ok = /_(REQUESTED|APPLIED|COMPLETED|CANCELLED|EXPIRED|DENIED|GRANTED|SUBMITTED|DECLINED|DISPATCHED|ACCEPTED|INITIATED|BOUND|CONFIRMED|ISSUED|GENERATED|DOWNLOADED|QUERIED|RELEASED|MISSING|CREATED|UPDATED|RECORDED|EFFECTIVE|REVOKED|ADVANCED|SIMULATED|APPLY_FAILED|FAILED|PROVISIONED|ACTIVATED|SUSPENDED|REACTIVATED|ASSIGNED|REJECTED|REGISTERED|DEACTIVATED|SKIPPED|VERIFIED|UNSUSPENDED|RETIRED|SEEDED)$/;
+    // SCREENED/DECLARED/FLAGGED：对手方波一(2026-10-22)T6 提现地址簿五码新增三个裸后缀——
+    // WITHDRAWAL_ADDRESS_SCREENED（筛查结论落库）/ _THIRD_PARTY_DECLARED（第三方申报快照）/
+    // _HOSTING_MISMATCH_FLAGGED（自报托管≠归因红旗）；REJECTED/VERIFIED 后缀已在库，不必新增
+    const ok = /_(REQUESTED|APPLIED|COMPLETED|CANCELLED|EXPIRED|DENIED|GRANTED|SUBMITTED|DECLINED|DISPATCHED|ACCEPTED|INITIATED|BOUND|CONFIRMED|ISSUED|GENERATED|DOWNLOADED|QUERIED|RELEASED|MISSING|CREATED|UPDATED|RECORDED|EFFECTIVE|REVOKED|ADVANCED|SIMULATED|APPLY_FAILED|FAILED|PROVISIONED|ACTIVATED|SUSPENDED|REACTIVATED|ASSIGNED|REJECTED|REGISTERED|DEACTIVATED|SKIPPED|VERIFIED|UNSUSPENDED|RETIRED|SEEDED|SCREENED|DECLARED|FLAGGED)$/;
     const bad = codes.filter((c) => !ok.test(c));
     expect(bad).toEqual([]);
   });
@@ -109,8 +114,10 @@ describe('第一批 · V1 词表守则', () => {
       // + 1 波一(2026-09-04)T14：WITHDRAWAL_ADDRESS_SEEDED（种子身世，提现地址簿随演示
       // 造数装载即留痕），得 9；
       // + 1 波二(2026-09-05)T2：WITHDRAWAL_ADDRESS_REQUEST_DENIED（地址五门拒绝留痕），得 10；
+      // + 5 对手方波一(2026-10-22)T6：SCREENED/REJECTED/OWNERSHIP_VERIFIED/THIRD_PARTY_DECLARED/
+      // HOSTING_MISMATCH_FLAGGED（登记落点 2x2 + 登记时筛查 + 归属验证），得 15；
       // 无不规则过去式例外。
-      'WITHDRAWAL_ADDRESS_': 10,
+      'WITHDRAWAL_ADDRESS_': 15,
       // Task15 收尾(2026-09-02)：常规登录 MFA 二次校验两码共享前缀（区别于
       // ADMIN_FIRST_LOGIN_——那是首次登录专属四步链，不是同一趟旅程）。
       'MFA_LOGIN_': 2,
@@ -215,6 +222,33 @@ describe('平账 B 批：补单十码出生即冻结四属性', () => {
     expect((AuditActions as any)[code]).toBe(code);
     const c = contracts[code];
     expect(c).toBeDefined();
+    const want = expected[code];
+    expect(c.domain).toBe(want.domain);
+    expect(c.correlationMode).toBe(want.correlationMode);
+    expect(c.requiredFields).toEqual(want.requiredFields);
+    expect(c.requiresCausation).toBe(want.requiresCausation);
+  });
+});
+
+describe('对手方波一：提现地址簿五码出生即冻结四属性', () => {
+  // 五码都在 V1_AUDIT_ACTIONS CONFIG 段；全 INHERIT 地址自己的 traceId（REGISTERED 已 START），
+  // 全 requiresCausation=false（客户/operator 直接动作或登记时同步判定，无异步驱动）。
+  const expected: Record<
+    string,
+    { domain: string; correlationMode: AuditCorrelationMode; requiredFields: string[]; requiresCausation: boolean }
+  > = {
+    WITHDRAWAL_ADDRESS_SCREENED: { domain: 'CONFIG', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: ['afterData'], requiresCausation: false },
+    WITHDRAWAL_ADDRESS_REJECTED: { domain: 'CONFIG', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: ['reason'], requiresCausation: false },
+    WITHDRAWAL_ADDRESS_OWNERSHIP_VERIFIED: { domain: 'CONFIG', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: [], requiresCausation: false },
+    WITHDRAWAL_ADDRESS_THIRD_PARTY_DECLARED: { domain: 'CONFIG', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: ['afterData'], requiresCausation: false },
+    WITHDRAWAL_ADDRESS_HOSTING_MISMATCH_FLAGGED: { domain: 'CONFIG', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: ['afterData'], requiresCausation: false },
+  };
+
+  it.each(Object.keys(expected))('%s 在 V1 名册、不在退役闸，且合同四属性逐一精确匹配', (code) => {
+    // 提现地址簿的码住 V1_AUDIT_ACTIONS 合同表，不进手写的 AuditActions 旧枚举（既有 REGISTERED 等同）
+    const c = (V1_AUDIT_ACTIONS as any)[code];
+    expect(c).toBeDefined();
+    expect(DEPRECATED_AUDIT_ACTIONS).not.toContain(code);
     const want = expected[code];
     expect(c.domain).toBe(want.domain);
     expect(c.correlationMode).toBe(want.correlationMode);

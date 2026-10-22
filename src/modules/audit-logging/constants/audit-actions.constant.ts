@@ -768,6 +768,16 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // 波二：地址五门（ADDRESS_LIMIT_REACHED / COOLING_PERIOD_NOT_EXPIRED / LAST_ACTIVE_FIAT_ADDRESS /
   // ADDRESS_HAS_INFLIGHT_WITHDRAWAL / NO_ACTIVE_FIAT_WITHDRAWAL_ADDRESS）拒绝留痕，reasonCode = 门的 code
   WITHDRAWAL_ADDRESS_REQUEST_DENIED: { domain: 'CONFIG', correlationMode: N, requiredFields: ['reasonCode'], requiresCausation: false },
+  // 对手方波一（2026-10-22）：地址簿登记落点 2x2 + 登记时筛查 + 归属验证，五码全 INHERIT 地址自己的 traceId
+  // （地址是旅程主体，REGISTERED 已 START）。触发者：SCREENED=⚡喂筛查 GREEN/YELLOW（operator）；
+  // REJECTED=⚡喂 RED（operator）或登记即拒尾号 3333（recordSystem）；OWNERSHIP_VERIFIED=客户签名验证；
+  // THIRD_PARTY_DECLARED=客户登记第三方地址时随 REGISTERED 加记申报快照；
+  // HOSTING_MISMATCH_FLAGGED=登记时自报托管≠归因，recordSystem 红旗留痕不拦截。
+  WITHDRAWAL_ADDRESS_SCREENED:                 { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_REJECTED:                 { domain: 'CONFIG', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_OWNERSHIP_VERIFIED:       { domain: 'CONFIG', correlationMode: I, requiredFields: [], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_THIRD_PARTY_DECLARED:     { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
+  WITHDRAWAL_ADDRESS_HOSTING_MISMATCH_FLAGGED: { domain: 'CONFIG', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
 
   // ── 种子身世（波一，spec §8）：配置随版本装载，装载即留痕——第七幕按 USDT 查，第一行是"随版本上架"。
   // 种子跑在 Nest 之外，由 prisma/seed-audit.helper.ts 直写：actorType SYSTEM、actorNo RELEASE（业务种子）/ DEMO_SEED（演示客户造数），

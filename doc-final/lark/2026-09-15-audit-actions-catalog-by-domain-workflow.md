@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流
 
 > 生成于 2026-09-15 ｜ 基线 main `8a6390fa` ｜ 来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（8 份名册程序化导出，分组清单与名册双向校验通过）
-> 现役 **343 码**，另有退役 113 码进拒写闸（附录仅列名）。
+> 现役 **348 码**，另有退役 113 码进拒写闸（附录仅列名）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 60 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 27 ｜ TREASURY 37 ｜ RECON 9 ｜ GOVERNANCE 54 ｜ 合计 343
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 65 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 27 ｜ TREASURY 37 ｜ RECON 9 ｜ GOVERNANCE 54 ｜ 合计 348
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -107,7 +107,7 @@
 | `ADMIN_MFA_RESET_APPLIED` | 审批通过、MFA 解绑待重绑 | I 继承 | fromStatus, toStatus, approvalNo | ✓ |
 | `ADMIN_MFA_RESET_CANCELLED` | 申请取消 | I 继承 | reason | ✓ |
 
-## CONFIG 域 —— 配置治理（V3 财务配置 + 角色/策略定义）（60 码）
+## CONFIG 域 —— 配置治理（V3 财务配置 + 角色/策略定义）（65 码）
 
 「配置有身世」：角色定义、审批策略、费率两族、资产暂停恢复、限额、提现地址、客户标签——改配置本身全部过门留痕；种子装载即第一行履历。
 
@@ -189,7 +189,7 @@
 | `CUSTOMER_TAG_ASSIGNED` | 给客户贴标签（如 VIP） | N 单步 | afterData |  |
 | `CUSTOMER_TAG_REVOKED` | 撕标签 | N 单步 | beforeData, reason |  |
 
-### 客户提现地址（24h 冷却闸全生命周期）（9）
+### 客户提现地址（24h 冷却闸全生命周期）（14）
 
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
 |---|---|---|---|---|
@@ -202,6 +202,11 @@
 | `WITHDRAWAL_ADDRESS_UPDATED` | 改标签/收款人信息 | I 继承 | beforeData, afterData |  |
 | `WITHDRAWAL_ADDRESS_COOLING_SKIPPED` | ⚡ 后门跳过冷却期（理由必填，留痕是这条码的演示点） | I 继承 | reason |  |
 | `WITHDRAWAL_ADDRESS_REQUEST_DENIED` | 地址五门拒绝留痕（数量上限/冷却未到/最后一个法币地址等） | N 单步 | reasonCode |  |
+| `WITHDRAWAL_ADDRESS_SCREENED` | ⚡ 喂筛查结论 GREEN/YELLOW（operator 记操作人，reason 必填，afterData 带 answer；只覆写筛查结论、不迁移状态，RED 走 REJECTED 码）（对手方波一） | I 继承 | afterData |  |
+| `WITHDRAWAL_ADDRESS_REJECTED` | 地址被筛查拒绝，终态占坑封禁：⚡ 喂 RED（operator 记操作人，带 fromStatus/toStatus）或登记即拒（尾号 3333，筛查 RED 直接落 REJECTED，system 记账）（对手方波一） | I 继承 | reason |  |
+| `WITHDRAWAL_ADDRESS_OWNERSHIP_VERIFIED` | 客户完成链上签名验证（mock 即点即过，客户本人，带 fromStatus/toStatus，验证通过后放行进入冷却期）（对手方波一） | I 继承 | — |  |
+| `WITHDRAWAL_ADDRESS_THIRD_PARTY_DECLARED` | 登记第三方地址时随 REGISTERED 加记（客户主体，afterData 为受益人姓名与关系的申报快照，crypto 与银行共用）（对手方波一） | I 继承 | afterData |  |
+| `WITHDRAWAL_ADDRESS_HOSTING_MISMATCH_FLAGGED` | 登记时客户自报托管形态与链上归因不一致的红旗留痕（system 记账，afterData 带自报与归因，只留痕不拦截）（对手方波一） | I 继承 | afterData |  |
 
 ### 种子身世（7） — 配置随版本装载，装载即留痕（actor=RELEASE/DEMO_SEED，seed 直写）——第七幕按资产查，第一行就是它
 
