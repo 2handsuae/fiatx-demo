@@ -35,6 +35,9 @@ interface Asset {
   network: string;
 }
 
+type OwnerType = 'SELF' | 'THIRD_PARTY';
+type DeclaredHosting = 'SELF_CUSTODY' | 'VASP';
+
 interface WithdrawalAddr {
   addressNo: string;
   address: string;
@@ -42,13 +45,17 @@ interface WithdrawalAddr {
   network: string;
   status: string;
   label: string | null;
+  ownerType: OwnerType;
   beneficiaryName: string | null;
+  beneficiaryRelationship: string | null;
   memo: string | null;
   activatesAt: string;
   activatedAt: string | null;
   createdAt: string;
   counterpartyVaspName: string | null;
+  ownershipProofType: string | null;
   ownershipDeclaredAt: string | null;
+  ownershipVerifiedAt: string | null;
   // Bank-specific fields
   iban: string | null;
   swiftBic: string | null;
@@ -66,24 +73,56 @@ function truncAddr(addr: string): string {
 
 function statusLabel(s: string): string {
   switch (s) {
+    case 'PENDING_VERIFICATION': return 'Pending verification';
     case 'PENDING_ACTIVATION': return 'Cooling';
     case 'ACTIVE':             return 'Active';
     case 'SUSPENDED':          return 'Suspended';
     case 'CANCELLED':          return 'Cancelled';
     case 'DEACTIVATED':        return 'Deactivated';
+    case 'REJECTED':           return 'Not approved';
     default:                   return s;
   }
 }
 
 function statusColor(s: string): string {
   switch (s) {
+    case 'PENDING_VERIFICATION': return 'bg-fx-brass/15 text-fx-brass';
     case 'PENDING_ACTIVATION': return 'bg-amber-500/15 text-amber-400';
     case 'ACTIVE':             return 'bg-fx-sage/15 text-fx-sage';
     case 'SUSPENDED':          return 'bg-rose-500/15 text-rose-400';
     case 'CANCELLED':          return 'bg-fx-dust/15 text-fx-dust';
     case 'DEACTIVATED':        return 'bg-fx-dust/15 text-fx-dust';
+    case 'REJECTED':           return 'bg-rose-500/15 text-rose-400';
     default:                   return 'bg-fx-dust/15 text-fx-dust';
   }
+}
+
+// 占每网络 3 个名额的状态（与后端 SLOT_HOLDING_STATUSES 同三态；REJECTED 不占名额）
+const SLOT_HOLDING_STATUSES = ['PENDING_VERIFICATION', 'PENDING_ACTIVATION', 'ACTIVE'];
+
+// 登记还没生效、客户可以撤销的两个等待态
+function isCancellable(status: string): boolean {
+  return status === 'PENDING_VERIFICATION' || status === 'PENDING_ACTIVATION';
+}
+
+// 终态：不再出任何动作（编辑 / 取消 / 停用）
+function isTerminalStatus(status: string): boolean {
+  return status === 'CANCELLED' || status === 'DEACTIVATED' || status === 'REJECTED';
+}
+
+// 自托管 × 本人：要先做钱包签名验证，地址才会进入冷却期
+function needsSignature(addr: WithdrawalAddr): boolean {
+  return addr.status === 'PENDING_VERIFICATION' && addr.ownershipProofType === 'SIGNATURE' && !addr.ownershipVerifiedAt;
+}
+
+function beneficiaryText(addr: WithdrawalAddr): string {
+  if (addr.ownerType === 'THIRD_PARTY') return addr.beneficiaryName || '—';
+  return addr.beneficiaryName || 'Myself';
+}
+
+// 列表行里的一行受益人摘要（仅第三方条目出现）
+function thirdPartyLine(addr: WithdrawalAddr): string {
+  return [addr.beneficiaryName, addr.beneficiaryRelationship].filter(Boolean).join(' · ');
 }
 
 function deactivateErrorMessage(code: string, fallback: string): string {
@@ -110,6 +149,88 @@ function maskIban(iban: string): string {
 function formatIban(iban: string): string {
   const clean = iban.replace(/\s/g, '');
   return clean.replace(/(.{4})/g, '$1 ').trim();
+}
+
+/* ─── Small form pieces ────────────────────────────────────── */
+
+function ChoiceCard({ name, checked, onSelect, title, hint }: {
+  name: string;
+  checked: boolean;
+  onSelect: () => void;
+  title: string;
+  hint?: string;
+}) {
+  return (
+    <label
+      className={`flex-1 cursor-pointer rounded-xl border px-3 py-2.5 transition-colors focus-within:ring-1 focus-within:ring-fx-brass/60 ${
+        checked ? 'border-fx-brass bg-fx-brass/10' : 'border-fx-rule bg-fx-charcoal hover:border-fx-brass/40'
+      }`}
+    >
+      <input type="radio" name={name} checked={checked} onChange={onSelect} className="sr-only" />
+      <div className="text-sm font-semibold text-fx-sand">{title}</div>
+      {hint && <div className="mt-0.5 text-[11px] leading-snug text-fx-dust">{hint}</div>}
+    </label>
+  );
+}
+
+function OwnerTypeChoice({ name, value, onChange }: {
+  name: string;
+  value: OwnerType;
+  onChange: (v: OwnerType) => void;
+}) {
+  return (
+    <div>
+      <label className="text-xs text-fx-dust font-medium block mb-1">Beneficiary</label>
+      <div role="radiogroup" aria-label="Beneficiary" className="flex gap-2">
+        <ChoiceCard name={name} checked={value === 'SELF'} onSelect={() => onChange('SELF')} title="Myself" hint="I own it" />
+        <ChoiceCard name={name} checked={value === 'THIRD_PARTY'} onSelect={() => onChange('THIRD_PARTY')} title="Third party" hint="Someone else owns it" />
+      </div>
+    </div>
+  );
+}
+
+function ThirdPartyBadge() {
+  return (
+    <span className="shrink-0 text-[10px] font-bold uppercase text-fx-brass bg-fx-brass/10 px-1.5 py-0.5 rounded">
+      Third party
+    </span>
+  );
+}
+
+// 详情里的所有权凭据行：签名通过 > 第三方申报 > 本人声明；被拒的条目不出绿勾
+function OwnershipNote({ addr }: { addr: WithdrawalAddr }) {
+  if (addr.status === 'REJECTED' || !addr.ownershipDeclaredAt) return null;
+  const title = addr.ownershipVerifiedAt
+    ? 'Wallet signature verified'
+    : addr.ownerType === 'THIRD_PARTY'
+      ? 'Third-party Beneficiary Declared'
+      : 'Ownership Declared';
+  return (
+    <div className="rounded-xl border border-fx-sage/20 bg-fx-sage/5 p-4 flex items-start gap-3">
+      <ShieldCheck size={18} className="text-fx-sage shrink-0 mt-0.5" />
+      <div>
+        <div className="text-xs font-bold text-fx-sage">{title}</div>
+        <div className="text-xs text-fx-dust mt-0.5">
+          {new Date(addr.ownershipVerifiedAt ?? addr.ownershipDeclaredAt).toLocaleString()}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// 登记未通过：客户面只说结果，不给原因
+function NotApprovedNotice({ noun }: { noun: 'address' | 'account' }) {
+  return (
+    <div className="rounded-xl border border-rose-500/20 bg-rose-500/5 p-4 flex items-start gap-3">
+      <AlertCircle size={18} className="text-rose-400 shrink-0 mt-0.5" />
+      <div>
+        <div className="text-xs font-bold text-rose-400">Not approved</div>
+        <div className="text-xs text-fx-dust mt-0.5">
+          This {noun} wasn't approved and can't be used for withdrawals.
+        </div>
+      </div>
+    </div>
+  );
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -146,7 +267,11 @@ export default function WithdrawalAddresses() {
 
   // form fields
   const [formNetwork, setFormNetwork] = useState(chainNetworks[0]?.network ?? '');
+  const [formOwnerType, setFormOwnerType] = useState<OwnerType>('SELF');
   const [formBeneficiary, setFormBeneficiary] = useState('');
+  const [formRelationship, setFormRelationship] = useState('');
+  // 托管自报没有默认值：这是客户的申报证据，不替他预选
+  const [formHosting, setFormHosting] = useState<DeclaredHosting | ''>('');
   const [formLabel, setFormLabel] = useState('');
   const [formAddress, setFormAddress] = useState('');
   const [formMemo, setFormMemo] = useState('');
@@ -157,7 +282,9 @@ export default function WithdrawalAddresses() {
   // bank form fields
   const [showBankAddModal, setShowBankAddModal] = useState(false);
   const [bankDetailAddr, setBankDetailAddr] = useState<WithdrawalAddr | null>(null);
+  const [bankFormOwnerType, setBankFormOwnerType] = useState<OwnerType>('SELF');
   const [bankFormBeneficiary, setBankFormBeneficiary] = useState('');
+  const [bankFormRelationship, setBankFormRelationship] = useState('');
   const [bankFormBankName, setBankFormBankName] = useState('');
   const [bankFormIban, setBankFormIban] = useState('');
   const [bankFormSwift, setBankFormSwift] = useState('');
@@ -174,17 +301,20 @@ export default function WithdrawalAddresses() {
   const [deactivateError, setDeactivateError] = useState('');
   const [deactivateReason, setDeactivateReason] = useState('');
 
-  // cancel registration (PENDING_ACTIVATION only) — inline per-card confirm
+  // cancel registration (waiting states only: PENDING_VERIFICATION / PENDING_ACTIVATION) — inline per-card confirm
   const [cancelConfirmFor, setCancelConfirmFor] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState('');
 
-  // edit label / beneficiary (crypto + bank detail modals)
+  // edit label (crypto + bank detail modals) — beneficiary / hosting are frozen declarations
   const [editLabel, setEditLabel] = useState('');
-  const [editBeneficiary, setEditBeneficiary] = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState('');
+
+  // wallet signature verification (crypto detail, self-custody × myself)
+  const [signing, setSigning] = useState(false);
+  const [signError, setSignError] = useState('');
 
   /* ─── Load assets ────────────────────────────────────────── */
   useEffect(() => {
@@ -237,7 +367,7 @@ export default function WithdrawalAddresses() {
 
   /* ─── Derived ────────────────────────────────────────────── */
   const visibleAddresses = addresses.filter(a => a.addressType !== 'BANK');
-  const activeCount = addresses.filter(a => a.addressType !== 'BANK' && ['PENDING_ACTIVATION', 'ACTIVE'].includes(a.status)).length;
+  const activeCount = addresses.filter(a => a.addressType !== 'BANK' && SLOT_HOLDING_STATUSES.includes(a.status)).length;
   const canAdd = activeCount < 3 && tradingReady;
 
   // Crypto cards grouped by network for display (group title = network code)
@@ -250,7 +380,7 @@ export default function WithdrawalAddresses() {
 
   // Bank tab derived
   const bankAddresses = addresses.filter(a => a.addressType === 'BANK' && a.status !== 'CANCELLED');
-  const bankActiveCount = addresses.filter(a => a.addressType === 'BANK' && ['PENDING_ACTIVATION', 'ACTIVE'].includes(a.status)).length;
+  const bankActiveCount = addresses.filter(a => a.addressType === 'BANK' && SLOT_HOLDING_STATUSES.includes(a.status)).length;
   const canAddBank = bankActiveCount < 3;
 
   /* ─── Copy ───────────────────────────────────────────────── */
@@ -265,6 +395,11 @@ export default function WithdrawalAddresses() {
     setFormError('');
     if (!formNetwork) { setFormError('Please select a network'); return; }
     if (!formAddress.trim()) { setFormError('Wallet address is required'); return; }
+    if (!formHosting) { setFormError('Please tell us how this wallet is held'); return; }
+    if (formOwnerType === 'THIRD_PARTY') {
+      if (!formBeneficiary.trim()) { setFormError('Beneficiary name is required'); return; }
+      if (!formRelationship.trim()) { setFormError('Relationship to the beneficiary is required'); return; }
+    }
     if (!formDeclaration) { setFormError('You must accept the ownership declaration'); return; }
 
     setSubmitting(true);
@@ -276,8 +411,12 @@ export default function WithdrawalAddresses() {
           network: formNetwork,
           address: formAddress.trim(),
           ownershipDeclaration: true,
+          ownerType: formOwnerType,
+          declaredHosting: formHosting,
           label: formLabel.trim() || undefined,
-          beneficiaryName: formBeneficiary.trim() || undefined,
+          ...(formOwnerType === 'THIRD_PARTY'
+            ? { beneficiaryName: formBeneficiary.trim(), beneficiaryRelationship: formRelationship.trim() }
+            : {}),
           memo: formMemo.trim() || undefined,
         }),
       });
@@ -300,7 +439,10 @@ export default function WithdrawalAddresses() {
   };
 
   const resetForm = () => {
+    setFormOwnerType('SELF');
     setFormBeneficiary('');
+    setFormRelationship('');
+    setFormHosting('');
     setFormLabel('');
     setFormAddress('');
     setFormMemo('');
@@ -315,7 +457,9 @@ export default function WithdrawalAddresses() {
   };
 
   const resetBankForm = () => {
+    setBankFormOwnerType('SELF');
     setBankFormBeneficiary('');
+    setBankFormRelationship('');
     setBankFormBankName('');
     setBankFormIban('');
     setBankFormSwift('');
@@ -332,6 +476,7 @@ export default function WithdrawalAddresses() {
   const handleBankSubmit = async () => {
     setBankFormError('');
     if (!bankFormBeneficiary.trim()) { setBankFormError('Beneficiary name is required'); return; }
+    if (bankFormOwnerType === 'THIRD_PARTY' && !bankFormRelationship.trim()) { setBankFormError('Relationship to the beneficiary is required'); return; }
     if (!bankFormBankName.trim()) { setBankFormError('Bank name is required'); return; }
     if (!bankFormIban.trim()) { setBankFormError('IBAN is required'); return; }
     if (!bankFormSwift.trim()) { setBankFormError('SWIFT/BIC code is required'); return; }
@@ -343,7 +488,9 @@ export default function WithdrawalAddresses() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          ownerType: bankFormOwnerType,
           beneficiaryName: bankFormBeneficiary.trim(),
+          ...(bankFormOwnerType === 'THIRD_PARTY' ? { beneficiaryRelationship: bankFormRelationship.trim() } : {}),
           bankName: bankFormBankName.trim(),
           iban: bankFormIban.trim(),
           swiftBic: bankFormSwift.trim(),
@@ -369,7 +516,7 @@ export default function WithdrawalAddresses() {
     }
   };
 
-  /* ─── Cancel registration (PENDING_ACTIVATION only) ─────────── */
+  /* ─── Cancel registration (PENDING_VERIFICATION / PENDING_ACTIVATION) ─── */
   const startCancel = (addressNo: string) => {
     setCancelConfirmFor(addressNo);
     setCancelReason('');
@@ -458,15 +605,40 @@ export default function WithdrawalAddresses() {
     setDetailAddr(null);
     resetDeactivateState();
     setEditError('');
+    setSignError('');
   };
 
-  /* ─── Edit label / beneficiary (crypto detail modal) ────────── */
+  /* ─── Wallet signature verification (mock: passes on click) ─── */
+  const handleVerifySignature = async () => {
+    if (!detailAddr) return;
+    setSignError('');
+    setSigning(true);
+    try {
+      const res = await customerFetch(`${API}/client/withdrawal-addresses/${detailAddr.addressNo}/verify-signature`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        setSignError(await getCustomerApiErrorMessage(res, 'Signature verification failed'));
+        return;
+      }
+      // 通过后条目进入冷却期：详情就地换成返回的新状态，列表同步重拉
+      setDetailAddr(await res.json());
+      await fetchAddresses();
+    } catch (err: any) {
+      if (err instanceof CustomerSessionError) return;
+      setSignError(err.message || 'Unexpected error');
+    } finally {
+      setSigning(false);
+    }
+  };
+
+  /* ─── Edit label (crypto detail modal) ──────────────────────── */
   const openDetail = (addr: WithdrawalAddr) => {
     resetDeactivateState();
     setDetailAddr(addr);
     setEditLabel(addr.label ?? '');
-    setEditBeneficiary(addr.beneficiaryName ?? '');
     setEditError('');
+    setSignError('');
   };
 
   const handleEditSave = async () => {
@@ -478,7 +650,7 @@ export default function WithdrawalAddresses() {
       const res = await customerFetch(`${API}/client/withdrawal-addresses/${addr.addressNo}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ label: editLabel.trim(), beneficiaryName: editBeneficiary.trim() }),
+        body: JSON.stringify({ label: editLabel.trim() }),
       });
       if (!res.ok) {
         setEditError(await getCustomerApiErrorMessage(res, 'Failed to update address'));
@@ -496,12 +668,11 @@ export default function WithdrawalAddresses() {
     }
   };
 
-  /* ─── Edit label / beneficiary (bank detail modal) ──────────── */
+  /* ─── Edit label (bank detail modal) ────────────────────────── */
   const openBankDetail = (addr: WithdrawalAddr) => {
     resetDeactivateState();
     setBankDetailAddr(addr);
     setEditLabel(addr.label ?? '');
-    setEditBeneficiary(addr.beneficiaryName ?? '');
     setEditError('');
   };
 
@@ -662,18 +833,28 @@ export default function WithdrawalAddresses() {
                               <span className="shrink-0 text-[10px] font-bold uppercase text-fx-dust bg-fx-charcoal px-1.5 py-0.5 rounded">
                                 {addr.network}
                               </span>
+                              {addr.ownerType === 'THIRD_PARTY' && <ThirdPartyBadge />}
                             </div>
                             <div className="mt-1 text-xs font-mono text-fx-dust truncate">
                               {truncAddr(addr.address)}
                             </div>
+                            {addr.ownerType === 'THIRD_PARTY' && (
+                              <div className="mt-0.5 text-[11px] text-fx-dust/70 truncate">
+                                {thirdPartyLine(addr)}
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-2.5 shrink-0">
-                            {addr.status === 'PENDING_ACTIVATION' && (
+                            {isCancellable(addr.status) && (
                               <>
-                                <div className="flex items-center gap-1 text-xs font-mono text-amber-400">
-                                  <Clock size={12} />
-                                  {formatCountdown(addr.activatesAt, now)}
-                                </div>
+                                {addr.status === 'PENDING_ACTIVATION' ? (
+                                  <div className="flex items-center gap-1 text-xs font-mono text-amber-400">
+                                    <Clock size={12} />
+                                    {formatCountdown(addr.activatesAt, now)}
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-fx-brass">Signature needed</div>
+                                )}
                                 {cancelConfirmFor !== addr.addressNo && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); startCancel(addr.addressNo); }}
@@ -811,6 +992,7 @@ export default function WithdrawalAddresses() {
                           <span className="shrink-0 text-[10px] font-bold uppercase text-fx-dust bg-fx-charcoal px-1.5 py-0.5 rounded">
                             {addr.network}
                           </span>
+                          {addr.ownerType === 'THIRD_PARTY' && <ThirdPartyBadge />}
                         </div>
                         <div className="mt-1 text-xs font-mono text-fx-dust truncate">
                           {addr.iban ? maskIban(addr.iban) : '—'}
@@ -818,6 +1000,11 @@ export default function WithdrawalAddresses() {
                         {addr.bankName && (
                           <div className="mt-0.5 text-[11px] text-fx-dust/70 truncate">
                             {addr.bankName}
+                          </div>
+                        )}
+                        {addr.ownerType === 'THIRD_PARTY' && (
+                          <div className="mt-0.5 text-[11px] text-fx-dust/70 truncate">
+                            {thirdPartyLine(addr)}
                           </div>
                         )}
                       </div>
@@ -936,15 +1123,51 @@ export default function WithdrawalAddresses() {
                 </select>
               </div>
 
-              {/* Beneficiary Name */}
+              {/* Beneficiary */}
+              <OwnerTypeChoice name="crypto-owner-type" value={formOwnerType} onChange={setFormOwnerType} />
+
+              {formOwnerType === 'THIRD_PARTY' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-fx-dust font-medium block mb-1">Beneficiary Name</label>
+                    <input
+                      value={formBeneficiary}
+                      onChange={e => setFormBeneficiary(e.target.value)}
+                      placeholder="Full name of the wallet owner"
+                      className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-fx-dust font-medium block mb-1">Relationship to you</label>
+                    <input
+                      value={formRelationship}
+                      onChange={e => setFormRelationship(e.target.value)}
+                      placeholder="e.g. Spouse, Business partner"
+                      className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Wallet hosting */}
               <div>
-                <label className="text-xs text-fx-dust font-medium block mb-1">Beneficiary Name</label>
-                <input
-                  value={formBeneficiary}
-                  onChange={e => setFormBeneficiary(e.target.value)}
-                  placeholder="Full name of the wallet owner"
-                  className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
-                />
+                <label className="text-xs text-fx-dust font-medium block mb-1">Wallet hosting</label>
+                <div role="radiogroup" aria-label="Wallet hosting" className="flex gap-2">
+                  <ChoiceCard
+                    name="crypto-hosting"
+                    checked={formHosting === 'SELF_CUSTODY'}
+                    onSelect={() => setFormHosting('SELF_CUSTODY')}
+                    title="Self-custody wallet"
+                    hint="You hold the keys"
+                  />
+                  <ChoiceCard
+                    name="crypto-hosting"
+                    checked={formHosting === 'VASP'}
+                    onSelect={() => setFormHosting('VASP')}
+                    title="Hosted by an exchange (VASP)"
+                    hint="An exchange holds the keys"
+                  />
+                </div>
               </div>
 
               {/* Label */}
@@ -998,7 +1221,9 @@ export default function WithdrawalAddresses() {
                       Ownership Declaration
                     </div>
                     <span className="text-xs text-fx-dune leading-relaxed">
-                      I declare that I am the sole owner and controller of this wallet address. I understand that providing false information may result in account suspension and regulatory action.
+                      {formOwnerType === 'THIRD_PARTY'
+                        ? 'I declare that this wallet address belongs to the beneficiary named above, that I am authorised to send funds to it, and that the relationship I have stated is accurate. I understand that providing false information may result in account suspension and regulatory action.'
+                        : 'I declare that I am the sole owner and controller of this wallet address. I understand that providing false information may result in account suspension and regulatory action.'}
                     </span>
                   </div>
                 </label>
@@ -1076,6 +1301,37 @@ export default function WithdrawalAddresses() {
                 </div>
               )}
 
+              {/* Wallet signature needed (self-custody x myself) */}
+              {needsSignature(detailAddr) && (
+                <div className="rounded-xl border border-fx-brass/25 bg-fx-brass/5 p-4 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <ShieldCheck size={18} className="text-fx-brass shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-xs font-bold text-fx-brass">Wallet signature needed</div>
+                      <p className="text-xs text-fx-dune mt-1 leading-relaxed">
+                        Prove this wallet is yours by signing a short message with it. Once verified, the address starts its cooling period.
+                      </p>
+                    </div>
+                  </div>
+                  {signError && (
+                    <div className="flex items-start gap-2 rounded-xl border border-rose-500/20 bg-rose-500/5 px-3 py-2.5 text-xs text-rose-400">
+                      <AlertCircle size={14} className="mt-0.5 shrink-0" />
+                      {signError}
+                    </div>
+                  )}
+                  <button
+                    onClick={handleVerifySignature}
+                    disabled={signing}
+                    className="w-full py-2.5 bg-fx-brass text-fx-obsidian font-bold rounded-xl hover:shadow-lg hover:shadow-fx-brass/20 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                  >
+                    {signing && <RefreshCw size={16} className="animate-spin" />}
+                    {signing ? 'Verifying...' : 'Verify wallet signature'}
+                  </button>
+                </div>
+              )}
+
+              {detailAddr.status === 'REJECTED' && <NotApprovedNotice noun="address" />}
+
               {/* Wallet Address */}
               <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-4">
                 <label className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Wallet Address</label>
@@ -1117,12 +1373,16 @@ export default function WithdrawalAddresses() {
               </div>
 
               {/* Beneficiary */}
-              {detailAddr.beneficiaryName && (
-                <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-4">
+              <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-4">
+                <div className="flex items-center gap-2">
                   <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Beneficiary</div>
-                  <div className="mt-1 text-sm font-semibold text-fx-sand">{detailAddr.beneficiaryName}</div>
+                  {detailAddr.ownerType === 'THIRD_PARTY' && <ThirdPartyBadge />}
                 </div>
-              )}
+                <div className="mt-1 text-sm font-semibold text-fx-sand">{beneficiaryText(detailAddr)}</div>
+                {detailAddr.ownerType === 'THIRD_PARTY' && detailAddr.beneficiaryRelationship && (
+                  <div className="mt-0.5 text-xs text-fx-dust">Relationship: {detailAddr.beneficiaryRelationship}</div>
+                )}
+              </div>
 
               {/* VASP Info */}
               {detailAddr.counterpartyVaspName && (
@@ -1132,21 +1392,11 @@ export default function WithdrawalAddresses() {
                 </div>
               )}
 
-              {/* Ownership Declaration */}
-              {detailAddr.ownershipDeclaredAt && (
-                <div className="rounded-xl border border-fx-sage/20 bg-fx-sage/5 p-4 flex items-start gap-3">
-                  <ShieldCheck size={18} className="text-fx-sage shrink-0 mt-0.5" />
-                  <div>
-                    <div className="text-xs font-bold text-fx-sage">Ownership Declared</div>
-                    <div className="text-xs text-fx-dust mt-0.5">
-                      {new Date(detailAddr.ownershipDeclaredAt).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Ownership evidence */}
+              <OwnershipNote addr={detailAddr} />
 
-              {/* Edit — hidden for terminal states (CANCELLED / DEACTIVATED) */}
-              {detailAddr.status !== 'CANCELLED' && detailAddr.status !== 'DEACTIVATED' && (
+              {/* Edit — hidden for terminal states (CANCELLED / DEACTIVATED / REJECTED) */}
+              {!isTerminalStatus(detailAddr.status) && (
                 <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-4 space-y-3">
                   <label className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Edit</label>
                   {editError && (
@@ -1160,14 +1410,6 @@ export default function WithdrawalAddresses() {
                     <input
                       value={editLabel}
                       onChange={e => setEditLabel(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-fx-dust font-medium block mb-1">Beneficiary Name</label>
-                    <input
-                      value={editBeneficiary}
-                      onChange={e => setEditBeneficiary(e.target.value)}
                       className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
                     />
                   </div>
@@ -1269,6 +1511,9 @@ export default function WithdrawalAddresses() {
                 </div>
               )}
 
+              {/* Beneficiary */}
+              <OwnerTypeChoice name="bank-owner-type" value={bankFormOwnerType} onChange={setBankFormOwnerType} />
+
               {/* Beneficiary Name */}
               <div>
                 <label className="text-xs text-fx-dust font-medium block mb-1">Beneficiary Name</label>
@@ -1279,6 +1524,18 @@ export default function WithdrawalAddresses() {
                   className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
                 />
               </div>
+
+              {bankFormOwnerType === 'THIRD_PARTY' && (
+                <div>
+                  <label className="text-xs text-fx-dust font-medium block mb-1">Relationship to you</label>
+                  <input
+                    value={bankFormRelationship}
+                    onChange={e => setBankFormRelationship(e.target.value)}
+                    placeholder="e.g. Spouse, Business partner"
+                    className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
+                  />
+                </div>
+              )}
 
               {/* Bank Name */}
               <div>
@@ -1342,7 +1599,9 @@ export default function WithdrawalAddresses() {
                       Ownership Declaration
                     </div>
                     <span className="text-xs text-fx-dune leading-relaxed">
-                      I declare that I am the sole owner and controller of this bank account. I understand that providing false information may result in account suspension and regulatory action.
+                      {bankFormOwnerType === 'THIRD_PARTY'
+                        ? 'I declare that this bank account belongs to the beneficiary named above, that I am authorised to send funds to it, and that the relationship I have stated is accurate. I understand that providing false information may result in account suspension and regulatory action.'
+                        : 'I declare that I am the sole owner and controller of this bank account. I understand that providing false information may result in account suspension and regulatory action.'}
                     </span>
                   </div>
                 </label>
@@ -1420,6 +1679,8 @@ export default function WithdrawalAddresses() {
                 </div>
               )}
 
+              {bankDetailAddr.status === 'REJECTED' && <NotApprovedNotice noun="account" />}
+
               {/* IBAN Card */}
               <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-4">
                 <label className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">IBAN</label>
@@ -1451,8 +1712,14 @@ export default function WithdrawalAddresses() {
                   <div className="mt-1 text-sm font-semibold text-fx-sand">{bankDetailAddr.bankName || '—'}</div>
                 </div>
                 <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Beneficiary</div>
-                  <div className="mt-1 text-sm font-semibold text-fx-sand">{bankDetailAddr.beneficiaryName || '—'}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Beneficiary</div>
+                    {bankDetailAddr.ownerType === 'THIRD_PARTY' && <ThirdPartyBadge />}
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-fx-sand">{beneficiaryText(bankDetailAddr)}</div>
+                  {bankDetailAddr.ownerType === 'THIRD_PARTY' && bankDetailAddr.beneficiaryRelationship && (
+                    <div className="mt-0.5 text-xs text-fx-dust">Relationship: {bankDetailAddr.beneficiaryRelationship}</div>
+                  )}
                 </div>
                 <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-3">
                   <div className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Registered</div>
@@ -1462,21 +1729,11 @@ export default function WithdrawalAddresses() {
                 </div>
               </div>
 
-              {/* Ownership Declaration */}
-              {bankDetailAddr.ownershipDeclaredAt && (
-                <div className="rounded-xl border border-fx-sage/20 bg-fx-sage/5 p-4 flex items-start gap-3">
-                  <ShieldCheck size={18} className="text-fx-sage shrink-0 mt-0.5" />
-                  <div>
-                    <div className="text-xs font-bold text-fx-sage">Ownership Declared</div>
-                    <div className="text-xs text-fx-dust mt-0.5">
-                      {new Date(bankDetailAddr.ownershipDeclaredAt).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* Ownership evidence */}
+              <OwnershipNote addr={bankDetailAddr} />
 
-              {/* Edit — hidden for terminal states (CANCELLED / DEACTIVATED) */}
-              {bankDetailAddr.status !== 'CANCELLED' && bankDetailAddr.status !== 'DEACTIVATED' && (
+              {/* Edit — hidden for terminal states (CANCELLED / DEACTIVATED / REJECTED) */}
+              {!isTerminalStatus(bankDetailAddr.status) && (
                 <div className="rounded-xl bg-fx-charcoal/50 border border-fx-rule p-4 space-y-3">
                   <label className="text-[11px] uppercase tracking-wider text-fx-dust font-bold">Edit</label>
                   {editError && (
@@ -1490,14 +1747,6 @@ export default function WithdrawalAddresses() {
                     <input
                       value={editLabel}
                       onChange={e => setEditLabel(e.target.value)}
-                      className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-fx-dust font-medium block mb-1">Beneficiary Name</label>
-                    <input
-                      value={editBeneficiary}
-                      onChange={e => setEditBeneficiary(e.target.value)}
                       className="w-full px-3 py-2.5 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand text-sm placeholder:text-fx-dust/50 focus:outline-none focus:border-fx-brass"
                     />
                   </div>
