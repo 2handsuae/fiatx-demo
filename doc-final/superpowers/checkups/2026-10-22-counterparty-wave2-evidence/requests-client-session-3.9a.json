@@ -1,0 +1,37 @@
+[
+ {
+  "method": "GET",
+  "url": "/client/me/notifications/unread-count",
+  "status": 200
+ },
+ {
+  "method": "GET",
+  "url": "/client/trading-readiness",
+  "status": 200
+ },
+ {
+  "method": "GET",
+  "url": "/client/agreements/me",
+  "status": 200
+ },
+ {
+  "method": "GET",
+  "url": "/client/me/material-requests",
+  "status": 200
+ },
+ {
+  "method": "POST",
+  "url": "/deposit-transactions/my/DEP261022680322/ownership-claim",
+  "status": 201
+ },
+ {
+  "method": "GET",
+  "url": "/deposit-transactions/my/DEP261022680322",
+  "status": 200
+ },
+ {
+  "method": "GET",
+  "url": "/client/me/material-requests",
+  "status": 200
+ }
+]

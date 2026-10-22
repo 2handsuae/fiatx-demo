@@ -1,0 +1,960 @@
+[
+ {
+  "id": "3bf0cc2b-31fa-46dc-87c2-c43767de7a3a",
+  "eventNo": "AUD261022829953",
+  "userAction": "DEPOSIT_RETURNED",
+  "userActionLabel": "Deposit Returned",
+  "action": "DEPOSIT_RETURNED",
+  "category": "BUSINESS",
+  "actionDomain": "DEPOSIT",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "correlationId": "beea4502-cf7f-4b2f-9491-e3f35b5cef97",
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "SYSTEM",
+  "actorNo": "SYSTEM",
+  "actorDisplayName": "SYSTEM",
+  "actorRolesAtTime": [],
+  "isReadOnly": false,
+  "fromStatus": "RETURNING",
+  "toStatus": "RETURNED",
+  "amount": null,
+  "currency": null,
+  "approvalNo": null,
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "DEPOSIT_RETURNED_DEP261022957964_d4a2386e-fac7-4c49-bc4e-c451775cfa41",
+  "sourceIp": null,
+  "sourcePlatform": "SYSTEM",
+  "outcome": "SUCCESS",
+  "reason": null,
+  "metadata": {
+   "fundsOrderId": "7a33ce61-0e56-4859-bda4-92541caf7479",
+   "externalRef": "0x76beef7ff9a550f0c5549fb942a17930cd5f265139d54cb37c139c1134943b80"
+  },
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "15e56d7bcdbf8b73d0c14694a9a547fb399cb55e876d01588b702531edc51152",
+  "retainedUntil": "2034-10-22T16:05:25.118Z",
+  "occurredAt": "2026-10-22T16:05:25.118Z",
+  "recordedAt": "2026-10-22T16:05:25.118Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   }
+  ]
+ },
+ {
+  "id": "058eea8a-6ba4-4dbd-9137-fe3a97ddbb22",
+  "eventNo": "AUD261022403445",
+  "userAction": "NOTIFICATION_SENT",
+  "userActionLabel": "Notification Sent",
+  "action": "NOTIFICATION_SENT",
+  "category": "BUSINESS",
+  "actionDomain": "CUSTOMER",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": null,
+  "correlationId": null,
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "SYSTEM",
+  "actorNo": "SYSTEM",
+  "actorDisplayName": "SYSTEM",
+  "actorRolesAtTime": [],
+  "isReadOnly": false,
+  "fromStatus": null,
+  "toStatus": null,
+  "amount": null,
+  "currency": null,
+  "approvalNo": null,
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "bf703e03-6e20-416a-91d3-017de971e017",
+  "sourceIp": null,
+  "sourcePlatform": "SYSTEM",
+  "outcome": "SUCCESS",
+  "reason": "Notification DEPOSIT_RETURNED sent to customer CU2601016170",
+  "metadata": {
+   "templateCode": "DEPOSIT_RETURNED",
+   "channels": [
+    "IN_APP",
+    "EMAIL_SIMULATED"
+   ]
+  },
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "5419edcffc5aeed937375210dcd44fe7f514b979b86e425f68a20957e51c5a50",
+  "retainedUntil": "2034-10-22T16:05:25.114Z",
+  "occurredAt": "2026-10-22T16:05:25.114Z",
+  "recordedAt": "2026-10-22T16:05:25.114Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   }
+  ]
+ },
+ {
+  "id": "5caee2fc-4db3-423a-8e97-6b813916e94f",
+  "eventNo": "AUD261022481107",
+  "userAction": "DEPOSIT_RETURN_STARTED",
+  "userActionLabel": "Deposit Return Started",
+  "action": "DEPOSIT_RETURN_STARTED",
+  "category": "BUSINESS",
+  "actionDomain": "DEPOSIT",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "correlationId": "beea4502-cf7f-4b2f-9491-e3f35b5cef97",
+  "causationId": "0a8daadc-630c-41fa-bbbb-ac55fcab8184",
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "SYSTEM",
+  "actorNo": "SYSTEM",
+  "actorDisplayName": "SYSTEM",
+  "actorRolesAtTime": [],
+  "isReadOnly": false,
+  "fromStatus": null,
+  "toStatus": null,
+  "amount": null,
+  "currency": null,
+  "approvalNo": "APR261022932914",
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "DEPOSIT_RETURN_STARTED_DEP261022957964_bb8fd85f-3915-4cc4-a75f-68bc64e097fd",
+  "sourceIp": null,
+  "sourcePlatform": "SYSTEM",
+  "outcome": "SUCCESS",
+  "reason": null,
+  "metadata": {
+   "amount": "1300",
+   "clearedLimitHoldReason": null
+  },
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "0f44b85a5b5d97b83e437771b97495feaaef349a3776ea24917168f38f82bbc8",
+  "retainedUntil": "2034-10-22T16:04:21.823Z",
+  "occurredAt": "2026-10-22T16:04:21.823Z",
+  "recordedAt": "2026-10-22T16:04:21.823Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   },
+   {
+    "subjectType": "APPROVAL_CASE",
+    "subjectNo": "APR261022932914",
+    "subjectRole": "INSTRUMENT"
+   },
+   {
+    "subjectType": "FUNDS_ORDER",
+    "subjectNo": "FDO261022036225",
+    "subjectRole": "RELATED"
+   }
+  ]
+ },
+ {
+  "id": "9122cdac-32d0-49ab-96f3-1c81f8bc4b81",
+  "eventNo": "AUD261022104439",
+  "userAction": "NOTIFICATION_SENT",
+  "userActionLabel": "Notification Sent",
+  "action": "NOTIFICATION_SENT",
+  "category": "BUSINESS",
+  "actionDomain": "CUSTOMER",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": null,
+  "correlationId": null,
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "SYSTEM",
+  "actorNo": "SYSTEM",
+  "actorDisplayName": "SYSTEM",
+  "actorRolesAtTime": [],
+  "isReadOnly": false,
+  "fromStatus": null,
+  "toStatus": null,
+  "amount": null,
+  "currency": null,
+  "approvalNo": null,
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "b4443780-44ba-4450-b549-35db1b0144a6",
+  "sourceIp": null,
+  "sourcePlatform": "SYSTEM",
+  "outcome": "SUCCESS",
+  "reason": "Notification DEPOSIT_RETURNING sent to customer CU2601016170",
+  "metadata": {
+   "templateCode": "DEPOSIT_RETURNING",
+   "channels": [
+    "IN_APP"
+   ]
+  },
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "693f468a0e138cd2ed9451991d0b96fc7612d5dcf4b7a4a8e75b47c3813a9a15",
+  "retainedUntil": "2034-10-22T16:04:21.818Z",
+  "occurredAt": "2026-10-22T16:04:21.818Z",
+  "recordedAt": "2026-10-22T16:04:21.818Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   }
+  ]
+ },
+ {
+  "id": "749d12d6-1da7-4ac0-a2ab-a8f59677df7e",
+  "eventNo": "AUD261022261230",
+  "userAction": "APPROVAL_GRANTED",
+  "userActionLabel": "Approval Granted",
+  "action": "APPROVAL_GRANTED",
+  "category": "GOVERNANCE",
+  "actionDomain": "APPROVAL",
+  "primarySubjectType": "APPROVAL_CASE",
+  "primarySubjectNo": "APR261022932914",
+  "traceId": null,
+  "correlationId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "causationId": null,
+  "ownerCustomerNo": null,
+  "actorType": "ADMIN",
+  "actorNo": "ADM2501010004",
+  "actorDisplayName": "ADM2501010004",
+  "actorRolesAtTime": [
+   "MLRO"
+  ],
+  "isReadOnly": false,
+  "fromStatus": "PENDING",
+  "toStatus": "APPROVED",
+  "amount": null,
+  "currency": null,
+  "approvalNo": "APR261022932914",
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "APPROVAL_GRANTED_APR261022932914_5bcd7817-a27a-4025-94d0-313220ba090d",
+  "sourceIp": null,
+  "sourcePlatform": "ADMIN_API",
+  "outcome": "SUCCESS",
+  "reason": "Approval approved",
+  "metadata": null,
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "5137ffddcc96e159c81c884609548154f83c7eef1154ca64b7b63521b5ba0df9",
+  "retainedUntil": "2034-10-22T16:04:21.745Z",
+  "occurredAt": "2026-10-22T16:04:21.745Z",
+  "recordedAt": "2026-10-22T16:04:21.745Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "APPROVAL_CASE",
+    "subjectNo": "APR261022932914",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "DEPOSIT_RETURN",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "RELATED"
+   }
+  ]
+ },
+ {
+  "id": "bfc78f6c-7131-4708-88d3-293013405bcf",
+  "eventNo": "AUD261022574747",
+  "userAction": "DEPOSIT_DEMO_SCENARIO_RUN",
+  "userActionLabel": "Deposit Demo Scenario Run",
+  "action": "DEPOSIT_DEMO_SCENARIO_RUN",
+  "category": "BUSINESS",
+  "actionDomain": "DEPOSIT",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "correlationId": "beea4502-cf7f-4b2f-9491-e3f35b5cef97",
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "ADMIN",
+  "actorNo": "ADM2501010001",
+  "actorDisplayName": "ADM2501010001",
+  "actorRolesAtTime": [
+   "SUPER_ADMIN"
+  ],
+  "isReadOnly": false,
+  "fromStatus": null,
+  "toStatus": null,
+  "amount": null,
+  "currency": null,
+  "approvalNo": null,
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "DEPOSIT_DEMO_VERDICT_DEP261022957964_7b596ec0-6a1f-4a11-8c92-3571022e395d",
+  "sourceIp": null,
+  "sourcePlatform": "SCRIPT",
+  "outcome": "SUCCESS",
+  "reason": "Demo verdict V10_REJECTED_DISPOSITION fed into deposit DEP261022957964",
+  "metadata": {
+   "verdict": "V10_REJECTED_DISPOSITION",
+   "webhookType": "applicantKytTxnRejected",
+   "txnType": "travelRule",
+   "statusBefore": "MANUAL_CHECKING",
+   "statusAfter": "MANUAL_CHECKING"
+  },
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "bf5d54eb0677d13658c6729fd56ecc41c891e0005c21cfd39418539a544eb402",
+  "retainedUntil": "2034-10-22T16:03:26.492Z",
+  "occurredAt": "2026-10-22T16:03:26.492Z",
+  "recordedAt": "2026-10-22T16:03:26.492Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   }
+  ]
+ },
+ {
+  "id": "6fbd1d9a-5fc1-4ced-be92-bb38f7d725e3",
+  "eventNo": "AUD261022090997",
+  "userAction": "DEPOSIT_RETURN_REQUESTED",
+  "userActionLabel": "Deposit Return Requested",
+  "action": "DEPOSIT_RETURN_REQUESTED",
+  "category": "BUSINESS",
+  "actionDomain": "DEPOSIT",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "correlationId": "beea4502-cf7f-4b2f-9491-e3f35b5cef97",
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "ADMIN",
+  "actorNo": "KYT_VERDICT",
+  "actorDisplayName": "KYT_VERDICT",
+  "actorRolesAtTime": [
+   "SYSTEM"
+  ],
+  "isReadOnly": false,
+  "fromStatus": null,
+  "toStatus": null,
+  "amount": null,
+  "currency": null,
+  "approvalNo": "APR261022932914",
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "DEPOSIT_RETURN_REQUESTED_DEP261022957964_78b76f3c-3cda-410e-80b4-805521ad4655",
+  "sourceIp": null,
+  "sourcePlatform": "ADMIN_API",
+  "outcome": "SUCCESS",
+  "reason": "KYT verdict rejected: RETURN_TO_SENDER disposition",
+  "metadata": {
+   "amount": "1300"
+  },
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "b21cc9e3f9dd21d066e14597117e27ea2880d6a5d5944ce60fdab7eef137e116",
+  "retainedUntil": "2034-10-22T16:03:26.484Z",
+  "occurredAt": "2026-10-22T16:03:26.484Z",
+  "recordedAt": "2026-10-22T16:03:26.484Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   },
+   {
+    "subjectType": "APPROVAL_CASE",
+    "subjectNo": "APR261022932914",
+    "subjectRole": "INSTRUMENT"
+   }
+  ]
+ },
+ {
+  "id": "1344c657-c4eb-427b-89e5-11f57ec21a30",
+  "eventNo": "AUD261022034568",
+  "userAction": "SUBMITTED",
+  "userActionLabel": "Submitted",
+  "action": "APPROVAL_SUBMITTED",
+  "category": "GOVERNANCE",
+  "actionDomain": "APPROVAL",
+  "primarySubjectType": "APPROVAL_CASE",
+  "primarySubjectNo": "APR261022932914",
+  "traceId": null,
+  "correlationId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "causationId": null,
+  "ownerCustomerNo": null,
+  "actorType": "ADMIN",
+  "actorNo": "KYT_VERDICT",
+  "actorDisplayName": "KYT_VERDICT",
+  "actorRolesAtTime": [
+   "SYSTEM"
+  ],
+  "isReadOnly": false,
+  "fromStatus": null,
+  "toStatus": null,
+  "amount": null,
+  "currency": null,
+  "approvalNo": null,
+  "policyCode": "DEPOSIT_RETURN",
+  "policyVersion": 1,
+  "reasonCode": null,
+  "requestId": null,
+  "sourceIp": null,
+  "sourcePlatform": "ADMIN_API",
+  "outcome": "SUCCESS",
+  "reason": "KYT verdict rejected: RETURN_TO_SENDER disposition",
+  "metadata": {
+   "timeoutAt": "2026-10-24T16:03:26.477Z"
+  },
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "d214f7dbafde26bfe6a8e5208adf5fd0c481b12a3b40cea49b9816bc65130929",
+  "retainedUntil": "2034-10-22T16:03:26.479Z",
+  "occurredAt": "2026-10-22T16:03:26.479Z",
+  "recordedAt": "2026-10-22T16:03:26.479Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "APPROVAL_CASE",
+    "subjectNo": "APR261022932914",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "DEPOSIT_RETURN",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "RELATED"
+   },
+   {
+    "subjectType": "APPROVAL_POLICY",
+    "subjectNo": "DEPOSIT_RETURN",
+    "subjectRole": "INSTRUMENT"
+   }
+  ]
+ },
+ {
+  "id": "228e350e-cd7d-43af-bc08-ca515922c443",
+  "eventNo": "AUD261022965959",
+  "userAction": "DEPOSIT_DEMO_SCENARIO_RUN",
+  "userActionLabel": "Deposit Demo Scenario Run",
+  "action": "DEPOSIT_DEMO_SCENARIO_RUN",
+  "category": "BUSINESS",
+  "actionDomain": "DEPOSIT",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "correlationId": "beea4502-cf7f-4b2f-9491-e3f35b5cef97",
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "ADMIN",
+  "actorNo": "ADM2501010001",
+  "actorDisplayName": "ADM2501010001",
+  "actorRolesAtTime": [
+   "SUPER_ADMIN"
+  ],
+  "isReadOnly": false,
+  "fromStatus": null,
+  "toStatus": null,
+  "amount": null,
+  "currency": null,
+  "approvalNo": null,
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "DEPOSIT_DEMO_VERDICT_DEP261022957964_d43c4566-7922-4d4f-95c2-868d34504667",
+  "sourceIp": null,
+  "sourcePlatform": "SCRIPT",
+  "outcome": "SUCCESS",
+  "reason": "Demo verdict V12_VASP_UNQUALIFIED fed into deposit DEP261022957964",
+  "metadata": {
+   "verdict": "V12_VASP_UNQUALIFIED",
+   "webhookType": "applicantKytTxnRejected",
+   "txnType": "travelRule",
+   "statusBefore": "COMPLIANCE_PENDING",
+   "statusAfter": "MANUAL_CHECKING"
+  },
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "5a9552a09b7acc0380a56f7e63f1dc4ee3817774b230761872f44b344c3abec1",
+  "retainedUntil": "2034-10-22T16:02:45.708Z",
+  "occurredAt": "2026-10-22T16:02:45.708Z",
+  "recordedAt": "2026-10-22T16:02:45.708Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   }
+  ]
+ },
+ {
+  "id": "d19f76d5-7e4c-4117-b835-f2920d4d39d3",
+  "eventNo": "AUD261022191981",
+  "userAction": "DEPOSIT_MANUAL_CHECKING",
+  "userActionLabel": "Deposit Manual Checking",
+  "action": "DEPOSIT_MANUAL_CHECKING",
+  "category": "BUSINESS",
+  "actionDomain": "DEPOSIT",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "correlationId": "beea4502-cf7f-4b2f-9491-e3f35b5cef97",
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "SYSTEM",
+  "actorNo": "SYSTEM",
+  "actorDisplayName": "SYSTEM",
+  "actorRolesAtTime": [],
+  "isReadOnly": false,
+  "fromStatus": "COMPLIANCE_PENDING",
+  "toStatus": "MANUAL_CHECKING",
+  "amount": null,
+  "currency": null,
+  "approvalNo": null,
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": "KYT_REJECTED",
+  "requestId": "DEPOSIT_MANUAL_CHECKING_DEP261022957964_72af6dc2-27a2-411d-8c8b-a3a31fd410c6",
+  "sourceIp": null,
+  "sourcePlatform": "SYSTEM",
+  "outcome": "SUCCESS",
+  "reason": "VASP_UNQUALIFIED verdict: counterparty VASP failed qualification — routed to manual review (manualReason=vasp_unqualified); officer decides whether to initiate the return",
+  "metadata": {
+   "manualReason": "vasp_unqualified"
+  },
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "d4256d9aa060e572bedef066c24be97d84da9e236494a631748b59c75a60775d",
+  "retainedUntil": "2034-10-22T16:02:45.702Z",
+  "occurredAt": "2026-10-22T16:02:45.702Z",
+  "recordedAt": "2026-10-22T16:02:45.702Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   }
+  ]
+ },
+ {
+  "id": "c6ab351d-e8f2-4b04-83bb-6df1d77386fd",
+  "eventNo": "AUD261022200224",
+  "userAction": "DEPOSIT_SOURCE_ATTRIBUTED",
+  "userActionLabel": "Deposit Source Attributed",
+  "action": "DEPOSIT_SOURCE_ATTRIBUTED",
+  "category": "BUSINESS",
+  "actionDomain": "DEPOSIT",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "correlationId": "beea4502-cf7f-4b2f-9491-e3f35b5cef97",
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "ADMIN",
+  "actorNo": "ADM2501010001",
+  "actorDisplayName": "ADM2501010001",
+  "actorRolesAtTime": [
+   "SUPER_ADMIN"
+  ],
+  "isReadOnly": false,
+  "fromStatus": null,
+  "toStatus": null,
+  "amount": null,
+  "currency": null,
+  "approvalNo": null,
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "DEPOSIT_SOURCE_ATTRIBUTED_DEP261022957964_22c7cb48-cad0-4621-9e65-a67fc6cd80df",
+  "sourceIp": null,
+  "sourcePlatform": "ADMIN_API",
+  "outcome": "SUCCESS",
+  "reason": "Source attribution fed: VASP",
+  "metadata": null,
+  "beforeData": null,
+  "afterData": {
+   "attribution": "VASP",
+   "counterpartyIsVasp": true,
+   "counterpartyVasp": "Grey Harbor Exchange",
+   "counterpartyVaspDid": "did:mock:grey-harbor-001",
+   "sourceAttributedAt": "2026-10-22T16:02:37.642Z"
+  },
+  "payloadDigest": "054a567f6489579b3190c653bfc500d7ff1b7b2ef9cb91065df0be37b52e2408",
+  "retainedUntil": "2034-10-22T16:02:37.643Z",
+  "occurredAt": "2026-10-22T16:02:37.643Z",
+  "recordedAt": "2026-10-22T16:02:37.643Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   }
+  ]
+ },
+ {
+  "id": "86ccb62a-d57e-42a6-a673-0c3a04d5ecb7",
+  "eventNo": "AUD261022921318",
+  "userAction": "DEPOSIT_SOURCE_ATTRIBUTED",
+  "userActionLabel": "Deposit Source Attributed",
+  "action": "DEPOSIT_SOURCE_ATTRIBUTED",
+  "category": "BUSINESS",
+  "actionDomain": "DEPOSIT",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "correlationId": "beea4502-cf7f-4b2f-9491-e3f35b5cef97",
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "ADMIN",
+  "actorNo": "ADM2501010001",
+  "actorDisplayName": "ADM2501010001",
+  "actorRolesAtTime": [
+   "SUPER_ADMIN"
+  ],
+  "isReadOnly": false,
+  "fromStatus": null,
+  "toStatus": null,
+  "amount": null,
+  "currency": null,
+  "approvalNo": null,
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "DEPOSIT_SOURCE_ATTRIBUTED_DEP261022957964_f233e433-9006-40a8-b4b9-d1bd13f6d791",
+  "sourceIp": null,
+  "sourcePlatform": "ADMIN_API",
+  "outcome": "SUCCESS",
+  "reason": "Source attribution fed: VASP",
+  "metadata": null,
+  "beforeData": null,
+  "afterData": {
+   "attribution": "VASP",
+   "counterpartyIsVasp": true,
+   "counterpartyVasp": "Mock VASP Exchange",
+   "counterpartyVaspDid": "did:mock:vasp-exchange-001",
+   "sourceAttributedAt": "2026-10-22T16:02:29.493Z"
+  },
+  "payloadDigest": "f9dc09e84dc91325ef0055bbb328999fa81cf01a4fda6a2ae27f133d17f10789",
+  "retainedUntil": "2034-10-22T16:02:29.495Z",
+  "occurredAt": "2026-10-22T16:02:29.495Z",
+  "recordedAt": "2026-10-22T16:02:29.495Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   }
+  ]
+ },
+ {
+  "id": "93b813e4-2921-438f-a686-ff343ca4b575",
+  "eventNo": "AUD261022853699",
+  "userAction": "DEPOSIT_SOURCE_ATTRIBUTED",
+  "userActionLabel": "Deposit Source Attributed",
+  "action": "DEPOSIT_SOURCE_ATTRIBUTED",
+  "category": "BUSINESS",
+  "actionDomain": "DEPOSIT",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "correlationId": "beea4502-cf7f-4b2f-9491-e3f35b5cef97",
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "ADMIN",
+  "actorNo": "ADM2501010001",
+  "actorDisplayName": "ADM2501010001",
+  "actorRolesAtTime": [
+   "SUPER_ADMIN"
+  ],
+  "isReadOnly": false,
+  "fromStatus": null,
+  "toStatus": null,
+  "amount": null,
+  "currency": null,
+  "approvalNo": null,
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "DEPOSIT_SOURCE_ATTRIBUTED_DEP261022957964_c96b216e-28e6-49f6-9905-bf98bcd989b8",
+  "sourceIp": null,
+  "sourcePlatform": "ADMIN_API",
+  "outcome": "SUCCESS",
+  "reason": "Source attribution fed: VASP",
+  "metadata": null,
+  "beforeData": null,
+  "afterData": {
+   "attribution": "VASP",
+   "counterpartyIsVasp": true,
+   "counterpartyVasp": "Grey Harbor Exchange",
+   "counterpartyVaspDid": "did:mock:grey-harbor-001",
+   "sourceAttributedAt": "2026-10-22T16:01:55.169Z"
+  },
+  "payloadDigest": "c689432c8c9ad93e1ca55316e896f7af0f8018e5dead2f74166b652d174008a7",
+  "retainedUntil": "2034-10-22T16:01:55.172Z",
+  "occurredAt": "2026-10-22T16:01:55.172Z",
+  "recordedAt": "2026-10-22T16:01:55.173Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   }
+  ]
+ },
+ {
+  "id": "1206e0a0-e333-49d7-862b-a9dd6bae1522",
+  "eventNo": "AUD261022425923",
+  "userAction": "DEPOSIT_SUMSUB_SUBMITTED",
+  "userActionLabel": "Deposit Sumsub Submitted",
+  "action": "DEPOSIT_SUMSUB_SUBMITTED",
+  "category": "BUSINESS",
+  "actionDomain": "DEPOSIT",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "correlationId": "beea4502-cf7f-4b2f-9491-e3f35b5cef97",
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "SYSTEM",
+  "actorNo": "SYSTEM",
+  "actorDisplayName": "SYSTEM",
+  "actorRolesAtTime": [],
+  "isReadOnly": false,
+  "fromStatus": null,
+  "toStatus": null,
+  "amount": null,
+  "currency": null,
+  "approvalNo": null,
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "DEPOSIT_SUMSUB_SUBMITTED_DEP261022957964_62d76c63-5960-40c9-8b66-2e24ca7c655d",
+  "sourceIp": null,
+  "sourcePlatform": "SYSTEM",
+  "outcome": "SUCCESS",
+  "reason": "Deposit submitted to Sumsub KYT for transaction monitoring",
+  "metadata": {
+   "sumsubTxnId": "d705f24fcfd5eac74d60d7f6",
+   "txnType": "travelRule",
+   "decisionReason": "TR_REQUIRED"
+  },
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "0295dba6211407d2b6d9f3c0913274a0ac834a58b5264ee8e3f0709bbb63796a",
+  "retainedUntil": "2034-10-22T16:01:45.388Z",
+  "occurredAt": "2026-10-22T16:01:45.388Z",
+  "recordedAt": "2026-10-22T16:01:45.388Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   }
+  ]
+ },
+ {
+  "id": "97a734a1-9a23-4e02-97b6-8b3e355f197b",
+  "eventNo": "AUD261022945760",
+  "userAction": "DEPOSIT_PAYIN_COMPLETED",
+  "userActionLabel": "Deposit Payin Completed",
+  "action": "DEPOSIT_PAYIN_COMPLETED",
+  "category": "BUSINESS",
+  "actionDomain": "DEPOSIT",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "correlationId": "beea4502-cf7f-4b2f-9491-e3f35b5cef97",
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "SYSTEM",
+  "actorNo": "SYSTEM",
+  "actorDisplayName": "SYSTEM",
+  "actorRolesAtTime": [],
+  "isReadOnly": false,
+  "fromStatus": "PAYIN_PENDING",
+  "toStatus": "COMPLIANCE_PENDING",
+  "amount": null,
+  "currency": null,
+  "approvalNo": null,
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "DEPOSIT_PAYIN_COMPLETED_DEP261022957964_3d1d16b1-9815-4210-aebc-9a5c7f6db450",
+  "sourceIp": null,
+  "sourcePlatform": "SYSTEM",
+  "outcome": "SUCCESS",
+  "reason": "Payin confirmed, deposit entering compliance review",
+  "metadata": {
+   "fundsOrderId": "33113ab3-9525-47de-b289-a9e5f8bfe944"
+  },
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "e236e5a216be3f5b745aeb0b8cef4d5b477979d2a84443a88b3b0350564992be",
+  "retainedUntil": "2034-10-22T16:01:45.375Z",
+  "occurredAt": "2026-10-22T16:01:45.375Z",
+  "recordedAt": "2026-10-22T16:01:45.375Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   },
+   {
+    "subjectType": "FUNDS_ORDER",
+    "subjectNo": "FDO261022686004",
+    "subjectRole": "RELATED"
+   }
+  ]
+ },
+ {
+  "id": "630e3b28-acea-4087-876f-9070b176037b",
+  "eventNo": "AUD261022645499",
+  "userAction": "DEPOSIT_CREATED",
+  "userActionLabel": "Deposit Created",
+  "action": "DEPOSIT_CREATED",
+  "category": "BUSINESS",
+  "actionDomain": "DEPOSIT",
+  "primarySubjectType": "DEPOSIT_TRANSACTION",
+  "primarySubjectNo": "DEP261022957964",
+  "traceId": "e719575b-258d-4d39-8c55-61002c8362b3",
+  "correlationId": "beea4502-cf7f-4b2f-9491-e3f35b5cef97",
+  "causationId": null,
+  "ownerCustomerNo": "CU2601016170",
+  "actorType": "SYSTEM",
+  "actorNo": "SYSTEM",
+  "actorDisplayName": "SYSTEM",
+  "actorRolesAtTime": [],
+  "isReadOnly": false,
+  "fromStatus": null,
+  "toStatus": null,
+  "amount": "1300",
+  "currency": "USDT",
+  "approvalNo": null,
+  "policyCode": null,
+  "policyVersion": null,
+  "reasonCode": null,
+  "requestId": "DEPOSIT_CREATED_DEP261022957964_08985d00-54bd-49bc-a777-a026f4ac025b",
+  "sourceIp": null,
+  "sourcePlatform": "SYSTEM",
+  "outcome": "SUCCESS",
+  "reason": "Deposit created from inbound transfer detection",
+  "metadata": {
+   "fundsOrderId": "33113ab3-9525-47de-b289-a9e5f8bfe944",
+   "fundsOrderNo": "FDO261022686004",
+   "txHash": "201bc889ad89ea4ae6a9c30ad5b452af2c77aaadaaaaaaa1a16458949da2b251",
+   "referenceNo": null
+  },
+  "beforeData": null,
+  "afterData": null,
+  "payloadDigest": "b59d9d55e3ebbaa4d9ab5904eb947a31c1109189039de44229b889da8fbe747a",
+  "retainedUntil": "2034-10-22T16:01:29.279Z",
+  "occurredAt": "2026-10-22T16:01:29.279Z",
+  "recordedAt": "2026-10-22T16:01:29.279Z",
+  "archivedAt": null,
+  "subjects": [
+   {
+    "subjectType": "DEPOSIT_TRANSACTION",
+    "subjectNo": "DEP261022957964",
+    "subjectRole": "PRIMARY"
+   },
+   {
+    "subjectType": "CUSTOMER",
+    "subjectNo": "CU2601016170",
+    "subjectRole": "OWNER"
+   },
+   {
+    "subjectType": "FUNDS_ORDER",
+    "subjectNo": "FDO261022686004",
+    "subjectRole": "RELATED"
+   }
+  ]
+ }
+]

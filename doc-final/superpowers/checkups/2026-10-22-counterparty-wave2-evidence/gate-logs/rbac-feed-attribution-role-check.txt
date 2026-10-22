@@ -1,0 +1,4 @@
+compliance_lead@fiatx.com 404 {"message":"Deposit transaction not found","error":"Not Found","statusCode":404}
+treasury@fiatx.com 403 {"message":"Access denied. Missing permission: api.post.admin_deposit_sumsub_demo_feed_attribution","error":"Forbidden",
+ops_officer@fiatx.com 403 {"message":"Access denied. Missing permission: api.post.admin_deposit_sumsub_demo_feed_attribution","error":"Forbidden",
+admin@fiatx.com 404 {"message":"Deposit transaction not found","error":"Not Found","statusCode":404}
