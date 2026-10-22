@@ -20,6 +20,8 @@ import { CustomerSessionError, customerFetch } from '../../utils/customerFetch';
 interface MaterialRequestEntry {
   requestNo: string;
   materialLabel: string;
+  // 非空 = 我方表单型材料（来源认领）：按钮文案换成 "Declare source"，仍跳同一个 /verification/:requestNo
+  formKind: 'OWNERSHIP_CLAIM' | null;
   status: 'PENDING_SUBMISSION' | 'SUBMITTED';
   orderDomain: 'DEPOSIT' | 'WITHDRAW' | 'SWAP' | null;
   orderRef: string | null;
@@ -72,7 +74,9 @@ export function MaterialRequestSection({
             <div className="flex-1 min-w-0">
               <div className="text-sm text-fx-sand">{m.materialLabel}</div>
               <div className="text-xs text-fx-dust">
-                {m.status === 'SUBMITTED' ? 'Received · under review' : 'Awaiting your documents'}
+                {m.status === 'SUBMITTED'
+                  ? 'Received · under review'
+                  : m.formKind ? 'Awaiting your declaration' : 'Awaiting your documents'}
               </div>
             </div>
             <button
@@ -80,7 +84,7 @@ export function MaterialRequestSection({
               disabled={m.status === 'SUBMITTED'}
               className="rounded-xl border border-fx-brass/40 bg-fx-brass/10 px-4 py-2 text-sm font-semibold text-fx-brass hover:bg-fx-brass/20 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-fx-brass/10"
             >
-              Provide documents
+              {m.formKind ? 'Declare source' : 'Provide documents'}
             </button>
           </div>
         ))}

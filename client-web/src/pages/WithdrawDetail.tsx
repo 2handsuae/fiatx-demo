@@ -16,6 +16,8 @@ interface WithdrawDetailData {
   txHash: string | null; referenceNo: string | null;
   toAddress: string | null; toIban: string | null;
   addressLabel: string | null;
+  beneficiaryName: string | null;
+  beneficiaryType: 'SELF' | 'THIRD_PARTY' | null;
   quote: { quoteNo: string; feeLevelCode: string | null; tierName: string } | null;
   timeline: { status: string; at: string }[];
   asset: { code: string; currency: string; network: string | null; decimals: number } | null;
@@ -97,6 +99,10 @@ const WithdrawDetail = () => {
           {tx.toAddress && <Field label="Destination address" value={tx.toAddress} mono wide />}
           {tx.toIban && <Field label="Destination IBAN" value={tx.toIban} mono wide />}
           {tx.addressLabel && <Field label="Address label" value={tx.addressLabel} />}
+          {tx.beneficiaryName && <Field label="Beneficiary" value={tx.beneficiaryName} />}
+          {tx.beneficiaryType && (
+            <Field label="Beneficiary type" value={tx.beneficiaryType === 'THIRD_PARTY' ? 'Third party' : 'Myself'} />
+          )}
           <Field label="Reference" value={tx.referenceNo || '—'} mono />
           {tx.txHash && <Field label="Transaction hash" value={tx.txHash} mono wide />}
         </dl>

@@ -134,7 +134,6 @@ interface CreateInboundTransferSignalPayload {
   fromAddress?: string;
   referenceNo?: string;
   fromIban?: string;
-  counterpartyIsVasp?: boolean;
 }
 
 const normalizeSimulationAssetType = (
@@ -202,7 +201,7 @@ const Deposit = () => {
   const [simulatingSignal, setSimulatingSignal] = useState(false);
   const [showSimulateModal, setShowSimulateModal] = useState(false);
   const [signalAmount, setSignalAmount] = useState('');
-  const [counterpartyIsVasp, setCounterpartyIsVasp] = useState<boolean | null>(null);
+  const [signalFromAddress, setSignalFromAddress] = useState('');
   const [signalFeedback, setSignalFeedback] = useState<SimulationFeedback | null>(null);
   const [lastSimulationResult, setLastSimulationResult] = useState<SimulationResultSummary | null>(null);
 
@@ -279,7 +278,7 @@ const Deposit = () => {
     setSignalFeedback(null);
     setLastSimulationResult(null);
     setSignalAmount('');
-    setCounterpartyIsVasp(null);
+    setSignalFromAddress('');
     setShowSimulateModal(false);
   }, [selectedAssetId, activeTab, depositWallet?.id]);
 
@@ -290,7 +289,7 @@ const Deposit = () => {
 
     setShowSimulateModal(false);
     setSignalAmount('');
-    setCounterpartyIsVasp(null);
+    setSignalFromAddress('');
     setLastSimulationResult(null);
   }, [simulationModeEnabled]);
 
@@ -393,7 +392,7 @@ const Deposit = () => {
     wallet: WalletItem,
     asset: Asset,
     amount: string,
-    counterpartyIsVasp: boolean | null,
+    fromAddressInput: string,
   ): CreateInboundTransferSignalPayload => {
     const rawSeed = `${wallet.id}-${asset.code}-${Date.now().toString(16)}-${Math.random()
       .toString(16)
@@ -409,8 +408,8 @@ const Deposit = () => {
         contractAddress: asset.contractAddress ?? undefined,
         amount,
         txHash: txSeed,
-        fromAddress: `T${compactSeed.padEnd(33, 'x').slice(0, 33)}`,
-        counterpartyIsVasp: counterpartyIsVasp ?? undefined,
+        // 留空 → 照旧随机生成；填了就用填的（同源二笔对照要两次填同一个地址）
+        fromAddress: fromAddressInput || `T${compactSeed.padEnd(33, 'x').slice(0, 33)}`,
       };
     }
 
@@ -502,21 +501,12 @@ const Deposit = () => {
       return;
     }
 
-    const isCryptoDeposit = wallet.networkInfo ? wallet.networkInfo.kind === 'CHAIN' : simAsset.type === 'CRYPTO';
-    if (isCryptoDeposit && counterpartyIsVasp === null) {
-      setSignalFeedback({
-        kind: 'error',
-        message: 'Please select the counterparty type',
-      });
-      return;
-    }
-
     setSimulatingSignal(true);
     setSignalFeedback(null);
     setLastSimulationResult(null);
     try {
       const payload: CreateInboundTransferSignalPayload = {
-        ...buildMockInboundSignalPayload(wallet, simAsset, amount, counterpartyIsVasp),
+        ...buildMockInboundSignalPayload(wallet, simAsset, amount, signalFromAddress.trim()),
       };
       const createResponse = await customerFetch(
         `${import.meta.env.VITE_API_URL}/deposit-transactions/my/inbound-signals`,
@@ -566,7 +556,7 @@ const Deposit = () => {
         assetType: normalizeSimulationAssetType(simAsset.type),
       });
       setSignalAmount('');
-      setCounterpartyIsVasp(null);
+      setSignalFromAddress('');
       setShowSimulateModal(false);
     } catch (error) {
       if (error instanceof CustomerSessionError) return;
@@ -687,7 +677,7 @@ const Deposit = () => {
       <button
         onClick={() => {
           setSignalAmount('');
-          setCounterpartyIsVasp(null);
+          setSignalFromAddress('');
           setSignalFeedback(null);
           setShowSimulateModal(true);
         }}
@@ -1196,31 +1186,14 @@ const Deposit = () => {
 
               {simAsset?.type === 'CRYPTO' && (
                 <div>
-                  <label className="text-xs text-fx-dust font-medium block mb-1">Counterparty</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setCounterpartyIsVasp(true)}
-                      className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
-                        counterpartyIsVasp === true
-                          ? 'border-fx-brass bg-fx-brass/10 text-fx-brass'
-                          : 'border-fx-rule text-fx-dune hover:bg-fx-charcoal/50'
-                      }`}
-                    >
-                      VASP (exchange / custodian)
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCounterpartyIsVasp(false)}
-                      className={`rounded-xl border px-3 py-2 text-sm font-semibold transition-colors ${
-                        counterpartyIsVasp === false
-                          ? 'border-fx-brass bg-fx-brass/10 text-fx-brass'
-                          : 'border-fx-rule text-fx-dune hover:bg-fx-charcoal/50'
-                      }`}
-                    >
-                      Unhosted wallet
-                    </button>
-                  </div>
+                  <label className="text-xs text-fx-dust font-medium block mb-1">From address (optional)</label>
+                  <input
+                    value={signalFromAddress}
+                    onChange={(e) => setSignalFromAddress(e.target.value)}
+                    placeholder="Leave blank for a random sender address"
+                    disabled={simulatingSignal}
+                    className="w-full px-3 py-2 border border-fx-rule rounded-xl bg-fx-charcoal text-fx-sand font-mono text-xs focus:outline-none focus:border-fx-brass"
+                  />
                 </div>
               )}
 
@@ -1233,7 +1206,7 @@ const Deposit = () => {
               <button
                 onClick={() => {
                   setSignalAmount('');
-                  setCounterpartyIsVasp(null);
+                  setSignalFromAddress('');
                   setShowSimulateModal(false);
                 }}
                 disabled={simulatingSignal}

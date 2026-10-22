@@ -16,6 +16,12 @@ interface DepositDetailData {
   fromAddress: string | null; fromIban: string | null;
   toAddress: string | null; toIban: string | null;
   effectiveDate: string | null;
+  // 来源：对手方名称 + 客户自己提交的认领快照（都是客户面白名单内的字段）
+  counterpartyVasp: string | null;
+  sourceClaimType: 'SELF' | 'THIRD_PARTY_PERSON' | 'THIRD_PARTY_VASP' | null;
+  sourceClaimName: string | null;
+  sourceClaimRelationship: string | null;
+  sourceClaimedAt: string | null;
   timeline: { status: string; at: string }[];
   asset: { code: string; currency: string; network: string | null; decimals: number } | null;
 }
@@ -104,6 +110,28 @@ const DepositDetail = () => {
           {tx.txHash && <Field label="Transaction hash" value={tx.txHash} mono wide />}
         </dl>
       </section>
+
+      {(tx.counterpartyVasp || tx.sourceClaimedAt) && (
+        <section className="mt-8">
+          <h2 className="text-sm font-semibold text-fx-sand mb-3">Source</h2>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {tx.counterpartyVasp && <Field label="Counterparty" value={tx.counterpartyVasp} />}
+            {tx.sourceClaimedAt && (
+              <Field label="Source declaration" value={`Submitted · ${new Date(tx.sourceClaimedAt).toLocaleString()}`} />
+            )}
+            {tx.sourceClaimType === 'SELF' && <Field label="Sending wallet" value="My own wallet" />}
+            {tx.sourceClaimType === 'THIRD_PARTY_PERSON' && (
+              <>
+                <Field label="Sent by" value={tx.sourceClaimName || '—'} />
+                <Field label="Relationship to you" value={tx.sourceClaimRelationship || '—'} />
+              </>
+            )}
+            {tx.sourceClaimType === 'THIRD_PARTY_VASP' && (
+              <Field label="Sent by (exchange / custodian)" value={tx.sourceClaimName || '—'} />
+            )}
+          </dl>
+        </section>
+      )}
 
       <section className="mt-8">
         <h2 className="text-sm font-semibold text-fx-sand mb-3">Timeline</h2>
