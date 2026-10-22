@@ -6,7 +6,15 @@ import {
   DetailPageHeader,
   DetailCard,
   InfoField,
+  InfoSlot,
 } from '../components/compliance/DetailPageComponents';
+import {
+  VASP_UNQUALIFIED_REASON,
+  VaspProfileFields,
+  VaspUnqualifiedBasis,
+  type VaspProfile,
+} from '../components/compliance/VaspProfileFields';
+import { AdminBadge, type BadgeVariant } from '../components/ui/AdminBadge';
 import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import {
@@ -117,6 +125,21 @@ interface DepositDetail {
   slaDeadline?: string | null;
   slaBreached?: boolean | null;
   l1Snapshot?: string | null;
+  manualReason?: string | null;
+  /** 对手方波二：来源归因（⚡喂归因写入）——counterpartyIsVasp 即托管快照，null = 未归因。 */
+  counterpartyIsVasp?: boolean | null;
+  counterpartyVasp?: string | null;
+  counterpartyVaspDid?: string | null;
+  sourceAttributedAt?: string | null;
+  /** 对手方波二：unhosted 超线后客户提交的来源认领快照。 */
+  sourceClaimType?: 'SELF' | 'THIRD_PARTY_PERSON' | 'THIRD_PARTY_VASP' | null;
+  sourceClaimName?: string | null;
+  sourceClaimRelationship?: string | null;
+  sourceClaimedAt?: string | null;
+  /** 同源免问：这个地址已在哪张单上认领过（depositNo）。 */
+  knownSourceRef?: string | null;
+  /** VASP 名录档案，后端按 counterpartyVaspDid 现拼；未归因 VASP / 名录查无为 null。 */
+  vaspProfile?: VaspProfile | null;
   /** 平账 B 批 Task 10：补录才有值（案子业务归属日）。 */
   effectiveDate?: string | null;
   supplementOrigin?: {
@@ -199,6 +222,20 @@ const APPROVAL_ACTION_LABELS: Record<string, string> = {
   DEPOSIT_CONFISCATION: 'Confiscate',
 };
 
+/** 来源认领类型 → 白话标签（Source & Counterparty 区块的认领快照）。 */
+const CLAIM_TYPE_LABELS: Record<string, string> = {
+  SELF: 'Self — own wallet',
+  THIRD_PARTY_PERSON: 'Third-party individual',
+  THIRD_PARTY_VASP: 'Third-party VASP',
+};
+
+/** ⚡ Attribution Simulation 三钮 → feed-attribution 请求体（vasp 缺省 = MOCK_VASP_EXCHANGE）。 */
+const ATTRIBUTION_SIM_BUTTONS = [
+  { key: 'VASP_QUALIFIED', label: 'VASP (qualified)', body: { attribution: 'VASP', vasp: 'MOCK_VASP_EXCHANGE' } },
+  { key: 'VASP_GREY_HARBOR', label: 'VASP (Grey Harbor)', body: { attribution: 'VASP', vasp: 'GREY_HARBOR' } },
+  { key: 'UNHOSTED', label: 'Unhosted', body: { attribution: 'UNHOSTED' } },
+] as const;
+
 /* ── Page Component ─────────────────────────────────────────── */
 
 const DepositTransactionDetail = () => {
@@ -223,11 +260,14 @@ const DepositTransactionDetail = () => {
   const { enabled: simEnabled } = useSimulationMode();
   const [slaSubmitting, setSlaSubmitting] = useState(false);
   const [slaError, setSlaError] = useState('');
-  const { hasPermission } = useAdminSession();
+  const [attributionBusy, setAttributionBusy] = useState<string | null>(null);
+  const [attributionError, setAttributionError] = useState('');
+  const { hasPermission, hasAnyPermission } = useAdminSession();
   // 评审修复（对账两角色收权，2026-09-10）：⚡ Simulate SLA Timeout 此前只按
   // slaDeadline/slaBreached 显隐，不查权限码——运营丢了 DEMO_CLOCK_WRITE 后按钮
   // 仍在、一点即 403；补门控，代表码见 permissions.ts。
   const canSimulateSlaTimeout = hasPermission(PERMISSIONS.DEMO_CLOCK_WRITE);
+  const canFeedAttribution = hasAnyPermission([PERMISSIONS.DEPOSIT_FEED_ATTRIBUTION]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -463,6 +503,39 @@ const DepositTransactionDetail = () => {
     }
   };
 
+  /* ── ⚡ Attribution Simulation (对手方波二：站在 Sumsub 一侧告知「对手方是谁」) ── */
+
+  const handleFeedAttribution = async (button: (typeof ATTRIBUTION_SIM_BUTTONS)[number]) => {
+    if (!data) return;
+    setAttributionBusy(button.key);
+    setAttributionError('');
+    try {
+      const response = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/deposit-sumsub/demo/feed-attribution`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ depositNo: data.depositNo, ...button.body }),
+        },
+      );
+      if (!response.ok) {
+        setAttributionError(
+          response.status === 404
+            ? 'Demo endpoint unavailable — backend SUMSUB_MOCK_MODE is off.'
+            : await getApiErrorMessage(response, 'Failed to feed attribution.'),
+        );
+        return;
+      }
+      setNotice(`Attribution fed — ${button.label}`);
+      await fetchData();
+    } catch (error) {
+      if (error instanceof AdminSessionError) return;
+      setAttributionError(error instanceof Error ? error.message : 'Failed to feed attribution.');
+    } finally {
+      setAttributionBusy(null);
+    }
+  };
+
   /* ── Loading / Empty ── */
 
   if (loading) {
@@ -509,6 +582,18 @@ const DepositTransactionDetail = () => {
   const l2Style = getComplianceLayerStyle(
     gatesNotEvaluated ? 'PENDING' : data.sumsubVerdict,
   );
+  // 对手方波二：来源归因只对 crypto 有意义（法币单没有「对手方 VASP」可归）。
+  // 归因结果三态 —— VASP / UNHOSTED / 未归因；`counterpartyIsVasp` 只由 ⚡喂归因写入，
+  // null 即尚未归因。
+  const isCryptoDeposit = data.asset.type === 'CRYPTO';
+  const attributionBadge: { value: string; variant: BadgeVariant } =
+    data.counterpartyIsVasp === true
+      ? { value: 'VASP', variant: 'pending' }
+      : data.counterpartyIsVasp === false
+        ? { value: 'UNHOSTED', variant: 'rejected' }
+        : { value: 'NOT ATTRIBUTED', variant: 'info' };
+  const showAttributionSimulation =
+    simEnabled && data.status === 'COMPLIANCE_PENDING' && isCryptoDeposit && canFeedAttribution;
 
   return (
     <div className="flex h-full flex-col">
@@ -642,6 +727,72 @@ const DepositTransactionDetail = () => {
               </div>
             </div>
           </DetailCard>
+
+          {/* 3b. Source & Counterparty（对手方波二，crypto 单）——「这笔钱从谁那儿来」：
+              ⚡喂归因的结果（VASP + 名录档案 / Unhosted / 未归因）、托管快照、
+              unhosted 超线后客户的来源认领快照、同源免问回链；复核态单子若是
+              VASP 不合格带进来的，在这里亮出不合格依据。 */}
+          {isCryptoDeposit && (
+            <DetailCard title="Source & Counterparty" columns={2}>
+              <InfoSlot label="Source Attribution">
+                <AdminBadge value={attributionBadge.value} variant={attributionBadge.variant} />
+              </InfoSlot>
+              {data.sourceAttributedAt && (
+                <InfoField
+                  label="Attributed At"
+                  value={new Date(data.sourceAttributedAt).toLocaleString()}
+                  mono
+                />
+              )}
+              {data.counterpartyVasp && <InfoField label="Counterparty VASP" value={data.counterpartyVasp} />}
+              {data.counterpartyVaspDid && (
+                <InfoField label="VASP DID" value={data.counterpartyVaspDid} mono />
+              )}
+              {typeof data.counterpartyIsVasp === 'boolean' && (
+                <InfoField
+                  label="Custody Snapshot"
+                  value={data.counterpartyIsVasp ? 'Hosted by a VASP' : 'Unhosted — self-custody wallet'}
+                />
+              )}
+              {data.manualReason === VASP_UNQUALIFIED_REASON && <VaspUnqualifiedBasis />}
+              {data.vaspProfile && <VaspProfileFields profile={data.vaspProfile} />}
+              {data.vaspProfile && (
+                <p className="col-span-full font-mono text-[10px] text-adm-t3">
+                  {'Policy: EEC completed ∧ risk score < 10 ∧ licensed → eligible'}
+                </p>
+              )}
+              {data.sourceClaimType && (
+                <InfoField
+                  label="Ownership Claim"
+                  value={CLAIM_TYPE_LABELS[data.sourceClaimType] ?? data.sourceClaimType}
+                />
+              )}
+              {data.sourceClaimName && <InfoField label="Claimed Name" value={data.sourceClaimName} />}
+              {data.sourceClaimRelationship && (
+                <InfoField label="Claimed Relationship" value={data.sourceClaimRelationship} />
+              )}
+              {data.sourceClaimedAt && (
+                <InfoField
+                  label="Claimed At"
+                  value={new Date(data.sourceClaimedAt).toLocaleString()}
+                  mono
+                />
+              )}
+              {data.knownSourceRef && (
+                <InfoSlot label="Known Source">
+                  <button
+                    onClick={() => navigate(`/admin/trading/deposits/${data.knownSourceRef}`)}
+                    className="font-mono text-[11px] text-adm-blue hover:underline"
+                  >
+                    {data.knownSourceRef}
+                  </button>
+                  <span className="font-mono text-[10px] text-adm-t3">
+                    same address already claimed on that deposit — no claim asked
+                  </span>
+                </InfoSlot>
+              )}
+            </DetailCard>
+          )}
 
           {/* 4. Sumsub References (read-only) — Applicant ID + the single
               Sumsub txn this deposit submitted. status/receivedAt come from
@@ -870,6 +1021,31 @@ const DepositTransactionDetail = () => {
               >
                 {slaSubmitting ? 'Processing...' : 'Simulate SLA Timeout'}
               </button>
+            </SidebarGroup>
+          )}
+
+          {/* Attribution Simulation — demo backdoor：站在 Sumsub 一侧（Travel Rule 引擎）
+              告诉我方「这笔入金的对手方是谁」。仅 COMPLIANCE_PENDING 的 crypto 单可喂
+              （后端同款守卫：非该态 409、法币 400）；喂完刷新详情，Unhosted 超线会就此
+              挂起等客户认领。 */}
+          {showAttributionSimulation && (
+            <SidebarGroup title="Attribution Simulation ⚡">
+              <p className="font-mono text-[10px] text-adm-t3">
+                Demo backdoor — feeds who the sender is, as if returned by Sumsub&apos;s Travel Rule engine.
+              </p>
+              {attributionError && <p className="text-[11px] text-adm-red">{attributionError}</p>}
+              <div className="flex flex-col gap-2">
+                {ATTRIBUTION_SIM_BUTTONS.map((b) => (
+                  <button
+                    key={b.key}
+                    onClick={() => void handleFeedAttribution(b)}
+                    disabled={attributionBusy !== null}
+                    className={adminButtonClass('simulationAction', 'w-full')}
+                  >
+                    {attributionBusy === b.key ? 'Running...' : b.label}
+                  </button>
+                ))}
+              </div>
             </SidebarGroup>
           )}
 

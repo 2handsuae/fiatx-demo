@@ -222,6 +222,10 @@ export const PERMISSIONS = {
   // approvals/simulate-timeout 这一个，同组路由绑定角色一致，三处按钮统一用它判断。
   DEMO_CLOCK_WRITE: 'api.post.admin_control_gates_approvals_approvalno_simulate_timeout',
 
+  // 对手方波二（Task 10）：充值详情 ⚡ Attribution Simulation 三钮——精确镜像 rbac.catalog.ts 的
+  // route('POST', '/admin/deposit-sumsub/demo/feed-attribution')，归 DEMO_VERDICT_WRITE 组（零新权限组）。
+  DEPOSIT_FEED_ATTRIBUTION: 'api.post.admin_deposit_sumsub_demo_feed_attribution',
+
   IAM_ROLE_DEFINITIONS_CREATE: 'api.post.admin_iam_role_definitions',
   IAM_ROLE_DEFINITIONS_PERMISSION_GROUPS: 'api.get.admin_iam_role_definitions_permission_groups',
   IAM_ROLE_DEFINITIONS_MODIFY: 'api.post.admin_iam_role_definitions_roleid_modify',

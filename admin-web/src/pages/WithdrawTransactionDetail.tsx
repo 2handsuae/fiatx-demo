@@ -6,7 +6,15 @@ import {
   DetailPageHeader,
   DetailCard,
   InfoField,
+  InfoSlot,
 } from '../components/compliance/DetailPageComponents';
+import {
+  VASP_UNQUALIFIED_REASON,
+  VaspProfileFields,
+  VaspUnqualifiedBasis,
+  type VaspProfile,
+} from '../components/compliance/VaspProfileFields';
+import { AdminBadge, type BadgeVariant } from '../components/ui/AdminBadge';
 import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import {
@@ -127,6 +135,17 @@ interface WithdrawDetail {
   referenceNo: string | null;
   counterpartyIsVasp?: boolean | null;
   manualReason?: string | null;
+  /** 对手方波二：建单时抄自地址簿的受益人 / 对手方（单据即快照，不回头读地址簿）。 */
+  withdrawalAddressNo?: string | null;
+  beneficiaryName?: string | null;
+  /** `SELF` / `THIRD_PARTY`（抄地址簿 ownerType；订单自身 ownerType 是下单主体）。 */
+  beneficiaryType?: string | null;
+  counterpartyVaspName?: string | null;
+  counterpartyVaspDid?: string | null;
+  /** travelRule 型提交时一次性写的 JSON 串（见 TravelRuleSnapshot）；法币 / finance 型为 null。 */
+  travelRuleSnapshotJson?: string | null;
+  /** VASP 名录档案，后端按 counterpartyVaspDid 现拼；自托管 / 法币 / 名录查无为 null。 */
+  vaspProfile?: VaspProfile | null;
   needsReview?: boolean;
   sumsubTxnId?: string | null;
   sumsubTxnType?: 'finance' | 'travelRule' | null;
@@ -166,6 +185,35 @@ const APPROVAL_ACTION_LABELS: Record<string, string> = {
   WITHDRAW_LARGE_VALUE_APPROVAL: 'Large-Value Approval',
   WITHDRAW_UNFREEZE: 'Unfreeze',
   WITHDRAW_SANCTION_REFUND: 'Reject & Freeze Customer',
+};
+
+/** `travelRuleSnapshotJson` 解出来的形状里本区块只读 `status`（其余四字段 =
+ *  beneficiaryName / beneficiaryType / counterpartyVaspName / counterpartyVaspDid，
+ *  与单上同名列同值，不重复展示）。三档如实：低于线 / 过线×VASP / 过线×自托管。 */
+type TravelRuleStatus = 'NOT_APPLICABLE' | 'EXCHANGED' | 'SELF_HOSTED_NO_EXCHANGE';
+interface TravelRuleSnapshot {
+  status: TravelRuleStatus;
+}
+
+const TRAVEL_RULE_STATUS_META: Record<TravelRuleStatus, { variant: BadgeVariant; caption: string }> = {
+  EXCHANGED: {
+    variant: 'success',
+    caption: 'Beneficiary details exchanged with the counterparty VASP',
+  },
+  SELF_HOSTED_NO_EXCHANGE: {
+    variant: 'retired',
+    caption: 'Self-hosted wallet — no counterparty VASP to exchange with; ownership verified at address registration',
+  },
+  NOT_APPLICABLE: {
+    variant: 'deleted',
+    caption: 'below threshold, submitted anyway',
+  },
+};
+
+/** 受益人类型 → 徽标（第三方受益人用 amber 提醒，本人用中性灰）。 */
+const BENEFICIARY_TYPE_BADGE: Record<string, { value: string; variant: BadgeVariant }> = {
+  SELF: { value: 'SELF', variant: 'info' },
+  THIRD_PARTY: { value: 'THIRD PARTY', variant: 'rejected' },
 };
 
 /* ── Page Component ─────────────────────────────────────────── */
@@ -371,6 +419,20 @@ const WithdrawTransactionDetail = () => {
   // or travelRule, decided by the type resolver), one verdict shown verbatim.
   const l2Style = getComplianceLayerStyle(data.sumsubVerdict);
   const isTerminal = isWithdrawTerminalStatus(data.status);
+  // 对手方波二：Travel Rule 快照是 travelRule 型提交时一次性写的 JSON 串，法币 / finance 型没有。
+  const travelRule: TravelRuleSnapshot | null = data.travelRuleSnapshotJson
+    ? JSON.parse(data.travelRuleSnapshotJson)
+    : null;
+  const isCryptoWithdraw = data.asset.type === 'CRYPTO';
+  const beneficiaryTypeBadge = data.beneficiaryType
+    ? (BENEFICIARY_TYPE_BADGE[data.beneficiaryType] ?? { value: data.beneficiaryType, variant: 'info' as const })
+    : null;
+  const showCounterpartyBlock = !!(
+    data.withdrawalAddressNo ||
+    data.beneficiaryName ||
+    travelRule ||
+    data.manualReason === VASP_UNQUALIFIED_REASON
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -521,6 +583,52 @@ const WithdrawTransactionDetail = () => {
               </div>
             </div>
           </DetailCard>
+
+          {/* 3b. Counterparty / Travel Rule（对手方波二）——「这笔钱付给谁」：建单时抄自地址簿的
+              受益人与对手方 VASP（单据即快照）、VASP 名录档案、提交 Sumsub 时一次性落的 Travel Rule
+              报文状态三档。法币单没有快照与 VASP，只显受益人 / 地址回链。 */}
+          {showCounterpartyBlock && (
+            <DetailCard title="Counterparty / Travel Rule" columns={2}>
+              {data.beneficiaryName && <InfoField label="Beneficiary" value={data.beneficiaryName} />}
+              {beneficiaryTypeBadge && (
+                <InfoSlot label="Beneficiary Type">
+                  <AdminBadge value={beneficiaryTypeBadge.value} variant={beneficiaryTypeBadge.variant} />
+                </InfoSlot>
+              )}
+              {data.withdrawalAddressNo && (
+                <InfoSlot label="Withdrawal Address">
+                  <button
+                    onClick={() => navigate(`/admin/custody/withdrawal-addresses/${data.withdrawalAddressNo}`)}
+                    className="font-mono text-[11px] text-adm-blue hover:underline"
+                  >
+                    {data.withdrawalAddressNo}
+                  </button>
+                </InfoSlot>
+              )}
+              {isCryptoWithdraw && data.withdrawalAddressNo && (
+                <InfoField
+                  label="Counterparty VASP"
+                  value={data.counterpartyVaspName ?? 'None — self-hosted wallet'}
+                />
+              )}
+              {data.counterpartyVaspDid && (
+                <InfoField label="VASP DID" value={data.counterpartyVaspDid} mono />
+              )}
+              {data.vaspProfile && <VaspProfileFields profile={data.vaspProfile} />}
+              {travelRule && (
+                <InfoSlot label="Travel Rule Report">
+                  <AdminBadge
+                    value={travelRule.status}
+                    variant={TRAVEL_RULE_STATUS_META[travelRule.status].variant}
+                  />
+                  <span className="font-mono text-[10px] text-adm-t3">
+                    {TRAVEL_RULE_STATUS_META[travelRule.status].caption}
+                  </span>
+                </InfoSlot>
+              )}
+              {data.manualReason === VASP_UNQUALIFIED_REASON && <VaspUnqualifiedBasis />}
+            </DetailCard>
+          )}
 
           {/* 4. Sumsub References (read-only) — Applicant ID + the single
               Sumsub txn this withdrawal submitted. */}

@@ -178,6 +178,15 @@ export const InfoField = ({
   );
 };
 
+/* ── Info Slot ────────────────────────────────────────────────── */
+/** Same label cell as InfoField, but the value is an arbitrary node (badge, in-app link, …). */
+export const InfoSlot = ({ label, children }: { label: string; children: ReactNode }) => (
+  <div className="min-w-0">
+    <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">{label}</div>
+    <div className="mt-1 flex flex-wrap items-center gap-2 text-[13px] text-adm-t1">{children}</div>
+  </div>
+);
+
 /* ── Json Block ───────────────────────────────────────────────── */
 export const JsonBlock = ({
   title,

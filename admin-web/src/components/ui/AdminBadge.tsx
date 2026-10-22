@@ -1,6 +1,6 @@
 // src/components/ui/AdminBadge.tsx
 
-type BadgeVariant = 'success' | 'failed' | 'rejected' | 'pending' | 'active' | 'deleted' | 'info' | 'retired';
+export type BadgeVariant = 'success' | 'failed' | 'rejected' | 'pending' | 'active' | 'deleted' | 'info' | 'retired';
 
 const STATUS_MAP: Record<string, BadgeVariant> = {
   SUCCESS:          'success',
@@ -44,15 +44,19 @@ const BADGE_CLS: Record<BadgeVariant, string> = {
   retired:  'bg-adm-t2/10     text-adm-t1     border-adm-t2/25',
 };
 
-/** Status badge — SUCCESS / FAILED / REJECTED / PENDING / ACTIVE / DELETED / etc. */
+/** Status badge — SUCCESS / FAILED / REJECTED / PENDING / ACTIVE / DELETED / etc.
+ *  `variant` pins the colour explicitly, for display values that are not statuses in
+ *  STATUS_MAP (e.g. a Travel Rule report state) — omit it for the normal value→colour lookup. */
 export const AdminBadge = ({
   value,
   dot = true,
+  variant: variantOverride,
 }: {
   value: string;
   dot?: boolean;
+  variant?: BadgeVariant;
 }) => {
-  const variant: BadgeVariant = STATUS_MAP[value] ?? 'info';
+  const variant: BadgeVariant = variantOverride ?? STATUS_MAP[value] ?? 'info';
   return (
     <span
       className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${BADGE_CLS[variant]}`}
