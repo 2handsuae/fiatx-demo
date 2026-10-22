@@ -248,8 +248,8 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
       swiftBic: 'DEUTDEFF500',
       bankName: 'E2E Test Bank',
       beneficiaryName: customer.customerNo,
-      ownershipDeclaredAt: new Date(),
-      ownershipProofType: 'E2E_FIXTURE',
+      ownerType: 'SELF',
+      screeningAnswer: 'GREEN',
       traceId: 'task-9-e2e-withdrawal-address-seed',
     });
   });

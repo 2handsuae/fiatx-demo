@@ -105,8 +105,11 @@ export class WithdrawalAddressWorkflowService {
       memo: dto.memo,
       counterpartyVaspName: attribution.vaspName,
       counterpartyVaspDid: attribution.vaspDid,
-      ownershipDeclaredAt: new Date(),
-      ownershipProofType: 'DECLARATION',
+      // Task 3→4 过渡桩：主体层入参已改（proofType/declaredAt 由主体层自算），Task 4 改造本方法时整段换成 DTO 透传 + adapter 筛查
+      ownerType: 'SELF',
+      declaredHosting: addressType,
+      hostingMismatch: false,
+      screeningAnswer: 'GREEN',
       traceId,
     }).catch((err) =>
       this.recordDeniedAndRethrow(err, { attempted: 'registerAddress', customerNo, actor: this.customerActor(customerNo), sourcePlatform: 'CLIENT_API', metadata: { network: network.code, address: dto.address } }),
@@ -152,8 +155,9 @@ export class WithdrawalAddressWorkflowService {
       bankName: dto.bankName,
       beneficiaryName: dto.beneficiaryName,
       label: dto.label,
-      ownershipDeclaredAt: new Date(),
-      ownershipProofType: 'DECLARATION',
+      // Task 3→4 过渡桩：同上，Task 4 换成 DTO 透传 + adapter 筛查
+      ownerType: 'SELF',
+      screeningAnswer: 'GREEN',
       traceId,
     }).catch((err) =>
       this.recordDeniedAndRethrow(err, { attempted: 'registerBankAccount', customerNo, actor: this.customerActor(customerNo), sourcePlatform: 'CLIENT_API' }),
