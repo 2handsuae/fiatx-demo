@@ -34,7 +34,7 @@ describe('WITHDRAW_VERDICT_BUTTONS', () => {
   });
 
   // 提现的处置 tag 词表与充值不同:WithdrawKytVerdictHandler 的 DISPO_TAGS =
-  // {FROZEN_BY_MLRO, FINAL_REJECTED}(没有充值那边的 RETURN_TO_SENDER)。
+  // {FROZEN_BY_MLRO, FINAL_REJECTED, VASP_UNQUALIFIED}(没有充值那边的 RETURN_TO_SENDER)。
   it('处置 tag 逐个对上 WithdrawKytVerdictHandler 的词表', () => {
     const tagOf = (k: string) =>
       (WITHDRAW_VERDICT_BUTTONS[k].verdict.typedTags ?? []).map((t) => t.label);

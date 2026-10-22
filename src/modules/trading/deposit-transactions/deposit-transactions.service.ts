@@ -1065,7 +1065,8 @@ export class DepositTransactionsService {
 
   /**
    * 对手方波二：⚡喂归因的落列出口（workflow 禁直写 domain 表，铁律③）。
-   * VASP 出口落四列；Unhosted 出口落 isVasp=false + 归因时刻，并把名称 / did 显式置 null
+   * VASP 出口落四列并把 knownSourceRef 显式置 null（UNHOSTED 同源免问后再喂 VASP 时清掉先前的回链残留）；
+   * Unhosted 出口落 isVasp=false + 归因时刻，并把名称 / did 显式置 null
    * （refeed 时清掉先前 VASP 归因的残留；null = 清空，undefined = 不碰）。
    * ⚠️ did / 归因时刻属 admin 面，不在客户面白名单里；客户可见的只有 counterpartyVasp 名称（Task 5 已入白名单）。
    */
@@ -1075,6 +1076,7 @@ export class DepositTransactionsService {
       counterpartyIsVasp: boolean;
       counterpartyVasp?: string | null;
       counterpartyVaspDid?: string | null;
+      knownSourceRef?: string | null;
       sourceAttributedAt: Date;
     },
   ) {

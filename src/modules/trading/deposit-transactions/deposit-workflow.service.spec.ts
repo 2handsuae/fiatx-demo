@@ -4215,6 +4215,8 @@ describe('DepositWorkflowService', () => {
           counterpartyIsVasp: true,
           counterpartyVasp: 'Mock VASP Exchange',
           counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+          // VASP 出口连带清 knownSourceRef（UNHOSTED 同源免问后再喂 VASP 的残留回链）
+          knownSourceRef: null,
           sourceAttributedAt: expect.any(Date),
         });
         // 审计：人为动作 → recordByActor（operator），不是 recordSystem
@@ -4251,6 +4253,7 @@ describe('DepositWorkflowService', () => {
           counterpartyIsVasp: true,
           counterpartyVasp: 'Grey Harbor Exchange',
           counterpartyVaspDid: 'did:mock:grey-harbor-001',
+          knownSourceRef: null,
           sourceAttributedAt: expect.any(Date),
         });
         expect(auditLogsService.recordByActor.mock.calls[0][0].afterData).toMatchObject({
@@ -4336,6 +4339,29 @@ describe('DepositWorkflowService', () => {
         expect(row.counterpartyIsVasp).toBe(false);
         expect(row.counterpartyVasp).toBeNull();
         expect(row.counterpartyVaspDid).toBeNull();
+      });
+
+      // 终审 Minor：UNHOSTED 命中已知来源（同源免问）后再改喂 VASP，knownSourceRef 不清的话，管理台
+      // Known Source 回链行会和「对手方是 VASP」的归因结果自相矛盾。同样用有状态行替身（两个落列出口都真合并）。
+      it('④e UNHOSTED（已知来源命中）→ 再喂 VASP：单上的 knownSourceRef 被清为 null（否则 admin 同时渲染 VASP 归因与同源回链）', async () => {
+        const row: Record<string, any> = attrDeposit();
+        depositService.findOneByNo.mockImplementation(async () => row);
+        depositService.saveSourceAttribution.mockImplementation(async (_id: string, data: Record<string, unknown>) => {
+          Object.assign(row, data);
+        });
+        depositService.saveKnownSource.mockImplementation(async (_id: string, knownSourceRef: string) => {
+          row.knownSourceRef = knownSourceRef;
+        });
+        trRules.findKnownSource.mockResolvedValue('DEP-OLD-001');
+
+        await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'UNHOSTED' }, OPERATOR);
+        expect(row.knownSourceRef).toBe('DEP-OLD-001');
+
+        await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'VASP', vasp: 'GREY_HARBOR' }, OPERATOR);
+
+        expect(row.counterpartyIsVasp).toBe(true);
+        expect(row.counterpartyVasp).toBe('Grey Harbor Exchange');
+        expect(row.knownSourceRef).toBeNull();
       });
 
       it('④b 正好 1000 USDT（≥ 语义）→ 过线，走认领判定', async () => {

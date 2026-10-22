@@ -834,7 +834,7 @@ export class DepositWorkflowService implements OnModuleInit {
   /**
    * ⚡喂来源归因。仅 COMPLIANCE_PENDING 的 crypto TR 单可喂。
    *
-   *   VASP     → 落 isVasp=true + 名录名称 + did + 归因时刻(名录档案 admin 详情现拼,不落单);
+   *   VASP     → 落 isVasp=true + 名录名称 + did + 归因时刻(名录档案 admin 详情现拼,不落单),并清 knownSourceRef;
    *   UNHOSTED → 落 isVasp=false + 归因时刻;续判 Sumsub 侧 TR 规则:
    *              travelRule 型 ∧ 金额 ≥ 该币种阈值时 → 已知来源命中则同源免问(回链 depositNo),
    *              否则登记认领材料单并复用补料机制推进 ACTION_PENDING;低于线只记归因。
@@ -866,11 +866,14 @@ export class DepositWorkflowService implements OnModuleInit {
     const sourceAttributedAt = new Date();
     // Unhosted 出口显式清掉先前 VASP 归因留下的名称 / did（refeed 场景）：残留的 did 会让 admin 详情
     // 按它现拼名录档案，给 isVasp=false 的单渲染出一张 VASP 档案卡。
+    // 反向同理：VASP 出口显式清掉先前 UNHOSTED 同源免问留下的 knownSourceRef（UNHOSTED→再喂 VASP 场景）：
+    // 残留的回链会让管理台 Known Source 行与「对手方是 VASP」的归因结果自相矛盾。
     const attribution = vasp
       ? {
           counterpartyIsVasp: true,
           counterpartyVasp: vasp.vaspName,
           counterpartyVaspDid: vasp.vaspDid,
+          knownSourceRef: null,
           sourceAttributedAt,
         }
       : { counterpartyIsVasp: false, counterpartyVasp: null, counterpartyVaspDid: null, sourceAttributedAt };

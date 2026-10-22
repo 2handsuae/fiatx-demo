@@ -1784,6 +1784,7 @@ describe('DepositTransactionsService', () => {
         counterpartyIsVasp: true,
         counterpartyVasp: 'Mock VASP Exchange',
         counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+        knownSourceRef: null,
         sourceAttributedAt: at,
       });
       await service.saveSourceAttribution('dep-1', {
@@ -1800,6 +1801,7 @@ describe('DepositTransactionsService', () => {
           counterpartyIsVasp: true,
           counterpartyVasp: 'Mock VASP Exchange',
           counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+          knownSourceRef: null, // VASP 出口：清掉先前 UNHOSTED 同源免问的回链残留
           sourceAttributedAt: at,
         },
       });
