@@ -1054,15 +1054,16 @@ export class DepositTransactionsService {
 
   /**
    * 对手方波二：⚡喂归因的落列出口（workflow 禁直写 domain 表，铁律③）。
-   * VASP 出口落四列；Unhosted 出口只落 isVasp=false + 归因时刻（调用方不传的列不碰，不用 undefined 覆盖）。
+   * VASP 出口落四列；Unhosted 出口落 isVasp=false + 归因时刻，并把名称 / did 显式置 null
+   * （refeed 时清掉先前 VASP 归因的残留；null = 清空，undefined = 不碰）。
    * ⚠️ 这些列属 admin 面——不在客户面白名单里（客户可见的只有 counterpartyVasp 名称，由 Task 5 加入白名单）。
    */
   async saveSourceAttribution(
     id: string,
     data: {
       counterpartyIsVasp: boolean;
-      counterpartyVasp?: string;
-      counterpartyVaspDid?: string;
+      counterpartyVasp?: string | null;
+      counterpartyVaspDid?: string | null;
       sourceAttributedAt: Date;
     },
   ) {

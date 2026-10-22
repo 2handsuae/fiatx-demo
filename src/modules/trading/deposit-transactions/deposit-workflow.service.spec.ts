@@ -4170,8 +4170,11 @@ describe('DepositWorkflowService', () => {
 
         const res = await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'UNHOSTED' }, OPERATOR);
 
+        // Unhosted 出口显式清空对手方 VASP 名称 / did（见下方 refeed 用例：防旧 VASP 档案残留）
         expect(depositService.saveSourceAttribution).toHaveBeenCalledWith('dep-attr-1', {
           counterpartyIsVasp: false,
+          counterpartyVasp: null,
+          counterpartyVaspDid: null,
           sourceAttributedAt: expect.any(Date),
         });
         expect(actionsOf(auditLogsService.recordByActor)).toEqual(['DEPOSIT_SOURCE_ATTRIBUTED']);
@@ -4180,6 +4183,29 @@ describe('DepositWorkflowService', () => {
         expect(actionsService.registerOwnershipClaim).not.toHaveBeenCalled();
         expect(depositService.updateStatus).not.toHaveBeenCalled();
         expect(res).toEqual({ depositNo: 'DEP-ATTR-001', attribution: 'UNHOSTED', counterpartyVasp: null });
+      });
+
+      // F1（评审）：先喂 VASP 再改喂 UNHOSTED，单仍在 COMPLIANCE_PENDING。落列用有状态的行替身
+      // （saveSourceAttribution 真合并进行），断言的是 refeed 之后「单上还剩什么」，不是某次调用的实参。
+      it('④d VASP → UNHOSTED refeed：单上的 VASP 名称 / did 被清为 null（否则 admin 会给 isVasp=false 的单渲染 Grey Harbor 档案卡）', async () => {
+        const row: Record<string, any> = attrDeposit({ amount: '800' });
+        depositService.findOneByNo.mockImplementation(async () => row);
+        depositService.saveSourceAttribution.mockImplementation(async (_id: string, data: Record<string, unknown>) => {
+          Object.assign(row, data);
+        });
+
+        await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'VASP', vasp: 'GREY_HARBOR' }, OPERATOR);
+        expect(row).toMatchObject({
+          counterpartyIsVasp: true,
+          counterpartyVasp: 'Grey Harbor Exchange',
+          counterpartyVaspDid: 'did:mock:grey-harbor-001',
+        });
+
+        await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'UNHOSTED' }, OPERATOR);
+
+        expect(row.counterpartyIsVasp).toBe(false);
+        expect(row.counterpartyVasp).toBeNull();
+        expect(row.counterpartyVaspDid).toBeNull();
       });
 
       it('④b 正好 1000 USDT（≥ 语义）→ 过线，走认领判定', async () => {

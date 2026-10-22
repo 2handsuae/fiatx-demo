@@ -863,6 +863,8 @@ export class DepositWorkflowService implements OnModuleInit {
 
     const vasp = input.attribution === 'VASP' ? FEEDABLE_VASPS[input.vasp ?? 'MOCK_VASP_EXCHANGE'] : null;
     const sourceAttributedAt = new Date();
+    // Unhosted 出口显式清掉先前 VASP 归因留下的名称 / did（refeed 场景）：残留的 did 会让 admin 详情
+    // 按它现拼名录档案，给 isVasp=false 的单渲染出一张 VASP 档案卡。
     const attribution = vasp
       ? {
           counterpartyIsVasp: true,
@@ -870,7 +872,7 @@ export class DepositWorkflowService implements OnModuleInit {
           counterpartyVaspDid: vasp.vaspDid,
           sourceAttributedAt,
         }
-      : { counterpartyIsVasp: false, sourceAttributedAt };
+      : { counterpartyIsVasp: false, counterpartyVasp: null, counterpartyVaspDid: null, sourceAttributedAt };
     await this.depositService.saveSourceAttribution(deposit.id, attribution);
 
     await this.depositAudit(deposit, {

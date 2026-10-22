@@ -1763,7 +1763,12 @@ describe('DepositTransactionsService', () => {
         counterpartyVaspDid: 'did:mock:vasp-exchange-001',
         sourceAttributedAt: at,
       });
-      await service.saveSourceAttribution('dep-1', { counterpartyIsVasp: false, sourceAttributedAt: at });
+      await service.saveSourceAttribution('dep-1', {
+        counterpartyIsVasp: false,
+        counterpartyVasp: null,
+        counterpartyVaspDid: null,
+        sourceAttributedAt: at,
+      });
 
       const calls = ((prisma as any).depositTransaction.update as jest.Mock).mock.calls;
       expect(calls[0][0]).toEqual({
@@ -1775,10 +1780,10 @@ describe('DepositTransactionsService', () => {
           sourceAttributedAt: at,
         },
       });
-      // Unhosted：只落两列，名称 / did 不被碰（不写 undefined 覆盖）
+      // Unhosted：名称 / did 显式写 null（清掉先前 VASP 归因的残留），不是不碰也不是 undefined
       expect(calls[1][0]).toEqual({
         where: { id: 'dep-1' },
-        data: { counterpartyIsVasp: false, sourceAttributedAt: at },
+        data: { counterpartyIsVasp: false, counterpartyVasp: null, counterpartyVaspDid: null, sourceAttributedAt: at },
       });
     });
 

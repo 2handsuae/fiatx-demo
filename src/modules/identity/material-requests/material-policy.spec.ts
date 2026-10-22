@@ -26,7 +26,7 @@ describe('MaterialPolicyLoader — 真实注册表', () => {
   });
 
   it('标签表：第 6 型有人话标签（运营/客户都看这个，不看枚举键）', () => {
-    expect(materialLabel('SOURCE_OWNERSHIP_CLAIM')).toBe('来源认领/申报');
+    expect(materialLabel('SOURCE_OWNERSHIP_CLAIM')).toBe('Source Ownership Claim');
     expect(materialLabel('PROOF_OF_ADDRESS')).toBe('Proof of Address');
   });
 });
