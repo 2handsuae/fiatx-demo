@@ -40,8 +40,8 @@
 期望：两个人的戏（运营提、CISO 批）；暂停当场让三条路都选不到 USDT、新单 403，但在途的单照走完、已到账的钱照收；配置的身世从装载那一刻就有
 
 **站 5 · 三种门与容器**（钱放在哪、拦在哪一刻）
-账号：`ops_officer@`（运营，maker）→ `sm@`（高管，checker）；钱包与地址环节 `treasury@`（金库专员）；⚡筛查喂 `compliance_lead@`（合规官，挂 `DEMO_VERDICT_WRITE`，金库喂不了）；切客户端 `demo_alice`（④e 换 `demo_bob`，原因见该拍）；首个法币账户用尚无法币地址的种子客户（见 data.md「地址簿种子」）；④e 要用的测试地址串全在 data.md「mock 测试地址速查」
-走查：① 限额页按类型筛选（单笔／累计／大额）各看一眼，说清三种门在哪一刻拦人 → ② 改一条单笔限额 → 运营提交 → 详情待批徽章 → 换高管账号批准（限额裁决人是高管，非运营自批；规则从种子来，这页没有新建）→ ③ 托管钱包页（`treasury@`）只读看容器：按 vault 分五组，每行 = 一个网络上的一个地址（7 行平台 + 客户地址行），余额去账本页看 → ④ 切客户端走**提现地址簿五拍**（a–c 是原三拍，c 同时是第二幕②的回归拍；d–e 为 2026-10-22 对手方波一新增）。先指读表单变了什么：登记 TRON 地址（选网络不选资产）现在多两问——**Beneficiary**（`Myself` 默认 / `Third party`）与 **Wallet hosting**（`Self-custody wallet` / `Hosted by an exchange (VASP)`，必选）。本人×自托管的地址登记后**先停 `Pending verification`（等钱包签名）**，在详情里点 **Verify wallet signature**（mock 点即过）才进 24h 冷却倒计时（走秒；到期那一秒列表自动刷新为 ACTIVE）——所以 a/b 两拍都从「登记 → 点 Verify wallet signature」起步：a) 冷却期内 Cancel registration；b) 再登记一条（同样先签名）→ `treasury@` 详情 ⚡ Skip Cooling Period（理由必填，后门留痕）→ ACTIVE → Force Suspend → Unsuspend；c) 用尚无法币账户的种子客户登记首个银行账户 → 即时生效（银行路径从不落 `Pending verification`，波一对这条链路零改动，第二幕②"首法币解交易起始门"靠它）；d) **第三方申报登记**（alice）：登记一枚 TRON 地址，Beneficiary 选 `Third party`，填受益人姓名与 `Relationship to you` → 证据档 ATTESTATION（姓名+关系即证据，登记即落定，**不要签名**）→ 直接进冷却倒计时；切 `treasury@` 该地址详情看 **Beneficiary** 区：Owner = Third party、受益人姓名、关系、Evidence = Third-party attestation；e) **筛查 + 签名 + 红旗**，看点四件缺一不可（红旗 / 测试地址当场被拒 / 签名放行 / ⚡覆写拒绝）——⚠️ **本拍开头注明：尾号 3333 要在该网络名额未满时演**（每网络 3 条的上限检查先于「登记即拒」的落点计算；alice 走完 a/b/d 后 TRON 名额已满——种子 1 + b 生效 1 + d 冷却 1——此时再登记 3333 得到的是 `ADDRESS_LIMIT_REACHED` 而不是 Not approved），所以本拍**换 `demo_bob` 演**（种子只占他 1 条）。串全部照抄 data.md「mock 测试地址速查」：① 登记尾号 `1111` 的地址，Wallet hosting 故意选 `Self-custody wallet`（系统归因是 Mock VASP Exchange）→ 切管理台该地址详情：**Self-declaration & Red Flag** 区出现红旗警示条（"Declared hosting does not match attribution"，只留痕不拦截，登记照常成功，停 `Pending verification`），**Attribution** 区读到 Counterparty VASP = Mock VASP Exchange；② 登记尾号 `3333` 的地址（Wallet hosting 选 `Self-custody wallet`，与归因一致，免得多出红旗那一条）→ **当场 `Not approved`**（登记即拒，判据确定；客户端只说结果不给原因——tipping-off 遮蔽由后端执行；管理台详情 **Screening** 区读到 RED，审计页按该地址号查得到 REGISTERED + REJECTED 两条）；③ 再登记一条普通自托管地址（无魔法尾号，GREEN）→ 停 `Pending verification` → 客户端点 **Verify wallet signature** → 进冷却 → 切 `compliance_lead@` 该地址详情 **⚡ Screening Simulation** 区喂 RED（理由必填）→ 状态翻 REJECTED（冷却中的条目被覆写拒绝；⚡ 是覆写后门，与「测试地址」是两条路，别混着讲）；顺带指一眼 jack 的种子 REJECTED 展品（管理台地址列表状态筛 REJECTED；客户端 `demo_jack` 登录看到同样是 `Not approved`）
+账号：`ops_officer@`（运营，maker）→ `sm@`（高管，checker）；钱包与地址环节 `treasury@`（金库专员）；⚡筛查喂 `compliance_lead@`（合规官，挂 `DEMO_VERDICT_WRITE`，金库喂不了）；切客户端 `demo_alice`（④e 换 `demo_kate`，原因见该拍）；首个法币账户用尚无法币地址的种子客户（见 data.md「地址簿种子」）；④e 要用的测试地址串全在 data.md「mock 测试地址速查」
+走查：① 限额页按类型筛选（单笔／累计／大额）各看一眼，说清三种门在哪一刻拦人 → ② 改一条单笔限额 → 运营提交 → 详情待批徽章 → 换高管账号批准（限额裁决人是高管，非运营自批；规则从种子来，这页没有新建）→ ③ 托管钱包页（`treasury@`）只读看容器：按 vault 分五组，每行 = 一个网络上的一个地址（7 行平台 + 客户地址行），余额去账本页看 → ④ 切客户端走**提现地址簿五拍**（a–c 是原三拍，c 同时是第二幕②的回归拍；d–e 为 2026-10-22 对手方波一新增）。先指读表单变了什么：登记 TRON 地址（选网络不选资产）现在多两问——**Beneficiary**（`Myself` 默认 / `Third party`）与 **Wallet hosting**（`Self-custody wallet` / `Hosted by an exchange (VASP)`，必选）。本人×自托管的地址登记后**先停 `Pending verification`（等钱包签名）**，在详情里点 **Verify wallet signature**（mock 点即过）才进 24h 冷却倒计时（走秒；到期那一秒列表自动刷新为 ACTIVE）——所以 a/b 两拍都从「登记 → 点 Verify wallet signature」起步：a) 冷却期内 Cancel registration；b) 再登记一条（同样先签名）→ `treasury@` 详情 ⚡ Skip Cooling Period（理由必填，后门留痕）→ ACTIVE → Force Suspend → Unsuspend；c) 用尚无法币账户的种子客户登记首个银行账户 → 即时生效（银行路径从不落 `Pending verification`，波一对这条链路零改动，第二幕②"首法币解交易起始门"靠它）；d) **第三方申报登记**（alice）：登记一枚 TRON 地址，Beneficiary 选 `Third party`，填受益人姓名与 `Relationship to you` → 证据档 ATTESTATION（姓名+关系即证据，登记即落定，**不要签名**）→ 直接进冷却倒计时；切 `treasury@` 该地址详情看 **Beneficiary** 区：Owner = Third party、受益人姓名、关系、Evidence = Third-party attestation；e) **筛查 + 签名 + 红旗**，看点四件缺一不可（红旗 / 测试地址当场被拒 / 签名放行 / ⚡覆写拒绝）——⚠️ **本拍开头注明：尾号 3333 要在该网络名额未满时演**（每网络 3 条的上限检查先于「登记即拒」的落点计算；alice 走完 a/b/d 后 TRON 名额已满——种子 1 + b 生效 1 + d 冷却 1——此时再登记 3333 得到的是 `ADDRESS_LIMIT_REACHED` 而不是 Not approved），所以本拍**换 `demo_kate` 演**（种子只占她 1 条〔#10〕；⚠️ 不用 `demo_bob`——对手方波二起种子 #12 让他名下已有 2 条生效 TRON，本拍要连登 1111 / 3333 / 普通自托管三枚，第三枚起撞每网络 3 条上限）。串全部照抄 data.md「mock 测试地址速查」：① 登记尾号 `1111` 的地址，Wallet hosting 故意选 `Self-custody wallet`（系统归因是 Mock VASP Exchange）→ 切管理台该地址详情：**Self-declaration & Red Flag** 区出现红旗警示条（"Declared hosting does not match attribution"，只留痕不拦截，登记照常成功，停 `Pending verification`），**Attribution** 区读到 Counterparty VASP = Mock VASP Exchange；② 登记尾号 `3333` 的地址（Wallet hosting 选 `Self-custody wallet`，与归因一致，免得多出红旗那一条）→ **当场 `Not approved`**（登记即拒，判据确定；客户端只说结果不给原因——tipping-off 遮蔽由后端执行；管理台详情 **Screening** 区读到 RED，审计页按该地址号查得到 REGISTERED + REJECTED 两条）；③ 再登记一条普通自托管地址（无魔法尾号，GREEN）→ 停 `Pending verification` → 客户端点 **Verify wallet signature** → 进冷却 → 切 `compliance_lead@` 该地址详情 **⚡ Screening Simulation** 区喂 RED（理由必填）→ 状态翻 REJECTED（冷却中的条目被覆写拒绝；⚡ 是覆写后门，与「测试地址」是两条路，别混着讲）；顺带指一眼 jack 的种子 REJECTED 展品（管理台地址列表状态筛 REJECTED；客户端 `demo_jack` 登录看到同样是 `Not approved`）
 期望：三种门各在哪一刻拦人；容器是 vault × 网络不是资产；冷却闸的例外规则与后门都有痕；地址簿的两道证据——受益人申报（本人 / 第三方）与托管自报（自报 ≠ 归因即红旗）——和筛查结论（拒绝由系统落、客户只看结果）都演得出来
 
 **审计不设站**（业主口径）：第一幕负责**产证据**，第七幕负责取证——本幕的每个动作都是第七幕要拉出来的证据链。
@@ -56,7 +56,7 @@
 ## 第三幕 · 钱进（V4 充值）
 
 **讲什么**：一笔钱从链上/银行进来，要闯几道门；闯不过去的钱有四种下场。
-**造数**：`demo:deposit`（各结局单）+ ⚡模拟面板现推。
+**造数**：`demo:deposit`（各结局单；2026-10-22 对手方波二加 #30–#33 四笔来源展品，见 3.9 / 3.10 与 `data.md`）+ ⚡模拟面板现推。
 
 **站 3.1 · 充值起步**（进 KYT 筛查）
 账号：客户端 `demo_alice`
@@ -74,7 +74,7 @@
 
 **站 3.4 · Carol（SILENT）创建即冻**
 账号：切客户端登录 Carol（`demo_carol@example.com`，种子即 ACTIVE + SANCTION SILENT）
-走查：充值页 ⚡ Simulate Deposit（资产选 USDT-TRON，Unhosted wallet，金额随意）→ Confirm Simulation → 切管理台 Funds Orders 该笔资金单，模拟面板 ⚡ Seen in Mempool → ⚡ Confirm
+走查：充值页 ⚡ Simulate Deposit（资产选 USDT-TRON，金额随意；弹窗只问金额与可选的 From address，对手方是谁由 Sumsub 一侧告知，见 3.9）→ Confirm Simulation → 切管理台 Funds Orders 该笔资金单，模拟面板 ⚡ Seen in Mempool → ⚡ Confirm
 判据：客户端历史列表该笔充值显示 **PROCESSING**（与旁边 SUCCESS/其它单据观感一致，无横幅——SILENT 零痕迹）；切管理台该充值详情，状态已是 **FROZEN**，审计页查得到成对 `DEPOSIT_PAYIN_COMPLETED` → `DEPOSIT_FROZEN`——走的是充值域既有 L1 FREEZE 分支（未新增代码），Carol 建单入库那一刻就已经是冻的，客户面看不出来
 
 **站 3.5 · 没收与原路退回**（另外两条弧）
@@ -95,7 +95,19 @@
 走查：客户端充值页 ⚡ Simulate Deposit（USDT-TRON，金额随意）→ 切管理台 Funds Orders 该笔 ⚡ Seen in Mempool → ⚡ Confirm → 切该充值详情 ⚡ 喂「① Approved」→ 单转 SUCCESS → 切回客户端（不刷新、不重新登录）铃铛即时亮数字、`/messages` 顶部出现「Deposit credited」→ 点开该条，深链落地该笔充值详情页（SUCCESS，金额与充值页一致）
 判据：客户端全程零手动刷新，铃铛与消息列表靠 socket 信号自动翻新；审计页按该充值单号能查到一条 `NOTIFICATION_SENT`，`metadata.templateCode=DEPOSIT_SUCCESS`、`channels=[IN_APP, EMAIL_SIMULATED]`
 
-**期望**：观众看懂"状态机每条边都是业务决定；钱的每一步都有账"。
+**站 3.9 · 无主来源认领**（对手方波二，2026-10-22；三单连演：甲签名认领 / 乙第三方申报 / 同源免问对照）
+账号：客户端 `demo_alice`（甲与对照）→ `demo_bob`（乙）；管理台 `admin@`（超管，一人演全套；严格分职时 ⚡喂归因归 `compliance_lead@`——合规官持 `DEMO_VERDICT_WRITE`，Funds Orders 的 ⚡ 步进用 `admin@`）
+走查（**甲 · 本人钱包**）：① 客户端充值页 ⚡ Simulate Deposit：USDT-TRON，金额 **1500**（必须 ≥ Travel Rule 阈值 1000 USDT，低于线演不出本站）；弹窗只问金额和可选的 **From address**（留空 = 系统随机生成一枚发款地址），**不再问客户“对手方是不是交易所”**——对手方是谁由 Sumsub 一侧告知 → Confirm → 切管理台 Funds Orders 该笔 ⚡ Seen in Mempool → ⚡ Confirm → 单进 COMPLIANCE_PENDING。② 切该充值详情：**Source & Counterparty** 区块此刻读到 Source Attribution = NOT ATTRIBUTED（Sumsub 还没告诉我们这笔钱从谁来）；⚠️ 先确认 Sumsub References 区 Type 已读到 `travelRule`（Confirm 后约一两秒；点早了 ⚡ 只记归因、不会挂起）→ 侧栏 **Attribution Simulation ⚡** 点 **Unhosted** → 区块翻成 UNHOSTED、Custody Snapshot = “Unhosted — self-custody wallet”，单自动转 **ACTION_PENDING**。讲：无主钱包 ∧ 金额过线 ∧ 这个地址从没问过 → Travel Rule 要认清钱包归属；挂起走的是补料那条既有边（`COMPLIANCE_PENDING ⇄ ACTION_PENDING`），零新状态零新边。③ 切客户端 alice 充值页：顶部横幅 “Source Ownership Claim: Please tell us where this deposit came from.”（徽章 ACTION REQUIRED；话术白话，不露“合规 / 阈值 / Unhosted”）→ 点进该笔详情 Outstanding verification 区的 **Declare source**（或直接点横幅右侧的 **Verify now**） → 落到 `/verification/:requestNo`，这是一张**认领表单**、不是 Sumsub 材料页。**分支一**：选 **This is my own wallet** → 点 **Verify by signature**（mock 点即过）→ 出现 received 提示 → 点顶部 Back 回详情页（单已回炉 COMPLIANCE_PENDING，客户端显示 PROCESSING；详情页多出 **Source** 区：Source declaration “Submitted · …”、Sending wallet “My own wallet”）。④ 回管理台该单：区块出现 Ownership Claim = “Self — own wallet” 与 Claimed At → ⚡ 喂「① Approved」→ SUCCESS，余额到账。
+走查（**乙 · 第三方申报**）：`demo_bob` 同套路走到 ②（金额 1200；⚡ Unhosted 后挂起）→ ③ 客户端认领表单选 **Sent by someone else** → 再选 **An individual** → Full name 填 `Omar Al Mansoori`、Relationship to you 填 `Business partner`（缺一项按钮不亮）→ **Submit declaration** → Back 回详情页：Source 区读到 “Sent by / Relationship to you”。管理台区块：Ownership Claim = “Third-party individual”，Claimed Name / Claimed Relationship 全文可见 → ⚡① → SUCCESS。同一表单另一子分支 **An exchange or custodian**（只填名称）对应 Third-party VASP，口述即可，不必演。**两分支的差别讲清**：本人钱包靠“签名”这一动作自证，第三方靠“姓名 + 关系”声明——申报即证据，跟提现地址簿的受益人三档同一思路。
+走查（**同源免问对照**）：`demo_alice` 再充一笔 1100 USDT，弹窗 **From address 填甲单的发款地址**（甲单详情 Route 区的 From address，整串复制；想省时间直接填 `data.md`「mock 测试地址速查」里的固定串 `TnTuTp9kiuy2NXtvXc1niNxxaHcheKiY1n`，那是种子 #30 已认领过的地址）→ 同样走到 COMPLIANCE_PENDING → ⚡ **Unhosted** → 这回**不挂起**：单仍是 COMPLIANCE_PENDING，客户端 alice 没有横幅、没有认领入口；管理台区块多出 **Known Source** 一行，点开回链到甲单 → ⚡① → SUCCESS。讲：同一客户、同一来源钱包只问一次；“记住”靠的是查自己库里有没有这个地址的认领快照，没有另建名单。可选一句对照：金额 < 1000 USDT（如 500）喂 Unhosted → 只记归因、不挂起（低于线 Travel Rule 不适用）。
+判据：① 甲 / 乙两单审计按单号查得到 `DEPOSIT_SOURCE_ATTRIBUTED` → `DEPOSIT_ACTION_REQUIRED` → `DEPOSIT_SOURCE_CLAIM_SUBMITTED`（后者主体 = 客户本人，afterData 即申报快照）；② 对照单查得到 `DEPOSIT_KNOWN_SOURCE_MATCHED`（系统主体，afterData 含 `knownSourceRef`）、**查不到** `DEPOSIT_ACTION_REQUIRED`；③ 三单全程不新增状态、不新增边（deposit 状态机仍 29 边）；④ 客户端响应与页面读不到 DID、`knownSourceRef`、归因时刻，也看不到 Unhosted / Travel Rule 字样（客户只见对手方名称与自己的申报）
+
+**站 3.10 · 对手方 VASP 不合格 → 原路退回**（对手方波二，2026-10-22；种子 #33 是同款已退回展品，想省时间直接翻它的详情与审计链）
+账号：客户端 `demo_kate`（退回后不入账，余额不变，不扰第六幕 / 第十一幕对 Kate 余额的前提）→ 管理台 `admin@`（⚡ 归因 / ⚡⑫ / 提退回）；严格分职：提退回 `ops_officer@`（运营，maker）→ 批准 `mlro@`（MLRO，checker）
+走查：① 客户端充值页 ⚡ Simulate Deposit：USDT-TRON，金额 1300，From address 留空 → 管理台 Funds Orders ⚡ Seen in Mempool → ⚡ Confirm → COMPLIANCE_PENDING。② 该充值详情，侧栏 **Attribution Simulation ⚡** 点 **VASP (Grey Harbor)** → **Source & Counterparty** 区块读到 Source Attribution = VASP、Counterparty VASP = Grey Harbor Exchange、VASP DID = `did:mock:grey-harbor-001`，档案三行：VASP EEC Status = PENDING、VASP Risk Score = 42、VASP Licence = UNLICENSED，底下一行小字 Policy 口径。**此刻单仍是 COMPLIANCE_PENDING**——归因只告诉系统“对手方是谁”，不自己动状态。③ **第二屏台词（本站关键一拍）**：“这家交易所合不合格，不是我们拍脑袋定的，是 Sumsub 的 VASP 名录说了算——我们打开名录对一下政策口径。”→ 切到第二屏打开 Sumsub 的 VASP 名录（真环境里这屏是 Sumsub 后台的名录，单家档案读 EEC 状态 / 风险标 / 监管登记行；演示里 mock 名录只有两条样本，管理台区块里那三行就是它的代指），照政策口径逐项打勾：**对手方 VASP 合格判据（政策口径，数据住 Sumsub）：EEC 完成 ∧ 风险评分 <10 ∧ 持牌 → 通过**。Grey Harbor：EEC `PENDING` ✗ / 评分 42 ✗ / `UNLICENSED` ✗，三项全不过；对照组 Mock VASP Exchange（另喂一笔 **VASP (qualified)** 即可看）：`COMPLETED` / 3 / `LICENSED`，三项全过。分工讲清：名录与判据住 Sumsub，我们只展示、不在代码里替它判。④ 回主栏 ⚡ Simulation 面板，在 “Automatically matched by the Sumsub rule engine” 一组（ENGINE 组）点 **⑫ Rejected · Counterparty VASP unqualified** → 单进 **MANUAL_CHECKING**（人工复核台），区块多出 Review Basis = “Counterparty VASP unqualified”（红）。讲：**不合格不等于自动退钱**——V12 沿既有裁决落地三档（制裁冻结中的单它一律不动，保护制裁证据），只是把单送到复核台等人决定。⑤ 运营在该单详情 **Initiate Return to Sender**（填理由）→ `mlro@` 审批中心批准 → 资金单退回腿 ⚡ 步进确认（同 3.5 退回弧）→ 终态 **RETURNED**。⑥ **与 3.5 退回红线对照收尾**：这条退回走的是**同一条既有弧**，红线一字未松——目的地锁死原发款方（Grey Harbor 打来的那个地址，不能改填）；处置弧里复核单只开放“退回”、不开放没收（没收只对小额挂起单）；而制裁命中的冻结单（3.3 / 3.5）连退回都不开放，只能上缴或解冻。资质不合格与制裁命中是两条不同的红线，各走各的出口。
+判据：① 区块读到 Grey Harbor 档案三项全不过（EEC PENDING / 42 / UNLICENSED），VASP DID 在列；② V12 后单进 MANUAL_CHECKING 且 Review Basis 亮，**不直通退回**；③ 终态 RETURNED，账本逐腿可查，退回目的地 = 原 From address；④ 审计按单号查得到 `DEPOSIT_SOURCE_ATTRIBUTED` → `DEPOSIT_MANUAL_CHECKING`（metadata.manualReason = `vasp_unqualified`）→ 退回审批与腿的既有审计；⑤ 客户端 kate 全程显示 PROCESSING，详情页 Source 区只读到 “Counterparty: Grey Harbor Exchange”，读不到 DID、名录档案、“不合格” 字样（tipping-off 同款）
+
+**期望**：观众看懂"状态机每条边都是业务决定；钱的每一步都有账"；来源不明的钱要先问清是谁的（认领二分支、同源只问一次），对手方资质不合格的钱落复核台、走既有退回红线原路退（名录判据住 Sumsub）。
 
 ## 第四幕 · 钱换（V6 兑换）
 
@@ -150,6 +162,8 @@
 账号：客户端 `demo_bob`（⚠️ alice 在本幕站 4.3 已被「⑦ Rejected · Sanctions」连坐打上客户级 SANCTION 限制，她的新提现会被同一限制折叠冻结、演不出"正常放行"——勿用 alice，换 bob）
 走查：提现到已绑定地址（战役丙波二：确认弹窗按钮上方有一行风险小字，指读一句——链上资产「Blockchain transfers are irreversible — funds sent to a wrong address or network cannot be recovered.」，法币提现换成「Bank transfers cannot be recalled once sent.」，按所选资产类型二择一；证据 `04`）
 判据：单正常放行、余额到账
+**加一拍 · Travel Rule 报文三档对照 + 受益人随报文**（对手方波二，2026-10-22；不新建单，直接翻三张种子展品的管理台详情，单号看 `demo:all` 打印的花名册）：主栏 Compliance 之后的 **Counterparty / Travel Rule** 区块依次读三张——**#15**（bob，150 USDT → 他自己的自托管地址）：Beneficiary Type = SELF，Counterparty VASP = “None — self-hosted wallet”，Travel Rule Report = **NOT_APPLICABLE**（小字 “below threshold, submitted anyway”：低于 1000 USDT 阈值，照常报送但标不适用）；**#34**（grace，1200 USDT → 她的尾号 `1111` VASP 地址）：Counterparty VASP = Mock VASP Exchange + VASP DID，档案三行 COMPLETED / 3 / LICENSED，Travel Rule Report = **EXCHANGED**（受益人信息已与对手方 VASP 交换）；**#35**（alice，1500 USDT → 她的已签名自托管地址）：过线但没有对手方 VASP 可交换，Travel Rule Report = **SELF_HOSTED_NO_EXCHANGE**（所有权已在地址登记时验过签名）。三档由“金额过不过线 × 地址有没有对手方 VASP”两个条件决定，**恰好 1000 USDT 算过线**（`>=`）。**受益人随报文**：建单那一刻受益人姓名 / 类型、对手方 VASP 名与 DID 就从地址簿抄进单据（单据即快照，不回头再读地址簿），并和三档状态一起一次性写进报文快照；Withdrawal Address 一行是地址簿业务键回链，点开落到地址簿详情。切客户端 `demo_grace` 该单详情对照：只见 Beneficiary / Beneficiary type 两行与 Address label（label 是按地址簿业务键现查的，改标签会跟着变），读不到报文状态、VASP 名称与 DID、名录档案。
+判据补：三张单报文状态依次 NOT_APPLICABLE / EXCHANGED / SELF_HOSTED_NO_EXCHANGE；审计页按单号查得到 `WITHDRAW_TRAVEL_RULE_SNAPSHOTTED`（系统主体，afterData = 快照本体）；提现状态机仍 23 边
 
 **站 5.2 · 补料闭环**
 走查：⚡ 喂"要求补材料" → 客户端出现补料入口（Sumsub 内嵌）→ 交齐续走
@@ -243,7 +257,7 @@
 **讲什么**：监管最爱问的一句——"这笔事，谁批的、依据什么、钱去哪了？"
 **走查**：本幕全程零抄号——每次进审计页都是从单据页一键深链（波三，判据 3）。① 挑第三幕那笔被冻结→处置的充值，充值单**详情页点 View audit trail** → 直接落到审计列表且 Related No 已自动带该充值单号，全链拉出（发起/筛查/冻结/审批/处置，每步谁、何时、结果）——**这条链现在完整包含 `DEPOSIT_FROZEN` 那一步**（2026-09-12 波三红项修复前查不到，见 BACKLOG 销账）；点开其中一条事件详情，除 Entity No（`DEP…`）是蓝字可点链接、直接跳回该充值单的列表页并预填单号（审计跳转甲案，2026-09-12）外，还看得到按角色分组的 **Related Subjects**（命中即可点）与 Action 下方的人话标签（如 "Deposit Seize Requested"）；② **客户详情页（Carol）点 View audit trail** → 她名下所有被动过的事一次拉出，不用回头去审计页手输客户号；③ 点进账本凭证核对钱的最终去向；④ 按 actorNo 查第一幕站 1 那位内审账号（`auditor@`）→ 拉出它当场触发的那条 `ADMIN_ACCESS_DENIED` 越权记录；⑤ 回到第五幕那笔大额待审批的提现，提现单**详情页点 View audit trail** → 捞出的不只是提现自己那条链，连它闯过的那张大额审批单也一起进画面——同一单号跨主体全链一屏可见（Related No 的 OR 语义：主表 primarySubjectNo ∨ 子表 subjectNo，第七幕自此没有查不到的码）。
 **期望**：观众看懂"留痕不是日志文件，是能按人、按单、按旅程检索的证据链"。
-**已知缺口**：三域交易日志**已全部换装新审计合同**（站1b-β/2-β/3-β，充值 47 码 / 提现 33 码 / 兑换 26 码，三查按单号·按客户·按旅程对三域均成立），链不再断在交易域；**V3 配置域词汇（限额/费率/资产/托管钱包/提现地址/客户标签）也已随四模块治愈换名册四批入册**，第一幕改的费率/限额那笔配置变更第七幕按单号查得到（此前"未入册"的缺口已解，见 `modules/v1-governance.md` §5）。剩一处：重铺后 `Q6 谁查过审计日志` 恒红，**管理员现场真查一次审计页当场转绿**——本幕走查①即含此动作，正常走就绿。
+**已知缺口**：三域交易日志**已全部换装新审计合同**（站1b-β/2-β/3-β，充值 50 码 / 提现 34 码 / 兑换 26 码（2026-10-22 对手方波二：充值 47→50、提现 33→34），三查按单号·按客户·按旅程对三域均成立），链不再断在交易域；**V3 配置域词汇（限额/费率/资产/托管钱包/提现地址/客户标签）也已随四模块治愈换名册四批入册**，第一幕改的费率/限额那笔配置变更第七幕按单号查得到（此前"未入册"的缺口已解，见 `modules/v1-governance.md` §5）。剩一处：重铺后 `Q6 谁查过审计日志` 恒红，**管理员现场真查一次审计页当场转绿**——本幕走查①即含此动作，正常走就绿。
 
 ---
 
@@ -529,7 +543,7 @@
 
 **讲什么**：看板是给管理层看家底的一屏——运营户各币种水位（见底阈值线，见了这条线就该找 LP 补货）、LP 在途待验收、结算在途、三收入格（利润体现）、最近资金动态，五个区一屏读完，全部读既有账本端点，零新聚合逻辑。看板每一格与账本三列表（科目/凭证/流水）同源同值，这不是两套数字各算各的。
 
-**造数**：`bash scripts/on-stack.sh self demo:all`（铺齐三域 29 笔标准场景数据，含若干笔真实客户兑换，先把三收入格垫上非零基线）+ 现场一笔客户兑换（Alice USDT→AED 300，看三收入格实时再涨一格）。
+**造数**：`bash scripts/on-stack.sh self demo:all`（铺齐三域 35 笔标准场景数据，含若干笔真实客户兑换，先把三收入格垫上非零基线）+ 现场一笔客户兑换（Alice USDT→AED 300，看三收入格实时再涨一格）。
 
 **账号**：`treasury@fiatx.com`（看板 / 账本三列表 / 推资金单三腿——丙案已修后金库经面板正常推完，见判据说明）→ 客户端 `demo_alice`（现场兑换）→ `compliance_lead@`（KYT 裁决）。
 
@@ -651,7 +665,7 @@ bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash script
 **造数**：**现场不造数**，全部由种子与后端常驻 sweep 备好：Henry 的历史腿（上上月 / 上月，见 `baseline.md`「战役丙波四种子断言」）由 `seedBusiness()` 写入；月结单由后端 30 秒 sweep **追赶式自动出具**（重铺后起栈 ≤60 秒内齐，无需任何 ⚡、无需 `demo:all` 参与）；Grace 一张已办结的 ACCESS 工单（含已固化的资料摘要）预铺作"查"的对照。`demo:all` 对本幕零动作——现场戏（改 / 删）不被抢跑。
 **范围**：场景 33–34，战役丙波四（2026-10-03 交付并全程实走：干净库重铺 → 全程真点击，证据 `doc-final/superpowers/checkups/2026-10-03-campaign-c-wave4-evidence/` 的 `35`–`71` 共 37 张；开发期证据 `01`–`34` 同目录）。
 **演员 Henry Acme 的约束**（`demo_acme@example.com`，CU2601012635，客户端登录页 Quick login 面板内）：
-- **三条件已核**（对本剧本全文检索）：① 干净——ACTIVE、`customer_restrictions` 零行、无便签、无投诉、不在 `demo:all` 29 笔花名册；② 有种子历史——上上月一笔 AED 充值、上月充值 + 兑换 + 提现，账单行像样；③ 非他幕余额当事人——全剧本里仅第一幕站 5 ④c「首个法币账户即时生效」与旧协议幕演员点名里的排除语触碰过他，均不动余额。
+- **三条件已核**（对本剧本全文检索）：① 干净——ACTIVE、`customer_restrictions` 零行、无便签、无投诉、不在 `demo:all` 35 笔花名册；② 有种子历史——上上月一笔 AED 充值、上月充值 + 兑换 + 提现，账单行像样；③ 非他幕余额当事人——全剧本里仅第一幕站 5 ④c「首个法币账户即时生效」与旧协议幕演员点名里的排除语触碰过他，均不动余额。
 - **statement-only**：Henry 有账本余额（AED 44,950.00 / USDT 2,709.049000），但**没有钱包行、没有 vIBAN、没有任何活订单**——本幕只演账单与资料，**不演活交易**（不在他身上充值 / 兑换 / 提现）；账单行里的订单号（`DEP…` / `WDR…` 无订单行，`SWP2601010349` 仅是一行极薄壳）与管理台客户详情「Deposits → / Withdrawals → / Swaps →」三个跳转指向的单号**是悬空的**——**一律不点**。
 - **排序**：第九幕 → 重铺 → **第十幕（本幕）** → 第十一幕（协议幕）→ 再重铺；本幕与第十一幕演员不同（Henry / Kate），之间无需重铺。本幕走完 Henry 名下多出 2 张 DSR 单、1 张材料请求、一次 ID Number 改值（`P-US-6000006` → `P-US-6000066`），**重铺才还原**；再演一遍不重铺也行（单号随机），但步骤⑦的新证件号要换一个值。
 

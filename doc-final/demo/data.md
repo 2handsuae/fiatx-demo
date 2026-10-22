@@ -50,7 +50,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 **客户收款地址行**（`demo:setup`，审计 `CUSTOMER_DEPOSIT_ADDRESS_SEEDED`）：alice / bob / grace / jack / kate / frank 各一条 TRON（C_DEP）+ 一条 AED_ZAND（C_VIBAN），vault `CLIENT_DEPOSIT`；账本科目仍按资产。
 
-**地址簿种子**（审计 `WITHDRAWAL_ADDRESS_SEEDED`；`demo:setup` 铺，`demo:all` 后共 **11** 条，判别式 = traceId 前缀 `demo-setup-withdrawal-address`）——把「受益人 × 托管」四格各摆一个样本，外加一个被拒展品：
+**地址簿种子**（审计 `WITHDRAWAL_ADDRESS_SEEDED`；`demo:setup` 铺，`demo:all` 后共 **12** 条，判别式 = traceId 前缀 `demo-setup-withdrawal-address`）——把「受益人 × 托管」四格各摆一个样本，外加一个被拒展品与一个名录不合格 VASP 展品（#12，2026-10-22 对手方波二加）：
 
 | # | 客户 | 网络 / 类型 | 受益人 × 托管 | 证据档 | 筛查 | 状态 |
 |---|---|---|---|---|---|---|
@@ -59,8 +59,9 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 | 9 | grace | TRON，地址尾号 `1111`（归因 Mock VASP Exchange） | 本人 × 托管（自报 VASP） | DECLARATION | GREEN | ACTIVE |
 | 10 | kate | TRON，地址尾号 `1111`（归因 Mock VASP Exchange） | **第三方** × 托管（受益人 Li Hua / 关系 Spouse） | ATTESTATION（声明书） | GREEN | ACTIVE |
 | 11 | jack | TRON，地址尾号 `3333` | 本人 × 自托管，签名**未**验证 | SIGNATURE | **RED** | **REJECTED**（展品：客户端读到 `Not approved`，管理台读到 RED） |
+| 12 | bob | TRON，地址尾号 `4444`（归因 Grey Harbor Exchange，`did:mock:grey-harbor-001`；整串 `TL8iS45FvNkqJqbohP3cvF9CnNrM9s4444`） | 本人 × 托管（自报 VASP） | DECLARATION | GREEN | ACTIVE（展品：名录档案**不合格**的 VASP——管理台地址详情 Attribution 区读到 Grey Harbor；提现到它会在 Counterparty / Travel Rule 区读到三项不合格档案） |
 
-#9–11 的地址 = `fakeTronAddress(种子).slice(0,30)` + 尾号，与 mock 测试地址规则自洽（把它们再登记一遍得到同一结局）。**alice 名下故意不放第二条 ACTIVE TRON**：站 5 ④ a/b/d 要在她名下现场再登记，每网络 3 条的上限不能被种子占满；bob 只占 1 条，留给 ④e。**尚无法币账户的种子客户**：Henry Acme（`demo_acme@example.com`，企业客户）——不在 `demo:setup` 那六人名单内，没有走地址簿种子；站 5 ④c 用他演"首个法币账户即时生效"。
+#9–12 的地址 = `fakeTronAddress(种子).slice(0,30)` + 尾号，与 mock 测试地址规则自洽（把它们再登记一遍得到同一结局）。**alice 名下故意不放第二条 ACTIVE TRON**：站 5 ④ a/b/d 要在她名下现场再登记，每网络 3 条的上限不能被种子占满。**bob 自 #12 起名下已有 2 条生效 TRON（#8 自托管 + #12 的 4444）**，不能再演 ④e（要连登 1111 / 3333 / 普通自托管三枚，第三枚起撞 3 条上限）——④e 改由 `demo_kate` 演（种子只占她 1 条〔#10〕）。**尚无法币账户的种子客户**：Henry Acme（`demo_acme@example.com`，企业客户）——不在 `demo:setup` 那六人名单内，没有走地址簿种子；站 5 ④c 用他演"首个法币账户即时生效"。
 
 **费率**：`STD-USDT-AED` / `STD-AED-USDT`（默认档）+ `VIP-USDT-AED`（requiredTags `["VIP"]`，各档比 STD 便宜；Grace 带 VIP 标签命中它）+ `NEWCUST-USDT-AED`（requiredTags `["NEW_CUSTOMER"]`，各档比 STD 便宜、比 VIP 贵；开户 30 天内的客户命中它——种子客户开户日已回填 2026-06-15、早出新客窗，只有第二幕②③现场开户的新客户能命中）；demo:all 会把 `STD-USDT-AED` Tier 1 平费改成 10（`demo-lib.ts` FEE_PLAN，造数取整），所以舞台上对照用 1000 USDT（Tier 2：VIP 12 < NEWCUST 16 < STD 20）；提现 `STD-AED-AED_ZAND` / `STD-USDT-TRON`。**限额**：15 条（单笔 6 / 累计 8 / 大额 1）。
 
@@ -68,20 +69,32 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 **档位升级站（第二幕⑤，波三新增）参数**：客户沿用②CDD 直通那位现场客户，不额外注册；充值 40000 USDT，卖出 30000 USDT→AED 撞 `BASIC · SWAP · DAILY` 上限 100000 AED（`GET /swap-transactions/rate` 实测 30000 USDT→AED 净额 ≈109944.65 AED，落在 BASIC 上限 100000 AED 之上、PREMIUM 上限 1000000 AED 之下，撞限不空转；充值量 = 卖出量 + 10000 缓冲）。两档限额对照（AED，Profile 页四行表）：SWAP DAILY 100000/1000000、SWAP MONTHLY 1000000/10000000、WITHDRAWAL DAILY 50000/500000、WITHDRAWAL MONTHLY 500000/5000000（BASIC/PREMIUM）。
 
-### mock 测试地址速查（2026-10-22 对手方波一；站 5 ④e 的判据表）
+### mock 测试地址速查（2026-10-22 对手方波一；站 5 ④e 的判据表；同日波二加 4444 行与充值认领固定串）
 
 mock 的归因 / 筛查**按地址（IBAN）尾号给确定性结论**——演示者照抄下表的串登记，得到的结局就是表里写的，不依赖 ⚡（⚡ 只是对已登记 pending 条目的覆写后门）。规则的代码落点与真 Sumsub 对应物见 `reference/sumsub-mock-touchpoints.md`。
 
 | 用途 | 完整串（整串复制） | 归因 | 筛查 | 登记落点（确定） |
 |---|---|---|---|---|
 | TRON · 归因为 VASP | `TDm5cSJoEP2DpN1VyZG3TQrd1JZdSX1111` | VASP：Mock VASP Exchange（`did:mock:vasp-exchange-001`） | GREEN | 照「受益人 × 托管」落点。Wallet hosting 选 Self-custody → 自报≠归因，**`hostingMismatch` 红旗**（只留痕不拦截），本人×自托管停 `Pending verification`；选 VASP → 无红旗，本人×托管直接进冷却 |
+| TRON · 归因为 VASP（名录**不合格**样本，波二加） | `TviE34BPW1B9gGT2YkTNCRcBEPKKD64444` | VASP：Grey Harbor Exchange（`did:mock:grey-harbor-001`；名录档案 EEC `PENDING` / 评分 42 / 未持牌，三项全不过政策口径） | GREEN | 与上一行同款落点（选 Self-custody → `hostingMismatch` 红旗 + 停 `Pending verification`；选 VASP → 无红旗，直接进冷却）；管理台地址详情 Attribution 区读到 Grey Harbor。登记它只是让地址簿里有这么一条——充值侧「VASP 不合格」展品的对手方由 ⚡喂归因给出，不靠 `fromAddress` 尾号 |
 | TRON · 中风险放行 | `TD2Cm1x6HwVV78amHf8prJn5zkiwCK2222` | 自托管 | **YELLOW** | 照落点放行（选 Self-custody → 停 `Pending verification`）；管理台 Screening 区读到 YELLOW |
 | TRON · 登记即拒 | `TSf8p11LABtkukQGWVnkUjR6LMrvH13333` | 自托管 | **RED** | **当场 `REJECTED`**（客户端 `Not approved`）；审计 `WITHDRAWAL_ADDRESS_REGISTERED` + `WITHDRAWAL_ADDRESS_REJECTED` 两条（后者系统主体，reason `Screening returned RED at registration`）；占坑即封禁，不可复活、不占 3 条名额 |
 | TRON · 普通自托管（默认） | `TUbS9Gp48kuQEj1RoeuCxRPLHaBTpkzPoU`（= `fakeTronAddress("demo-register-1")`） | 自托管 | GREEN | 选 Self-custody → 停 `Pending verification`，点 Verify wallet signature 后进 24h 冷却 |
 | IBAN · 中风险放行 | `AE960860000000000002222` | —（银行路径无归因） | **YELLOW** | 放行：该客户首个法币账户 → 即时 ACTIVE，否则进冷却 |
 | IBAN · 登记即拒 | `AE720860000000000003333` | — | **RED** | **当场 `REJECTED`**；RED 优先级高于「首个法币账户即时生效」（首个 IBAN 也照拒，不被短路成放行） |
 
-- **校验位已实证**：两枚 IBAN 的校验位按 ISO 13616 mod-97 算出，并用 `src/modules/asset-treasury/withdrawal-addresses/bank-validator.util.ts#validateIban` 实调通过（`{valid:true}`）；校验位各挪 1 位后同一函数返回 `IBAN checksum is invalid`（证明这次校验会红）。TRON 四串均过 `^T[1-9A-HJ-NP-Za-km-z]{33}$`（`validateAddressForNetwork('TRON', …)` 实调 `valid:true`）。银行名 / 收款人姓名 / SWIFT/BIC 任填合法值即可（BIC 如 `DEUTDEFF`）。
+**充值来源认领固定串（2026-10-22 对手方波二；充值侧归因靠 ⚡喂，不靠尾号，这里是 From address 的固定输入与对应的确定结局）**：充值模拟弹窗有一栏可选的 **From address**（留空 = 系统随机发款地址）。认领展品与同源对照需要“同一串出现两次”，所以种子用 `fakeTronAddress(固定种子)` 派生出下面两串（两次独立重铺逐字相同）：
+
+| 用途 | From address（整串复制） | 种子展品 | 确定结局（≥ 1000 USDT 时 ⚡喂 Unhosted） |
+|---|---|---|---|
+| 认领甲 + 同源对照共用 | `TnTuTp9kiuy2NXtvXc1niNxxaHcheKiY1n`（alice） | 花名册 #30（认领 SELF）、#32（同源免问） | 对 **alice**：命中 #30 已有认领快照 → `knownSourceRef` 回链 #30，**免问不挂起**；对**其他客户**填同一串：他们名下无认领快照 → 仍挂起 `ACTION_PENDING` 要认领（已知来源按客户隔离） |
+| 认领乙 | `TtLuxwQT85Aogkd2C5283ADypk9gMYxPTt`（bob） | 花名册 #31（认领 THIRD_PARTY_PERSON，`Omar Al Mansoori` / `Business partner`） | 对 **bob**：命中 #31 → 免问；其他客户 → 挂起 |
+
+- **现场演认领要“没问过”的地址**：From address **留空**（随机串，必不在任何已知来源里）→ ⚡Unhosted ≥ 1000 USDT 必挂起。要演“同源免问”：第二笔填第一笔详情 Route 区读到的 From address，或直接用上表 alice 的 `TnTu…` 串（#30 已替她认领过）。
+- **阈值**：USDT 1000 / AED 3500，**恰好 1000 USDT 算过线**（`>=`）；低于线喂 Unhosted 只记归因、不挂起。
+- **其余固定串**：VASP 不合格展品（#33，kate，1300 USDT）不靠 From address——⚡VASP·Grey Harbor 归因 → ⚡⑫ → 退回；提现 TR 三档展品（#15 / #34 / #35）的收款地址是各人地址簿里已有的那条（#15 bob 与 #35 alice 的已签名自托管地址、#34 grace 的 `1111` VASP 地址），不需要输入固定串。
+
+- **校验位已实证**：两枚 IBAN 的校验位按 ISO 13616 mod-97 算出，并用 `src/modules/asset-treasury/withdrawal-addresses/bank-validator.util.ts#validateIban` 实调通过（`{valid:true}`）；校验位各挪 1 位后同一函数返回 `IBAN checksum is invalid`（证明这次校验会红）。TRON 五串（含波二加的 4444 串）均过 `^T[1-9A-HJ-NP-Za-km-z]{33}$`（`validateAddressForNetwork('TRON', …)` 实调 `valid:true`；4444 串另经 `MockTravelRuleAdapter` 实调：`attributeAddress` → Grey Harbor Exchange / `did:mock:grey-harbor-001`，`screenAddress` → GREEN）。银行名 / 收款人姓名 / SWIFT/BIC 任填合法值即可（BIC 如 `DEUTDEFF`）。
 - **每串对同一客户一次性**：同客户同网络同串再登记 → 409（`ADDRESS_ALREADY_REGISTERED` / `BANK_ACCOUNT_ALREADY_REGISTERED`）；`REJECTED` 占着唯一键不放。重演换客户（不同客户登记同一串互不冲突），或自造新串：TRON = `fakeTronAddress("<任意种子>")` 的末 4 位换成目标尾号（保持 34 位）；IBAN = `AE` + 校验位 + `086` + 12 个 `0` + 目标尾号，校验位 = 98 − ((BBAN + "AE00" 字母展开成数字) mod 97)。
 - **上限先于落点**：每网络 3 条的名额检查在「登记即拒」的落点计算**之前**，名额已满时登记 3333 得到 `ADDRESS_LIMIT_REACHED` 而不是 Not approved——演 3333 前先确认该客户该网络没满（`REJECTED` / `CANCELLED` / `DEACTIVATED` 不占名额）。
 - 种子 #9 / #10 的 `1111` 串与 #11 的 `3333` 串由种子派生，与上表不是同一串；它们的结局与上表同源。
@@ -245,7 +258,7 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 | Henry（`demo_acme`，CU2601012635）历史腿 | 相对月份（`businessMonthOf(now)` 推）：**上上月 15 日** AED 充值 50,000.00；**上月 2 日** AED 充值 10,000.00、**5 日** AED→USDT 兑换（卖 10,000.00 AED，毛 2,712.049000 USDT，费 3.000000 USDT）、**20 日** AED 提现 5,050.00（到账 5,000.00 + 费 50.00）。落地 = TB 真写 + `tbTransferEvidence` 回拨时间 + `accountFlow` 镜像（LP 先例三件套）；只铺**客户侧**腿（公司侧对手腿不铺，**费腿不对称是有意的**，见 baseline）；另一行极薄 `swap_transactions` 壳 `SWP2601010349`（仅供账单兑换行取名）。结果余额 **AED 44,950.00 / USDT 2,709.049000**。**无钱包行 / 无 vIBAN / 无订单行**（充值 `DEP…` 与提现 `WDR…` 单号悬空）——只演账单，不演活交易 |
 | Grace（`demo_grace`，CU2601014381）一张 DSR | `DSR2601016750`：ACCESS / RESOLVED / `ACCESS_SUMMARY_PROVIDED`，submittedAt = 铺数 −10 天、reviewStartedAt = +1 天、resolvedAt = +3 天、dueAt = +30 天；摘要四键（`generatedAt` / `profile` 14 键白名单 / `agreementConsents` / `kycMaterials` 空）已固化，无 riskRating / eddRequired / hardLine；种子直写，**不补审计**（同投诉种子口径） |
 
-`demo:all` **零动作**：Henry 不在 29 笔花名册，终态比对不受扰；`data.md` 下方生成区的 `COA CLIENT(AED/USDT)` 两行**随 Henry 余额平移**（旧值 29612565 / 4392571811 → **34107565 / 7101620811**，+4495000 / +2709049000，已入库；花名册表与 FIRM 两行零变化）。第十幕走查产出的 DSR 单 / 材料请求 / 证件号更正是现场戏，不进种子。
+`demo:all` **零动作**：Henry 不在 35 笔花名册，终态比对不受扰；`data.md` 下方生成区的 `COA CLIENT(AED/USDT)` 两行**随 Henry 余额平移**（旧值 29612565 / 4392571811 → **34107565 / 7101620811**，+4495000 / +2709049000，已入库；花名册表与 FIRM 两行零变化；其后 2026-10-22 对手方波二的 USDT 展品再把 USDT 侧抬到 8201620811，Henry 平移部分不变）。第十幕走查产出的 DSR 单 / 材料请求 / 证件号更正是现场戏，不进种子。
 
 ## 各脚本造什么
 
@@ -254,7 +267,7 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 | demo:setup | 基础演示位（客户便签/材料请求账等） |
 | demo:deposit / swap / withdraw | 各域多结局单（走真实流程推进） |
 | demo:in-transit | 在途单（演示"正在发生"） |
-| demo:all | 一键全量（花名册 29 笔逐条比对预期终态 + COA 四恒等式）——开演前跑这个 |
+| demo:all | 一键全量（花名册 35 笔逐条比对预期终态 + COA 四恒等式）——开演前跑这个 |
 | recon:demo:pass / break | 对账 pass ／ **18 个破口场景 / 12 张案子** + 答案键（按处置家族排号 1→18 = 第六幕走查顺序；`rootCause` 用成因注册表的码，与财务手册、界面菜单、审计四处同词。**18/18 全检出**）；账龄线 3 天（⚡拨钟）；小额线 AED 100 / USDT 30；场景 10 处置 = 挂起·调查中 → 超期 → 核销（金库开单、CFO 批）；场景 16 处置 = 认损（金库开单、CFO 批）→ 补款划转（金库发起、CFO 批、⚡ 一腿）；场景 17 = 垫款划转（法币两腿经结算户）→ 认领退汇；场景 18 = 事故登记（Jack USDT-TRON 钱包当刻全部余额 400 USDT 幽灵 OUT，无任何单据；登记→调查→定损→通报→善后→结案六步，认损后金库补款划转复位余额） |
 
 ⚠️ 造数铁律：一律走真实流程/模拟端点重放，**禁止直插表**（直插中间态 → 账本负余额 → 假破口，实证教训）。

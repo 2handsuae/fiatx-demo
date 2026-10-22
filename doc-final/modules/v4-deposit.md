@@ -1,6 +1,6 @@
 # V4 · 充值（钱怎么进来）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-14（波五：客户自报入口改 `assertTradingIntake`，与「新单创建即冻」裁定对齐，见 §1）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-10-22（对手方波二：报送判型一行化；对手方是谁改由 Sumsub 一侧告知（⚡归因），自报链拆除；unhosted 超线认领二分支 + 同源免问；⚡V12 对手方 VASP 不合格 → 复核台 → 原路退回；审计 47→50 码；⚡共享表 11→12 键，见 §1/§3/§5）；此前 2026-09-14（波五：客户自报入口改 `assertTradingIntake`，与「新单创建即冻」裁定对齐，见 §1）
 > 演示幕次：第三幕「钱进」 ｜ 验收：第三幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -11,7 +11,11 @@
 
 最重要的一件事（也是状态机的设计公理）：**每个终态都必须回答"钱去哪了"。** 成功=入了客户账；失败=钱压根没到；没收/退回/上缴=各有对应的账本分录把钱送到明确去处。回答不出这个问题的状态（如笼统的"已拒绝""已过期"）被从状态机里删掉了——不是少功能，是拒绝糊涂账。
 
-**进门三步。** ① 钱到了（链上确认 / 银行入账）→ 订单落地，先过 **L1**（十项快照，三分流：执法级 FREEZE / 其余 FAIL **打标记、不换状态、照常送检** / PASS 送检）；② **KYT 合规筛查**：单笔报 Sumsub，报送类型现场判定——虚拟币 ∧ 对手方是 VASP ∧ 金额过阈值（AED 3500 / USDT 1000，写死代码）→ 按 Travel Rule 类型报；③ **裁决落地**，四种：通过 → 入账（暂扣户 → 客户应付，两步记账）（带 L1 标记的单：通过 → `OPERATION_PENDING` 等运营）；要求补料 → 等客户提交材料（材料账驱动，客户端独立补料页）；拒绝无处置标签 → 转人工复核；制裁命中 → **先冻人再冻单**（申请人命中连客户一起冻，对手方命中只冻单）。
+**进门三步。** ① 钱到了（链上确认 / 银行入账）→ 订单落地，先过 **L1**（十项快照，三分流：执法级 FREEZE / 其余 FAIL **打标记、不换状态、照常送检** / PASS 送检）；② **KYT 合规筛查**：单笔报 Sumsub，报送类型一行判定——虚拟币一律按 Travel Rule 型报、法币按 finance 型报（2026-10-22 起对手方是不是 VASP、金额过不过阈值**不再**决定报哪种单；“要不要认领来源”归 Sumsub 一侧的 TR 规则管，见下一段）；③ **裁决落地**，四种：通过 → 入账（暂扣户 → 客户应付，两步记账）（带 L1 标记的单：通过 → `OPERATION_PENDING` 等运营）；要求补料 → 等客户提交材料（材料账驱动，客户端独立补料页）；拒绝无处置标签 → 转人工复核；制裁命中 → **先冻人再冻单**（申请人命中连客户一起冻，对手方命中只冻单）。
+
+**对手方是谁，由 Sumsub 一侧告知，不再由客户自报（2026-10-22 对手方波二）。** 客户端模拟充值弹窗不再问“对手方是不是交易所”（信号 DTO、`detected()` 入参、信号表列同删）；crypto 单进 `COMPLIANCE_PENDING` 后，由 Sumsub 一侧告知归因（演示=合规官在详情页点 ⚡ Attribution Simulation，真身=单笔报送后 Sumsub 回灌），只有两个出口：
+- **VASP 出口**：落对手方 VASP 名称 + DID + 归因时刻，管理台详情按 DID 现拼名录档案（EEC 状态 / 风险评分 / 是否持牌，不落单）。归因本身不动状态——系统不替人下“不合格”结论；资质判据住 Sumsub 名录，不合格的由 Sumsub 一侧的 ⚡V12 裁决送进人工复核台（`manualReason=vasp_unqualified`，**不直通退回**），再走**既有**原路退回弧（运营提 → MLRO 批 → `RETURNED`，红线一字不松：目的地锁死原发款方）。
+- **Unhosted 出口**（无主钱包）：若 travelRule 型 ∧ 金额 ≥ 阈值（USDT 1000 / AED 3500，`>=`）→ 先查**已知来源**：同客户 × 同发款地址已有认领快照 → 免问，单上记回链 `knownSourceRef`（`DEPOSIT_KNOWN_SOURCE_MATCHED`）；没有 → **挂起要客户认领**：登记一张“来源认领”材料单，复用补料那条既有边推进 `ACTION_PENDING`（零新状态零新边），横幅话术白话（“Please tell us where this deposit came from.”）。客户在认领表单里二选一——**本人钱包**（签名，mock 点即过）或**别人发的**（第三方个人：姓名 + 关系；第三方 VASP：名称）——提交即落申报快照、mock 即时通过、回炉重筛（既有 `RESUME`）。低于阈值只记归因，不挂起。已知来源按客户隔离，“记忆”就是充值表里已有的认领快照，没有另建名单。
 
 **被拦下的钱有四条处置弧**，同一个范式：**MLRO 发起审批 → 批准后先锁账、再变状态 → 资金单腿走完 → 终态落地**。但**哪条弧对哪种单开放是业务红线**：
 - **冻结单（制裁/官方冻结）只有两条出路：上缴或解冻**——上缴 = 政府移交、钱出平台；解冻 = 误伤平反、回炉重查。**不能没收**（把被制裁资产收进公司收入 = 据赃为己有），**不能退回**（退给被制裁对象 = 资助他）；
@@ -47,6 +51,9 @@
 | KYT 裁决 | Sumsub（演示=⚡按钮喂） | 合规规则 / 合规官 | 四种裁决驱动全部后续 |
 | 制裁冻结 | 系统自动（命中即冻） | 无审批——保护动作 | 申请人命中先冻人（V2 便签）再冻单 |
 | 人工复核翻案 | 运营 | 批准即入账（记翻案审计） | 翻案是显式动作不是改字段 |
+| **⚡喂来源归因**（2026-10-22 对手方波二） | 合规官（演示=详情页侧栏 Attribution Simulation ⚡；真身=Sumsub 回灌） | 无审批——站在 Sumsub 一侧告知，不是我方业务决定 | 仅 `COMPLIANCE_PENDING` 的 crypto Travel Rule 单（非该态 409，法币 / finance 型 400）；VASP / Unhosted 两个出口；挂 `DEMO_VERDICT_WRITE`（零新权限组）；留痕 `DEPOSIT_SOURCE_ATTRIBUTED` |
+| **来源认领**（同批） | 客户本人（认领表单：本人钱包 / 第三方个人 / 第三方 VASP） | mock 提交即通过（真身=Sumsub ownership confirmation） | unhosted 且 travelRule 型 ∧ ≥ 阈值 ∧ 非已知来源才挂起；提交落快照四列 → `DEPOSIT_SOURCE_CLAIM_SUBMITTED`（客户主体）→ 材料单 GREEN → 既有 `RESUME` 回炉；非本人 403 / 非 `ACTION_PENDING` 或无未决认领单 409 / 第三方分支缺必填 400；不新增状态与边 |
+| **⚡V12 对手方 VASP 不合格**（同批） | 合规官 ⚡（替 Sumsub 一侧下裁决） | 落复核台后：运营提退回 → **MLRO 单步批**（既有退回弧） | 沿 `decideVerdictLanding` 三档：`FROZEN` 一律 IGNORE（保护制裁证据）、终态与处置中的单不动、`COMPLIANCE_PENDING` / `ACTION_PENDING` 经既有 `KYT_REJECTED` 边进 `MANUAL_CHECKING` 并记 `manualReason=vasp_unqualified`；已在复核态再打 V12 是 no-op，**不直通退回**；零新边零新审批 |
 | 没收 / 退回 / 上缴 / 解冻 | 运营发起 | **MLRO 单步审批（48h）** | 四弧同范式但**入口不同**：没收←挂起；退回←复核/挂起；上缴、解冻←冻结；退回目的地锁死原发款方 |
 | 小额豁免放行 | 运营 | 直接执行（带审计） | 只对挂起态可用 |
 | **漏记入金补录**（2026-09-03 平账 B 批） | 金库专员（对账案子上「发起补录」，链上填来源地址 / 法币填来源 IBAN，2026-09-08 平账处置改版起改金库——此前误记运营，本次一并补记）| **CFO 单步审批（48h，可撤）** | 批准即建入站信号，走既有充值通道，照常过 KYT / 合规到 SUCCESS；入口在案子上，见 `modules/v8-recon.md` §3 |
@@ -62,9 +69,11 @@
 5. 对冻结单走处置（**只有两条路**）：发起**上缴** → 换 MLRO 账号批准 → 资金单腿步进 → 终态 `SEIZED`，钱政府移交出平台；或演**解冻**平反回炉。讲明红线：冻结单**不能没收、不能退回**（见 §1）
 6. 小额：充一笔低于下限的 → 挂起 `OPERATION_PENDING` → 演豁免放行或**没收**二选一——没收的正确舞台在这里，终态 `CONFISCATED` 账本看钱进公司户
 7. 退回：再来一笔，⚡喂"拒绝（退回标签）" → 人工复核 → 发起**原路退回** → MLRO 批准 → `RETURNED`（强调目的地=原发款方，不可改）
-8. 全程任一步，审计页按单号查——每步谁、何时、依据什么（垫第七幕）。留痕词表 47 码（=V4_DEPOSIT_AUDIT_ACTIONS 名册键数，扩码时同步本数）（站1b-β）：单在建单时铸「旅程号」，此后每条留痕继承同号——按单号/按客户/按旅程三种查法都成立；失败不起名（outcome+原因码），状态变化写从/到两列
+8. 全程任一步，审计页按单号查——每步谁、何时、依据什么（垫第七幕）。留痕词表 50 码（=V4_DEPOSIT_AUDIT_ACTIONS 名册键数，扩码时同步本数；2026-10-22 对手方波二 47→50，新增 `DEPOSIT_SOURCE_ATTRIBUTED` / `DEPOSIT_SOURCE_CLAIM_SUBMITTED` / `DEPOSIT_KNOWN_SOURCE_MATCHED`）（站1b-β）：单在建单时铸「旅程号」，此后每条留痕继承同号——按单号/按客户/按旅程三种查法都成立；失败不起名（outcome+原因码），状态变化写从/到两列
 9. 漏记的客户入金与已成功入金被银行退汇，入口都不在这一幕——从**第六幕对账案子**上发起（`modules/v8-recon.md` §4 场景 13/14），CFO 复核后回落到这一域：补录照常走 KYT/合规到 SUCCESS，退汇认领落 `CLAWED_BACK`
 10. 客户端充值页顶部新增受限横幅（`RestrictionBanner`，2026-09-12 波三红项修复上线）：只对**非静默**类限制显示——制裁命中这类 SILENT 原因结构上进不了这张表，第 4 步的 tipping-off 不受影响；出现时**不拦动作**，措辞"钱仍会到账，收下后按受限处置"——这是与提现/兑换两页"动作被禁"横幅口径的刻意区别（业主 2026-09-09 裁定，见 `decisions.md` 同日条）
+11. 来源认领（站 3.9，2026-10-22 对手方波二）：Alice 充 1500 USDT → ⚡ Attribution Simulation 点 **Unhosted** → 单转 `ACTION_PENDING`，客户端出横幅 → 认领表单选“本人钱包”点 Verify by signature（mock 点即过）→ 回炉 → ⚡通过；Bob 同套路选“别人发的 → 个人”，填姓名与关系；再让 Alice 用**同一发款地址**充第二笔 → ⚡ Unhosted **不再挂起**（Known Source 回链第一笔）——同源只问一次
+12. 对手方 VASP 不合格 → 原路退回（站 3.10）：Kate 充 1300 USDT → ⚡ 归因 **VASP (Grey Harbor)** → 区块读到名录档案三项全不过（EEC PENDING / 评分 42 / 未持牌）→ **第二屏**打开 Sumsub VASP 名录对照政策口径 → ⚡⑫ → 单进人工复核台（Review Basis 亮）→ 运营提退回 → MLRO 批 → `RETURNED`；与第 7 步退回红线对照收尾：同一条既有弧，目的地仍锁死原发款方，冻结单仍不开放退回
 
 ## 5. 关键技术节点（≤30 行）
 
@@ -74,11 +83,15 @@
 - **处置动词** `funds-orders/disposition.service.ts → DispositionService`（地基站 2026-08-26）：initiate / rebuild / settle / voidAttempt / clearLeg——三弧的建腿、锁账、落账、重试三级梯、腿收口收敛为一份实现，工作流按说明书一句话调用
 - 状态机 `deposit-transactions.service.ts → getNextStatus()`（29 边迁移表 + 守则单测锁边数）；状态直改侧门已物理删除——`PATCH :id/status` 端点 2026-08-30（00b0eb83）连黑名单守卫一并移除，controller 注释自证
 - L1 闸门 `trading/shared/` `L1GateService`（十项快照，三域共用求值器；判定结果整包落单上 l1Snapshot）
-- KYT 类型判定 `sumsub-shared/kyt-txn-type.resolver.ts → resolveKytTxnType()`（crypto ∧ VASP ∧ 金额≥阈值 → travelRule；阈值写死：AED 3500 / USDT 1000，边界取 ≥；波四已从本域迁至 `sumsub-shared/`，消掉此前 withdraw 跨域 import 本域文件的唯一环外依赖）
+- KYT 类型判定 `sumsub-shared/kyt-txn-type.resolver.ts → resolveKytTxnType()`（2026-10-22 起一行化：`assetType==='CRYPTO'` → travelRule〔`TR_REQUIRED`〕，其余 → finance〔`NOT_CRYPTO`〕；对手方与金额不再参与判型，resolver spec 9 用例 → 3；`SINGLE_TXN_SUBMIT_ENABLED` 关闭=一律 finance 不变；波四已从本域迁至 `sumsub-shared/`，消掉此前 withdraw 跨域 import 本域文件的唯一环外依赖）。阈值表（AED 3500 / USDT 1000，`>=`）搬进 `MockTrRulesService`，不再属于判型
 - SLA `deposit-sla.service.ts`（按"进入状态"计时；COMPLIANCE_PENDING 5 分钟硬线 / ACTION_PENDING 7 天）
 - 补料 `material_requests` 材料账驱动（下发/提交/裁决闭环，见 V2 篇）；客户端独立补料页内嵌 Sumsub SDK
-- **客户端详情页**（`DepositDetail.tsx`，2026-09-15 详情增强）：Amounts（Submitted/Value date`effectiveDate`/Completed）+ Route（Reference/From address·From IBAN/Received at 平台收款地址`toAddress`·IBAN`toIban`/Transaction hash）+ Timeline；字段均出自既有客户视图白名单，无新增泄漏面。Timeline 走三域共用机制：`trading/shared/customer-timeline.util.ts → buildCustomerTimeline()` 按客户面收敛词表构建 + 连续去重（冻结/执法态被吞，不留痕），客户端展示层 `timelineDisplay.ts → dedupeTimelineItems()` 再按同词连续去重一次——两层去重叠加下，冻结单时间线与普通在途单肉眼不可区分，tipping-off 口径详见 `modules/v6-swap.md` §1/§5
-- Sumsub 接入 `sumsub-ingestion/ → ingest()/dispatch()`（webhook 统一入口按事件×域路由）；演示裁决 `SUMSUB_MOCK_MODE=true` 时注册的 verdict runner（⚡11 按钮，三域同源共享表 `sumsub-shared/verdict-buttons.shared.ts`）
+- **客户端详情页**（`DepositDetail.tsx`，2026-09-15 详情增强）：Amounts（Submitted/Value date`effectiveDate`/Completed）+ Route（Reference/From address·From IBAN/Received at 平台收款地址`toAddress`·IBAN`toIban`/Transaction hash）+ Timeline；字段均出自既有客户视图白名单，无新增泄漏面（2026-10-22 波二白名单 +5 见下方“客户面投影”条）。Timeline 走三域共用机制：`trading/shared/customer-timeline.util.ts → buildCustomerTimeline()` 按客户面收敛词表构建 + 连续去重（冻结/执法态被吞，不留痕），客户端展示层 `timelineDisplay.ts → dedupeTimelineItems()` 再按同词连续去重一次——两层去重叠加下，冻结单时间线与普通在途单肉眼不可区分，tipping-off 口径详见 `modules/v6-swap.md` §1/§5
+- Sumsub 接入 `sumsub-ingestion/ → ingest()/dispatch()`（webhook 统一入口按事件×域路由）；演示裁决 `SUMSUB_MOCK_MODE=true` 时注册的 verdict runner（⚡12 按钮，三域同源共享表 `sumsub-shared/verdict-buttons.shared.ts`；第 12 键 `V12_VASP_UNQUALIFIED` 只在充值 / 提现暴露，兑换域无外部对手方、语义性缺席）
+- **来源归因 / 认领 / 已知来源**（2026-10-22 对手方波二）：`deposit-workflow.service.ts → applySourceAttribution()`（⚡喂归因入口：状态与类型守卫 → 主体写 `saveSourceAttribution` 落归因四列〔Unhosted 出口显式清空旧 VASP 名 / DID〕→ `DEPOSIT_SOURCE_ATTRIBUTED` → UNHOSTED 续判 `isTrApplicable` + `findKnownSource`）｜ `hangForOwnershipClaim()`（`registerOwnershipClaim` 落第 6 型材料单 + 共享私有段 `pushActionPendingIfOutstanding()` 推进 `ACTION_PENDING`——与 `applyKytAwaitUser` 是**同一段**，死角守卫同源，不分叉两份）｜ `submitOwnershipClaim()`（`normalizeOwnershipClaim` 三分支校验 → 本人 / 状态 / 未决认领单三守卫 → 快照四列 → `DEPOSIT_SOURCE_CLAIM_SUBMITTED` → 材料账门面 `settleOwnershipClaim()` 即时 GREEN → 广播 `MATERIAL_REQUEST_REVIEWED` → 既有 `onMaterialRequestReviewed` RESUME；顺序是硬的：快照必须先于 GREEN，重筛要读得到本单自己的认领快照，否则同单再喂 Unhosted 会永久循环挂起）。主体写 `deposit-transactions.service.ts → saveSourceAttribution / saveKnownSource / saveOwnershipClaim`（workflow 不直写表，铁律③）；`findOneForAdmin` 带 `vaspProfile`（按单上 DID 现拼，不落单）。端点：admin `POST /admin/deposit-sumsub/demo/feed-attribution`（`deposit-sumsub/admin-deposit-demo.controller.ts`，`SUMSUB_MOCK_MODE` 下注册，rbac 挂 `DEMO_VERDICT_WRITE`）、client `POST /deposit-transactions/my/:depositNo/ownership-claim`（`DepositTransactionsController`）。材料注册表第 6 型 `SOURCE_OWNERSHIP_CLAIM`（`config/material-refresh-policy.json`，`formKind:'OWNERSHIP_CLAIM'`、无 Sumsub action level；表单型材料行上 `levelName` / `applicantActionId` / `externalActionId` 是本地占位串）；客户端 `MaterialVerification.tsx` 按 `formKind` 分叉，认领行**不起 SDK session**。⚡V12 落点：`applyKytRejected()` 的 `VASP_UNQUALIFIED` 分支（冻结分支之后、`RETURN_TO_SENDER` 之前）——`KYT_REJECTED` → `MANUAL_CHECKING` + `manualReason='vasp_unqualified'` + `DEPOSIT_MANUAL_CHECKING`；已在复核态直接 no-op
+- **mock 件新位置**（2026-10-22）：全住 `sumsub-shared/travel-rule/`——`mock-travel-rule.adapter.ts`（自 `asset-treasury/withdrawal-addresses/` 迁入；尾号 `1111` → Mock VASP Exchange、`4444` → Grey Harbor Exchange；`MOCK_VASP_DIRECTORY` 两条 + `getVaspProfile()`）｜ `mock-tr-rules.service.ts`（`MockTrRulesService`：`isTrApplicable()` + `findKnownSource()` 以**查询代存储**，查 `deposit_transactions` 同 `ownerId` × `fromAddress` × `sourceClaimedAt` 非空，零新表）；本模块自行 provide `TRAVEL_RULE_ADAPTER` 与 `MockTrRulesService`。切 sandbox 的刀口逐项登记于 `reference/sumsub-mock-touchpoints.md` ⑤–⑧
+- **客户面投影**（波二）：`toCustomerDepositView` 白名单 +5（`counterpartyVasp` 与认领快照四列 `sourceClaimType/Name/Relationship/ClaimedAt`）；泄漏断言的敏感键集 `SENSITIVE_KEYS`（spec）里 `counterpartyVasp` 移出，`counterpartyVaspDid` / `knownSourceRef` / `sourceAttributedAt` 加入——客户读得到对手方名称与自己的申报，读不到 DID、同源回链、归因时刻与 `manualReason`；客户端 `DepositDetail.tsx` 在有对手方或有申报时多出 Source 区
+- 对手方 VASP 合格判据（政策口径，数据住 Sumsub）：EEC 完成 ∧ 风险评分 <10 ∧ 持牌 → 通过；演示中名录两条样本一过一不过（Mock VASP Exchange / Grey Harbor Exchange）
 - 补单（B 批，2026-09-03）：`effectiveDate String?` 新列（补录才有值，`executeDepositAccounting` 的 STEP_1/STEP_2 都读它，列优先于资金单 CONFIRM 步同名参数——后者对这条路径是死代码）｜ 新终态 `CLAWED_BACK` + 动作 `CLAWBACK`，新转账码 `DEPOSIT_CLAWBACK`（分录借客户应付 / 贷客户资产）｜ 入口、审批与守卫见 `modules/v8-recon.md` §3/§5
 - 资金单镜像与逐腿记账机制 → 见 funds-orders 篇 / accounting-coa 篇
 - **共享层现状（波四共享抽离，2026-09-13，行为零变化）**：`deposit-sla.service.ts`/`deposit-kyt-verdict.handler.ts`/`admin-deposit-demo.controller.ts` 分别继承 `sumsub-shared/` 的公共基类 `SlaSweepBase`/`KytVerdictHandlerBase`/`DemoScenarioControllerBase`（与提现域同构镜像，**兑换域不参与、独立演进**，见 `modules/v6-swap.md` §5）；三域共用的资产投影 `toCustomerAssetView()`、SLA 字段计算 `resolveSlaFields()` 薄壳委托、客户级限制冻结扫描信封 `freezeScanQueryArgs()` 均收进 `trading/shared/`——本域走 `ownerNoSource: 'customerRelation'`（`DepositTransaction` 无 `ownerNo` 列，取数改走 `customer.customerNo` 关系，与 withdraw/swap 走原生列不同）
@@ -89,4 +102,5 @@
 - **法币一个分支仍没做**：汇款人名义不符无入口，讲法币异常还只能讲这一类走不通；**银行退汇（bounce）已由平账 B 批的「入金退汇认领」补上**（对账案子上认领 → CFO 批 → `SUCCESS → CLAWED_BACK`，见 `modules/v8-recon.md` 第六幕场景 14）
 - **小额的计次自动冻结、自动没收 cron 未做**——现在都是手动处置
 - **CONFISCATING 重试耗尽后无手动重触发出口**——红旗standing但只能等 Phase 4 补口子
-- **翻案后原命中证据被覆写无历史留档**（原命中即拒的按钮不再单独占一格——⚡ 面板已统一成三域同码同义的 11 键表，见 `modules/v6-swap.md` 与 `PRODUCTION-NOTES.md`）
+- **翻案后原命中证据被覆写无历史留档**（原命中即拒的按钮不再单独占一格——⚡ 面板已统一成三域同码同义的 12 键表（兑换域取 8 键子集），见 `modules/v6-swap.md` 与 `PRODUCTION-NOTES.md`）
+- **来源认领的“签名 / 第三方申报”都是 mock 即时通过**：不验签名、不核第三方材料（真身=Sumsub ownership confirmation，缺口 #2/#4，见 `reference/sumsub-mock-touchpoints.md` ⑧）——演示时讲清这一步是 mock 点即过，业务规则（谁在什么条件下被问、问完怎么回炉、同源只问一次）才是被演示的东西

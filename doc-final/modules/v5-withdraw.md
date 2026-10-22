@@ -1,6 +1,6 @@
 # V5 · 提现（钱怎么出去）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-14（波五：SILENT 客户新单创建即冻，报价/建单闸从中性拒绝改放行，见 §1/§5）
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-10-22（对手方波二：建单从地址簿带出受益人与对手方 VASP、提交 Sumsub 时落 Travel Rule 报文快照三档、客户面 +2 键且 Address label 改业务键回链、⚡V12 对手方 VASP 不合格落复核台；审计 33→34 码，见 §1/§3/§5）；此前 2026-09-14（波五：SILENT 客户新单创建即冻，报价/建单闸从中性拒绝改放行，见 §1/§5）
 > 演示幕次：第五幕「钱出」 ｜ 验收：第五幕走查（`demo/script.md`）+ 本篇 §4
 
 ## 0. 一句话定位
@@ -16,6 +16,8 @@
 **出生就分流。** 普通单出生落合规筛查；**大额单出生直接落审批门**——高管点头之前，连筛查都不进。
 
 **裁决四分支**（与充值同构）：通过 → 两腿并行结算（本金腿 + 费腿）；要求补料 → 等客户（独立补料页）；拒绝无标签 → 人工复核（翻案、转补料、退款拒绝都在这站可走）；制裁命中 → **先冻人再冻单**。
+
+**钱付给谁，建单那一刻就抄进单据（2026-10-22 对手方波二）。** 提现的收款地址来自地址簿（`modules/v3-financial-config.md`），地址簿每条带着“受益人（本人 / 第三方）+ 托管（自托管 / 对手方 VASP）+ 筛查结论”；建单时把地址簿号 `withdrawalAddressNo`、受益人姓名 / 类型、对手方 VASP 名称与 DID 一并抄到单上（法币单只抄前三项，VASP 两项恒空）——单据即快照，之后不回头读地址簿。提交 Sumsub 时（travelRule 型，也就是 crypto 单）再**一次性**落一份 Travel Rule 报文快照，分三档如实：**低于阈值**（USDT 1000 / AED 3500，`>=`，恰好 1000 USDT 过线）→ `NOT_APPLICABLE`（照常报送，没有 TR 报文可交换）；**过线且对手方是 VASP** → `EXCHANGED`（受益人随报文交换给对方）；**过线但自托管** → `SELF_HOSTED_NO_EXCHANGE`（无对手方可交换，所有权已在地址登记时验过签名）。三档由“金额过不过线 × 地址有没有对手方 VASP”两个条件决定；阈值判定归 Sumsub 一侧的 TR 规则（mock：`MockTrRulesService`）。**VASP 资质不在提现建单时拦截**——资质判据住 Sumsub 名录，不合格的由 Sumsub 一侧 ⚡V12 裁决把单送进人工复核台（`manualReason=vasp_unqualified`，**不直通退款**），运营在复核台**直接执行退款**（复核态本就是退款拒绝可直接执行的唯一态，全额解锁退回）。
 
 **冻结只有两条出口，都要 MLRO 审批**：**解冻**——必须附解冻令文书号，批准后零记账回炉重新筛查（钱从未离开锁，无账可退；从未送检的冻结单（如创建即冻）解冻后 rescore 会跳过、无自动重提——兑换域 SLA 扫描有 missing-txnId 重提而提现域没有，这类单 5 分钟 SLA 到点落 MANUAL_CHECKING 由人工续走，⚡ 面板可现铸 txnId 喂裁决，非死路）；**退款**——拒绝处置，批准后全额解锁退回客户。两条弧发起侧只开案不动单，执行侧等审批落地才动——开案的人碰不到钱。
 
@@ -50,6 +52,7 @@
 |---|---|---|---|
 | 大额放行 | 系统（超阈值自动开案） | **高管审批** | 批准前不进筛查；期间客户被冻单也冻得住 |
 | KYT 裁决 | Sumsub（演示=⚡按钮） | 合规 | 四分支驱动全部后续 |
+| **⚡V12 对手方 VASP 不合格**（2026-10-22 对手方波二） | 合规官 ⚡（替 Sumsub 一侧下裁决） | 落复核台后：运营**直接执行退款**（复核态可直接执行，无审批） | 沿 `decideVerdictLanding` 三档：`FROZEN` 一律 IGNORE、`PAYOUT_PENDING` 只留证据、终态不动、可派发态经既有 `KYT_REJECTED` 边进 `MANUAL_CHECKING` 并记 `manualReason=vasp_unqualified`；已在复核态再打 V12 是 no-op，**不直通退款 / 放锁**；零新边零新审批 |
 | 人工复核处置 | 运营 | 翻案 / 转补料直接执行；退款拒绝**仅此态可直接执行** | 翻案批准才记账 |
 | 解冻 | 运营开案 | **MLRO（48h）** | 必附解冻令文书号；零记账回炉 |
 | 退款 | 运营开案 | **MLRO（48h）** | 全额解锁退回；"拒绝即解锁"不变量 |
@@ -66,11 +69,12 @@
 6. 制裁客户（SILENT 便签）试提现：报价与建单均放行 → 建单入库后立即转 FROZEN（不再是中性 403 拦截）；客户端全程只见 PROCESSING，横幅不亮——「新单创建即冻」，见 `decisions.md` 2026-09-14 条 1
 7. 大额：发一笔超阈值提现 → 出生即落审批 → 高管批准才进筛查
 8. 退汇：⚡触发 bounce → 单落 RETURNED → 账本看反向分录（这是出款广播中途被打回；**SUCCESS 之后才发生的退回见第六幕场景 15**——对账案子上「认领退回」，同样落 RETURNED）
-9. 全程任一步，审计页按单号查——留痕词表 33 码（=V5_WITHDRAW_AUDIT_ACTIONS 名册键数，波二 30→33 新增报价三码）（站2-β）：建单铸「旅程号」全链继承，按单号/按客户/按旅程三查成立；失败进 outcome+原因码，状态变化写从/到两列（垫第七幕）
+9. 全程任一步，审计页按单号查——留痕词表 34 码（=V5_WITHDRAW_AUDIT_ACTIONS 名册键数，波二 30→33 新增报价三码；对手方波二 33→34 新增 `WITHDRAW_TRAVEL_RULE_SNAPSHOTTED`）（站2-β）：建单铸「旅程号」全链继承，按单号/按客户/按旅程三查成立；失败进 outcome+原因码，状态变化写从/到两列（垫第七幕）
+10. Travel Rule 三档对照（2026-10-22 对手方波二）：翻三张种子展品的管理台详情，主栏 Counterparty / Travel Rule 区块——#15（150 USDT → 自己的自托管地址）`NOT_APPLICABLE`、#34（grace 1200 USDT → 她的 VASP 地址）`EXCHANGED`、#35（alice 1500 USDT → 她的已签名自托管地址）`SELF_HOSTED_NO_EXCHANGE`；受益人姓名 / 类型与对手方 VASP 随报文；客户端同一张单只见受益人两行与 Address label，读不到报文状态与 VASP 名称（逐拍口径见 `demo/script.md` 站 5.1 加一拍）
 
 ## 5. 关键技术节点（≤30 行）
 
-- 工作流 `trading/withdraw-transactions/withdraw-workflow.service.ts`：`createWithdrawal()`（2026-09-14 波五：`assertCapability` 改 `assertTradingIntake` 取 `fold` 标志；L1 BLOCK 分支加 `isFoldOnlyRestriction` 判据——`fold && failed.length===1 && failed[0].code==='CUSTOMER_RESTRICTION'` 才放行继续建单，别的 FAIL 仍真 BLOCK；建单事务提交后、`emit(WITHDRAWAL_CREATED)` 之前，`fold` 为真时调 `updateStatus(FREEZE)` + `withdrawAudit({action:'WITHDRAW_FROZEN', ...})`）｜ `initiatePayoutPhase()`（两腿创建：本金 legSeq=1 / 费 legSeq=2）｜ `decideVerdictLanding()` 三档（IGNORE / EVIDENCE_ONLY / DISPATCH——FROZEN 一律 IGNORE 保护制裁证据；PAYOUT_PENDING 只留证据）｜ `initiateUnfreeze()/initiateRefund()`（双弧开案）+ `on*Approved()`（执行）｜ `onBounce()`（退汇，先账后状态）｜ `assertCustomerComplianceOrFreeze()`（客户级合规闸，三处接入）｜ `withdrawAudit()`（站2-β 统一留痕信封：33 码名册见 audit-actions.constant V5 表，波二新增报价三码；波五无新增码——创建即冻复用既有 `WITHDRAW_FROZEN`）
+- 工作流 `trading/withdraw-transactions/withdraw-workflow.service.ts`：`createWithdrawal()`（2026-09-14 波五：`assertCapability` 改 `assertTradingIntake` 取 `fold` 标志；L1 BLOCK 分支加 `isFoldOnlyRestriction` 判据——`fold && failed.length===1 && failed[0].code==='CUSTOMER_RESTRICTION'` 才放行继续建单，别的 FAIL 仍真 BLOCK；建单事务提交后、`emit(WITHDRAWAL_CREATED)` 之前，`fold` 为真时调 `updateStatus(FREEZE)` + `withdrawAudit({action:'WITHDRAW_FROZEN', ...})`）｜ `initiatePayoutPhase()`（两腿创建：本金 legSeq=1 / 费 legSeq=2）｜ `decideVerdictLanding()` 三档（IGNORE / EVIDENCE_ONLY / DISPATCH——FROZEN 一律 IGNORE 保护制裁证据；PAYOUT_PENDING 只留证据）｜ `initiateUnfreeze()/initiateRefund()`（双弧开案）+ `on*Approved()`（执行）｜ `onBounce()`（退汇，先账后状态）｜ `assertCustomerComplianceOrFreeze()`（客户级合规闸，三处接入）｜ `withdrawAudit()`（站2-β 统一留痕信封：34 码名册见 audit-actions.constant V5 表，波二新增报价三码、对手方波二新增 `WITHDRAW_TRAVEL_RULE_SNAPSHOTTED`；波五无新增码——创建即冻复用既有 `WITHDRAW_FROZEN`）；`applyKytRejected()` 的 `VASP_UNQUALIFIED` 分支（冻结分支之后、`FINAL_REJECTED` 之前）：`KYT_REJECTED` → `MANUAL_CHECKING` + `manualReason='vasp_unqualified'` + `WITHDRAW_MANUAL_CHECKING`，已在复核态 no-op（不直通 `REJECT_REFUND` / `releaseLock`）
 - 报价 `withdrawal-fee-level/withdraw-quote.service.ts`（`generateReferenceNo('WQT')`；TTL 300s 懒过期）：`createQuote()/consumeQuote()/cancelQuote()` 三动作对应 `WITHDRAW_QUOTE_{CREATED,USED,CANCELLED}` 三码（波二 2026-09-09，对齐 `swap-quote.service.ts` 写法，均带显式 `requestId`）；客户端确认框关闭即调用取消端点（`POST withdraw-transactions/quotes/:id/cancel`）
 - 状态机 `withdraw-transactions.service.ts → transitions`（23 边 + 守则单测）；大额出生路由是表外钦定写（注释成文）
 - 解锁原语 `releaseLock()`（净额+费两笔 pending 一起 void——"拒绝即解锁"的物理形态，提现/退款/失败三处共用）
@@ -80,6 +84,10 @@
 - 资金腿迁移表 `funds-order-transitions.constant.ts → FIAT_OUT/CRYPTO_OUT_TRANSITIONS`；费腿三级梯 `onFeeLegFailed()`
 - L1 `L1GateService`（提现十项全适用，含资产可用性；BLOCK 留 `*_L1_BLOCKED` 痕）；限额/大额阈值读 `transaction_limit_rules`（V3 篇）
 - 补单（B 批，2026-09-03）：`withdraw-workflow.service.ts → initiateReturnClaim()+onReturnAfterSuccess()`（复用 `onBounce()` 的重记分录，evidence 的 `externalRef`/`effectiveDate` 改用传入值，**跳过**费腿分支——SUCCESS 时费腿早已结清、手续费不退）｜ 新列 `returnExternalLineId String? @unique`/`returnReconCaseNo String?`｜ 入口、审批与守卫见 `modules/v8-recon.md` §3/§5
+- **建单带出与 Travel Rule 快照**（2026-10-22 对手方波二）：`withdraw-workflow.service.ts` 建单守卫段把已查到的地址簿行抄进局部 `counterpartyCopy`，经 `insertRecord` 落单（新列 `withdrawalAddressNo` / `beneficiaryName` / `beneficiaryType`〔抄自地址簿 `ownerType`；订单自身 `ownerType` 已被占用，刻意改名〕/ `counterpartyVaspName` / `counterpartyVaspDid`）｜ `submitSumsubTxn()` 在 `setSumsubTxn` + `WITHDRAW_SUMSUB_SUBMITTED` 之后、`submitType==='travelRule'` 时调私有 `snapshotTravelRule(w, amount)`：状态 = `!isTrApplicable ? NOT_APPLICABLE : (counterpartyVaspName ? EXCHANGED : SELF_HOSTED_NO_EXCHANGE)`，JSON 五键 `{status, beneficiaryName, beneficiaryType, counterpartyVaspName, counterpartyVaspDid}` 经主体写 `withdraw-transactions.service.ts → saveTravelRuleSnapshot()` 落 `travelRuleSnapshotJson`，并记 `WITHDRAW_TRAVEL_RULE_SNAPSHOTTED`（系统主体，afterData = 快照本体）；法币单 / 开关关闭被强制 finance 的 crypto 单 / 幂等跳过都走不到。`findOneForAdmin` 带 `vaspProfile`（按单上 DID 现拼，不落单）
+- **mock 件与判型**（同批）：`isTrApplicable()` 来自 `sumsub-shared/travel-rule/mock-tr-rules.service.ts`（阈值表 USDT 1000 / AED 3500 自旧判型 resolver 搬入，与充值域同一份）；`resolveKytTxnType()` 一行化（crypto → travelRule、法币 → finance，对手方与金额不再参与）；`TRAVEL_RULE_ADAPTER` 与 `MockTrRulesService` 由 `withdraw-transactions.module.ts` 自行 provide。登记于 `reference/sumsub-mock-touchpoints.md` ⑥⑦
+- **客户面投影**（同批）：`toCustomerWithdrawView` 白名单净增 `beneficiaryName` / `beneficiaryType` 两键；详情页 `addressLabel` 由“按收款地址值反查”改为按 `withdrawalAddressNo` 业务键回链地址簿（无键 → 不查、`null`）；泄漏断言的敏感键集 `SENSITIVE_KEYS`（spec）加 `travelRuleSnapshotJson` / `counterpartyVaspDid`，`counterpartyVaspName` 与 `withdrawalAddressNo` 不进客户白名单——客户读得到受益人与 label，读不到报文状态与对手方 VASP；客户端 `WithdrawDetail.tsx` 在 Address label 之后多 Beneficiary / Beneficiary type 两行
+- 对手方 VASP 合格判据（政策口径，数据住 Sumsub）：EEC 完成 ∧ 风险评分 <10 ∧ 持牌 → 通过；演示中名录两条样本一过一不过（Mock VASP Exchange / Grey Harbor Exchange）
 - 补料与材料账、Sumsub 接入同充值（V4 篇 §5），两域同构
 - **共享层现状（波四共享抽离，2026-09-13，行为零变化）**：`withdraw-sla.service.ts`/`withdraw-kyt-verdict.handler.ts`/`admin-withdraw-demo.controller.ts` 分别继承 `sumsub-shared/` 的公共基类 `SlaSweepBase`/`KytVerdictHandlerBase`/`DemoScenarioControllerBase`（与充值域同构镜像，**兑换域不参与、独立演进**，见 `modules/v6-swap.md` §5）；三域共用的资产投影 `toCustomerAssetView()`、SLA 字段计算 `resolveSlaFields()` 薄壳委托、客户级限制冻结扫描信封 `freezeScanQueryArgs()` 均收进 `trading/shared/`——本域走 `ownerNoSource: 'column'`（`WithdrawTransaction` 自带 `ownerNo` 列，与 deposit 走 customer 关系不同）。`withdrawal-fee-level/` 与 `swap-fee-level/`（V6 篇 §5）双树同期合一：本域 `withdrawal-fee-level.service.ts`/`*-change-workflow.service.ts`/`*-retire-workflow.service.ts`/`*-creation-workflow.service.ts` 均改继承 `trading/shared/fee-level.base.ts`/`fee-level-workflow.base.ts`——14 族逐字同方法进基类，单资产列（`assetId`）贯穿的查询与建档校验等 8 个真分叉留域内子类；3 个审批薄壳文件因 `actionType`/`workflowType` 与兑换域不同，不合并、原样保留两份
 
@@ -89,4 +97,3 @@
 - **热钱包余额不查**：公司侧没钱也放行出金指令——演示别构造这个场景
 - **费腿卡死后的视图残留**（Linked 卡片看着像在途，红旗只在单上）
 - **全新 worktree 跑 demo:withdraw 会炸**（seed 无提现地址种子；main 栈已种好不受影响）
-- **VASP 归因靠客户自报**（注册地址时自选类型），无外部名录校验——TR 判定的诚实前提要讲清
