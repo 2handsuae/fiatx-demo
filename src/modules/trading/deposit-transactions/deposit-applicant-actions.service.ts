@@ -174,7 +174,8 @@ export class DepositApplicantActionsService {
       orderDomain: 'DEPOSIT',
       orderRef: deposit.depositNo,
       origin: 'SUMSUB_PUSHED',
-      reason: `Source ownership claim required for deposit ${deposit.depositNo} (unhosted wallet at or above the Travel Rule threshold)`,
+      // 客户面文案：横幅会原样渲染 `${materialLabel}: ${reason}`，所以只用白话，不写合规规则措辞。
+      reason: 'Please tell us where this deposit came from.',
       issuedBy: 'SYSTEM',
       restrict: false,
       actor: { actorType: 'SYSTEM', userId: 'SYSTEM', userNo: 'SYSTEM', role: 'SYSTEM', roleCodes: ['SYSTEM'] } as any,

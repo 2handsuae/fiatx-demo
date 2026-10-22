@@ -920,7 +920,7 @@ export class DepositWorkflowService implements OnModuleInit {
     await this.pushActionPendingIfOutstanding(deposit, {
       caller: 'hangForOwnershipClaim',
       trigger: 'ownership-claim request',
-      reason: 'Source ownership claim required (unhosted wallet at or above the Travel Rule threshold)',
+      reason: 'Please tell us where this deposit came from.',
     });
   }
 

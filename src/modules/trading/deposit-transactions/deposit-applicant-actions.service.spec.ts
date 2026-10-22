@@ -235,6 +235,9 @@ describe('DepositApplicantActionsService', () => {
       // externalActionId 是材料账 @unique 键，applicantActionId 非空——两者都不是空串
       expect(arg.applicantActionId).toEqual(expect.stringMatching(/\S/));
       expect(arg.externalActionId).toEqual(expect.stringMatching(/^MRQ:/));
+      // reason 会被客户面横幅原样渲染（`${materialLabel}: ${reason}`）：白话，不得露合规规则措辞
+      expect(arg.reason).toBe('Please tell us where this deposit came from.');
+      expect(arg.reason).not.toMatch(/travel rule|threshold|unhosted|compliance/i);
     });
 
     it('同一单再次认领 → 铸出的 externalActionId 不撞（不是常量）', async () => {
