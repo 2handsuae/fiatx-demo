@@ -256,3 +256,33 @@ describe('对手方波一：提现地址簿五码出生即冻结四属性', () =
     expect(c.requiresCausation).toBe(want.requiresCausation);
   });
 });
+
+describe('对手方波二：来源归因 / 认领 / 同源免问 / TR 快照四码出生即冻结四属性', () => {
+  // 三码住 V4_DEPOSIT_AUDIT_ACTIONS、一码住 V5_WITHDRAW_AUDIT_ACTIONS；全 INHERIT 单据自己的旅程
+  // （CREATED 已 START），全 requiresCausation=false（operator/客户/系统同步动作，无异步驱动）。
+  const expected: Record<
+    string,
+    { registry: Record<string, unknown>; domain: string; correlationMode: AuditCorrelationMode; requiredFields: string[]; requiresCausation: boolean }
+  > = {
+    DEPOSIT_SOURCE_ATTRIBUTED: { registry: V4_DEPOSIT_AUDIT_ACTIONS, domain: 'DEPOSIT', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: ['afterData'], requiresCausation: false },
+    DEPOSIT_SOURCE_CLAIM_SUBMITTED: { registry: V4_DEPOSIT_AUDIT_ACTIONS, domain: 'DEPOSIT', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: ['afterData'], requiresCausation: false },
+    DEPOSIT_KNOWN_SOURCE_MATCHED: { registry: V4_DEPOSIT_AUDIT_ACTIONS, domain: 'DEPOSIT', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: ['afterData'], requiresCausation: false },
+    WITHDRAW_TRAVEL_RULE_SNAPSHOTTED: { registry: V5_WITHDRAW_AUDIT_ACTIONS, domain: 'WITHDRAW', correlationMode: AuditCorrelationMode.INHERIT, requiredFields: ['afterData'], requiresCausation: false },
+  };
+
+  it.each(Object.keys(expected))('%s 在所属名册、不在退役闸，且合同四属性逐一精确匹配', (code) => {
+    const want = expected[code];
+    const c = (want.registry as any)[code];
+    expect(c).toBeDefined();
+    expect(DEPRECATED_AUDIT_ACTIONS).not.toContain(code);
+    expect(c.domain).toBe(want.domain);
+    expect(c.correlationMode).toBe(want.correlationMode);
+    expect(c.requiredFields).toEqual(want.requiredFields);
+    expect(c.requiresCausation).toBe(want.requiresCausation);
+  });
+
+  it('V4 现役 50 码 / V5 现役 34 码（波二各 +3 / +1）', () => {
+    expect(Object.keys(V4_DEPOSIT_AUDIT_ACTIONS)).toHaveLength(50);
+    expect(Object.keys(V5_WITHDRAW_AUDIT_ACTIONS)).toHaveLength(34);
+  });
+});

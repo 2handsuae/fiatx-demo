@@ -833,7 +833,7 @@ export const V1_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  * actionDomain 网关，见该方法注释。
  */
 /**
- * 充值域名册（站1b-β，2026-08-26，业主终审版 31 码；2026-09-16 波三订正，历史版本号不动：现役 47 码）。
+ * 充值域名册（站1b-β，2026-08-26，业主终审版 31 码；2026-09-16 波三订正，历史版本号不动；2026-10-22 对手方波二 +3：现役 50 码）。
  * 设计稿：doc-final/archive/superpowers/specs/2026-08-26-deposit-audit-vocab-design.md
  * 要点：*_FAILED 不铸码（outcome+reasonCode 表达）；「放行」一码四态
  * （成功/翻案走 from 列/冻结拒批 DENIED/记账失败 FAILED）；动态迁移码族废除
@@ -902,10 +902,17 @@ export const V4_DEPOSIT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   // 客户在某网络上开收款地址（波一：钱包表唯一写路径；actor=客户）。单步动作、无旅程可继承 → NONE；
   // 失败并入双结局（outcome=FAILED + reasonCode=PROVISION_ERROR）。
   CUSTOMER_DEPOSIT_ADDRESS_CREATED: { domain: 'DEPOSIT', correlationMode: N, requiredFields: ['afterData'], requiresCausation: false },
+  // ── 对手方波二（2026-10-22）：来源归因 / 认领 / 同源免问，三码全 INHERIT 充值单自己的旅程（CREATED 已 START）。
+  // 触发者：SOURCE_ATTRIBUTED=⚡喂归因（operator，DEMO_VERDICT_WRITE）；
+  // SOURCE_CLAIM_SUBMITTED=客户提交来源认领（客户主体，申报快照进 afterData）；
+  // KNOWN_SOURCE_MATCHED=同源免问命中已知来源（recordSystem，afterData 含 knownSourceRef）。
+  DEPOSIT_SOURCE_ATTRIBUTED:       { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
+  DEPOSIT_SOURCE_CLAIM_SUBMITTED:  { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
+  DEPOSIT_KNOWN_SOURCE_MATCHED:    { domain: 'DEPOSIT', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
 };
 
 /**
- * 站2-β（2026-08-27）提现域名册——25 码，业主终审版（2026-09-16 波三订正，历史版本号不动：现役 33 码）。承接充值域全部裁定：
+ * 站2-β（2026-08-27）提现域名册——25 码，业主终审版（2026-09-16 波三订正，历史版本号不动；2026-10-22 对手方波二 +1：现役 34 码）。承接充值域全部裁定：
  * 失败不起名（outcome+reasonCode）｜同动作不因语境拆名｜动态迁移族废除（从/到两列）｜
  * CREATED=旅程起点铸 correlationId，其余全 INHERIT｜锁释放并入落地行（metadata 携解锁金额）。
  * 与充值的结构差（钱后动拆三码/大额前置闸/费用尾巴/退票/在途裁决窗口）见
@@ -959,6 +966,9 @@ export const V5_WITHDRAW_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   WITHDRAW_QUOTE_CREATED:         { domain: 'WITHDRAW', correlationMode: N, requiredFields: [], requiresCausation: false },
   WITHDRAW_QUOTE_USED:            { domain: 'WITHDRAW', correlationMode: N, requiredFields: [], requiresCausation: false },
   WITHDRAW_QUOTE_CANCELLED:       { domain: 'WITHDRAW', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // 对手方波二（2026-10-22）：travelRule 型提现单建单时一次性落快照，INHERIT 提现单自己的旅程（CREATED 已 START）。
+  // 触发者：recordSystem（建单编排层系统记账，afterData 为 Travel Rule 快照）。
+  WITHDRAW_TRAVEL_RULE_SNAPSHOTTED: { domain: 'WITHDRAW', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
 };
 
 /**

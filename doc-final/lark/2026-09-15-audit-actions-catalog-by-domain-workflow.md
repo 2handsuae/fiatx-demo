@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流
 
 > 生成于 2026-09-15 ｜ 基线 main `8a6390fa` ｜ 来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（8 份名册程序化导出，分组清单与名册双向校验通过）
-> 现役 **348 码**，另有退役 113 码进拒写闸（附录仅列名）。
+> 现役 **352 码**，另有退役 113 码进拒写闸（附录仅列名）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 65 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 47 ｜ WITHDRAW 33 ｜ SWAP 27 ｜ TREASURY 37 ｜ RECON 9 ｜ GOVERNANCE 54 ｜ 合计 348
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 65 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 50 ｜ WITHDRAW 34 ｜ SWAP 27 ｜ TREASURY 37 ｜ RECON 9 ｜ GOVERNANCE 54 ｜ 合计 352
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -329,7 +329,7 @@
 | `CUSTOMER_PROFILE_UPDATED` | 合规官经 PATCH 通道更正客户档案（CDD 七字段白名单，逐字段 before/after 进 metadata，证件号与住址掩码；DSR「改」重核验通过后的人工落档，填 `CUSTOMER_WRITE` 孤儿桶） | N 单步 | customerNo, changedFields |  |
 | `CUSTOMER_PHONE_UPDATED` | 客户自助改手机号（唯一冲突显式 409；actor=客户本人，metadata 带掩码后的 before/after；phone 同时是登录标识之一） | N 单步 | customerNo |  |
 
-## DEPOSIT 域 —— V4 充值（47 码）
+## DEPOSIT 域 —— V4 充值（50 码）
 
 一笔钱进来要闯几道门；闯不过去的钱四种下场（没收/退回/上缴/解冻）。CREATED 铸旅程号，一笔充值一段链。
 
@@ -402,6 +402,14 @@
 | `DEPOSIT_SIGNAL_REJECTED` | 合约对不上任何资产、建单前被拒（UNKNOWN_ASSET） | N 单步 | — |  |
 | `CUSTOMER_DEPOSIT_ADDRESS_CREATED` | 客户在某网络开收款地址（钱包表唯一写路径） | N 单步 | afterData |  |
 
+### 来源归因与认领（对手方波二）（3）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `DEPOSIT_SOURCE_ATTRIBUTED` | ⚡ 喂来源归因（模拟 Sumsub 一侧认出入金来源是 VASP 还是 Unhosted；operator 记操作人，afterData 带归因结果；对手方列改由归因写入，不再由客户自报）（对手方波二） | I 继承 | afterData |  |
+| `DEPOSIT_SOURCE_CLAIM_SUBMITTED` | 客户提交来源认领（客户主体，afterData 为申报快照：认领类型、姓名、关系；供复核与同源免问回查）（对手方波二） | I 继承 | afterData |  |
+| `DEPOSIT_KNOWN_SOURCE_MATCHED` | 同源免问：同客户×同来源地址曾认领过，系统命中已知来源、不再挂起（system 记账，afterData 含 knownSourceRef 回链原充值单号）（对手方波二） | I 继承 | afterData |  |
+
 ### SLA 与演示（3）
 
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
@@ -410,7 +418,7 @@
 | `DEPOSIT_SLA_TIMEOUT_SIMULATED` | ⚡ 拨钟模拟 SLA 超时 | I 继承 | — |  |
 | `DEPOSIT_DEMO_SCENARIO_RUN` | ⚡ 喂裁决按钮被按下（demo 元审计：谁点了哪个） | I 继承 | — |  |
 
-## WITHDRAW 域 —— V5 提现（33 码）
+## WITHDRAW 域 —— V5 提现（34 码）
 
 出金门最多：地址白名单、限额、大额审批、KYT、补料。钱后动拆三码（发起/完成/终态），银行退票与事后退回都有名字。
 
@@ -420,6 +428,12 @@
 |---|---|---|---|---|
 | `WITHDRAW_CREATED` | 提现单出生（铸旅程号；消费报价一并发生） | S 起点 | amount, currency, ownerCustomerNo |  |
 | `WITHDRAW_L1_BLOCKED` | L1 十项闸拦下建单（单未建、无单号，主体=客户） | N 单步 | reasonCode |  |
+
+### Travel Rule 快照（对手方波二）（1）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `WITHDRAW_TRAVEL_RULE_SNAPSHOTTED` | travelRule 型提现单建单时一次性落 Travel Rule 快照（system 记账，afterData 为快照内容，落单后不再改）（对手方波二） | I 继承 | afterData |  |
 
 ### 大额审批闸（SMO）（3）
 
