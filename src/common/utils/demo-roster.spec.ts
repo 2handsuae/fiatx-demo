@@ -34,7 +34,7 @@ describe('DEMO_ROSTER', () => {
     // 加行永远不会误报，所以不会退回"每次加行都要手动改精确值"的老路。
     // 代价：下限本身会慢慢过时（将来加到 40 行时它不会主动提醒你抬高），
     // 但**过时的下限仍然好过没有下限**。
-    expect(DEMO_ROSTER.length).toBeGreaterThanOrEqual(29);
+    expect(DEMO_ROSTER.length).toBeGreaterThanOrEqual(35);
   });
 
   it('金额全部写死，没有随机', () => {

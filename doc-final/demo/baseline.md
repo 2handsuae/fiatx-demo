@@ -53,7 +53,7 @@
 |---|---|
 | 编译 | tsc 后端（src / test / scripts / prisma 四目录）｜ tsc 管理台（含 .spec.ts）｜ tsc 客户端 |
 | 重铺 | `stack.sh reset main`（含 TigerBeetle 清理重建，全链实跑） |
-| 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 29/29 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束） |
+| 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 35/35 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束；29→35 见文末「对手方波二种子断言」） |
 | 对账 | recon:demo:pass ｜ **recon:demo:break 18/18 场景 + 12/12 钱包桶 + `casesOpened` 完整性断言**（2026-09-06 平账三期加 18（Jack USDT-TRON 未授权转出 → 事故登记）后实测：`scenarios 18/18 DETECTED` / `wallets 12/12 bucket OK`（break 9 / softFlag 2 / inTransit 1）/ `casesOpened 12/12`，答案键 `rootCause` 用注册表成因码）｜ verify:demo-data。⚠️ **铺场前不得有在途划转**（待批 / 执行中的内部划转单会让脚本前置闸当场报错——先 ⚡ 推到确认或撤回）。⚠️ **必须走整库重铺验证**：**场景 6（重复入账）真写账本**、`recon:demo:reset` 不回滚账本，轻量重跑会让场景 6 假性 MISSED（显示 17/18）|
 | 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测重铺后与 demo:all 后均全绿；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序）。**2026-09-01 三支合流后在 main 栈两轮独立实测：57 科目全部 ≥ 0，全绿**（此前 08-31 的负余额红已定位为资本注入被跳过的假红，见上方\"已结\"节）。**2026-09-05 起注资那笔已在流水里**（种子写凭证 + 两行流水），运营户对账起点为正 |
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
@@ -74,7 +74,7 @@
 
 ## demo:all 操作约束（演示装备一期，2026-08-29 起）
 
-`demo:all` 的判据从「8 场景全 SUCCESS」改成了「花名册 29 笔逐条比对预期终态 + COA 四恒等式」——一份丰富的演示数据本来就该有冻结的、没收的、退回的、上缴的、卡在半路的，不是清一色 SUCCESS（详见 `data.md`）。
+`demo:all` 的判据从「8 场景全 SUCCESS」改成了「花名册 35 笔逐条比对预期终态 + COA 四恒等式」（2026-10-22 对手方波二由 29 笔增至 35 笔）——一份丰富的演示数据本来就该有冻结的、没收的、退回的、上缴的、卡在半路的，不是清一色 SUCCESS（详见 `data.md`）。
 
 **由此带出一条硬约束：`demo:all` 必须在全新库上跑，不能在同一个库上连跑两次。** 花名册第 #7/#10/#13 行故意把第四人设 FRANK 造成一个**永久被制裁**的客户（customer-level ALL-scope 限制，本仓库没有任何流程会解开它——这也是刻意的，交易三人组 Alice/Bob/Grace 必须全程可交易，冻结这个不可逆动作只能落在专门"报废"的第四个人身上）。第二次在同一个库上跑 `demo:all`，L1 会（正确地）拒绝 FRANK 的新充值，`runFrankPreStage` 因此卡住直到超时——**这是闸门在正确工作，不是 bug**。正确姿势：`bash scripts/stack.sh reset [main|self]` 重铺出全新库后再跑一次。
 
@@ -367,3 +367,33 @@ sqlite3 -readonly <栈库> "select count(*) from data_subject_requests;"        
 - jest 六目录（`src/core/notifications`、`src/modules/asset-treasury/treasury`、`src/modules/identity/dsr-requests`、`src/modules/identity/customers`、`src/modules/governance/compliance-office`、`src/modules/audit-logging`）：exit 0，**33 suites / 471 passed / 1 skipped（既有 skip）**；同机 `npx jest src/modules/identity`（含 `users/invite-expiry.service.spec.ts`）：`1 failed suite`（即 `invite-expiry`，审批监听器 52 > 50 的既有债，`TOOLING-DEBT.md` 在册），其余 55 suites / 679 tests 全绿——**`invite-expiry` 红按既有债交代，不称全绿**；e2e 同机理不得援引为绿。
 - 闸①②③：`npx tsc --noEmit -p tsconfig.json`、`cd admin-web && npx tsc -b --noEmit`、`cd client-web && npx tsc -b --noEmit` 均 exit 0。`npm run audit:vocab` exit 0，合计 **343 码**（失效验证：临时删掉种子里 `DSR_RESOLVED` 一行 → exit 1，报"有码没说明 … DSR_RESOLVED"，不写盘；还原后 exit 0）。
 - 走查证据（第十幕场景 33–34 全程真点击，干净库）：`superpowers/checkups/2026-10-03-campaign-c-wave4-evidence/35`–`71` 共 37 张。**同日快照不漂实验**（对 Henry 2026-09 单出具后往 `tb_transfer_evidence` 插一条落在 9 月的 AED 腿 +777.00）：活水页 `total` 4→5、`currentBalance` 4495000→4572700，而月结单 JSON 逐字节不变——实验数据随重铺清除，不入库。
+
+## 对手方波二种子断言（reset 判据，2026-10-22 Task 11 起）
+
+本节是 `demo:all` 花名册 **29→35** 与种子地址 **11→12** 的判据，覆盖本文件前文所有 `29/29` 口径（前文各战役节的 `29/29` / COA 数值是**当时**的实测，保持原样不改）。
+
+| 项 | 旧 | 新 | 来由 |
+|---|---|---|---|
+| 种子提现地址（`traceId` 前缀 `demo-setup-withdrawal-address`） | 11 | **12** | #12 `demo_bob` TRON 尾号 `4444`（Grey Harbor Exchange，VASP×本人，DECLARATION，GREEN，ACTIVE）；`verify:demo-data` R5 对 12 条逐条核 `WITHDRAWAL_ADDRESS_SEEDED` 审计（actorNo=`DEMO_SEED`） |
+| `demo:all` 花名册 | 29 | **35**（充值 18→22、提现 7→9、兑换 4 不变） | 新增 #30–#35 六笔对手方展品 |
+| `demo:all` asserts | 5/5 | **5/5**（不变） | 新展品的行为断言写在 `runDeposits`/`runWithdraws` 内部（不符即 FATAL、退出码 1），不计入末尾 `asserts: N/N` |
+| 两域状态机边数 | deposit 29 / withdraw 23 | **不变** | 零新态零新边（本节未触状态机） |
+
+**六笔新展品**（单号内嵌日期+随机后缀，当次真实单号看 `demo:all` 运行时打印的花名册；下列固定串与金额跨重铺稳定）：
+
+| # | 域 | 客户 | 金额 | 终态 | 展品要点（`runDeposits`/`runWithdraws` 内断言的列/审计） |
+|---|---|---|---|---|---|
+| 30 | 充值 | alice | 1500 USDT | SUCCESS | ⚡Unhosted → 超线挂起 → 客户认领 SELF → 回炉 → ⚡①；`sourceClaimType=SELF`，审计 `DEPOSIT_SOURCE_ATTRIBUTED`×1 / `DEPOSIT_SOURCE_CLAIM_SUBMITTED`×1；`fromAddress=TnTuTp9kiuy2NXtvXc1niNxxaHcheKiY1n` |
+| 31 | 充值 | bob | 1200 USDT | SUCCESS | 同套路，认领 THIRD_PARTY_PERSON（`Omar Al Mansoori` / `Business partner`）；`fromAddress=TtLuxwQT85Aogkd2C5283ADypk9gMYxPTt` |
+| 32 | 充值 | alice | 1100 USDT | SUCCESS | 与 #30 **同 fromAddress**：⚡Unhosted → 已知来源免问（`knownSourceRef`=#30 单号，`sourceClaimedAt` 为空），审计 `DEPOSIT_KNOWN_SOURCE_MATCHED`×1、`DEPOSIT_ACTION_REQUIRED`×0（没挂起） |
+| 33 | 充值 | kate | 1300 USDT | RETURNED | ⚡VASP·Grey Harbor → ⚡⑫（`V12_VASP_UNQUALIFIED`）→ 人工复核（`manualReason=vasp_unqualified`）→ 运营提退回 → MLRO 批 → 退回腿确认 |
+| 34 | 提现 | grace | 1200 USDT | SUCCESS | 打她的 `…1111` VASP 地址；`travelRuleSnapshotJson.status=EXCHANGED`，对手方 `Mock VASP Exchange`，审计 `WITHDRAW_TRAVEL_RULE_SNAPSHOTTED`×1 |
+| 35 | 提现 | alice | 1500 USDT | SUCCESS | 打她的已签名自托管地址；快照 `SELF_HOSTED_NO_EXCHANGE`，对手方为空 |
+
+既有 #15（bob 150 USDT 提现，低于线）自然成第三档 `NOT_APPLICABLE` 展品，同样断言快照内容。
+
+**COA 恒等式数值变化**（只增 USDT 侧；等式两边相等，数值不是判据）：`CLIENT(AED) 34107565` 与 `FIRM(AED) 94620335` 不变；`CLIENT(USDT) 7101620811 → 8201620811`、`FIRM(USDT) 114013428189 → 114035428189`（`data.md` 生成区随之改写，非代码红）。
+
+**实测口径**（2026-10-22，self 栈 `counterparty_wave2`，Node 20.19.0；全部命令不接管道，退出码取自命令本身）：
+`bash scripts/stack.sh reset self`（exit 0，链内 `verify:demo-data ALL PASS`，R5 两块 SKIP——ensureSetup 尚未跑，合法中间态）→ `bash scripts/stack.sh up self`（exit 0）→ `bash scripts/on-stack.sh self demo:all`（exit 0：`花名册：35/35 符合预期`、`asserts: 5/5 PASS`、`demo:all DONE`；六笔展品内断言全过，无 FATAL）→ 同库紧接 `bash scripts/on-stack.sh self verify:demo-data`（exit 0，`ALL PASS`；直查库 `withdrawal_addresses` 恒 12 条、`WITHDRAWAL_ADDRESS_SEEDED` 审计 12 条）→ `recon:demo:pass`（exit 0：`status=PASS walletsChecked=19 casesOpened=0`，五条断言全 OK）→ `recon:demo:break`（exit 0：`scenarios 18/18 DETECTED`、`wallets 12/12`、`casesOpened 12/12`）→ `verify:coa`（exit 0：四恒等式 + 67 科目全部 ≥ 0；`ledger 1 CLIENT 34307565` = demo:all 后 34107565 + 场景 6 真写账本 200000）。`npx tsc --noEmit -p tsconfig.json` exit 0；`npx jest src/common/utils/demo-roster.spec.ts` 6/6 绿（单调下限 29→35）。
+**未做失效验证**：六笔展品的行为断言没有做"故意改坏看它变红"的整条流水线变异（整条重铺一轮成本高），仅做了**非空洞核对**——#30 的 `DEPOSIT_ACTION_REQUIRED` 审计实有 1 条（直查库），证明 #32 断言的"应为 0"查得到东西；`expectColumns` 对拼错的列名读到 `undefined`，与任何期望值（含 `null`）比较均不等，不会空过。

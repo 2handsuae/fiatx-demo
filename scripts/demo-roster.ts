@@ -1,5 +1,5 @@
 /**
- * demo:all 花名册 —— 29 笔单覆盖 21 种终态/活态。
+ * demo:all 花名册 —— 35 笔单覆盖 21 种终态/活态（对手方波二加 6 笔展品，不新增终态）。
  *
  * 原则：剧本演到的状态必须有现成样本，剧本没演到的不造。不按状态机穷举
  * （兑换的 FAILED/REVERSED 是不可达死枚举，不进册）。
@@ -105,6 +105,18 @@ export const DEMO_ROSTER: RosterEntry[] = [
   { seq: 27, domain: 'DEPOSIT', label: '充值 · 素材（Kate AED 大额）',  expectedStatus: 'SUCCESS', customerEmail: KATE,  amount: '4000', currency: 'AED',  driver: '⚡①' },
   { seq: 28, domain: 'DEPOSIT', label: '充值 · 素材（Kate AED 小额）',  expectedStatus: 'SUCCESS', customerEmail: KATE,  amount: '1200', currency: 'AED',  driver: '⚡①' },
   { seq: 29, domain: 'DEPOSIT', label: '充值 · 素材（Kate USDT）',     expectedStatus: 'SUCCESS', customerEmail: KATE,  amount: '350',  currency: 'USDT', driver: '⚡①' },
+
+  // ── 对手方波二展品（seq 30-35）─────────────────────────────────────────────
+  // 充值 +4：来源归因 ⚡ 喂 + unhosted 超线（≥1000 USDT）认领 / 同源免问 / VASP 不合格退回。
+  // 顺序是硬的——#32 的「同源」要读到 #30 已落的认领快照，所以 #30 必须排在 #32 之前。
+  // 全是 crypto：归因是 Travel Rule 概念，法币单没有"对手方 VASP"可归（喂了会 400）。
+  { seq: 30, domain: 'DEPOSIT',  label: '充值 · 认领甲（本人钱包）',   expectedStatus: 'SUCCESS',  customerEmail: ALICE, amount: '1500', currency: 'USDT', driver: '⚡Unhosted → 客户认领 SELF → 回炉 → ⚡①' },
+  { seq: 31, domain: 'DEPOSIT',  label: '充值 · 认领乙（第三方个人）', expectedStatus: 'SUCCESS',  customerEmail: BOB,   amount: '1200', currency: 'USDT', driver: '⚡Unhosted → 客户认领 THIRD_PARTY_PERSON → 回炉 → ⚡①' },
+  { seq: 32, domain: 'DEPOSIT',  label: '充值 · 同源免问（对照甲）',   expectedStatus: 'SUCCESS',  customerEmail: ALICE, amount: '1100', currency: 'USDT', driver: '⚡Unhosted（同 #30 地址）→ 已知来源免问 → ⚡①' },
+  { seq: 33, domain: 'DEPOSIT',  label: '充值 · VASP 不合格退回',      expectedStatus: 'RETURNED', customerEmail: KATE,  amount: '1300', currency: 'USDT', driver: '⚡VASP·Grey Harbor → ⚡⑫ → 退回 → MLRO 批' },
+  // 提现 +2：Travel Rule 快照三档里的两档（第三档 NOT_APPLICABLE = 既有低于线的 #15）。
+  { seq: 34, domain: 'WITHDRAW', label: '提现 · TR 快照（VASP 已交换）', expectedStatus: 'SUCCESS', customerEmail: GRACE, amount: '1200', currency: 'USDT', driver: '⚡①（→ 她的 1111 VASP 地址）' },
+  { seq: 35, domain: 'WITHDRAW', label: '提现 · TR 快照（自托管无交换）', expectedStatus: 'SUCCESS', customerEmail: ALICE, amount: '1500', currency: 'USDT', driver: '⚡①（→ 她的已签名自托管地址）' },
 ];
 
 export function printAnswerKey(

@@ -118,12 +118,14 @@ export const WITHDRAW_PLAN: Record<string, { fiatAed: number; cryptoUsdt?: numbe
   'demo_grace@example.com': { fiatAed: 100 },
 };
 
-// 对手方波一·地址簿样本（种子终盘表 #9–11，grace / kate / jack 各一条 TRON 提现地址）。
-// 地址尾号对应 MockTravelRuleAdapter 的确定性规则：1111 → 归因 VASP / 3333 → 筛查 RED 登记即拒——
+// 对手方波一·地址簿样本（种子终盘表 #9–11，grace / kate / jack 各一条 TRON 提现地址；波二加 #12，bob 一条 Grey Harbor）。
+// 地址尾号对应 MockTravelRuleAdapter 的确定性规则：1111 → 归因 VASP / 3333 → 筛查 RED 登记即拒 / 4444 → 归因 Grey Harbor——
 // 演示者把这串地址再登记一遍得到的也是同一结局（种子与魔法规则自洽）。
 // 尾号改造法 = 替换 fakeTronAddress 的末 4 位，长度（34）与 Base58 字符集不变。
 const MOCK_VASP_TAIL = '1111';
 const MOCK_RED_TAIL = '3333';
+// 波二：4444 → 归因 Grey Harbor Exchange（名录里 EEC 未完成 / 评分 42 / 无牌照的那家，资质不过关的展品）。
+const MOCK_GREY_TAIL = '4444';
 const withMockTail = (addr: string, tail: string) => `${addr.slice(0, -tail.length)}${tail}`;
 
 const MOCK_VASP_FIELDS = {
@@ -162,7 +164,22 @@ const ADDRESS_BOOK_SAMPLES: Record<string, AddressBookSample> = {
       ownershipProofType: 'SIGNATURE', screeningAnswer: 'RED',
     },
   },
+  // #12 波二：本人×托管（Grey Harbor——资质不过关的 VASP；尾号 4444 即登记时的归因规则，种子与魔法规则自洽）
+  'demo_bob@example.com': {
+    tag: 'vasp', tail: MOCK_GREY_TAIL, status: 'ACTIVE',
+    fields: {
+      addressType: 'VASP', counterpartyVaspName: 'Grey Harbor Exchange', counterpartyVaspDid: 'did:mock:grey-harbor-001',
+      declaredHosting: 'VASP', ownerType: 'SELF', ownershipProofType: 'DECLARATION', screeningAnswer: 'GREEN',
+    },
+  },
 };
+
+/** 地址簿样本的 TRON 地址——ensureSetup 落种子与 runWithdraws 选收款地址共用这一处，种子与取用不会各算各的。 */
+function addressBookSampleAddress(email: string): string {
+  const sample = ADDRESS_BOOK_SAMPLES[email];
+  if (!sample) throw new Error(`no address-book sample for ${email}`);
+  return withMockTail(fakeTronAddress(`${SIM}wd-${sample.tag}${customerIdx(email)}`), sample.tail);
+}
 
 // Non-zero fees so FEE_INCOME / SPREAD_INCOME actually populate ("data must be full").
 export const FEE_PLAN: Array<['swapFeeLevel' | 'withdrawalFeeLevel', string, string, string]> = [
@@ -466,7 +483,7 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
     // alice 名下不加新 ACTIVE TRON 条目：站 5 ④ 她要现场再登记，3 条上限不能被种子占满。
     const sample = ADDRESS_BOOK_SAMPLES[c.email];
     if (sample) {
-      const sampleAddr = withMockTail(fakeTronAddress(`${SIM}wd-${sample.tag}${customerIdx(c.email)}`), sample.tail);
+      const sampleAddr = addressBookSampleAddress(c.email);
       const sampleAddrNo = buildDeterministicNo('WA', SIM, `WD_${sample.tag.toUpperCase()}`, c.customerNo);
       const sampleRow: Prisma.WithdrawalAddressUncheckedCreateInput = {
         addressNo: sampleAddrNo, customerId: c.id, customerNo: c.customerNo,
@@ -563,10 +580,10 @@ export async function runFrankPreStage(ctx: DemoCtx): Promise<Array<{ seq: numbe
   return [{ seq: depositEntry.seq, orderNo: dep.depositNo, status: dep.status }];
 }
 
-// ── stage 2: deposits (18-entry roster, incl. 3 disposition arcs; #21 is
+// ── stage 2: deposits (22-entry roster, incl. 3 disposition arcs + wave-2 #30-#33; #21 is
 //    pre-staged by runFrankPreStage() above and just re-reported here) ───────
 //
-// Roster: scripts/demo-roster.ts DEMO_ROSTER (domain === 'DEPOSIT', 18 rows,
+// Roster: scripts/demo-roster.ts DEMO_ROSTER (domain === 'DEPOSIT', 22 rows,
 // incl. #21 — see the stage banner above for how that one is handled) — every
 // row drives to whatever status the roster names, via the REAL service/
 // workflow methods a human admin would use (no direct table writes):
@@ -642,9 +659,10 @@ function verdictArgsForButton(buttonKey: string) {
  *  post-CONFIRM state. */
 async function createRosterDeposit(
   ctx: DemoCtx, c: any, asset: any, walletId: string, amount: string, type: PayinType, seq: number,
+  fromAddressOverride?: string,
 ): Promise<any> {
   const idx = customerIdx(c.email);
-  // 种子必须按 seq（花名册行号，全表 1-29 唯一）取，不能按 walletId 取——同一钱包在
+  // 种子必须按 seq（花名册行号，全表 1-35 唯一）取，不能按 walletId 取——同一钱包在
   // 同一天入好几笔是常态（如 #24/#25 同为 JACK 的 AED 钱包），按 walletId 取会让
   // 这几笔的 txHash/referenceNo 完全撞号；生产路径按 fundsOrderNo 取正是同一个
   // 唯一性要求（funds-order.service.ts buildExternalRefPatch），这里的 funds order
@@ -652,7 +670,7 @@ async function createRosterDeposit(
   const { deposit: dep, fundsOrder: fo }: any = await ctx.deposits.detected({
     assetId: asset.id, toWalletId: walletId, amount,
     txHash: type === PayinType.CRYPTO ? fakeChainTxHash(`DEP${seq}`) : undefined,
-    fromAddress: type === PayinType.CRYPTO ? `Tsender${idx}` : undefined,
+    fromAddress: type === PayinType.CRYPTO ? (fromAddressOverride ?? `Tsender${idx}`) : undefined,
     fromIban: type === PayinType.FIAT ? `AE00SENDER${idx}` : undefined,
     referenceNo: fakeBankRef(`DEP${seq}`, new Date()),
   });
@@ -725,6 +743,48 @@ async function makerCheckerApprove(ctx: DemoCtx, approvalNo: string, logins: Arr
   }
 }
 
+// 对手方波二·来源认领展品的固定 fromAddress（充值花名册 #30–#32）。
+// 「同源免问」判的是 同客户 × 同 fromAddress × 已提交过认领——#30 与 #32 必须是**同一串**，
+// 所以这两串是常量、不随 seq / 随机漂；演示者在 data.md 速查里看到的也是这两串。
+const CLAIM_SOURCE_ADDR_SELF = fakeTronAddress(`${SIM}claim-src-self`); //  #30 认领甲 + #32 同源对照 共用
+const CLAIM_SOURCE_ADDR_THIRD = fakeTronAddress(`${SIM}claim-src-third`); // #31 认领乙
+
+/** 等「提交 Sumsub」那一步落完——归因 ⚡ 与 unhosted 超线挂起都认 sumsubTxnType==='travelRule'，
+ *  而状态离开 PAYIN_PENDING（createRosterDeposit 的返回判据）不保证这一步已经完成。 */
+async function waitTravelRuleSubmitted(ctx: DemoCtx, depositId: string): Promise<void> {
+  await waitFor(`deposit ${depositId} submitted to Sumsub as travelRule`, async () => {
+    const d: any = await ctx.deposits.findOne(depositId);
+    return d.sumsubTxnType === 'travelRule' ? d : null;
+  });
+}
+
+/** 认领展品共用的前半程：⚡喂 Unhosted → 超线且非已知来源 → 挂 ACTION_PENDING → 客户认领 → 回炉 COMPLIANCE_PENDING。
+ *  回炉是 async 监听器（认领一落章广播 MATERIAL_REQUEST_REVIEWED → RESUME），所以这里要等状态真回来再让调用方喂 ⚡①。 */
+async function driveOwnershipClaim(
+  ctx: DemoCtx, depositId: string, seq: number, customerId: string,
+  claim: { claimType: 'SELF' | 'THIRD_PARTY_PERSON'; name?: string; relationship?: string },
+): Promise<any> {
+  await waitTravelRuleSubmitted(ctx, depositId);
+  const dep: any = await ctx.deposits.findOne(depositId);
+  await ctx.depositWf.applySourceAttribution(
+    dep.depositNo, { attribution: 'UNHOSTED' }, DEMO_ACTOR(`DEMO_OPS_FEED_${seq}`, 'OPS_OFFICER'),
+  );
+  await waitDepositStatus(ctx, depositId, 'ACTION_PENDING');
+  await ctx.depositWf.submitOwnershipClaim(dep.depositNo, customerId, claim);
+  return waitDepositStatus(ctx, depositId, 'COMPLIANCE_PENDING');
+}
+
+async function expectAuditCount(ctx: DemoCtx, depositNo: string, action: string, expected: number, why: string): Promise<void> {
+  const n: number = await ctx.prisma.auditLogEvent.count({ where: { primarySubjectNo: depositNo, action } });
+  if (n !== expected) throw new Error(`${depositNo}: 审计 ${action} 应有 ${expected} 条，实有 ${n} —— ${why}`);
+}
+
+function expectColumns(label: string, row: any, expected: Record<string, unknown>): void {
+  for (const [k, v] of Object.entries(expected)) {
+    if (row[k] !== v) throw new Error(`${label}: 列 ${k} 应为 ${JSON.stringify(v)}，实为 ${JSON.stringify(row[k])}`);
+  }
+}
+
 export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; orderNo: string; status: string }>> {
   console.log(`═══ demo:deposit — ${nOf('DEPOSIT')} 笔按花名册铺（含三条处置弧 + FRANK 预铺本金 #21）═══`);
   const customers = await resolveDemoCustomers(ctx.prisma);
@@ -743,6 +803,7 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
   }
 
   const driven: Array<{ seq: number; depositId: string }> = [];
+  let claimSelfDepositNo: string | undefined; // #30 认领甲的单号——#32 同源对照要断言自己回链到它
 
   for (const entry of DEMO_ROSTER.filter((r) => r.domain === 'DEPOSIT')) {
     if (entry.seq === 21) {
@@ -750,7 +811,7 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
       // run before this function — #21 has to settle, and #13's swap has to
       // exist, before #7 below opens FRANK's restriction (see
       // runFrankPreStage's header comment). Nothing to drive here; just fold
-      // the already-settled result in so callers still see all 18 rows.
+      // the already-settled result in so callers still see all 22 rows.
       if (!ctx.frankPreStage) throw new Error('roster #21: call runFrankPreStage(ctx) before runDeposits(ctx)');
       driven.push({ seq: 21, depositId: ctx.frankPreStage.depositId });
       continue;
@@ -763,7 +824,9 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
     const walletId = (isUsdt ? w.usdt : w.aed).id;
     const type = isUsdt ? PayinType.CRYPTO : PayinType.FIAT;
 
-    let dep = await createRosterDeposit(ctx, c, asset, walletId, entry.amount, type, entry.seq);
+    // 认领展品 #30–#32 用固定 fromAddress（见 CLAIM_SOURCE_ADDR_* 注释）；其余沿用 Tsender{idx}。
+    const claimAddr = { 30: CLAIM_SOURCE_ADDR_SELF, 31: CLAIM_SOURCE_ADDR_THIRD, 32: CLAIM_SOURCE_ADDR_SELF }[entry.seq as 30 | 31 | 32];
+    let dep = await createRosterDeposit(ctx, c, asset, walletId, entry.amount, type, entry.seq, claimAddr);
 
     switch (entry.seq) {
       // seq 22/24-29 是对账素材单（2026-08-30 加）：跟 1/2/3 一样是普通成功充值，
@@ -848,6 +911,85 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
         ]);
         await driveDispositionLeg(ctx, dep.id, 4);
         dep = await waitDepositStatus(ctx, dep.id, 'SEIZED');
+        break;
+      }
+
+      case 30: {
+        // 认领甲：unhosted 超线 → 客户认领「本人钱包」→ 回炉 → ⚡① 入账。
+        await driveOwnershipClaim(ctx, dep.id, entry.seq, c.id, { claimType: 'SELF' });
+        await driveVerdict(ctx, dep.id, 'V1_APPROVED');
+        dep = await waitDepositStatus(ctx, dep.id, 'SUCCESS');
+        expectColumns(`#${entry.seq} 认领甲`, dep, {
+          fromAddress: CLAIM_SOURCE_ADDR_SELF, counterpartyIsVasp: false,
+          sourceClaimType: 'SELF', sourceClaimName: null, sourceClaimRelationship: null, knownSourceRef: null,
+        });
+        if (!dep.sourceAttributedAt || !dep.sourceClaimedAt) throw new Error(`#${entry.seq} 认领甲: 归因时刻 / 认领时刻应都已落库`);
+        await expectAuditCount(ctx, dep.depositNo, 'DEPOSIT_SOURCE_ATTRIBUTED', 1, '⚡喂归因应留痕');
+        await expectAuditCount(ctx, dep.depositNo, 'DEPOSIT_SOURCE_CLAIM_SUBMITTED', 1, '客户认领应留痕');
+        claimSelfDepositNo = dep.depositNo;
+        console.log(`    fromAddress=${dep.fromAddress}`);
+        break;
+      }
+
+      case 31: {
+        // 认领乙：同套路，认领「第三方个人」（姓名 + 关系是证据）。
+        await driveOwnershipClaim(ctx, dep.id, entry.seq, c.id, {
+          claimType: 'THIRD_PARTY_PERSON', name: 'Omar Al Mansoori', relationship: 'Business partner',
+        });
+        await driveVerdict(ctx, dep.id, 'V1_APPROVED');
+        dep = await waitDepositStatus(ctx, dep.id, 'SUCCESS');
+        expectColumns(`#${entry.seq} 认领乙`, dep, {
+          fromAddress: CLAIM_SOURCE_ADDR_THIRD, counterpartyIsVasp: false,
+          sourceClaimType: 'THIRD_PARTY_PERSON', sourceClaimName: 'Omar Al Mansoori',
+          sourceClaimRelationship: 'Business partner', knownSourceRef: null,
+        });
+        if (!dep.sourceClaimedAt) throw new Error(`#${entry.seq} 认领乙: 认领时刻应已落库`);
+        await expectAuditCount(ctx, dep.depositNo, 'DEPOSIT_SOURCE_CLAIM_SUBMITTED', 1, '客户认领应留痕');
+        console.log(`    fromAddress=${dep.fromAddress}`);
+        break;
+      }
+
+      case 32: {
+        // 同源对照：与 #30 同客户 × 同 fromAddress，⚡喂 Unhosted → 命中已知来源免问 → 直接 ⚡① 入账。
+        // 展品要讲的就是：同一个地址只问一次，第二次不再打扰客户。
+        if (!claimSelfDepositNo) throw new Error(`#${entry.seq} 同源对照: 需要 #30 先落认领快照（花名册顺序错了？）`);
+        await waitTravelRuleSubmitted(ctx, dep.id);
+        await ctx.depositWf.applySourceAttribution(
+          dep.depositNo, { attribution: 'UNHOSTED' }, DEMO_ACTOR(`DEMO_OPS_FEED_${entry.seq}`, 'OPS_OFFICER'),
+        );
+        await driveVerdict(ctx, dep.id, 'V1_APPROVED');
+        dep = await waitDepositStatus(ctx, dep.id, 'SUCCESS');
+        expectColumns(`#${entry.seq} 同源对照`, dep, {
+          fromAddress: CLAIM_SOURCE_ADDR_SELF, counterpartyIsVasp: false,
+          knownSourceRef: claimSelfDepositNo, sourceClaimedAt: null, sourceClaimType: null,
+        });
+        await expectAuditCount(ctx, dep.depositNo, 'DEPOSIT_KNOWN_SOURCE_MATCHED', 1, '命中已知来源应留痕');
+        await expectAuditCount(ctx, dep.depositNo, 'DEPOSIT_ACTION_REQUIRED', 0, '同源免问：不该挂起要客户补料');
+        console.log(`    fromAddress=${dep.fromAddress}  knownSourceRef=${dep.knownSourceRef}`);
+        break;
+      }
+
+      case 33: {
+        // VASP 不合格：⚡喂归因 Grey Harbor（EEC 未完成 / 评分 42 / 无牌照）→ ⚡⑫ → 落人工复核台 →
+        // 运营提退回 → MLRO 换人批 → 资金单腿(legSeq 3)确认 → RETURNED。退回弧与 #9 同一条既有弧。
+        await waitTravelRuleSubmitted(ctx, dep.id);
+        await ctx.depositWf.applySourceAttribution(
+          dep.depositNo, { attribution: 'VASP', vasp: 'GREY_HARBOR' }, DEMO_ACTOR(`DEMO_OPS_FEED_${entry.seq}`, 'OPS_OFFICER'),
+        );
+        await driveVerdict(ctx, dep.id, 'V12_VASP_UNQUALIFIED');
+        dep = await waitDepositStatus(ctx, dep.id, 'MANUAL_CHECKING');
+        const ret = await ctx.depositWf.initiateReturn(
+          dep.id,
+          { reason: 'Counterparty VASP failed qualification — return funds to the originating address (demo fixture)' },
+          DEMO_ACTOR(`DEMO_OPS_MAKER_${entry.seq}`, 'OPS_OFFICER'),
+        );
+        await makerCheckerApprove(ctx, ret.approvalNo, [() => loginAsMlro(ctx.apiBase)]);
+        await driveDispositionLeg(ctx, dep.id, 3);
+        dep = await waitDepositStatus(ctx, dep.id, 'RETURNED');
+        expectColumns(`#${entry.seq} VASP 不合格`, dep, {
+          counterpartyIsVasp: true, counterpartyVasp: 'Grey Harbor Exchange', counterpartyVaspDid: 'did:mock:grey-harbor-001',
+        });
+        await expectAuditCount(ctx, dep.depositNo, 'DEPOSIT_SOURCE_ATTRIBUTED', 1, '⚡喂归因应留痕');
         break;
       }
 
@@ -1043,9 +1185,9 @@ export async function runSwaps(ctx: DemoCtx): Promise<Array<{ seq: number; order
   return results;
 }
 
-// ── stage 4: withdrawals (7-entry roster, incl. large-value gate + in-transit) ─
+// ── stage 4: withdrawals (9-entry roster, incl. large-value gate + in-transit + wave-2 TR snapshots #34/#35) ─
 //
-// Roster: scripts/demo-roster.ts DEMO_ROSTER (domain === 'WITHDRAW', 7 rows) —
+// Roster: scripts/demo-roster.ts DEMO_ROSTER (domain === 'WITHDRAW', 9 rows) —
 // same "real service/workflow methods only" contract as runDeposits/runSwaps.
 //   · ⚡ buttons drive WithdrawWorkflowService.applyKytVerdict directly, verdict
 //     args derived from WITHDRAW_VERDICT_BUTTONS (verdictArgsForWithdrawButton
@@ -1221,7 +1363,8 @@ export async function runWithdraws(ctx: DemoCtx): Promise<Array<{ seq: number; o
     let toAddress: string | undefined;
     if (isUsdt) {
       const idx = customerIdx(c.email);
-      toAddress = fakeTronAddress(`${SIM}wd${idx}`);
+      // #34 打给 Grace 地址簿里 1111 那条 VASP 地址（TR 快照 EXCHANGED 展品）；其余沿用各人已签名的自托管地址。
+      toAddress = entry.seq === 34 ? addressBookSampleAddress(c.email) : fakeTronAddress(`${SIM}wd${idx}`);
     } else {
       const viban = await ctx.prisma.wallet.findFirst({ where: { ownerId: c.id, walletRole: 'C_VIBAN', network: 'AED_ZAND' } });
       if (!viban) throw new Error(`${c.email} missing C_VIBAN — run demo:setup first`);
@@ -1240,6 +1383,8 @@ export async function runWithdraws(ctx: DemoCtx): Promise<Array<{ seq: number; o
       case 14:
       case 15:
       case 16:
+      case 34:
+      case 35:
         await driveWithdrawVerdict(ctx, wd.id, 'V1_APPROVED');
         await driveWithdrawLegsToSuccess(ctx, wd.id, wd.withdrawNo);
         break;
@@ -1261,11 +1406,40 @@ export async function runWithdraws(ctx: DemoCtx): Promise<Array<{ seq: number; o
     }
 
     const final: any = await ctx.prisma.withdrawTransaction.findUnique({ where: { id: wd.id } });
+    // Travel Rule 快照三档各一个样本：#15（150 USDT 低于线）/ #34（过线×VASP）/ #35（过线×自托管）。
+    // 只看终态 SUCCESS 不够——快照错档订单照样成功，所以这里直接断言落库的快照内容与审计。
+    const expectedTr = TR_SNAPSHOT_EXPECTED[entry.seq];
+    if (expectedTr) await expectTravelRuleSnapshot(ctx, final, entry.seq, expectedTr);
     results.push({ seq: entry.seq, orderNo: final.withdrawNo, status: final.status });
     console.log(`  #${entry.seq} ${entry.label}: ${final.withdrawNo} → ${final.status}`);
   }
 
   return results;
+}
+
+/** 提现 Travel Rule 快照三档的期望（花名册 seq → 快照里的 status 与对手方 VASP 名）。 */
+const TR_SNAPSHOT_EXPECTED: Record<number, { status: string; counterpartyVaspName: string | null }> = {
+  15: { status: 'NOT_APPLICABLE', counterpartyVaspName: null },
+  34: { status: 'EXCHANGED', counterpartyVaspName: 'Mock VASP Exchange' },
+  35: { status: 'SELF_HOSTED_NO_EXCHANGE', counterpartyVaspName: null },
+};
+
+async function expectTravelRuleSnapshot(
+  ctx: DemoCtx, w: any, seq: number, expected: { status: string; counterpartyVaspName: string | null },
+): Promise<void> {
+  if (!w.travelRuleSnapshotJson) throw new Error(`#${seq} ${w.withdrawNo}: travelRuleSnapshotJson 应已落库，实为空`);
+  const snap = JSON.parse(w.travelRuleSnapshotJson);
+  if (snap.status !== expected.status) {
+    throw new Error(`#${seq} ${w.withdrawNo}: TR 快照档位应为 ${expected.status}，实为 ${snap.status}`);
+  }
+  if ((snap.counterpartyVaspName ?? null) !== expected.counterpartyVaspName) {
+    throw new Error(`#${seq} ${w.withdrawNo}: TR 快照对手方应为 ${expected.counterpartyVaspName}，实为 ${snap.counterpartyVaspName}`);
+  }
+  const n: number = await ctx.prisma.auditLogEvent.count({
+    where: { primarySubjectNo: w.withdrawNo, action: 'WITHDRAW_TRAVEL_RULE_SNAPSHOTTED' },
+  });
+  if (n !== 1) throw new Error(`#${seq} ${w.withdrawNo}: WITHDRAW_TRAVEL_RULE_SNAPSHOTTED 审计应有 1 条，实有 ${n}`);
+  console.log(`    TR 快照 ${snap.status}（对手方 ${snap.counterpartyVaspName ?? '—'}）`);
 }
 
 // ── COA invariant helpers ─────────────────────────────────────────────────────

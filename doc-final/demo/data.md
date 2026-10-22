@@ -265,7 +265,7 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 > 本段由 `demo:all` 收尾自动写入（`scripts/demo-lib.ts → renderDataMdSnapshot`），别手改——下次跑会整段覆盖。
 > **只收录跨重铺稳定的列**：单号（`DEP…`/`SWP…`/`WDR…`）内嵌日期+随机后缀、每次跑都变，收录进来会让 `git diff data.md` 永远有噪音、失去"行为有没有变"的判据作用（也让工作树无故变脏）。**要当次的真实单号，看 `demo:all` 运行时打印的花名册**——那份是当场的、准的。
 
-### 充值（18 笔）
+### 充值（22 笔）
 
 | # | 场景 | 客户 | 金额 | 预期终态 | 实到状态 | 结果 |
 |---|---|---|---|---|---|---|
@@ -287,6 +287,10 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 | 27 | 充值 · 素材（Kate AED 大额） | demo_kate@example.com | 4000 AED | SUCCESS | SUCCESS | ✓ |
 | 28 | 充值 · 素材（Kate AED 小额） | demo_kate@example.com | 1200 AED | SUCCESS | SUCCESS | ✓ |
 | 29 | 充值 · 素材（Kate USDT） | demo_kate@example.com | 350 USDT | SUCCESS | SUCCESS | ✓ |
+| 30 | 充值 · 认领甲（本人钱包） | demo_alice@example.com | 1500 USDT | SUCCESS | SUCCESS | ✓ |
+| 31 | 充值 · 认领乙（第三方个人） | demo_bob@example.com | 1200 USDT | SUCCESS | SUCCESS | ✓ |
+| 32 | 充值 · 同源免问（对照甲） | demo_alice@example.com | 1100 USDT | SUCCESS | SUCCESS | ✓ |
+| 33 | 充值 · VASP 不合格退回 | demo_kate@example.com | 1300 USDT | RETURNED | RETURNED | ✓ |
 
 ### 兑换（4 笔）
 
@@ -297,7 +301,7 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 | 13 | 兑换 · 制裁冻结（押锁待处置） | demo_frank@example.com | 600 AED | FROZEN | FROZEN | ✓ |
 | 23 | 兑换 · 素材（Grace AED→USDT） | demo_grace@example.com | 800 AED | SUCCESS | SUCCESS | ✓ |
 
-### 提现（7 笔）
+### 提现（9 笔）
 
 | # | 场景 | 客户 | 金额 | 预期终态 | 实到状态 | 结果 |
 |---|---|---|---|---|---|---|
@@ -308,8 +312,10 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 | 18 | 提现 · 大额待审批 | demo_bob@example.com | 250000 AED | PENDING_APPROVAL | PENDING_APPROVAL | ✓ |
 | 19 | 提现 · MLRO 冻结 | demo_grace@example.com | 1500 AED | FROZEN | FROZEN | ✓ |
 | 20 | 提现 · 卡在半路（对账用） | demo_alice@example.com | 500 AED | PAYOUT_PENDING | PAYOUT_PENDING | ✓ |
+| 34 | 提现 · TR 快照（VASP 已交换） | demo_grace@example.com | 1200 USDT | SUCCESS | SUCCESS | ✓ |
+| 35 | 提现 · TR 快照（自托管无交换） | demo_alice@example.com | 1500 USDT | SUCCESS | SUCCESS | ✓ |
 
-**花名册：29/29 符合预期**
+**花名册：35/35 符合预期**
 
 ### 账本恒等式（COA）
 
@@ -317,6 +323,6 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 |---|---|
 | COA CLIENT(AED): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 34107565 == 34107565 |
 | COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 94620335 == 94620335 |
-| COA CLIENT(USDT): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 7101620811 == 7101620811 |
-| COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 114013428189 == 114013428189 |
+| COA CLIENT(USDT): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 8201620811 == 8201620811 |
+| COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 114035428189 == 114035428189 |
 <!-- GENERATED:END -->
