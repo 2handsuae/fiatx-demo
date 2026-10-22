@@ -27,11 +27,14 @@ import { MAX_ADDRESSES_PER_NETWORK } from '../src/modules/asset-treasury/withdra
 // brief 骨架给的 `/BACKEND_PORT=(\d+)/` 正则读不出真值——本仓库 .stackports 只有
 // 一行裸端口数字（stack-common.sh#allocate_worktree_ports 写的格式），不是
 // `BACKEND_PORT=xxx`。改用 verify-rbac.ts 已验证过的探测法：整份文件当整数读。
+// .stackports 在仓库根——scripts/ 往上只一级（'../.stackports'）。曾写成 '../..'（Exchange_js 夹心层时代的
+// 路径，压平后多爬一级读到 worktree 父目录）→ 读不到就静默落回 3000，`on-stack.sh self verify:act1`
+// 会打到 main 栈（或 ECONNREFUSED）。on-stack.sh 只注入 DATABASE_URL/TB_*，从不设 API_BASE，全靠这里探测。
 
 function resolveApiBase(): string {
   if (process.env.API_BASE) return process.env.API_BASE;
   try {
-    const stackportsPath = join(__dirname, '..', '..', '.stackports');
+    const stackportsPath = join(__dirname, '..', '.stackports');
     const port = parseInt(readFileSync(stackportsPath, 'utf8').trim(), 10);
     if (Number.isFinite(port)) return `http://localhost:${port}`;
   } catch {
