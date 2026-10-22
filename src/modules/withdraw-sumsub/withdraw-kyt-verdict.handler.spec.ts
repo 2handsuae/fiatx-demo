@@ -215,6 +215,21 @@ describe('WithdrawKytVerdictHandler', () => {
     });
   });
 
+  // 对手方波二 Task 6：VASP_UNQUALIFIED 两域共有（对手方 VASP 不合格在充值/提现同义）。
+  it('Rejected + getTxn returns [VASP_UNQUALIFIED] → dispoTag=VASP_UNQUALIFIED (两域共有)', async () => {
+    const detail = txnDetail([{ label: 'VASP_UNQUALIFIED' }]);
+    sumsubTxnClient.getTxn.mockResolvedValue(detail);
+
+    await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+
+    expect(workflow.applyKytVerdict).toHaveBeenCalledWith(WITHDRAW_ID, {
+      verdict: 'rejected',
+      riskScore: 87,
+      dispoTag: 'VASP_UNQUALIFIED',
+      detailRaw: detail.raw,
+    });
+  });
+
   it('Rejected + getTxn returns [RETURN_TO_SENDER] (deposit-only tag) → NOT recognized as dispoTag in withdraw', async () => {
     const detail = txnDetail([{ label: 'RETURN_TO_SENDER' }]);
     sumsubTxnClient.getTxn.mockResolvedValue(detail);

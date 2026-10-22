@@ -3301,6 +3301,131 @@ describe('DepositWorkflowService', () => {
       );
     });
 
+    // ── 对手方波二 Task 6：V12 对手方 VASP 不合格 ───────────────────────────────
+    // 语义：Sumsub 侧判定对手方 VASP 不合格 → 拒绝 + VASP_UNQUALIFIED 标签 → 落人工复核台
+    // 并标明原因（manualReason=vasp_unqualified）。与 V10 的关键区别：V12 在复核态
+    // **不直通** initiateReturn——运营看完 VASP 区块后手动提退回，maker 位留人。
+    // 出口全走既有弧（运营提 Initiate Return to Sender → MLRO 批），零新边零新审批。
+    describe('V12 · dispoTag=VASP_UNQUALIFIED', () => {
+      it.each([
+        DepositTransactionStatus.COMPLIANCE_PENDING,
+        DepositTransactionStatus.ACTION_PENDING,
+      ])('%s → KYT_REJECTED 落 MANUAL_CHECKING，manualReason=vasp_unqualified，审计带原因，不开退回审批', async (status) => {
+        depositService.findOne.mockResolvedValue({
+          id: 'dep-v12',
+          depositNo: 'DEPV12',
+          status,
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          traceId: null,
+        });
+        depositService.updateStatus.mockResolvedValue({ status: DepositTransactionStatus.MANUAL_CHECKING });
+
+        await expect(
+          service.applyKytVerdict('dep-v12', { verdict: 'rejected', dispoTag: 'VASP_UNQUALIFIED' }),
+        ).resolves.toBeUndefined();
+
+        expect(depositService.updateStatus).toHaveBeenCalledTimes(1);
+        expect(depositService.updateStatus).toHaveBeenCalledWith(
+          'dep-v12',
+          expect.objectContaining({ action: DepositTransactionAction.KYT_REJECTED }),
+          expect.objectContaining({ extraData: { manualReason: 'vasp_unqualified' } }),
+        );
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'DEPOSIT_MANUAL_CHECKING',
+            reasonCode: 'KYT_REJECTED',
+            reason: expect.stringContaining('VASP_UNQUALIFIED'),
+            metadata: expect.objectContaining({ manualReason: 'vasp_unqualified' }),
+          }),
+        );
+        // 只落复核台，不替运营发起退回
+        expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+      });
+
+      it('已在 MANUAL_CHECKING（复核态）→ 不直通退回：不开 DEPOSIT_RETURN 审批、不动状态（与 V10 的差异点）', async () => {
+        depositService.findOne.mockResolvedValue({
+          id: 'dep-v12b',
+          depositNo: 'DEPV12B',
+          status: DepositTransactionStatus.MANUAL_CHECKING,
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          assetId: 'asset-1',
+          amount: '10',
+          traceId: null,
+          fromAddress: 'T_SENDER_ADDR',
+          fromIban: null,
+        });
+
+        await expect(
+          service.applyKytVerdict('dep-v12b', { verdict: 'rejected', dispoTag: 'VASP_UNQUALIFIED' }),
+        ).resolves.toBeUndefined();
+
+        expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+        expect(auditLogsService.recordByActor).not.toHaveBeenCalledWith(
+          expect.objectContaining({ action: 'DEPOSIT_RETURN_REQUESTED' }),
+          expect.anything(),
+        );
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+      });
+
+      // Review Focus 3：沿 decideVerdictLanding 既有档——FROZEN 一律 IGNORE（保护制裁证据）。
+      it('FROZEN 单 + V12 → IGNORE：不覆写证据、不动状态、IGNORED 审计带 dispoTag、不冻人不开审批', async () => {
+        depositService.findOne.mockResolvedValue({
+          id: 'dep-v12c',
+          depositNo: 'DEPV12C',
+          status: DepositTransactionStatus.FROZEN,
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          traceId: null,
+        });
+
+        await expect(
+          service.applyKytVerdict('dep-v12c', {
+            verdict: 'rejected',
+            dispoTag: 'VASP_UNQUALIFIED',
+            riskScore: 74,
+            detailRaw: { late: true },
+          }),
+        ).resolves.toBeUndefined();
+
+        expect(depositService.updateSumsubVerdict).not.toHaveBeenCalled();
+        expect(depositService.saveTxnDetail).not.toHaveBeenCalled();
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+        expect(customerRestrictionsService.open).not.toHaveBeenCalled();
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED,
+            primarySubjectNo: 'DEPV12C',
+            metadata: expect.objectContaining({ dispoTag: 'VASP_UNQUALIFIED' }),
+          }),
+        );
+      });
+
+      it.each([
+        DepositTransactionStatus.SUCCESS,
+        DepositTransactionStatus.RETURNING,
+      ])('终态/在途处置态 %s + V12 → IGNORE，不动', async (status) => {
+        depositService.findOne.mockResolvedValue({
+          id: 'dep-v12d',
+          depositNo: 'DEPV12D',
+          status,
+          ownerType: 'CUSTOMER',
+          ownerId: 'cust-1',
+          traceId: null,
+        });
+
+        await service.applyKytVerdict('dep-v12d', { verdict: 'rejected', dispoTag: 'VASP_UNQUALIFIED' });
+
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(approvalsService.createAndSubmit).not.toHaveBeenCalled();
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({ action: AuditActions.DEPOSIT_KYT_VERDICT_IGNORED }),
+        );
+      });
+    });
+
     it('no-op when already MANUAL_CHECKING and a duplicate rejected (no tag) webhook arrives', async () => {
       depositService.findOne.mockResolvedValue({
         id: 'dep-13',

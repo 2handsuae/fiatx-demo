@@ -17,7 +17,7 @@ import { AuditOutcome, AuditCategory, AuditSubjectRole } from '../audit-logging/
 
 /**
  * 提现域场景仿真器 —— mirror of DepositDemoScenarioService(deliberate fork,
- * Task 10)。把 11 个**单步**裁决按钮驱动**真实** ingestionService.ingest() 走完整
+ * Task 10)。把 12 个**单步**裁决按钮驱动**真实** ingestionService.ingest() 走完整
  * 的前置分流→router→handler→workflow 链路,不碰 fixture/workflow/handler 本身逻辑。
  *
  * 只在 SUMSUB_MOCK_MODE=true 时才会被实际使用 —— AdminWithdrawDemoController 只在

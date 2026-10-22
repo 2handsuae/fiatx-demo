@@ -30,10 +30,20 @@ export const SCENE_TAG_PRIORITY: Record<SceneTag, number> = {
   PEP_COUNTERPARTY: 1,
 };
 
-/** 处置 tag —— 合规官/MLRO 在 Sumsub 审核台上手工打的，说的是「该怎么办」。 */
-export type DispoTag = 'FROZEN_BY_MLRO' | 'RETURN_TO_SENDER' | 'FINAL_REJECTED';
+/**
+ * 处置 tag —— 合规官/MLRO 在 Sumsub 审核台上手工打的，说的是「该怎么办」。
+ *
+ * 对手方波二加 VASP_UNQUALIFIED：Sumsub 侧判对手方 VASP 不合格时打的拒绝标签，落点是
+ * 人工复核台并标明原因（不是处置指令——出口仍由运营在复核台选，走既有退回/退款弧）。
+ * 充值/提现两域共有（兑换域无外部对手方，不识别——swap handler 自带词表）。
+ */
+export type DispoTag =
+  | 'FROZEN_BY_MLRO'
+  | 'RETURN_TO_SENDER'
+  | 'FINAL_REJECTED'
+  | 'VASP_UNQUALIFIED';
 
 export const DISPO_TAGS_BY_DOMAIN: Record<'DEPOSIT' | 'WITHDRAW', ReadonlySet<DispoTag>> = {
-  DEPOSIT: new Set<DispoTag>(['FROZEN_BY_MLRO', 'RETURN_TO_SENDER']),
-  WITHDRAW: new Set<DispoTag>(['FROZEN_BY_MLRO', 'FINAL_REJECTED']),
+  DEPOSIT: new Set<DispoTag>(['FROZEN_BY_MLRO', 'RETURN_TO_SENDER', 'VASP_UNQUALIFIED']),
+  WITHDRAW: new Set<DispoTag>(['FROZEN_BY_MLRO', 'FINAL_REJECTED', 'VASP_UNQUALIFIED']),
 };

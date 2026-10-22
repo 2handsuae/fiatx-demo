@@ -4,8 +4,8 @@ import { KYT_VERDICT_TYPES } from '../../sumsub-shared/kyt-webhook-types';
 describe('DEPOSIT_VERDICT_BUTTONS', () => {
   const buttons = Object.values(DEPOSIT_VERDICT_BUTTONS);
 
-  it('共 11 个按钮,key 与 map 键一致', () => {
-    expect(buttons).toHaveLength(11);
+  it('共 12 个按钮,key 与 map 键一致', () => {
+    expect(buttons).toHaveLength(12);
     for (const [k, b] of Object.entries(DEPOSIT_VERDICT_BUTTONS)) expect(b.key).toBe(k);
   });
 
@@ -45,6 +45,7 @@ describe('DEPOSIT_VERDICT_BUTTONS', () => {
     expect(tagOf('V9_REJECTED_MLRO_FREEZE')).toEqual(['FROZEN_BY_MLRO']);
     expect(tagOf('V10_REJECTED_DISPOSITION')).toEqual(['RETURN_TO_SENDER']);
     expect(tagOf('V11_REJECTED_NO_TAG')).toEqual([]);
+    expect(tagOf('V12_VASP_UNQUALIFIED')).toEqual(['VASP_UNQUALIFIED']);
     expect(tagOf('V3_AWAIT_USER_PEP_APPLICANT')).toEqual(['PEP_APPLICANT']);
     expect(tagOf('V4_AWAIT_USER_PEP_COUNTERPARTY')).toEqual(['PEP_COUNTERPARTY']);
   });

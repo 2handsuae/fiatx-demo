@@ -9,10 +9,12 @@ describe('SWAP_VERDICT_BUTTONS', () => {
     for (const k of keys) expect(depKeys.has(k)).toBe(true);
   });
 
-  it('缺的三个各有真实理由：兑换无对手方、无处置弧', () => {
+  it('缺的四个各有真实理由：兑换无对手方、无处置弧', () => {
     expect(SWAP_VERDICT_BUTTONS.V4_AWAIT_USER_PEP_COUNTERPARTY).toBeUndefined();
     expect(SWAP_VERDICT_BUTTONS.V8_REJECTED_SANCTION_COUNTERPARTY).toBeUndefined();
     expect(SWAP_VERDICT_BUTTONS.V10_REJECTED_DISPOSITION).toBeUndefined();
+    // 对手方波二 Task 6：V12 对手方 VASP 不合格——站内无外部对手方，语义性缺席（非漂移）。
+    expect(SWAP_VERDICT_BUTTONS.V12_VASP_UNQUALIFIED).toBeUndefined();
   });
 
   it('认证复核按钮已删（材料审核不属交易层）', () => {

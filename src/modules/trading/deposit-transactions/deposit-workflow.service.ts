@@ -1088,6 +1088,37 @@ export class DepositWorkflowService implements OnModuleInit {
       return;
     }
 
+    // 对手方波二 V12:对手方 VASP 不合格 → 落人工复核台并标明原因(manualReason)。
+    // 与下面的 RETURN_TO_SENDER 刻意不同:V12 在复核态**不直通** initiateReturn——
+    // 运营看完 VASP 区块后自己提「Initiate Return to Sender」(运营提 + MLRO 批,既有弧),
+    // maker 位留人;本分支只负责把单子带到复核台,所以复核态再收到它是 no-op,不开退回审批。
+    if (dispoTag === 'VASP_UNQUALIFIED') {
+      if (deposit.status === DepositTransactionStatus.MANUAL_CHECKING) return; // 已在复核台,防重复 webhook
+
+      const manualReason = 'vasp_unqualified';
+      const landedRow = await this.depositService.updateStatus(
+        deposit.id,
+        {
+          action: DepositTransactionAction.KYT_REJECTED,
+          reason: `KYT verdict: rejected, counterparty VASP unqualified (status=${deposit.status}) — landed in manual review; officer decides the exit`,
+        },
+        {
+          actor: { actorType: 'SYSTEM', actorId: 'KYT_VERDICT' },
+          sourcePlatform: 'SYSTEM',
+          extraData: { manualReason },
+        },
+      );
+      await this.depositAudit(deposit, {
+        action: 'DEPOSIT_MANUAL_CHECKING',
+        reasonCode: 'KYT_REJECTED',
+        reason: `VASP_UNQUALIFIED verdict: counterparty VASP failed qualification — routed to manual review (manualReason=${manualReason}); officer decides whether to initiate the return`,
+        fromStatus: deposit.status,
+        toStatus: landedRow.status,
+        metadata: { manualReason },
+      });
+      return;
+    }
+
     if (dispoTag === 'RETURN_TO_SENDER') {
       if (deposit.status === DepositTransactionStatus.RETURNING) return; // 已在目标态,防重复 webhook
 

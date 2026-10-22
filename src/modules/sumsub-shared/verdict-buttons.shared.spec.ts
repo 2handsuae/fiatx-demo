@@ -4,9 +4,24 @@ describe('buildOrderVerdictButtons', () => {
   const dep = buildOrderVerdictButtons('DEPOSIT');
   const wd = buildOrderVerdictButtons('WITHDRAW');
 
-  it('两域各 11 个按钮，键集合完全一致', () => {
-    expect(Object.keys(dep)).toHaveLength(11);
+  it('两域各 12 个按钮，键集合完全一致', () => {
+    expect(Object.keys(dep)).toHaveLength(12);
     expect(Object.keys(wd).sort()).toEqual(Object.keys(dep).sort());
+  });
+
+  // 对手方波二 Task 6：第 12 键。形状同制裁命中——Sumsub 侧引擎打的拒绝裁决，
+  // 但处置 tag 是新的 VASP_UNQUALIFIED（区别于 V10 的 RETURN_TO_SENDER / V11 的无 tag）。
+  it('V12 对手方 VASP 不合格：ENGINE 组、rejected、tag=VASP_UNQUALIFIED，两域同码同义', () => {
+    for (const table of [dep, wd]) {
+      const b = (table as any).V12_VASP_UNQUALIFIED;
+      expect(b).toBeDefined();
+      expect(b.key).toBe('V12_VASP_UNQUALIFIED');
+      expect(b.label).toBe('⑫ Rejected · Counterparty VASP unqualified');
+      expect(b.source).toBe('ENGINE');
+      expect(b.webhookType).toBe('applicantKytTxnRejected');
+      expect(b.verdict.reviewAnswer).toBe('RED');
+      expect((b.verdict.typedTags ?? []).map((t: any) => t.label)).toEqual(['VASP_UNQUALIFIED']);
+    }
   });
 
   it('两域唯一的差异是 ⑩ 的处置 tag', () => {

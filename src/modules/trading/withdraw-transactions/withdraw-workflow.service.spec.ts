@@ -1394,6 +1394,132 @@ describe('WithdrawWorkflowService.applyKytVerdict (Task 5: verdict-driven state 
       expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
     });
 
+    // ── 对手方波二 Task 6：V12 对手方 VASP 不合格 ───────────────────────────────
+    // 落人工复核台并标明原因（manualReason=vasp_unqualified）。与 V10 FINAL_REJECTED 的
+    // 关键区别：V12 在复核态**不直通**退款（REJECT_REFUND + releaseLock）——运营看完 VASP
+    // 区块后在复核台手动执行退款，maker 位留人。退款弧本身（MANUAL_CHECKING --REJECT_REFUND-->
+    // REJECTED）零改动。
+    describe('V12 · dispoTag=VASP_UNQUALIFIED', () => {
+      it.each([
+        WithdrawTransactionStatus.COMPLIANCE_PENDING,
+        WithdrawTransactionStatus.ACTION_PENDING,
+      ])('%s → KYT_REJECTED 落 MANUAL_CHECKING，manualReason=vasp_unqualified，审计带原因，不退款不放锁', async (status) => {
+        const { workflow, withdrawService, auditLogsService, accountingService } = buildFullWorkflow();
+        withdrawService.findOneInternal.mockResolvedValue(
+          baseWithdrawRow({ status, tbPendingNetId: '01', tbPendingFeeId: '02' }),
+        );
+        withdrawService.updateStatus.mockResolvedValue({ status: WithdrawTransactionStatus.MANUAL_CHECKING });
+
+        await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'VASP_UNQUALIFIED' });
+
+        expect(withdrawService.updateStatus).toHaveBeenCalledTimes(1);
+        expect(withdrawService.updateStatus).toHaveBeenCalledWith(
+          'wd-sumsub-1',
+          expect.objectContaining({ action: WithdrawTransactionAction.KYT_REJECTED }),
+          expect.objectContaining({ extraData: { manualReason: 'vasp_unqualified' } }),
+        );
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'WITHDRAW_MANUAL_CHECKING',
+            reason: expect.stringContaining('VASP_UNQUALIFIED'),
+            fromStatus: status,
+            toStatus: WithdrawTransactionStatus.MANUAL_CHECKING,
+            metadata: expect.objectContaining({ manualReason: 'vasp_unqualified' }),
+          }),
+        );
+        expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
+      });
+
+      it('已在 MANUAL_CHECKING（复核态）→ 不直通退款：不 REJECT_REFUND、不放锁、不动状态（与 V10 的差异点）', async () => {
+        const { workflow, withdrawService, accountingService } = buildFullWorkflow();
+        withdrawService.findOneInternal.mockResolvedValue(
+          baseWithdrawRow({
+            status: WithdrawTransactionStatus.MANUAL_CHECKING,
+            tbPendingNetId: '01',
+            tbPendingFeeId: '02',
+          }),
+        );
+
+        await expect(
+          workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'VASP_UNQUALIFIED' }),
+        ).resolves.toBeUndefined();
+
+        expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+        expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
+      });
+
+      // Review Focus 3：沿 decideVerdictLanding 既有档——FROZEN 一律 IGNORE。
+      it('FROZEN 单 + V12 → IGNORE：不覆写证据、不动状态、IGNORED 审计带 dispoTag、不放锁不冻人', async () => {
+        const { workflow, withdrawService, auditLogsService, accountingService, customerRestrictionsService } =
+          buildFullWorkflow();
+        withdrawService.findOneInternal.mockResolvedValue(
+          baseWithdrawRow({
+            withdrawNo: 'WD-V12-FROZEN',
+            status: WithdrawTransactionStatus.FROZEN,
+            tbPendingNetId: '01',
+            tbPendingFeeId: '02',
+          }),
+        );
+
+        await expect(
+          workflow.applyKytVerdict('wd-sumsub-1', {
+            verdict: 'rejected',
+            dispoTag: 'VASP_UNQUALIFIED',
+            riskScore: 74,
+            detailRaw: { late: true },
+          }),
+        ).resolves.toBeUndefined();
+
+        expect(withdrawService.saveSumsubVerdict).not.toHaveBeenCalled();
+        expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+        expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
+        expect(customerRestrictionsService.open).not.toHaveBeenCalled();
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED,
+            primarySubjectNo: 'WD-V12-FROZEN',
+            metadata: expect.objectContaining({ dispoTag: 'VASP_UNQUALIFIED' }),
+          }),
+        );
+      });
+
+      it.each([WithdrawTransactionStatus.SUCCESS, WithdrawTransactionStatus.REJECTED])(
+        '终态 %s + V12 → IGNORE，不动',
+        async (status) => {
+          const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+          withdrawService.findOneInternal.mockResolvedValue(baseWithdrawRow({ status }));
+
+          await workflow.applyKytVerdict('wd-sumsub-1', { verdict: 'rejected', dispoTag: 'VASP_UNQUALIFIED' });
+
+          expect(withdrawService.saveSumsubVerdict).not.toHaveBeenCalled();
+          expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+          expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+            expect.objectContaining({ action: AuditActions.WITHDRAW_KYT_VERDICT_IGNORED }),
+          );
+        },
+      );
+
+      // 沿既有三档的第三档：PAYOUT_PENDING 钱已广播——只留证据 + 审计，状态不动。
+      it('PAYOUT_PENDING + V12 → EVIDENCE_ONLY：证据写入、广播后裁决审计、状态不动', async () => {
+        const { workflow, withdrawService, auditLogsService } = buildFullWorkflow();
+        withdrawService.findOneInternal.mockResolvedValue(
+          baseWithdrawRow({ status: WithdrawTransactionStatus.PAYOUT_PENDING }),
+        );
+
+        await workflow.applyKytVerdict('wd-sumsub-1', {
+          verdict: 'rejected',
+          dispoTag: 'VASP_UNQUALIFIED',
+          riskScore: 74,
+        });
+
+        expect(withdrawService.saveSumsubVerdict).toHaveBeenCalled();
+        expect(withdrawService.updateStatus).not.toHaveBeenCalled();
+        expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
+          expect.objectContaining({ action: AuditActions.WITHDRAW_POST_BROADCAST_VERDICT }),
+        );
+      });
+    });
+
     it('no tag from COMPLIANCE_PENDING → KYT_REJECTED action (routes to MANUAL_CHECKING)', async () => {
       const { workflow, withdrawService } = buildFullWorkflow();
       withdrawService.findOneInternal.mockResolvedValue(

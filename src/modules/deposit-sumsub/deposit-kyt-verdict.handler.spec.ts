@@ -93,6 +93,22 @@ describe('DepositKytVerdictHandler', () => {
     });
   });
 
+  // 对手方波二 Task 6：V12 的处置 tag 必须在充值域词表里——不认的话 tag 被静默丢弃，
+  // 裁决退化成 V11（无 tag）：同样落复核，但 manualReason 不会记 vasp_unqualified。
+  it('Rejected + getTxn returns [VASP_UNQUALIFIED] → verdict=rejected, dispoTag=VASP_UNQUALIFIED, detailRaw 透传', async () => {
+    const detail = txnDetail([{ label: 'VASP_UNQUALIFIED' }]);
+    sumsubTxnClient.getTxn.mockResolvedValue(detail);
+
+    await handler.handle({ type: 'applicantKytTxnRejected', kytTxnId: 'T1' });
+
+    expect(workflow.applyKytVerdict).toHaveBeenCalledWith(DEPOSIT_ID, {
+      verdict: 'rejected',
+      riskScore: 87,
+      dispoTag: 'VASP_UNQUALIFIED',
+      detailRaw: detail.raw,
+    });
+  });
+
   it('AwaitingUser + getTxn returns [PEP_APPLICANT] → verdict=awaitUser, sceneTag=PEP_APPLICANT, detailRaw 透传', async () => {
     const detail = txnDetail([{ label: 'PEP_APPLICANT' }]);
     sumsubTxnClient.getTxn.mockResolvedValue(detail);

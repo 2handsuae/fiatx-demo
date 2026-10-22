@@ -164,5 +164,20 @@ export function buildOrderVerdictButtons(
           'Risk threshold exceeded — awaiting officer disposition.')],
       },
     },
+
+    // 对手方波二：第 12 键。充值/提现共有；兑换域不含（站内无外部对手方，语义性缺席，
+    // 见 swap-sumsub/fixtures/verdict-buttons.ts）。落点是人工复核台——tag 只负责带单
+    // 到复核台并标明原因，退回/退款由运营在复核台手动发起（与 ⑩ 不同，⑩ 在复核态直通）。
+    V12_VASP_UNQUALIFIED: {
+      key: 'V12_VASP_UNQUALIFIED', label: '⑫ Rejected · Counterparty VASP unqualified',
+      webhookType: 'applicantKytTxnRejected', source: 'ENGINE',
+      verdict: {
+        reviewStatus: 'completed', reviewAnswer: 'RED', action: 'reject', score: 67,
+        reviewRejectType: 'FINAL',
+        matchedRules: [RULE('TR2', 'Counterparty VASP not qualified', 67, 'reject',
+          'Counterparty VASP does not meet the qualification policy (EEC complete, risk score below 10, licensed) — awaiting officer disposition.')],
+        typedTags: [TAG('VASP_UNQUALIFIED')],
+      },
+    },
   };
 }

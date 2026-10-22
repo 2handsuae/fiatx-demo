@@ -2894,6 +2894,33 @@ export class WithdrawWorkflowService implements OnModuleInit {
       return;
     }
 
+    // 对手方波二 V12:对手方 VASP 不合格 → 落人工复核台并标明原因(manualReason)。
+    // 与下面的 FINAL_REJECTED 刻意不同:V12 在复核态**不直通**退款(REJECT_REFUND +
+    // releaseLock)——运营看完 VASP 区块后在复核台自己执行退款(既有弧,MANUAL_CHECKING
+    // 上的 REJECT_REFUND),maker 位留人;本分支只负责把单子带到复核台,所以复核态再收到
+    // 它是 no-op。FROZEN 与 PAYOUT_PENDING 在 decideVerdictLanding 已分流,到不了这里。
+    if (dispoTag === 'VASP_UNQUALIFIED') {
+      if (w.status === WithdrawTransactionStatus.MANUAL_CHECKING) return; // already in review — repeat webhook
+
+      const manualReason = 'vasp_unqualified';
+      const vaspRow = await this.withdrawService.updateStatus(
+        w.id,
+        {
+          action: WithdrawTransactionAction.KYT_REJECTED,
+          reason: `KYT verdict: rejected, counterparty VASP unqualified (status=${w.status}) — landed in manual review; officer decides the exit`,
+        },
+        { ...this.systemCtx, extraData: { manualReason } },
+      );
+      await this.withdrawAudit(w, {
+        action: 'WITHDRAW_MANUAL_CHECKING',
+        reason: `VASP_UNQUALIFIED verdict: counterparty VASP failed qualification — routed to manual review (manualReason=${manualReason}); officer decides whether to refund`,
+        fromStatus: w.status,
+        toStatus: vaspRow.status,
+        metadata: { manualReason },
+      });
+      return;
+    }
+
     if (dispoTag === 'FINAL_REJECTED') {
       // Sanctioned free-of-approval path: an officer already tagged this case for
       // refund during manual compliance review — MANUAL_CHECKING carries the
