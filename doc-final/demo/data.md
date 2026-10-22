@@ -50,13 +50,41 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 **客户收款地址行**（`demo:setup`，审计 `CUSTOMER_DEPOSIT_ADDRESS_SEEDED`）：alice / bob / grace / jack / kate / frank 各一条 TRON（C_DEP）+ 一条 AED_ZAND（C_VIBAN），vault `CLIENT_DEPOSIT`；账本科目仍按资产。
 
-**地址簿种子**（审计 `WITHDRAWAL_ADDRESS_SEEDED`）：六位客户（alice/bob/grace/jack/kate/frank）各一条 ACTIVE 银行账户（AED_ZAND，即本人 vIBAN）；alice / bob 各再一条 ACTIVE 的 TRON 地址。**尚无法币账户的种子客户**：Henry Acme（`demo_acme@example.com`，企业客户）——不在 `demo:setup` 那六人名单内，没有走地址簿种子；站 5 ④c 用他演"首个法币账户即时生效"。
+**地址簿种子**（审计 `WITHDRAWAL_ADDRESS_SEEDED`；`demo:setup` 铺，`demo:all` 后共 **11** 条，判别式 = traceId 前缀 `demo-setup-withdrawal-address`）——把「受益人 × 托管」四格各摆一个样本，外加一个被拒展品：
+
+| # | 客户 | 网络 / 类型 | 受益人 × 托管 | 证据档 | 筛查 | 状态 |
+|---|---|---|---|---|---|---|
+| 1–6 | alice / bob / grace / jack / kate / frank 各一条 | AED_ZAND 银行账户（即本人 vIBAN） | 本人 × 银行 | DECLARATION（自声明） | GREEN | ACTIVE |
+| 7–8 | alice / bob 各一条 | TRON，自托管 | 本人 × 自托管 | SIGNATURE（已验证签名） | GREEN | ACTIVE |
+| 9 | grace | TRON，地址尾号 `1111`（归因 Mock VASP Exchange） | 本人 × 托管（自报 VASP） | DECLARATION | GREEN | ACTIVE |
+| 10 | kate | TRON，地址尾号 `1111`（归因 Mock VASP Exchange） | **第三方** × 托管（受益人 Li Hua / 关系 Spouse） | ATTESTATION（声明书） | GREEN | ACTIVE |
+| 11 | jack | TRON，地址尾号 `3333` | 本人 × 自托管，签名**未**验证 | SIGNATURE | **RED** | **REJECTED**（展品：客户端读到 `Not approved`，管理台读到 RED） |
+
+#9–11 的地址 = `fakeTronAddress(种子).slice(0,30)` + 尾号，与 mock 测试地址规则自洽（把它们再登记一遍得到同一结局）。**alice 名下故意不放第二条 ACTIVE TRON**：站 5 ④ a/b/d 要在她名下现场再登记，每网络 3 条的上限不能被种子占满；bob 只占 1 条，留给 ④e。**尚无法币账户的种子客户**：Henry Acme（`demo_acme@example.com`，企业客户）——不在 `demo:setup` 那六人名单内，没有走地址簿种子；站 5 ④c 用他演"首个法币账户即时生效"。
 
 **费率**：`STD-USDT-AED` / `STD-AED-USDT`（默认档）+ `VIP-USDT-AED`（requiredTags `["VIP"]`，各档比 STD 便宜；Grace 带 VIP 标签命中它）+ `NEWCUST-USDT-AED`（requiredTags `["NEW_CUSTOMER"]`，各档比 STD 便宜、比 VIP 贵；开户 30 天内的客户命中它——种子客户开户日已回填 2026-06-15、早出新客窗，只有第二幕②③现场开户的新客户能命中）；demo:all 会把 `STD-USDT-AED` Tier 1 平费改成 10（`demo-lib.ts` FEE_PLAN，造数取整），所以舞台上对照用 1000 USDT（Tier 2：VIP 12 < NEWCUST 16 < STD 20）；提现 `STD-AED-AED_ZAND` / `STD-USDT-TRON`。**限额**：15 条（单笔 6 / 累计 8 / 大额 1）。
 
 **现场登记用的合法 TRON 样例地址**：`bash -c 'npx ts-node -e "import(\"./src/common/utils/tron-address.util\").then(m=>console.log(m.fakeTronAddress(\"demo-register-1\")))"' 生成一枚（形态合法、不做校验和）。
 
 **档位升级站（第二幕⑤，波三新增）参数**：客户沿用②CDD 直通那位现场客户，不额外注册；充值 40000 USDT，卖出 30000 USDT→AED 撞 `BASIC · SWAP · DAILY` 上限 100000 AED（`GET /swap-transactions/rate` 实测 30000 USDT→AED 净额 ≈109944.65 AED，落在 BASIC 上限 100000 AED 之上、PREMIUM 上限 1000000 AED 之下，撞限不空转；充值量 = 卖出量 + 10000 缓冲）。两档限额对照（AED，Profile 页四行表）：SWAP DAILY 100000/1000000、SWAP MONTHLY 1000000/10000000、WITHDRAWAL DAILY 50000/500000、WITHDRAWAL MONTHLY 500000/5000000（BASIC/PREMIUM）。
+
+### mock 测试地址速查（2026-10-22 对手方波一；站 5 ④e 的判据表）
+
+mock 的归因 / 筛查**按地址（IBAN）尾号给确定性结论**——演示者照抄下表的串登记，得到的结局就是表里写的，不依赖 ⚡（⚡ 只是对已登记 pending 条目的覆写后门）。规则的代码落点与真 Sumsub 对应物见 `reference/sumsub-mock-touchpoints.md`。
+
+| 用途 | 完整串（整串复制） | 归因 | 筛查 | 登记落点（确定） |
+|---|---|---|---|---|
+| TRON · 归因为 VASP | `TDm5cSJoEP2DpN1VyZG3TQrd1JZdSX1111` | VASP：Mock VASP Exchange（`did:mock:vasp-exchange-001`） | GREEN | 照「受益人 × 托管」落点。Wallet hosting 选 Self-custody → 自报≠归因，**`hostingMismatch` 红旗**（只留痕不拦截），本人×自托管停 `Pending verification`；选 VASP → 无红旗，本人×托管直接进冷却 |
+| TRON · 中风险放行 | `TD2Cm1x6HwVV78amHf8prJn5zkiwCK2222` | 自托管 | **YELLOW** | 照落点放行（选 Self-custody → 停 `Pending verification`）；管理台 Screening 区读到 YELLOW |
+| TRON · 登记即拒 | `TSf8p11LABtkukQGWVnkUjR6LMrvH13333` | 自托管 | **RED** | **当场 `REJECTED`**（客户端 `Not approved`）；审计 `WITHDRAWAL_ADDRESS_REGISTERED` + `WITHDRAWAL_ADDRESS_REJECTED` 两条（后者系统主体，reason `Screening returned RED at registration`）；占坑即封禁，不可复活、不占 3 条名额 |
+| TRON · 普通自托管（默认） | `TUbS9Gp48kuQEj1RoeuCxRPLHaBTpkzPoU`（= `fakeTronAddress("demo-register-1")`） | 自托管 | GREEN | 选 Self-custody → 停 `Pending verification`，点 Verify wallet signature 后进 24h 冷却 |
+| IBAN · 中风险放行 | `AE960860000000000002222` | —（银行路径无归因） | **YELLOW** | 放行：该客户首个法币账户 → 即时 ACTIVE，否则进冷却 |
+| IBAN · 登记即拒 | `AE720860000000000003333` | — | **RED** | **当场 `REJECTED`**；RED 优先级高于「首个法币账户即时生效」（首个 IBAN 也照拒，不被短路成放行） |
+
+- **校验位已实证**：两枚 IBAN 的校验位按 ISO 13616 mod-97 算出，并用 `src/modules/asset-treasury/withdrawal-addresses/bank-validator.util.ts#validateIban` 实调通过（`{valid:true}`）；校验位各挪 1 位后同一函数返回 `IBAN checksum is invalid`（证明这次校验会红）。TRON 四串均过 `^T[1-9A-HJ-NP-Za-km-z]{33}$`（`validateAddressForNetwork('TRON', …)` 实调 `valid:true`）。银行名 / 收款人姓名 / SWIFT/BIC 任填合法值即可（BIC 如 `DEUTDEFF`）。
+- **每串对同一客户一次性**：同客户同网络同串再登记 → 409（`ADDRESS_ALREADY_REGISTERED` / `BANK_ACCOUNT_ALREADY_REGISTERED`）；`REJECTED` 占着唯一键不放。重演换客户（不同客户登记同一串互不冲突），或自造新串：TRON = `fakeTronAddress("<任意种子>")` 的末 4 位换成目标尾号（保持 34 位）；IBAN = `AE` + 校验位 + `086` + 12 个 `0` + 目标尾号，校验位 = 98 − ((BBAN + "AE00" 字母展开成数字) mod 97)。
+- **上限先于落点**：每网络 3 条的名额检查在「登记即拒」的落点计算**之前**，名额已满时登记 3333 得到 `ADDRESS_LIMIT_REACHED` 而不是 Not approved——演 3333 前先确认该客户该网络没满（`REJECTED` / `CANCELLED` / `DEACTIVATED` 不占名额）。
+- 种子 #9 / #10 的 `1111` 串与 #11 的 `3333` 串由种子派生，与上表不是同一串；它们的结局与上表同源。
 
 ## 事故种子（business seed，五条非初始态样例，2026-09-25 战役甲波一，终审补第五条）
 

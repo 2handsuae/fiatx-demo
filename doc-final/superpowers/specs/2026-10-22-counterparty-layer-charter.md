@@ -55,6 +55,7 @@
 ## §5 研究底座（判断依据，已实证）
 
 - **缺口清单**：`reference/sumsub-services-needed.md`（standalone 归因 403 / ownership 链支持缺配 / TR 规则未配 / 筛查触发待确认 / 累计口径待确认）
+- **mock 触点登记册**：`reference/sumsub-mock-touchpoints.md`（本战役所有「站在 Sumsub 一侧」的 mock 触点——代码位置 / mock 行为 / 真 Sumsub 对应物 / 切换刀口；业主做 mock↔sandbox 切换的地图，波二新增触点续登）
 - **判型依据**：Sumsub TR FAQ 原文三句——阈值客户自配、"only attempts data exchange above the threshold"、低于阈值自动 Not Applicable 且建议照常提交
 - **认领机制**：挂起位 `needApplicantOwnershipConfirmation` 由 TR 规则 `Awaiting user` 动作驱动；webhook `applicantKytTxnAwaitingUser`；解锁接口 `POST /kyt/txns/{id}/travelRuleOwnership`
 - **沙箱实证**：payment method 登记 200 + 筛查 YELLOW 落库；travelRule 型交易 200（强制申请人钱包+链上哈希）、零配置命中 Counterparty AML Screening 规则；VASP 名录实拉 637 家（EEC/风险标/监管登记行可读）
