@@ -6,7 +6,7 @@ import {
 } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditOutcome, AuditActorContext } from '../../audit-logging/dto/audit-log.dto';
 import { WithdrawalAddressService, BANK_RAIL_NETWORK } from './withdrawal-address.service';
-import { TRAVEL_RULE_ADAPTER, TravelRuleAdapter, ScreeningAnswer } from './travel-rule-adapter.interface';
+import { TRAVEL_RULE_ADAPTER, TravelRuleAdapter, ScreeningAnswer } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
 import { CreateWithdrawalAddressDto } from './dto/create-withdrawal-address.dto';
 import { CreateBankAccountDto } from './dto/create-bank-account.dto';
 import { assertNetwork } from '../../../config/manifests/networks.manifest';

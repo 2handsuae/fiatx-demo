@@ -22,6 +22,9 @@ import { ReconciliationModule } from '../../clearing-settle/reconciliation/recon
 import { DepositSupplementApprovalService } from './deposit-supplement-approval.service';
 import { DepositClawbackApprovalService } from './deposit-clawback-approval.service';
 import { NotificationsModule } from '../../../core/notifications/notifications.module';
+import { TRAVEL_RULE_ADAPTER } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
+import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
+import { MockTrRulesService } from '../../sumsub-shared/travel-rule/mock-tr-rules.service';
 
 @Module({
   imports: [
@@ -64,6 +67,11 @@ import { NotificationsModule } from '../../../core/notifications/notifications.m
     DepositApplicantActionsService,
     DepositSupplementApprovalService,
     DepositClawbackApprovalService,
+    // 对手方波二：Sumsub 侧 TR mock（归因 adapter + 阈值/已知来源规则）。sumsub-shared 无 TR 专属 Nest 模块
+    // 先例（sumsub-txn-client.module 是 SUMSUB_TXN_CLIENT 的叶子模块，职责不同），按最小改法由消费方模块各自 provide；
+    // 地址簿模块同款绑定同一 token，两处实例互不依赖（mock 无状态）。
+    { provide: TRAVEL_RULE_ADAPTER, useClass: MockTravelRuleAdapter },
+    MockTrRulesService,
   ],
   exports: [DepositTransactionsService, DepositWorkflowService, DepositApplicantActionsService],
 })

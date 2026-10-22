@@ -1,5 +1,5 @@
 import { WithdrawalAddressWorkflowService } from './withdrawal-address-workflow.service';
-import { MockTravelRuleAdapter } from './mock-travel-rule.adapter';
+import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
 import { BANK_RAIL_NETWORK } from './withdrawal-address.service';
 
 describe('WithdrawalAddressWorkflowService — deactivateAddress', () => {
@@ -900,28 +900,6 @@ describe('WithdrawalAddressWorkflowService — feedScreening（⚡筛查喂）',
     await expect(workflow.feedScreening('WAD1001', actor, 'GREEN', 'late override')).rejects.toBe(err);
 
     expect(auditLogsService.recordByActor).not.toHaveBeenCalled();
-  });
-});
-
-describe('MockTravelRuleAdapter — screenAddress 确定性尾号规则', () => {
-  const adapter = new MockTravelRuleAdapter();
-
-  it.each([
-    ['TXabc2222', 'YELLOW'],
-    ['TXabc3333', 'RED'],
-    ['TXabc1111', 'GREEN'],
-    ['TXabc0000', 'GREEN'],
-    ['AE070331234567890122222', 'YELLOW'],
-    ['AE070331234567890123333', 'RED'],
-    ['AE070331234567890123456', 'GREEN'],
-  ])('%s → %s', async (address, expected) => {
-    await expect(adapter.screenAddress(address, 'TRON')).resolves.toBe(expected);
-  });
-
-  it('归因规则不变：仅尾号 1111 → Mock VASP；2222 / 3333 → 自托管', async () => {
-    await expect(adapter.attributeAddress('TXabc1111', 'TRON')).resolves.toMatchObject({ attributed: true, vaspName: 'Mock VASP Exchange' });
-    await expect(adapter.attributeAddress('TXabc2222', 'TRON')).resolves.toEqual({ attributed: false });
-    await expect(adapter.attributeAddress('TXabc3333', 'TRON')).resolves.toEqual({ attributed: false });
   });
 });
 

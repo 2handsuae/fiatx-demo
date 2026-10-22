@@ -6,8 +6,8 @@ import { WithdrawalAddressWorkflowService } from './withdrawal-address-workflow.
 import { WithdrawalAddressSweepService } from './withdrawal-address-sweep.service';
 import { WithdrawalAddressController } from './withdrawal-address.controller';
 import { WithdrawalAddressAdminController } from './withdrawal-address-admin.controller';
-import { TRAVEL_RULE_ADAPTER } from './travel-rule-adapter.interface';
-import { MockTravelRuleAdapter } from './mock-travel-rule.adapter';
+import { TRAVEL_RULE_ADAPTER } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
+import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
 
 @Module({
   imports: [PrismaModule, AuditLogsModule],
