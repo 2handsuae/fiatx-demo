@@ -207,6 +207,53 @@ describe('DepositApplicantActionsService', () => {
     expect(issuer.register).not.toHaveBeenCalled();
   });
 
+  // 对手方波二 Task 4：unhosted 超线认领挂起——经 issuer.register 落一张 SOURCE_OWNERSHIP_CLAIM 材料单。
+  describe('registerOwnershipClaim — 认领挂起落材料账', () => {
+    it('issuer.register 实参：材料型 / 绑本单 / SUMSUB_PUSHED / 不挂限制；行上三个 id 列是我方铸的本地占位（无 Sumsub action）', async () => {
+      const { svc, issuer } = build();
+
+      await svc.registerOwnershipClaim('dep-1');
+
+      expect(issuer.register).toHaveBeenCalledTimes(1);
+      const arg = issuer.register.mock.calls[0][0];
+      expect(arg).toMatchObject({
+        customerId: 'c1',
+        sumsubApplicantId: 'app-1',
+        materialType: 'SOURCE_OWNERSHIP_CLAIM',
+        levelName: 'OWNERSHIP_CLAIM',
+        orderDomain: 'DEPOSIT',
+        orderRef: 'DP2608170001',
+        origin: 'SUMSUB_PUSHED',
+        restrict: false,
+        issuedBy: 'SYSTEM',
+      });
+      // externalActionId 是材料账 @unique 键，applicantActionId 非空——两者都不是空串
+      expect(arg.applicantActionId).toEqual(expect.stringMatching(/\S/));
+      expect(arg.externalActionId).toEqual(expect.stringMatching(/^MRQ:/));
+    });
+
+    it('同一单再次认领 → 铸出的 externalActionId 不撞（不是常量）', async () => {
+      const { svc, issuer } = build();
+
+      await svc.registerOwnershipClaim('dep-1');
+      await svc.registerOwnershipClaim('dep-1');
+
+      const [a, b] = issuer.register.mock.calls.map((c: any[]) => c[0].externalActionId);
+      expect(a).not.toBe(b);
+    });
+
+    it('充值单不存在 / owner 无 Sumsub applicant → 不调 issuer（与 syncApplicantActions 同款守卫）', async () => {
+      const { svc, issuer, prisma } = build();
+      prisma.customerMain.findUnique.mockResolvedValue({ id: 'c1', sumsubApplicantId: null });
+      await svc.registerOwnershipClaim('dep-1');
+
+      prisma.depositTransaction.findUnique.mockResolvedValue(null);
+      await svc.registerOwnershipClaim('dep-x');
+
+      expect(issuer.register).not.toHaveBeenCalled();
+    });
+  });
+
   describe('hasOutstanding 的两个守卫分支', () => {
     it('充值单不存在 → false，不查材料账', async () => {
       const { svc, prisma, requests } = build();

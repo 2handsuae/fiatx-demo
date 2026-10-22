@@ -40,6 +40,9 @@ import { L1GateService } from '../shared/l1-gate/l1-gate.service';
 import type { L1Snapshot } from '../shared/l1-gate/l1-gate.types';
 import { SupplementEvidenceService } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
 import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
+import { MockTrRulesService } from '../../sumsub-shared/travel-rule/mock-tr-rules.service';
+import { TRAVEL_RULE_ADAPTER } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
+import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
 
 /** Task 9：L1 与 checkAutoApproval 改读限制账，不再读已删的 complianceStatus 列。 */
 const customerAccessService = {
@@ -136,6 +139,8 @@ describe('DepositWorkflowService', () => {
   let accountingService: Record<string, jest.Mock>;
   let supplementEvidence: Record<string, jest.Mock>;
   let reconDisposition: Record<string, jest.Mock>;
+  /** 对手方波二：TR 规则服务桩。isTrApplicable 走真阈值表（行为来自 Task 3 的真规则），findKnownSource 按用例喂。 */
+  let trRules: { isTrApplicable: jest.Mock; findKnownSource: jest.Mock };
 
   beforeEach(async () => {
     // Task 9：access mock 是模块级的，本 spec 无 clearAllMocks —— 逐例复位，
@@ -173,6 +178,14 @@ describe('DepositWorkflowService', () => {
       markNeedsReview: jest.fn().mockResolvedValue(undefined),
       // B4：L1 的快照落库出口（铁律⑤：workflow 不直接写 domain 表）。
       saveL1Snapshot: jest.fn().mockResolvedValue(undefined),
+      // 对手方波二：⚡归因喂的两个落列出口（主体服务写自己的表，workflow 不直写）。
+      saveSourceAttribution: jest.fn().mockResolvedValue(undefined),
+      saveKnownSource: jest.fn().mockResolvedValue(undefined),
+    };
+    const realTrRules = new MockTrRulesService({} as any);
+    trRules = {
+      isTrApplicable: jest.fn((currency: string, amount: number) => realTrRules.isTrApplicable(currency, amount)),
+      findKnownSource: jest.fn().mockResolvedValue(null),
     };
     actionsService = {
       syncApplicantActions: jest.fn().mockResolvedValue({ added: [], retired: [] }),
@@ -181,6 +194,8 @@ describe('DepositWorkflowService', () => {
       findBySeq: jest.fn(),
       hasOutstanding: jest.fn().mockResolvedValue(false),
       submitBySeq: jest.fn(),
+      // 对手方波二：认领挂起落材料账（SOURCE_OWNERSHIP_CLAIM）。
+      registerOwnershipClaim: jest.fn().mockResolvedValue(undefined),
     };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue(undefined),
@@ -261,6 +276,7 @@ describe('DepositWorkflowService', () => {
         { provide: L1GateService, useValue: l1Gate },
         { provide: SupplementEvidenceService, useValue: supplementEvidence },
         { provide: ReconDispositionService, useValue: reconDisposition },
+        { provide: MockTrRulesService, useValue: trRules },
       ],
     }).compile();
 
@@ -2165,6 +2181,7 @@ describe('DepositWorkflowService', () => {
           { provide: L1GateService, useValue: l1Gate },
           { provide: SupplementEvidenceService, useValue: supplementEvidence },
           { provide: ReconDispositionService, useValue: reconDisposition },
+          { provide: MockTrRulesService, useValue: trRules },
         ],
       }).compile();
 
@@ -3391,6 +3408,7 @@ describe('DepositWorkflowService', () => {
           { provide: L1GateService, useValue: l1Gate },
           { provide: SupplementEvidenceService, useValue: supplementEvidence },
           { provide: ReconDispositionService, useValue: reconDisposition },
+          { provide: MockTrRulesService, useValue: trRules },
         ],
       }).compile();
       service = module.get<DepositWorkflowService>(DepositWorkflowService);
@@ -3711,6 +3729,7 @@ describe('DepositWorkflowService', () => {
         { provide: CustomerAccessService, useValue: customerAccessService },
           DepositWorkflowService,
           DepositTransactionsService,
+          { provide: TRAVEL_RULE_ADAPTER, useClass: MockTravelRuleAdapter },
           { provide: PrismaService, useValue: { depositTransaction: prismaDeposit } },
           { provide: EventEmitter2, useValue: { emit: jest.fn() } },
           { provide: FundsOrderService, useValue: fundsOrders },
@@ -3728,6 +3747,7 @@ describe('DepositWorkflowService', () => {
           { provide: L1GateService, useValue: l1Gate },
           { provide: SupplementEvidenceService, useValue: supplementEvidence },
           { provide: ReconDispositionService, useValue: reconDisposition },
+          { provide: MockTrRulesService, useValue: trRules },
           {
             provide: TransactionLimitRulesService,
             useValue: { getSingleRule: jest.fn().mockResolvedValue(null) },
@@ -4024,6 +4044,218 @@ describe('DepositWorkflowService', () => {
 
       expect(depositService.updateStatus).not.toHaveBeenCalled();
       expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+    });
+  });
+
+  // ═══ 对手方波二 Task 4：充值来源归因 ⚡喂 + unhosted 超线认领挂起 ═══════════════════
+  describe('applySourceAttribution — 来源归因 ⚡喂', () => {
+    const OPERATOR = {
+      actorType: 'ADMIN' as const,
+      userId: 'u-op-1',
+      userNo: 'ADM001',
+      role: 'COMPLIANCE_OFFICER',
+      roleCodes: ['COMPLIANCE_OFFICER'],
+    };
+    /** 一笔刚进 COMPLIANCE_PENDING 的 TR 型 crypto 充值（L1 + 提交 Sumsub 都已走完，sumsubTxnType=travelRule）。 */
+    const attrDeposit = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-attr-1',
+      depositNo: 'DEP-ATTR-001',
+      ownerType: 'CUSTOMER',
+      ownerId: 'cust-uuid-1',
+      customer: { customerNo: 'CU-ATTR-1' },
+      status: DepositTransactionStatus.COMPLIANCE_PENDING,
+      amount: '1500',
+      fromAddress: 'TXsourceWallet0001',
+      sumsubTxnType: 'travelRule',
+      correlationId: 'corr-attr-1',
+      traceId: 'trace-attr-1',
+      asset: { type: 'CRYPTO', currency: 'USDT' },
+      ...overrides,
+    });
+
+    const actionsOf = (mock: jest.Mock) => mock.mock.calls.map((c: any[]) => c[0].action);
+
+    describe('VASP 出口（合格 / 不合格两个名录样本）', () => {
+      it('① 默认 Mock VASP Exchange：落 isVasp/名称/did/归因时刻 + DEPOSIT_SOURCE_ATTRIBUTED（operator，带显式 requestId），状态不动、不问认领', async () => {
+        depositService.findOneByNo.mockResolvedValue(attrDeposit());
+
+        const res = await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'VASP' }, OPERATOR);
+
+        expect(depositService.saveSourceAttribution).toHaveBeenCalledWith('dep-attr-1', {
+          counterpartyIsVasp: true,
+          counterpartyVasp: 'Mock VASP Exchange',
+          counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+          sourceAttributedAt: expect.any(Date),
+        });
+        // 审计：人为动作 → recordByActor（operator），不是 recordSystem
+        expect(actionsOf(auditLogsService.recordByActor)).toEqual(['DEPOSIT_SOURCE_ATTRIBUTED']);
+        const [input, actor] = auditLogsService.recordByActor.mock.calls[0];
+        expect(input).toMatchObject({
+          actionDomain: 'DEPOSIT',
+          primarySubjectNo: 'DEP-ATTR-001',
+          outcome: AuditOutcome.SUCCESS,
+          correlationId: 'corr-attr-1',
+          afterData: {
+            attribution: 'VASP',
+            counterpartyIsVasp: true,
+            counterpartyVasp: 'Mock VASP Exchange',
+            counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+          },
+        });
+        expect(input.requestId).toMatch(/^DEPOSIT_SOURCE_ATTRIBUTED_DEP-ATTR-001_/);
+        expect(actor).toMatchObject({ actorType: 'ADMIN', actorNo: 'ADM001' });
+        expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+        // VASP 出口不触发认领判定，也不动状态
+        expect(trRules.findKnownSource).not.toHaveBeenCalled();
+        expect(actionsService.registerOwnershipClaim).not.toHaveBeenCalled();
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(res).toEqual({ depositNo: 'DEP-ATTR-001', attribution: 'VASP', counterpartyVasp: 'Mock VASP Exchange' });
+      });
+
+      it('② GREY_HARBOR：不合格样本的名称与 did 入列（供 V12 退回弧 / 名录档案现拼）', async () => {
+        depositService.findOneByNo.mockResolvedValue(attrDeposit());
+
+        await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'VASP', vasp: 'GREY_HARBOR' }, OPERATOR);
+
+        expect(depositService.saveSourceAttribution).toHaveBeenCalledWith('dep-attr-1', {
+          counterpartyIsVasp: true,
+          counterpartyVasp: 'Grey Harbor Exchange',
+          counterpartyVaspDid: 'did:mock:grey-harbor-001',
+          sourceAttributedAt: expect.any(Date),
+        });
+        expect(auditLogsService.recordByActor.mock.calls[0][0].afterData).toMatchObject({
+          counterpartyVasp: 'Grey Harbor Exchange',
+          counterpartyVaspDid: 'did:mock:grey-harbor-001',
+        });
+      });
+    });
+
+    describe('③ 守卫：只有 COMPLIANCE_PENDING 的 crypto TR 单才能喂', () => {
+      it.each([
+        ['法币单', { asset: { type: 'FIAT', currency: 'AED' }, sumsubTxnType: 'finance', fromAddress: null }],
+        ['finance 型（crypto 但按 finance 报送）', { sumsubTxnType: 'finance' }],
+      ])('%s → 400，什么都不写', async (_label, overrides) => {
+        depositService.findOneByNo.mockResolvedValue(attrDeposit(overrides));
+
+        await expect(
+          service.applySourceAttribution('DEP-ATTR-001', { attribution: 'VASP' }, OPERATOR),
+        ).rejects.toBeInstanceOf(BadRequestException);
+
+        expect(depositService.saveSourceAttribution).not.toHaveBeenCalled();
+        expect(auditLogsService.recordByActor).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        DepositTransactionStatus.ACTION_PENDING,
+        DepositTransactionStatus.MANUAL_CHECKING,
+        DepositTransactionStatus.SUCCESS,
+      ])('状态 %s（非 COMPLIANCE_PENDING）→ 409 ATTRIBUTION_NOT_PENDING，什么都不写', async (status) => {
+        depositService.findOneByNo.mockResolvedValue(attrDeposit({ status }));
+
+        const err: any = await service
+          .applySourceAttribution('DEP-ATTR-001', { attribution: 'UNHOSTED' }, OPERATOR)
+          .catch((e) => e);
+
+        expect(err).toBeInstanceOf(ConflictException);
+        expect(err.getResponse()).toMatchObject({ code: 'ATTRIBUTION_NOT_PENDING' });
+        expect(depositService.saveSourceAttribution).not.toHaveBeenCalled();
+        expect(auditLogsService.recordByActor).not.toHaveBeenCalled();
+        expect(actionsService.registerOwnershipClaim).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('UNHOSTED 出口（Sumsub 侧 TR 规则判认领）', () => {
+      it('④ 800 USDT（低于线）：只记归因（isVasp=false），不问已知来源、不建材料单、状态不动', async () => {
+        depositService.findOneByNo.mockResolvedValue(attrDeposit({ amount: '800' }));
+
+        const res = await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'UNHOSTED' }, OPERATOR);
+
+        expect(depositService.saveSourceAttribution).toHaveBeenCalledWith('dep-attr-1', {
+          counterpartyIsVasp: false,
+          sourceAttributedAt: expect.any(Date),
+        });
+        expect(actionsOf(auditLogsService.recordByActor)).toEqual(['DEPOSIT_SOURCE_ATTRIBUTED']);
+        expect(trRules.isTrApplicable).toHaveBeenCalledWith('USDT', 800);
+        expect(trRules.findKnownSource).not.toHaveBeenCalled();
+        expect(actionsService.registerOwnershipClaim).not.toHaveBeenCalled();
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(res).toEqual({ depositNo: 'DEP-ATTR-001', attribution: 'UNHOSTED', counterpartyVasp: null });
+      });
+
+      it('④b 正好 1000 USDT（≥ 语义）→ 过线，走认领判定', async () => {
+        const dep = attrDeposit({ amount: '1000' });
+        depositService.findOneByNo.mockResolvedValue(dep);
+        actionsService.hasOutstanding.mockResolvedValue(true);
+        depositService.updateStatus.mockResolvedValue({ ...dep, status: DepositTransactionStatus.ACTION_PENDING });
+
+        await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'UNHOSTED' }, OPERATOR);
+
+        expect(trRules.findKnownSource).toHaveBeenCalledTimes(1);
+        expect(actionsService.registerOwnershipClaim).toHaveBeenCalledWith('dep-attr-1');
+      });
+
+      it('④c sumsubTxnType 还没落（null）→ 不是 travelRule 型，只记归因不问认领', async () => {
+        depositService.findOneByNo.mockResolvedValue(attrDeposit({ sumsubTxnType: null }));
+
+        await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'UNHOSTED' }, OPERATOR);
+
+        expect(depositService.saveSourceAttribution).toHaveBeenCalledTimes(1);
+        expect(trRules.findKnownSource).not.toHaveBeenCalled();
+        expect(actionsService.registerOwnershipClaim).not.toHaveBeenCalled();
+      });
+
+      it('⑤ 1500 USDT + 已知来源命中：knownSourceRef 落列 + DEPOSIT_KNOWN_SOURCE_MATCHED（recordSystem），不挂起', async () => {
+        depositService.findOneByNo.mockResolvedValue(attrDeposit());
+        trRules.findKnownSource.mockResolvedValue('DEP-OLD-001');
+
+        await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'UNHOSTED' }, OPERATOR);
+
+        // findKnownSource 的第一参落的是 deposits.ownerId 列（命名坑：形参叫 userId）
+        expect(trRules.findKnownSource).toHaveBeenCalledWith('cust-uuid-1', 'TXsourceWallet0001');
+        expect(depositService.saveKnownSource).toHaveBeenCalledWith('dep-attr-1', 'DEP-OLD-001');
+        expect(actionsOf(auditLogsService.recordSystem)).toEqual(['DEPOSIT_KNOWN_SOURCE_MATCHED']);
+        const known = auditLogsService.recordSystem.mock.calls[0][0];
+        expect(known.afterData).toMatchObject({ knownSourceRef: 'DEP-OLD-001' });
+        expect(known.requestId).toMatch(/^DEPOSIT_KNOWN_SOURCE_MATCHED_DEP-ATTR-001_/);
+        // 归因本身仍是 operator 那条
+        expect(actionsOf(auditLogsService.recordByActor)).toEqual(['DEPOSIT_SOURCE_ATTRIBUTED']);
+        expect(actionsService.registerOwnershipClaim).not.toHaveBeenCalled();
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+      });
+
+      it('⑥ 1500 USDT + 无已知来源：登记认领材料单 → 推进 ACTION_PENDING + DEPOSIT_ACTION_REQUIRED（系统），不写 KNOWN_SOURCE', async () => {
+        const dep = attrDeposit();
+        depositService.findOneByNo.mockResolvedValue(dep);
+        trRules.findKnownSource.mockResolvedValue(null);
+        actionsService.hasOutstanding.mockResolvedValue(true); // 材料单已落账，有未提交项
+        depositService.updateStatus.mockResolvedValue({ ...dep, status: DepositTransactionStatus.ACTION_PENDING });
+
+        await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'UNHOSTED' }, OPERATOR);
+
+        expect(actionsService.registerOwnershipClaim).toHaveBeenCalledWith('dep-attr-1');
+        expect(depositService.updateStatus).toHaveBeenCalledWith(
+          'dep-attr-1',
+          expect.objectContaining({ action: DepositTransactionAction.ACTION_PENDING }),
+          expect.objectContaining({ extraData: { manualReason: 'CLIENT_ACTION' } }),
+        );
+        expect(actionsOf(auditLogsService.recordSystem)).toEqual(['DEPOSIT_ACTION_REQUIRED']);
+        expect(auditLogsService.recordSystem.mock.calls[0][0]).toMatchObject({
+          fromStatus: DepositTransactionStatus.COMPLIANCE_PENDING,
+          toStatus: DepositTransactionStatus.ACTION_PENDING,
+        });
+        expect(depositService.saveKnownSource).not.toHaveBeenCalled();
+      });
+
+      it('⑥b 死角守卫沿用：材料单没落成（客户无 applicant → hasOutstanding=false）→ 不推进 ACTION_PENDING', async () => {
+        depositService.findOneByNo.mockResolvedValue(attrDeposit());
+        actionsService.hasOutstanding.mockResolvedValue(false);
+
+        await service.applySourceAttribution('DEP-ATTR-001', { attribution: 'UNHOSTED' }, OPERATOR);
+
+        expect(actionsService.registerOwnershipClaim).toHaveBeenCalledTimes(1);
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+        expect(actionsOf(auditLogsService.recordSystem)).toEqual([]);
+      });
     });
   });
 });

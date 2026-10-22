@@ -1,10 +1,13 @@
-import { Controller, UseGuards } from '@nestjs/common';
+import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminPermissionGuard } from '../identity/access-control/admin-permission.guard';
 import { DemoScenarioControllerBase } from '../sumsub-shared/demo-scenario.base';
 import { DepositDemoScenarioService } from './demo-scenario.service';
 import { DEPOSIT_VERDICT_BUTTONS } from './fixtures/verdict-buttons';
+import { DepositWorkflowService } from '../trading/deposit-transactions/deposit-workflow.service';
+import { ApprovalActorContext } from '../governance/approvals/constants/approval.constants';
+import { FeedAttributionDto } from './dto/feed-attribution.dto';
 
 /**
  * Task 6(计划1 甲方案)起步,Task 4(计划「充值仿真裁决按钮」)改单步:Sumsub sandbox
@@ -26,7 +29,31 @@ export class AdminDepositDemoController extends DemoScenarioControllerBase {
   protected readonly idField = 'depositId';
   protected readonly verdictButtons = DEPOSIT_VERDICT_BUTTONS;
 
-  constructor(protected readonly demoScenarioService: DepositDemoScenarioService) {
+  constructor(
+    protected readonly demoScenarioService: DepositDemoScenarioService,
+    private readonly depositWorkflow: DepositWorkflowService,
+  ) {
     super();
+  }
+
+  /**
+   * 对手方波二：⚡喂来源归因（站在 Sumsub 一侧告知对手方是谁）。与 run-verdict 同属"喂 Sumsub 侧结论"，
+   * 同挂 DEMO_VERDICT_WRITE（rbac.catalog 登记）。controller 只做传输，守卫与业务全在 workflow。
+   */
+  @Post('feed-attribution')
+  @ApiOperation({ summary: 'Feed the counterparty source attribution (VASP / unhosted) into a deposit (demo only)' })
+  async feedAttribution(@Body() dto: FeedAttributionDto, @Req() req: any) {
+    const actor: ApprovalActorContext = {
+      actorType: 'ADMIN',
+      userId: req.user?.userId,
+      userNo: req.user?.userNo,
+      role: req.user?.role,
+      roleCodes: req.user?.roleCodes || (req.user?.role ? [req.user.role] : []),
+    };
+    return this.depositWorkflow.applySourceAttribution(
+      dto.depositNo,
+      { attribution: dto.attribution, vasp: dto.vasp },
+      actor,
+    );
   }
 }

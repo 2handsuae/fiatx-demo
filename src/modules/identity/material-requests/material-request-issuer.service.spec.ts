@@ -102,6 +102,22 @@ describe('MaterialRequestIssuerService.issue', () => {
     await expect(build(d).issue({ ...BASE, materialType: 'NOPE' })).rejects.toThrow(BadRequestException);
   });
 
+  // 对手方波二 Task 4：注册表第 6 型 SOURCE_OWNERSHIP_CLAIM 是表单型（无 sumsubActionLevelName、带 formKind）。
+  // issue() 不再拒它，也不能把 undefined 的 level 递给 Sumsub——表单型根本没有 Sumsub action。
+  it('表单型材料（无 sumsubActionLevelName、带 formKind）：不调 Sumsub，行上 level/action id 是本地占位', async () => {
+    const d = deps();
+    d.policy.getMaterialConfig.mockReturnValue({ formKind: 'OWNERSHIP_CLAIM' });
+
+    const out = await build(d).issue({ ...BASE, materialType: 'SOURCE_OWNERSHIP_CLAIM' });
+
+    expect(out.requestNo).toBe('MRQ2608170001');
+    expect(d.sumsub.createApplicantAction).not.toHaveBeenCalled();
+    const row = d.requests.create.mock.calls[0][0];
+    expect(row).toMatchObject({ materialType: 'SOURCE_OWNERSHIP_CLAIM', levelName: 'OWNERSHIP_CLAIM' });
+    expect(row.applicantActionId).toEqual(expect.stringMatching(/\S/));
+    expect(row.externalActionId).toEqual(expect.stringMatching(/^MRQ:/));
+  });
+
   it('客户没有 sumsubApplicantId → BadRequest（没 applicant 就没法建 action）', async () => {
     const d = deps();
     d.prisma.customerMain.findFirst.mockResolvedValue({ id: 'c1', customerNo: 'CUS-001', sumsubApplicantId: null });

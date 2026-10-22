@@ -7,6 +7,7 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { NotificationsService } from '../../../core/notifications/notifications.service';
+import { TRAVEL_RULE_ADAPTER } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
 
 describe('DepositTransactionsService.toCustomerDepositView', () => {
   let service: DepositTransactionsService;
@@ -22,6 +23,7 @@ describe('DepositTransactionsService.toCustomerDepositView', () => {
         { provide: TransactionLimitRulesService, useValue: {} },
         { provide: ApprovalsService, useValue: {} },
         { provide: NotificationsService, useValue: {} },
+        { provide: TRAVEL_RULE_ADAPTER, useValue: {} },
       ],
     }).compile();
 

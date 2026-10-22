@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { MaterialRequestsService, type MaterialActor } from '../../identity/material-requests/material-requests.service';
-import { MaterialRequestIssuerService } from '../../identity/material-requests/material-request-issuer.service';
+import { MaterialRequestIssuerService, mintLocalFormAction } from '../../identity/material-requests/material-request-issuer.service';
 import type { SceneTag } from '../../sumsub-shared/scene-tags';
 
 export interface IncomingApplicantAction {
@@ -135,6 +135,47 @@ export class DepositApplicantActionsService {
     }
 
     return { added, retired };
+  }
+
+  /**
+   * 对手方波二：unhosted 超线的来源认领，落一张 SOURCE_OWNERSHIP_CLAIM 材料单（绑本单、不挂限制）。
+   *
+   * 认领是我方表单（注册表 formKind=OWNERSHIP_CLAIM），没有 Sumsub 侧 action——行上三个 id 列由
+   * mintLocalFormAction 铸本地占位。落账之后推进 ACTION_PENDING 的判据与补料同源：hasOutstanding。
+   * 单不存在 / 客户无 Sumsub applicant 时与 syncApplicantActions 同款跳过（不落行，调用方的
+   * hasOutstanding 守卫随即挡住"零未提交项"的死角）。
+   */
+  async registerOwnershipClaim(depositId: string): Promise<void> {
+    const deposit = await this.prisma.depositTransaction.findUnique({
+      where: { id: depositId },
+      select: { id: true, depositNo: true, ownerId: true },
+    });
+    if (!deposit) return;
+
+    const customer = await this.prisma.customerMain.findUnique({
+      where: { id: deposit.ownerId },
+      select: { id: true, sumsubApplicantId: true },
+    });
+    if (!customer?.sumsubApplicantId) {
+      this.logger.warn(
+        `Deposit ${deposit.depositNo}: owner has no Sumsub applicant; skipping ownership-claim registration`,
+      );
+      return;
+    }
+
+    await this.issuer.register({
+      customerId: customer.id,
+      sumsubApplicantId: customer.sumsubApplicantId,
+      materialType: 'SOURCE_OWNERSHIP_CLAIM',
+      ...mintLocalFormAction('OWNERSHIP_CLAIM'),
+      orderDomain: 'DEPOSIT',
+      orderRef: deposit.depositNo,
+      origin: 'SUMSUB_PUSHED',
+      reason: `Source ownership claim required for deposit ${deposit.depositNo} (unhosted wallet at or above the Travel Rule threshold)`,
+      issuedBy: 'SYSTEM',
+      restrict: false,
+      actor: { actorType: 'SYSTEM', userId: 'SYSTEM', userNo: 'SYSTEM', role: 'SYSTEM', roleCodes: ['SYSTEM'] } as any,
+    });
   }
 
   /**

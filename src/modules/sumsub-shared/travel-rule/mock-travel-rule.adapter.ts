@@ -17,6 +17,19 @@ export const MOCK_VASP_DIRECTORY: Record<string, VaspProfile> = {
 };
 
 /**
+ * ⚡喂归因（admin demo）可选的两个名录样本：键 → did + 名称。
+ * 名称取自名录本身，保证与 getVaspProfile / 地址簿尾号归因同源，不手抄第二份。
+ */
+const MOCK_EXCHANGE_DID = 'did:mock:vasp-exchange-001';
+const GREY_HARBOR_DID = 'did:mock:grey-harbor-001';
+export const FEEDABLE_VASPS = {
+  MOCK_VASP_EXCHANGE: { vaspDid: MOCK_EXCHANGE_DID, vaspName: MOCK_VASP_DIRECTORY[MOCK_EXCHANGE_DID].name },
+  GREY_HARBOR: { vaspDid: GREY_HARBOR_DID, vaspName: MOCK_VASP_DIRECTORY[GREY_HARBOR_DID].name },
+} as const;
+export type FeedableVaspKey = keyof typeof FEEDABLE_VASPS;
+export const FEEDABLE_VASP_KEYS = Object.keys(FEEDABLE_VASPS) as FeedableVaspKey[];
+
+/**
  * 站在 Sumsub 一侧的 mock：归因与筛查都按地址 / IBAN 尾号给确定性结论
  * （演示者输入已知地址得到已知结局——验收判据所在）。
  * 切真集成时这里是唯一的刀口，登记于 reference/sumsub-mock-touchpoints.md。

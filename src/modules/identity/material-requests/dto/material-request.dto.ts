@@ -13,6 +13,7 @@ export const MATERIAL_TYPE_LABELS: Record<string, string> = {
   PROOF_OF_ADDRESS: 'Proof of Address',
   SOURCE_OF_FUNDS: 'Source of Funds',
   SOURCE_OF_WEALTH: 'Source of Wealth',
+  SOURCE_OWNERSHIP_CLAIM: '来源认领/申报',
 };
 
 export const materialLabel = (materialType: string): string =>

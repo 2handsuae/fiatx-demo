@@ -16,6 +16,9 @@
     },
     "SOURCE_OF_WEALTH": {
       "sumsubActionLevelName": "wave3-action-sow-refresh"
+    },
+    "SOURCE_OWNERSHIP_CLAIM": {
+      "formKind": "OWNERSHIP_CLAIM"
     }
   }
 }

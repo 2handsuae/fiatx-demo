@@ -404,6 +404,13 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
     'Feed one Sumsub KYT verdict webhook into a deposit (demo only)',
     ['DEMO_VERDICT_WRITE'],
   ),
+  // 对手方波二：来源归因 ⚡喂——站在 Sumsub 一侧告知对手方是谁（VASP / unhosted），与喂裁决同义 → DEMO_VERDICT_WRITE（零新权限组）
+  route(
+    'POST',
+    '/admin/deposit-sumsub/demo/feed-attribution',
+    'Feed the counterparty source attribution (VASP / unhosted) into a deposit (demo only)',
+    ['DEMO_VERDICT_WRITE'],
+  ),
   // Task A7: 按钮清单出端点 — 前端 ⚡ 面板据此渲染，不再手抄
   route(
     'GET',

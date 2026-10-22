@@ -34,6 +34,8 @@ import {
   SumsubTxnClient,
 } from '../../sumsub-shared/sumsub-txn-client.interface';
 import { resolveKytTxnType } from '../../sumsub-shared/kyt-txn-type.resolver';
+import { MockTrRulesService } from '../../sumsub-shared/travel-rule/mock-tr-rules.service';
+import { FEEDABLE_VASPS, type FeedableVaspKey } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import {
@@ -143,6 +145,8 @@ export class DepositWorkflowService implements OnModuleInit {
     // 避开本域已注入的钱侧 disposition（funds-orders/disposition.service.ts 同名）。
     private readonly supplementEvidence: SupplementEvidenceService,
     private readonly reconDisposition: ReconDispositionService,
+    // 对手方波二：站在 Sumsub 一侧的 TR 规则 mock（阈值 + 已知来源），⚡喂 Unhosted 时判是否问认领。
+    private readonly trRules: MockTrRulesService,
   ) {}
 
   private toAuditActor(actor: ApprovalActorContext) {
@@ -730,16 +734,37 @@ export class DepositWorkflowService implements OnModuleInit {
       sceneTag,
     );
 
-    // I1 修复(反直觉,细说原因):两个 Sumsub client 在
-    // scoringResult.applicantActions 缺席时都返回 undefined,handler 组装报文时
-    // `...(applicantActions?.length && {...})` 又把空数组拍成 undefined——于是这里
-    // 的 incoming 完全可能是 []。若同步之后这笔单一条未提交行都没有,绝不能放它
-    // 进入/停留在 ACTION_PENDING:那是一个"ACTION_PENDING 但零条可提交项"的死角——
-    // 客户列表徽章显示 ACTION REQUIRED、落 ACTION_REQUIRED 桶,但详情页因
-    // `actions.some(a => !a.submittedAt)` 为 false 不渲染任何入口,7 天后 SLA 定时器
-    // 还会把它打成 MANUAL_CHECKING、理由写"客户未按时补料"——把锅扣在一个根本无从
-    // 操作的客户头上。判据必须是"同步后是否还有未提交行"(hasOutstanding),不能只
-    // 看 incoming 是否为空:报文也可能带的全是已经提交过的旧 id,同样零未提交。
+    await this.pushActionPendingIfOutstanding(deposit, {
+      sceneTag,
+      caller: 'applyKytAwaitUser',
+      trigger: 'awaitUser verdict',
+      reason: 'KYT verdict: awaitUser',
+    });
+  }
+
+  /**
+   * 集合已同步之后的「推进 ACTION_PENDING」段——applyKytAwaitUser(补料)与
+   * hangForOwnershipClaim(来源认领)共用,死角守卫原样保留,不分叉两份。
+   *
+   * I1 修复(反直觉,细说原因):两个 Sumsub client 在
+   * scoringResult.applicantActions 缺席时都返回 undefined,handler 组装报文时
+   * `...(applicantActions?.length && {...})` 又把空数组拍成 undefined——于是这里
+   * 的 incoming 完全可能是 []。若同步之后这笔单一条未提交行都没有,绝不能放它
+   * 进入/停留在 ACTION_PENDING:那是一个"ACTION_PENDING 但零条可提交项"的死角——
+   * 客户列表徽章显示 ACTION REQUIRED、落 ACTION_REQUIRED 桶,但详情页因
+   * `actions.some(a => !a.submittedAt)` 为 false 不渲染任何入口,7 天后 SLA 定时器
+   * 还会把它打成 MANUAL_CHECKING、理由写"客户未按时补料"——把锅扣在一个根本无从
+   * 操作的客户头上。判据必须是"同步后是否还有未提交行"(hasOutstanding),不能只
+   * 看 incoming 是否为空:报文也可能带的全是已经提交过的旧 id,同样零未提交。
+   *
+   * 系统 actor 沿用 KYT_VERDICT:认领要求在真身里就是 Sumsub 侧 TR 引擎吐出的 awaitUser 动作,
+   * 状态历史里与补料同源,不为认领另造 actor。
+   */
+  private async pushActionPendingIfOutstanding(
+    deposit: any,
+    opts: { sceneTag?: SceneTag; caller: string; trigger: string; reason: string },
+  ): Promise<void> {
+    const { sceneTag, caller, trigger, reason } = opts;
     const hasOutstanding = await this.applicantActions.hasOutstanding(deposit.id);
 
     if (deposit.status === DepositTransactionStatus.ACTION_PENDING) {
@@ -747,7 +772,7 @@ export class DepositWorkflowService implements OnModuleInit {
         // 同状态分支同款死角:"全删成空集"不能当正常的 reissue 处理——
         // 不清缓存、不推进,只记一条 warn 留痕,供排查上游报文异常。
         this.logger.warn(
-          `applyKytAwaitUser: deposit ${deposit.id} synced to zero outstanding actions while already ACTION_PENDING, refusing to treat as reissue`,
+          `${caller}: deposit ${deposit.id} synced to zero outstanding actions while already ACTION_PENDING, refusing to treat as reissue`,
         );
         // 站1b-β：空清单异常留痕删除（业主裁定），warn 日志足够。
         return;
@@ -765,7 +790,7 @@ export class DepositWorkflowService implements OnModuleInit {
       // 同步之后没有任何未提交行,不能推进到 ACTION_PENDING——单子留在原状态,
       // 只记一条 warn 留痕。
       this.logger.warn(
-        `applyKytAwaitUser: deposit ${deposit.id} received awaitUser verdict with zero outstanding actions after sync, keeping status ${deposit.status}`,
+        `${caller}: deposit ${deposit.id} received ${trigger} with zero outstanding actions after sync, keeping status ${deposit.status}`,
       );
       // 站1b-β：空清单异常留痕删除（业主裁定），warn 日志足够。
       return;
@@ -780,7 +805,7 @@ export class DepositWorkflowService implements OnModuleInit {
       deposit.id,
       {
         action: DepositTransactionAction.ACTION_PENDING,
-        reason: 'KYT verdict: awaitUser',
+        reason,
       },
       {
         actor: { actorType: 'SYSTEM', actorId: 'KYT_VERDICT' },
@@ -793,10 +818,106 @@ export class DepositWorkflowService implements OnModuleInit {
 
     await this.depositAudit(updated, {
       action: 'DEPOSIT_ACTION_REQUIRED',
-      reason: `KYT verdict: awaitUser (manualReason=${manualReason})`,
+      reason: `${reason} (manualReason=${manualReason})`,
       fromStatus: oldStatus,
       toStatus: updated.status,
       metadata: { manualReason },
+    });
+  }
+
+  // ═══ 对手方波二：充值来源归因 ⚡喂 + unhosted 超线认领 ═══════════════════════════
+  //
+  // 归因真相源在 Sumsub 一侧(真身 = Travel Rule 引擎按地址给出对手方 VASP / unhosted),
+  // 演示里由 operator 在充值详情的 ⚡ 面板显式喂(充值侧 fromAddress 随机生成,不靠尾号推)。
+
+  /**
+   * ⚡喂来源归因。仅 COMPLIANCE_PENDING 的 crypto TR 单可喂。
+   *
+   *   VASP     → 落 isVasp=true + 名录名称 + did + 归因时刻(名录档案 admin 详情现拼,不落单);
+   *   UNHOSTED → 落 isVasp=false + 归因时刻;续判 Sumsub 侧 TR 规则:
+   *              travelRule 型 ∧ 金额 ≥ 该币种阈值时 → 已知来源命中则同源免问(回链 depositNo),
+   *              否则登记认领材料单并复用补料机制推进 ACTION_PENDING;低于线只记归因。
+   *
+   * 零新态零新边:认领挂起走既有 COMPLIANCE_PENDING → ACTION_PENDING 边,回炉走既有 RESUME。
+   */
+  async applySourceAttribution(
+    depositNo: string,
+    input: { attribution: 'VASP' | 'UNHOSTED'; vasp?: FeedableVaspKey },
+    actor: ApprovalActorContext,
+  ): Promise<{ depositNo: string; attribution: 'VASP' | 'UNHOSTED'; counterpartyVasp: string | null }> {
+    const deposit = await this.depositService.findOneByNo(depositNo);
+
+    if (deposit.status !== DepositTransactionStatus.COMPLIANCE_PENDING) {
+      throw new ConflictException({
+        code: 'ATTRIBUTION_NOT_PENDING',
+        message: `Deposit ${depositNo} is ${deposit.status}; source attribution can only be fed while COMPLIANCE_PENDING`,
+      });
+    }
+    // 归因是 Travel Rule 概念:法币单、按 finance 报送的单没有"对手方 VASP"可归。
+    if (deposit.asset?.type !== 'CRYPTO' || deposit.sumsubTxnType === 'finance') {
+      throw new BadRequestException({
+        code: 'ATTRIBUTION_NOT_TRAVEL_RULE',
+        message: `Deposit ${depositNo} is not a crypto Travel Rule transaction; there is no counterparty VASP to attribute`,
+      });
+    }
+
+    const vasp = input.attribution === 'VASP' ? FEEDABLE_VASPS[input.vasp ?? 'MOCK_VASP_EXCHANGE'] : null;
+    const sourceAttributedAt = new Date();
+    const attribution = vasp
+      ? {
+          counterpartyIsVasp: true,
+          counterpartyVasp: vasp.vaspName,
+          counterpartyVaspDid: vasp.vaspDid,
+          sourceAttributedAt,
+        }
+      : { counterpartyIsVasp: false, sourceAttributedAt };
+    await this.depositService.saveSourceAttribution(deposit.id, attribution);
+
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_SOURCE_ATTRIBUTED',
+      reason: `Source attribution fed: ${input.attribution}`,
+      afterData: {
+        attribution: input.attribution,
+        ...attribution,
+        sourceAttributedAt: sourceAttributedAt.toISOString(),
+      },
+      actor: this.toAuditActor(actor),
+      sourcePlatform: 'ADMIN_API',
+    });
+
+    if (
+      input.attribution === 'UNHOSTED' &&
+      deposit.sumsubTxnType === 'travelRule' &&
+      this.trRules.isTrApplicable(deposit.asset.currency, Number(deposit.amount))
+    ) {
+      // findKnownSource 形参叫 userId,实际落在 deposit_transactions.ownerId 列——传 ownerId。
+      const knownSourceRef = await this.trRules.findKnownSource(deposit.ownerId, deposit.fromAddress);
+      if (knownSourceRef) {
+        await this.depositService.saveKnownSource(deposit.id, knownSourceRef);
+        await this.depositAudit(deposit, {
+          action: 'DEPOSIT_KNOWN_SOURCE_MATCHED',
+          reason: `Known source: this address was already claimed on ${knownSourceRef}`,
+          afterData: { knownSourceRef, fromAddress: deposit.fromAddress },
+        });
+      } else {
+        await this.hangForOwnershipClaim(deposit);
+      }
+    }
+
+    return { depositNo, attribution: input.attribution, counterpartyVasp: vasp?.vaspName ?? null };
+  }
+
+  /**
+   * unhosted 超线且非已知来源 → 要客户认领来源:落一张 SOURCE_OWNERSHIP_CLAIM 材料单(绑本单),
+   * 再复用补料的「有未提交项就推进 ACTION_PENDING」段(死角守卫同源)。
+   * 通知复用 DEPOSIT_ACTION_PENDING 模板(updateStatus 落地处统一发)。
+   */
+  private async hangForOwnershipClaim(deposit: any): Promise<void> {
+    await this.applicantActions.registerOwnershipClaim(deposit.id);
+    await this.pushActionPendingIfOutstanding(deposit, {
+      caller: 'hangForOwnershipClaim',
+      trigger: 'ownership-claim request',
+      reason: 'Source ownership claim required (unhosted wallet at or above the Travel Rule threshold)',
     });
   }
 
@@ -1776,6 +1897,8 @@ export class DepositWorkflowService implements OnModuleInit {
       causationId?: string;
       fundsOrderNo?: string;
       metadata?: Record<string, unknown>;
+      /** requiredFields 含 afterData 的审计码（如对手方波二的来源归因 / 同源免问）必传 */
+      afterData?: Record<string, unknown>;
       /** 人为动作传 actor → 走 recordByActor；缺省系统动作走 recordSystem */
       actor?: ReturnType<DepositWorkflowService['toAuditActor']>;
       sourcePlatform?: string;
@@ -1820,6 +1943,7 @@ export class DepositWorkflowService implements OnModuleInit {
       subjects,
       traceId: deposit.traceId || undefined,
       metadata: patch.metadata,
+      afterData: patch.afterData,
       requestId: `${patch.action}_${deposit.depositNo}_${randomUUID()}`,
       sourcePlatform: patch.sourcePlatform ?? 'SYSTEM',
     };

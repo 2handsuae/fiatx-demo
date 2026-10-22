@@ -42,6 +42,23 @@ export type RegisterInput = IssueMaterialRequestInput & {
 };
 
 /**
+ * 表单型材料（注册表里无 sumsubActionLevelName、带 formKind）没有 Sumsub 侧 action：
+ * 行上 levelName / applicantActionId / externalActionId 三个必填列由我方铸本地占位。
+ * externalActionId 沿用 `MRQ:` 前缀与 @unique 约束；applicantActionId 带 `FORM:` 前缀，一眼看出不是 Sumsub 的 id。
+ */
+export function mintLocalFormAction(formKind: string): {
+  levelName: string;
+  applicantActionId: string;
+  externalActionId: string;
+} {
+  return {
+    levelName: formKind,
+    applicantActionId: `FORM:${randomUUID()}`,
+    externalActionId: `MRQ:${randomUUID()}`,
+  };
+}
+
+/**
  * 下发编排 —— 建行的唯一入口（设计稿 2026-08-17 §4.1）。
  *
  * 两条路径的差别只在这一层：
@@ -73,22 +90,27 @@ export class MaterialRequestIssuerService {
 
     const customer = await this.loadCustomer(input.customerId);
 
+    // 表单型材料（无 Sumsub level）不建 Sumsub action——本地占位 id；Sumsub 型照旧：
     // 我方先生成，再交给 Sumsub —— 顺序不能反：这是铸 token 与认领 webhook 的钥匙
-    const externalActionId = `MRQ:${randomUUID()}`;
-    const action = await this.sumsubClient.createApplicantAction({
-      applicantId: customer.sumsubApplicantId,
-      levelName: config.sumsubActionLevelName,
-      externalActionId,
-    });
+    let ids: { levelName: string; applicantActionId: string; externalActionId: string };
+    if (config.sumsubActionLevelName) {
+      const externalActionId = `MRQ:${randomUUID()}`;
+      const action = await this.sumsubClient.createApplicantAction({
+        applicantId: customer.sumsubApplicantId,
+        levelName: config.sumsubActionLevelName,
+        externalActionId,
+      });
+      ids = { levelName: config.sumsubActionLevelName, applicantActionId: action.id, externalActionId };
+    } else {
+      ids = mintLocalFormAction(config.formKind ?? input.materialType);
+    }
 
     return this.persist(
       {
         customerId: customer.id,
         sumsubApplicantId: customer.sumsubApplicantId,
         materialType: input.materialType,
-        levelName: config.sumsubActionLevelName,
-        applicantActionId: action.id,
-        externalActionId,
+        ...ids,
         orderDomain: input.orderDomain,
         orderRef: input.orderRef,
         origin: input.origin,

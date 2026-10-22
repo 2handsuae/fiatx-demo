@@ -1,4 +1,5 @@
 import {
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -31,6 +32,7 @@ import { toCustomerAssetView } from '../shared/customer-view.util';
 import { resolveSlaFields as resolveSlaFieldsShared } from '../shared/sla-fields.util';
 import { freezeScanQueryArgs } from '../shared/freeze-scan.util';
 import { buildCustomerTimeline } from '../shared/customer-timeline.util';
+import { TRAVEL_RULE_ADAPTER, type TravelRuleAdapter } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
 
 type DepositWriteClient = Prisma.TransactionClient | PrismaService;
 
@@ -191,6 +193,8 @@ export class DepositTransactionsService {
     private readonly limitRulesService: TransactionLimitRulesService,
     private readonly approvalsService: ApprovalsService,
     private readonly notificationsService: NotificationsService,
+    // 对手方波二：admin 详情现拼 VASP 名录档案（Sumsub 侧数据，不落库）。
+    @Inject(TRAVEL_RULE_ADAPTER) private readonly travelRuleAdapter: TravelRuleAdapter,
   ) {}
 
   private getDb(tx?: Prisma.TransactionClient): DepositWriteClient {
@@ -631,8 +635,14 @@ export class DepositTransactionsService {
     const supplementOrigin = await this.loadSupplementOrigin(item);
     const clawbackOrigin = await this.loadClawbackOrigin(item);
 
+    // 对手方波二：VASP 名录档案（EEC / 评分 / 牌照）是 Sumsub 侧数据，按单上 did 现拼、不落库；
+    // 没归因（did 空）或名录里查无 → null。
+    const vaspProfile = item.counterpartyVaspDid
+      ? this.travelRuleAdapter.getVaspProfile(item.counterpartyVaspDid)
+      : null;
+
     if (!item.sumsubTxnId) {
-      return { ...item, sumsubDetail, approvals, latestSumsubWebhook: null, supplementOrigin, clawbackOrigin };
+      return { ...item, sumsubDetail, approvals, latestSumsubWebhook: null, supplementOrigin, clawbackOrigin, vaspProfile };
     }
 
     // webhook 事件表不挂 depositId 外键(它是全站 Sumsub 事件的落地表),只能靠
@@ -653,7 +663,7 @@ export class DepositTransactionsService {
       },
     });
 
-    return { ...item, sumsubDetail, approvals, latestSumsubWebhook: events[0] ?? null, supplementOrigin, clawbackOrigin };
+    return { ...item, sumsubDetail, approvals, latestSumsubWebhook: events[0] ?? null, supplementOrigin, clawbackOrigin, vaspProfile };
   }
 
   /**
@@ -1040,6 +1050,28 @@ export class DepositTransactionsService {
       where: { id },
       data: { l1Snapshot: json },
     });
+  }
+
+  /**
+   * 对手方波二：⚡喂归因的落列出口（workflow 禁直写 domain 表，铁律③）。
+   * VASP 出口落四列；Unhosted 出口只落 isVasp=false + 归因时刻（调用方不传的列不碰，不用 undefined 覆盖）。
+   * ⚠️ 这些列属 admin 面——不在客户面白名单里（客户可见的只有 counterpartyVasp 名称，由 Task 5 加入白名单）。
+   */
+  async saveSourceAttribution(
+    id: string,
+    data: {
+      counterpartyIsVasp: boolean;
+      counterpartyVasp?: string;
+      counterpartyVaspDid?: string;
+      sourceAttributedAt: Date;
+    },
+  ) {
+    return (this.prisma as any).depositTransaction.update({ where: { id }, data });
+  }
+
+  /** 对手方波二：同源免问命中——回链先前那笔已认领单的 depositNo。 */
+  async saveKnownSource(id: string, knownSourceRef: string) {
+    return (this.prisma as any).depositTransaction.update({ where: { id }, data: { knownSourceRef } });
   }
 
   /** Sumsub getTxn 原始报文存证(乙口径落库)。 */

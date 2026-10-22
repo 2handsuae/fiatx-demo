@@ -12,6 +12,8 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { NotificationsService } from '../../../core/notifications/notifications.service';
+import { TRAVEL_RULE_ADAPTER } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
+import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
 import { Prisma } from '@prisma/client';
 
 describe('DepositTransactionsService', () => {
@@ -100,6 +102,8 @@ describe('DepositTransactionsService', () => {
           provide: NotificationsService,
           useValue: notificationsService,
         },
+        // 对手方波二：admin 详情现拼 VASP 名录档案（Sumsub 侧 mock，无状态，用真名录）
+        { provide: TRAVEL_RULE_ADAPTER, useClass: MockTravelRuleAdapter },
       ],
     }).compile();
 
@@ -1748,6 +1752,47 @@ describe('DepositTransactionsService', () => {
       expect(result.l1Snapshot).toBe(snapshot);
     });
 
+    // 对手方波二 Task 4：⚡归因喂的落列出口（workflow 不直写 domain 表，铁律③）。
+    it('saveSourceAttribution writes exactly the attribution columns it is handed', async () => {
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({ id: 'dep-1' });
+      const at = new Date('2026-10-22T10:00:00.000Z');
+
+      await service.saveSourceAttribution('dep-1', {
+        counterpartyIsVasp: true,
+        counterpartyVasp: 'Mock VASP Exchange',
+        counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+        sourceAttributedAt: at,
+      });
+      await service.saveSourceAttribution('dep-1', { counterpartyIsVasp: false, sourceAttributedAt: at });
+
+      const calls = ((prisma as any).depositTransaction.update as jest.Mock).mock.calls;
+      expect(calls[0][0]).toEqual({
+        where: { id: 'dep-1' },
+        data: {
+          counterpartyIsVasp: true,
+          counterpartyVasp: 'Mock VASP Exchange',
+          counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+          sourceAttributedAt: at,
+        },
+      });
+      // Unhosted：只落两列，名称 / did 不被碰（不写 undefined 覆盖）
+      expect(calls[1][0]).toEqual({
+        where: { id: 'dep-1' },
+        data: { counterpartyIsVasp: false, sourceAttributedAt: at },
+      });
+    });
+
+    it('saveKnownSource writes knownSourceRef only', async () => {
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({ id: 'dep-1' });
+
+      await service.saveKnownSource('dep-1', 'DP-OLD-001');
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: { knownSourceRef: 'DP-OLD-001' },
+      });
+    });
+
   });
 
   describe('findOneForAdmin', () => {
@@ -1900,6 +1945,55 @@ describe('DepositTransactionsService', () => {
 
       expect(result.latestSumsubWebhook).toBeNull();
       expect((prisma as any).sumsubWebhookEvent.findMany).not.toHaveBeenCalled();
+    });
+
+    // 对手方波二 Task 4：名录档案（EEC / 评分 / 牌照）是 Sumsub 侧数据，admin 详情按单上 did 现拼，不落库。
+    describe('vaspProfile（名录档案现拼）', () => {
+      it('单上有 counterpartyVaspDid：按 did 现取名录档案（Grey Harbor = 不合格样本）', async () => {
+        ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+          id: 'dep-1',
+          depositNo: 'DP001',
+          counterpartyVaspDid: 'did:mock:grey-harbor-001',
+          fundsOrders: [],
+        });
+
+        const result: any = await service.findOneForAdmin('dep-1');
+
+        expect(result.vaspProfile).toEqual({
+          name: 'Grey Harbor Exchange',
+          eecStatus: 'PENDING',
+          riskScore: 42,
+          licensed: false,
+        });
+      });
+
+      it('带 sumsubTxnId 的分支（第二个 return）同样带 vaspProfile', async () => {
+        ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+          id: 'dep-1',
+          depositNo: 'DP001',
+          sumsubTxnId: 'txn-abc123',
+          counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+          fundsOrders: [],
+        });
+
+        const result: any = await service.findOneForAdmin('dep-1');
+
+        expect(result.vaspProfile).toMatchObject({ name: 'Mock VASP Exchange', eecStatus: 'COMPLETED', licensed: true });
+      });
+
+      it('null 安全：没归因（did 为空）→ null；名录里查无的 did → null', async () => {
+        const none: any = await service.findOneForAdmin('dep-1');
+        expect(none.vaspProfile).toBeNull();
+
+        ((prisma as any).depositTransaction.findUnique as jest.Mock).mockResolvedValue({
+          id: 'dep-1',
+          depositNo: 'DP001',
+          counterpartyVaspDid: 'did:mock:unknown',
+          fundsOrders: [],
+        });
+        const unknown: any = await service.findOneForAdmin('dep-1');
+        expect(unknown.vaspProfile).toBeNull();
+      });
     });
 
     // Task 7: 一笔单只有一个 Sumsub 交易 —— 反查按 sumsubTxnId 单值匹配,不再按
