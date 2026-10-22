@@ -218,6 +218,15 @@ describe('DepositTransactionsService', () => {
     sumsubTxnDetailJson: '{"verdict":"rejected"}',
     counterpartyIsVasp: true,
     counterpartyVasp: 'Some VASP Inc.',
+    // 对手方波二：归因产物里 did / 归因时刻 / 同源回链属 admin 面，客户拿不到；
+    // 认领快照四列是客户自己报的，原样可见。
+    counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+    sourceAttributedAt: new Date('2026-01-01T00:02:00Z'),
+    knownSourceRef: 'DEP-OLD-001',
+    sourceClaimType: 'THIRD_PARTY_PERSON',
+    sourceClaimName: 'Alice Wong',
+    sourceClaimRelationship: 'Friend',
+    sourceClaimedAt: new Date('2026-01-01T00:03:00Z'),
     slaDeadline: new Date('2026-01-03T00:00:00Z'),
     slaBreached: true,
     actionSubmittedAt: new Date('2026-08-01T00:00:00Z'),
@@ -249,12 +258,24 @@ describe('DepositTransactionsService', () => {
     'sumsubScoredAt',
     'sumsubTxnDetailJson',
     'counterpartyIsVasp',
-    'counterpartyVasp',
+    // 对手方波二：counterpartyVasp（名称）移出敏感集进白名单；其余归因产物加入敏感集。
+    'counterpartyVaspDid',
+    'knownSourceRef',
+    'sourceAttributedAt',
     'limitHoldReason',
     'slaDeadline',
     'slaBreached',
     'l1Snapshot',
   ];
+
+  /** 客户面新增的五列（白名单 +5）：对手方 VASP 名称 + 认领快照四列。 */
+  const CUSTOMER_VISIBLE_NEW_COLUMNS = {
+    counterpartyVasp: 'Some VASP Inc.',
+    sourceClaimType: 'THIRD_PARTY_PERSON',
+    sourceClaimName: 'Alice Wong',
+    sourceClaimRelationship: 'Friend',
+    sourceClaimedAt: new Date('2026-01-01T00:03:00Z'),
+  };
 
   describe('findAllForCustomer', () => {
     it('customer list: BELOW_MIN deposits are filtered out server-side', async () => {
@@ -305,6 +326,7 @@ describe('DepositTransactionsService', () => {
         // 只剩出生态。
         timeline: [{ status: 'PAYIN_PENDING', at: '2026-01-01T00:00:00.000Z' }],
         asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+        ...CUSTOMER_VISIBLE_NEW_COLUMNS,
       });
       // 2026-08-06 减法：顶层 actionSubmittedAt 已从白名单删除（前端已无消费者）。
       // 2026-08-18 材料请求账 Task 12：`actions`（子表逐条 action 的
@@ -817,6 +839,7 @@ describe('DepositTransactionsService', () => {
         // 跳过，三条全被跳过，只剩出生态。
         timeline: [{ status: 'PAYIN_PENDING', at: '2026-01-01T00:00:00.000Z' }],
         asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+        ...CUSTOMER_VISIBLE_NEW_COLUMNS,
       });
       // 2026-08-06 减法：顶层 actionSubmittedAt 已从白名单删除；2026-08-18
       // 材料请求账 Task 12：`actions` 同样已删除，见 findAllForCustomer 那份
@@ -1795,6 +1818,29 @@ describe('DepositTransactionsService', () => {
       expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
         where: { id: 'dep-1' },
         data: { knownSourceRef: 'DP-OLD-001' },
+      });
+    });
+
+    // 对手方波二 Task 5：客户认领提交的快照落列出口——只写这四列，不碰状态。
+    it('saveOwnershipClaim writes exactly the four claim-snapshot columns', async () => {
+      ((prisma as any).depositTransaction.update as jest.Mock).mockResolvedValue({ id: 'dep-1' });
+      const at = new Date('2026-10-22T10:30:00.000Z');
+
+      await service.saveOwnershipClaim('dep-1', {
+        sourceClaimType: 'THIRD_PARTY_PERSON',
+        sourceClaimName: 'Alice Wong',
+        sourceClaimRelationship: 'Friend',
+        sourceClaimedAt: at,
+      });
+
+      expect((prisma as any).depositTransaction.update).toHaveBeenCalledWith({
+        where: { id: 'dep-1' },
+        data: {
+          sourceClaimType: 'THIRD_PARTY_PERSON',
+          sourceClaimName: 'Alice Wong',
+          sourceClaimRelationship: 'Friend',
+          sourceClaimedAt: at,
+        },
       });
     });
 

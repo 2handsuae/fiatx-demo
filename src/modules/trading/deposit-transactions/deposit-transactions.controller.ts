@@ -20,6 +20,7 @@ import {
   InitiateDepositClawbackDto,
 } from './dto/deposit-transaction.dto';
 import { DepositWorkflowService } from './deposit-workflow.service';
+import { OwnershipClaimDto } from './dto/ownership-claim.dto';
 import {
   CreateInboundTransferSignalDto,
   InboundTransferSignalQueryDto,
@@ -111,6 +112,23 @@ export class DepositTransactionsController {
   @ApiOperation({ summary: 'Get my deposit transaction detail' })
   getMyDeposit(@Req() req: any, @Param('depositNo') depositNo: string) {
     return this.service.findOneForCustomerByDepositNo(depositNo, req.user.userId);
+  }
+
+  // 对手方波二：unhosted 超线单被挂起 ACTION_PENDING 后，客户在这里申报钱包归属（SELF / 第三方个人 / 第三方 VASP）。
+  // 守卫（本人 403 / 非 ACTION_PENDING 或无未决认领单 409 / 三分支必填 400）全在 workflow，本层只转发；
+  // 返回提交之后的客户视图（认领快照已入）。mock 的即时通过 → 回炉重筛是异步事件链，视图里的 status
+  // 可能还停在 ACTION_PENDING，客户端以随后重取为准。
+  @Post('my/:depositNo/ownership-claim')
+  @ApiOperation({ summary: 'Submit my source ownership claim for an unhosted-wallet deposit' })
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async submitMyOwnershipClaim(
+    @Req() req: any,
+    @Param('depositNo') depositNo: string,
+    @Body() dto: OwnershipClaimDto,
+  ) {
+    const userId = req.user.userId;
+    await this.workflow.submitOwnershipClaim(depositNo, userId, dto);
+    return this.service.findOneForCustomerByDepositNo(depositNo, userId);
   }
 
   @Get()

@@ -10,6 +10,7 @@ describe('DepositTransactionsController', () => {
   let depositService: {
     findAll: jest.Mock;
     findOne: jest.Mock;
+    findOneForCustomerByDepositNo: jest.Mock;
     setSlaDeadlineByNo: jest.Mock;
   };
   let inboundSignalsService: {
@@ -24,12 +25,14 @@ describe('DepositTransactionsController', () => {
     initiateReturn: jest.Mock;
     initiateSeize: jest.Mock;
     initiateUnfreeze: jest.Mock;
+    submitOwnershipClaim: jest.Mock;
   };
 
   beforeEach(async () => {
     depositService = {
       findAll: jest.fn(),
       findOne: jest.fn(),
+      findOneForCustomerByDepositNo: jest.fn(),
       setSlaDeadlineByNo: jest.fn(),
     };
     inboundSignalsService = {
@@ -44,6 +47,7 @@ describe('DepositTransactionsController', () => {
       initiateReturn: jest.fn(),
       initiateSeize: jest.fn(),
       initiateUnfreeze: jest.fn(),
+      submitOwnershipClaim: jest.fn(),
     };
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DepositTransactionsController],
@@ -193,6 +197,34 @@ describe('DepositTransactionsController', () => {
 
     expect(inboundSignalsService.findAllForCustomer).toHaveBeenCalledWith('cust-1', {
       walletId: 'wallet-1',
+    });
+  });
+
+  // 对手方波二 Task 5：客户认领提交端点（POST my/:depositNo/ownership-claim）。
+  describe('submitMyOwnershipClaim', () => {
+    const customerReq = { user: { type: 'CUSTOMER', userId: 'cust-1' } };
+
+    it('把业务键 + 当前客户 id + DTO 原样交给 workflow，再返回客户视图（按业务键 + 本人重取，不回传内部行）', async () => {
+      depositWorkflow.submitOwnershipClaim.mockResolvedValue(undefined);
+      depositService.findOneForCustomerByDepositNo.mockResolvedValue({ depositNo: 'DEP-1', status: 'ACTION_PENDING' });
+      const dto = { claimType: 'THIRD_PARTY_PERSON', name: 'Alice Wong', relationship: 'Friend' } as any;
+
+      const out = await controller.submitMyOwnershipClaim(customerReq, 'DEP-1', dto);
+
+      expect(depositWorkflow.submitOwnershipClaim).toHaveBeenCalledWith('DEP-1', 'cust-1', dto);
+      expect(depositService.findOneForCustomerByDepositNo).toHaveBeenCalledWith('DEP-1', 'cust-1');
+      expect(out).toEqual({ depositNo: 'DEP-1', status: 'ACTION_PENDING' });
+      // 先提交、后取视图（取视图读到的才是提交之后的快照）
+      expect(depositWorkflow.submitOwnershipClaim.mock.invocationCallOrder[0])
+        .toBeLessThan(depositService.findOneForCustomerByDepositNo.mock.invocationCallOrder[0]);
+    });
+
+    it('workflow 拒绝（403/409/400）时原样上抛，不取视图', async () => {
+      depositWorkflow.submitOwnershipClaim.mockRejectedValue(new ForbiddenException('nope'));
+
+      await expect(controller.submitMyOwnershipClaim(customerReq, 'DEP-1', { claimType: 'SELF' } as any))
+        .rejects.toThrow(ForbiddenException);
+      expect(depositService.findOneForCustomerByDepositNo).not.toHaveBeenCalled();
     });
   });
 

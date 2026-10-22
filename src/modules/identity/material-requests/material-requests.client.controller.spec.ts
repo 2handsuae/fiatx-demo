@@ -8,6 +8,7 @@ function row(over: Record<string, any> = {}) {
   return {
     requestNo: 'MRQ1', customerId: 'c1', materialType: 'PROOF_OF_ADDRESS',
     levelName: 'wave3-action-poa-refresh', applicantActionId: 'act-1', externalActionId: 'ext-1',
+    formKind: null,
     orderDomain: null, orderRef: null, restrictionNo: null, origin: 'OPERATOR_ISSUED',
     status: 'PENDING_SUBMISSION', reason: 'Address on file is stale', issuedBy: 'ADM001',
     issuedAt: new Date('2026-08-17T00:00:00Z'), submittedAt: null, reviewedAt: null,
@@ -43,6 +44,24 @@ describe('GET /client/me/material-requests', () => {
     expect(JSON.stringify(out)).not.toContain('act-1');
     expect(JSON.stringify(out)).not.toContain('ext-1');
     expect(out[0]).toMatchObject({ requestNo: 'MRQ1', blocking: false, materialLabel: 'Proof of Address' });
+  });
+
+  // 对手方波二 Task 5：客户端据 formKind 分叉——表单型材料渲染我方表单、不起 Sumsub SDK session。
+  it('formKind 透传：认领型 → OWNERSHIP_CLAIM；Sumsub 型 → null；且仍不下发 Sumsub 侧 id', async () => {
+    const { controller, requests } = build();
+    requests.listLiveByCustomer.mockResolvedValue([
+      row({ requestNo: 'MRQ-claim', materialType: 'SOURCE_OWNERSHIP_CLAIM', formKind: 'OWNERSHIP_CLAIM',
+        applicantActionId: 'FORM:u1', externalActionId: 'MRQ:u1' }),
+      row({ requestNo: 'MRQ-poa', formKind: null }),
+    ]);
+    const out = await controller.listMine(CUSTOMER_REQ);
+    expect(out.map((r) => [r.requestNo, r.formKind])).toEqual([
+      ['MRQ-claim', 'OWNERSHIP_CLAIM'],
+      ['MRQ-poa', null],
+    ]);
+    expect(out[0]).toMatchObject({ materialLabel: 'Source Ownership Claim' });
+    expect(JSON.stringify(out)).not.toContain('FORM:u1');
+    expect(JSON.stringify(out)).not.toContain('MRQ:u1');
   });
 
   it('挂了限制的行 blocking=true（横幅据此分红黄两档）', async () => {

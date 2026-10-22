@@ -1,5 +1,9 @@
 import { MaterialRequestsService } from './material-requests.service';
+import { MaterialPolicyLoader } from './material-policy';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+
+/** 真注册表（config/material-refresh-policy.json）——formKind 的判别是读真配置得来的，不是桩出来的。 */
+const policy = () => new MaterialPolicyLoader();
 
 const ACTOR = { actorType: 'ADMIN' as const, actorId: 'u1', actorNo: 'ADM001', actorRole: 'MLRO' };
 const ISSUE_ACTOR = { actorType: 'ADMIN' as const, userId: 'u-1', userNo: 'ADM2601010001', roleCodes: ['COMPLIANCE_OFFICER'] };
@@ -60,7 +64,7 @@ const INPUT = {
 describe('MaterialRequestsService.create', () => {
   it('落库带 requestNo / traceId，status 起于 PENDING_SUBMISSION', async () => {
     const { prisma } = createPrismaMock();
-    const svc = new MaterialRequestsService(prisma, audit(), sumsub());
+    const svc = new MaterialRequestsService(prisma, audit(), sumsub(), policy());
     const row = await svc.create(INPUT, ISSUE_ACTOR);
     expect(row.requestNo).toMatch(/^MRQ\d{12}$/);
     expect(row.status).toBe('PENDING_SUBMISSION');
@@ -73,7 +77,7 @@ describe('MaterialRequestsService.create', () => {
     prisma.materialRequest.create
       .mockRejectedValueOnce(p2002)
       .mockImplementationOnce(async ({ data }: any) => ({ ...baseRow(), ...data }));
-    const svc = new MaterialRequestsService(prisma, audit(), sumsub());
+    const svc = new MaterialRequestsService(prisma, audit(), sumsub(), policy());
     await expect(svc.create(INPUT, ISSUE_ACTOR)).resolves.toMatchObject({ status: 'PENDING_SUBMISSION' });
     expect(prisma.materialRequest.create).toHaveBeenCalledTimes(2);
     const first = prisma.materialRequest.create.mock.calls[0][0].data.requestNo;
@@ -83,7 +87,7 @@ describe('MaterialRequestsService.create', () => {
 
   it('spec I3：orderDomain 与 orderRef 半绑 → BadRequest', async () => {
     const { prisma } = createPrismaMock();
-    const svc = new MaterialRequestsService(prisma, audit(), sumsub());
+    const svc = new MaterialRequestsService(prisma, audit(), sumsub(), policy());
     await expect(svc.create({ ...INPUT, orderDomain: 'DEPOSIT', orderRef: null } as any, ISSUE_ACTOR))
       .rejects.toThrow(BadRequestException);
     await expect(svc.create({ ...INPUT, orderDomain: null, orderRef: 'DP1' } as any, ISSUE_ACTOR))
@@ -97,7 +101,7 @@ describe('MaterialRequestsService.create', () => {
       meta: { target: ['externalActionId'] },
     });
     prisma.materialRequest.create.mockRejectedValueOnce(p2002);
-    const svc = new MaterialRequestsService(prisma, audit(), sumsub());
+    const svc = new MaterialRequestsService(prisma, audit(), sumsub(), policy());
     await expect(svc.create(INPUT, ISSUE_ACTOR)).rejects.toBe(p2002);
     expect(prisma.materialRequest.create).toHaveBeenCalledTimes(1);
   });
@@ -105,7 +109,7 @@ describe('MaterialRequestsService.create', () => {
   it('写一条 MATERIAL_REQUEST_ISSUED 审计，走 recordByActor 带操作人（不再走 recordSystem）', async () => {
     const { prisma } = createPrismaMock();
     const a = audit();
-    await new MaterialRequestsService(prisma, a, sumsub()).create(INPUT, ISSUE_ACTOR);
+    await new MaterialRequestsService(prisma, a, sumsub(), policy()).create(INPUT, ISSUE_ACTOR);
     const issued = a.recordByActor.mock.calls.find(
       (c: any[]) => c[0].action === 'MATERIAL_REQUEST_ISSUED',
     );
@@ -121,7 +125,7 @@ describe('MaterialRequestsService.markSubmitted', () => {
   it('write-once：首次落章返回 true 并写审计', async () => {
     const { prisma } = createPrismaMock();
     const a = audit();
-    const svc = new MaterialRequestsService(prisma, a, sumsub());
+    const svc = new MaterialRequestsService(prisma, a, sumsub(), policy());
     await expect(svc.markSubmitted('MRQ2608170001', ACTOR)).resolves.toBe(true);
     expect(prisma.materialRequest.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -137,7 +141,7 @@ describe('MaterialRequestsService.markSubmitted', () => {
     const { prisma } = createPrismaMock();
     prisma.materialRequest.updateMany.mockResolvedValueOnce({ count: 0 });
     const a = audit();
-    await expect(new MaterialRequestsService(prisma, a, sumsub()).markSubmitted('MRQ2608170001', ACTOR))
+    await expect(new MaterialRequestsService(prisma, a, sumsub(), policy()).markSubmitted('MRQ2608170001', ACTOR))
       .resolves.toBe(false);
     expect(a.recordByActor).not.toHaveBeenCalled();
   });
@@ -149,7 +153,7 @@ describe('MaterialRequestsService.markReviewed', () => {
     prisma.materialRequest.findUnique
       .mockResolvedValueOnce(baseRow({ status: 'SUBMITTED' }))
       .mockResolvedValue(baseRow({ status: 'APPROVED', reviewAnswer: 'GREEN' }));
-    const row = await new MaterialRequestsService(prisma, audit(), sumsub())
+    const row = await new MaterialRequestsService(prisma, audit(), sumsub(), policy())
       .markReviewed('MRQ2608170001', 'GREEN', null, ACTOR);
     expect(row.status).toBe('APPROVED');
     expect(prisma.materialRequest.updateMany).toHaveBeenCalledWith(
@@ -164,7 +168,7 @@ describe('MaterialRequestsService.markReviewed', () => {
       .mockResolvedValue(
         baseRow({ status: 'PENDING_SUBMISSION', submittedAt: null, reviewAnswer: 'RED', reviewRejectType: 'RETRY' }),
       );
-    const row = await new MaterialRequestsService(prisma, audit(), sumsub())
+    const row = await new MaterialRequestsService(prisma, audit(), sumsub(), policy())
       .markReviewed('MRQ2608170001', 'RED', 'RETRY', ACTOR);
     expect(row.status).toBe('PENDING_SUBMISSION');
     expect(prisma.materialRequest.updateMany.mock.calls[0][0].data.submittedAt).toBeNull();
@@ -176,7 +180,7 @@ describe('MaterialRequestsService.markReviewed', () => {
     prisma.materialRequest.findUnique
       .mockResolvedValueOnce(baseRow({ status: 'SUBMITTED' }))
       .mockResolvedValue(baseRow({ status: 'REJECTED', reviewAnswer: 'RED', reviewRejectType: 'FINAL' }));
-    const row = await new MaterialRequestsService(prisma, audit(), sumsub())
+    const row = await new MaterialRequestsService(prisma, audit(), sumsub(), policy())
       .markReviewed('MRQ2608170001', 'RED', 'FINAL', ACTOR);
     expect(row.status).toBe('REJECTED');
   });
@@ -187,7 +191,7 @@ describe('MaterialRequestsService.markReviewed', () => {
     prisma.materialRequest.updateMany.mockResolvedValueOnce({ count: 0 });
     const a = audit();
     await expect(
-      new MaterialRequestsService(prisma, a, sumsub()).markReviewed('MRQ2608170001', 'GREEN', null, ACTOR),
+      new MaterialRequestsService(prisma, a, sumsub(), policy()).markReviewed('MRQ2608170001', 'GREEN', null, ACTOR),
     ).rejects.toThrow(ConflictException);
     expect(a.recordSystem).not.toHaveBeenCalled();
   });
@@ -195,21 +199,21 @@ describe('MaterialRequestsService.markReviewed', () => {
   it('RED 不带 rejectType → BadRequest（不许默默当成 FINAL 关单）', async () => {
     const { prisma } = createPrismaMock();
     prisma.materialRequest.findUnique.mockResolvedValue(baseRow({ status: 'SUBMITTED' }));
-    await expect(new MaterialRequestsService(prisma, audit(), sumsub())
+    await expect(new MaterialRequestsService(prisma, audit(), sumsub(), policy())
       .markReviewed('MRQ2608170001', 'RED', null, ACTOR)).rejects.toThrow(BadRequestException);
   });
 
   it('对已终态的行裁决 → BadRequest（状态机零出边）', async () => {
     const { prisma } = createPrismaMock();
     prisma.materialRequest.findUnique.mockResolvedValue(baseRow({ status: 'APPROVED' }));
-    await expect(new MaterialRequestsService(prisma, audit(), sumsub())
+    await expect(new MaterialRequestsService(prisma, audit(), sumsub(), policy())
       .markReviewed('MRQ2608170001', 'GREEN', null, ACTOR)).rejects.toThrow(BadRequestException);
   });
 
   it('行不存在 → NotFound', async () => {
     const { prisma } = createPrismaMock();
     prisma.materialRequest.findUnique.mockResolvedValue(null);
-    await expect(new MaterialRequestsService(prisma, audit(), sumsub())
+    await expect(new MaterialRequestsService(prisma, audit(), sumsub(), policy())
       .markReviewed('NOPE', 'GREEN', null, ACTOR)).rejects.toThrow(NotFoundException);
   });
 });
@@ -217,7 +221,7 @@ describe('MaterialRequestsService.markReviewed', () => {
 describe('MaterialRequestsService 查询侧', () => {
   it('listLiveByCustomer 只查两个活状态', async () => {
     const { prisma } = createPrismaMock();
-    await new MaterialRequestsService(prisma, audit(), sumsub()).listLiveByCustomer('c1');
+    await new MaterialRequestsService(prisma, audit(), sumsub(), policy()).listLiveByCustomer('c1');
     expect(prisma.materialRequest.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { customerId: 'c1', status: { in: ['PENDING_SUBMISSION', 'SUBMITTED'] } },
@@ -227,7 +231,7 @@ describe('MaterialRequestsService 查询侧', () => {
 
   it('listAllByCustomer 不带 status 过滤（后台要看全部，G6）', async () => {
     const { prisma } = createPrismaMock();
-    await new MaterialRequestsService(prisma, audit(), sumsub()).listAllByCustomer('c1');
+    await new MaterialRequestsService(prisma, audit(), sumsub(), policy()).listAllByCustomer('c1');
     const where = prisma.materialRequest.findMany.mock.calls[0][0].where;
     expect(where).toEqual({ customerId: 'c1' });
   });
@@ -239,7 +243,7 @@ describe('MaterialRequestsService.unbindOrder', () => {
     prisma.materialRequest.findUnique.mockResolvedValue(
       baseRow({ orderDomain: 'DEPOSIT', orderRef: 'DP1', restrictionNo: 'RST1' }),
     );
-    await new MaterialRequestsService(prisma, audit(), sumsub()).unbindOrder('MRQ2608170001', ACTOR);
+    await new MaterialRequestsService(prisma, audit(), sumsub(), policy()).unbindOrder('MRQ2608170001', ACTOR);
     const data = prisma.materialRequest.update.mock.calls[0][0].data;
     expect(data).toMatchObject({ orderDomain: null, orderRef: null });
   });
@@ -256,7 +260,7 @@ describe('MaterialRequestsService.mintSessionToken', () => {
     const { prisma } = createPrismaMock();
     prisma.customerMain.findUnique.mockResolvedValue({ sumsubApplicantId: 'app-1' });
     const sb = sumsub();
-    const token = await new MaterialRequestsService(prisma, audit(), sb)
+    const token = await new MaterialRequestsService(prisma, audit(), sb, policy())
       .mintSessionToken('MRQ2608170001', 'c1');
     expect(token).toBe('tok-x');
     expect(sb.createActionSdkToken).toHaveBeenCalledWith({
@@ -268,7 +272,7 @@ describe('MaterialRequestsService.mintSessionToken', () => {
   it('别人的号（customerId 不匹配）→ null，不铸 token', async () => {
     const { prisma } = createPrismaMock();
     const sb = sumsub();
-    const token = await new MaterialRequestsService(prisma, audit(), sb)
+    const token = await new MaterialRequestsService(prisma, audit(), sb, policy())
       .mintSessionToken('MRQ2608170001', 'someone-else');
     expect(token).toBeNull();
     expect(sb.createActionSdkToken).not.toHaveBeenCalled();
@@ -278,7 +282,7 @@ describe('MaterialRequestsService.mintSessionToken', () => {
     const { prisma } = createPrismaMock();
     prisma.materialRequest.findUnique.mockResolvedValue(null);
     const sb = sumsub();
-    const token = await new MaterialRequestsService(prisma, audit(), sb)
+    const token = await new MaterialRequestsService(prisma, audit(), sb, policy())
       .mintSessionToken('MRQ-NOPE', 'c1');
     expect(token).toBeNull();
     expect(sb.createActionSdkToken).not.toHaveBeenCalled();
@@ -288,7 +292,7 @@ describe('MaterialRequestsService.mintSessionToken', () => {
     const { prisma } = createPrismaMock();
     prisma.materialRequest.findUnique.mockResolvedValue(baseRow({ status: 'SUBMITTED' }));
     const sb = sumsub();
-    const token = await new MaterialRequestsService(prisma, audit(), sb)
+    const token = await new MaterialRequestsService(prisma, audit(), sb, policy())
       .mintSessionToken('MRQ2608170001', 'c1');
     expect(token).toBeNull();
     expect(sb.createActionSdkToken).not.toHaveBeenCalled();
@@ -298,7 +302,7 @@ describe('MaterialRequestsService.mintSessionToken', () => {
     const { prisma } = createPrismaMock();
     prisma.materialRequest.findUnique.mockResolvedValue(baseRow({ status: 'REJECTED' }));
     const sb = sumsub();
-    const token = await new MaterialRequestsService(prisma, audit(), sb)
+    const token = await new MaterialRequestsService(prisma, audit(), sb, policy())
       .mintSessionToken('MRQ2608170001', 'c1');
     expect(token).toBeNull();
     expect(sb.createActionSdkToken).not.toHaveBeenCalled();
@@ -308,9 +312,40 @@ describe('MaterialRequestsService.mintSessionToken', () => {
     const { prisma } = createPrismaMock();
     prisma.customerMain.findUnique.mockResolvedValue({ sumsubApplicantId: null });
     const sb = sumsub();
-    const token = await new MaterialRequestsService(prisma, audit(), sb)
+    const token = await new MaterialRequestsService(prisma, audit(), sb, policy())
       .mintSessionToken('MRQ2608170001', 'c1');
     expect(token).toBeNull();
     expect(sb.createActionSdkToken).not.toHaveBeenCalled();
+  });
+
+  // 对手方波二 Task 5：表单型材料（注册表 formKind）是我方自己的表单，行上三个 id 列是本地占位串，
+  // 没有 Sumsub 侧 action——给它铸 SDK token 必败，且会把占位串当 levelName 递给 Sumsub。
+  // 与其它不可铸情形同口径回 null（controller 统一映射成「没什么可做」，不吐原因）。
+  it('表单型材料（SOURCE_OWNERSHIP_CLAIM，formKind=OWNERSHIP_CLAIM）→ null，且不碰 Sumsub、也不去查客户', async () => {
+    const { prisma } = createPrismaMock();
+    prisma.materialRequest.findUnique.mockResolvedValue(baseRow({
+      materialType: 'SOURCE_OWNERSHIP_CLAIM', levelName: 'OWNERSHIP_CLAIM',
+      applicantActionId: 'FORM:u1', externalActionId: 'MRQ:u1',
+    }));
+    prisma.customerMain.findUnique.mockResolvedValue({ sumsubApplicantId: 'app-1' });
+    const sb = sumsub();
+    const token = await new MaterialRequestsService(prisma, audit(), sb, policy())
+      .mintSessionToken('MRQ2608170001', 'c1');
+    expect(token).toBeNull();
+    expect(sb.createActionSdkToken).not.toHaveBeenCalled();
+    expect(prisma.customerMain.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('MaterialRequestsService 行投影的 formKind', () => {
+  it('Sumsub 型材料（PROOF_OF_ADDRESS）→ formKind=null；认领型（SOURCE_OWNERSHIP_CLAIM）→ OWNERSHIP_CLAIM', async () => {
+    const { prisma } = createPrismaMock();
+    const svc = new MaterialRequestsService(prisma, audit(), sumsub(), policy());
+
+    prisma.materialRequest.findUnique.mockResolvedValue(baseRow({ materialType: 'PROOF_OF_ADDRESS' }));
+    await expect(svc.findByNo('MRQ2608170001')).resolves.toMatchObject({ formKind: null });
+
+    prisma.materialRequest.findUnique.mockResolvedValue(baseRow({ materialType: 'SOURCE_OWNERSHIP_CLAIM' }));
+    await expect(svc.findByNo('MRQ2608170001')).resolves.toMatchObject({ formKind: 'OWNERSHIP_CLAIM' });
   });
 });

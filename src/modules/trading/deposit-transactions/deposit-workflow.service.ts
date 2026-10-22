@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { randomUUID } from 'crypto';
 import { DepositTransactionsService } from './deposit-transactions.service';
@@ -7,6 +7,7 @@ import {
   DepositTransactionStatus,
   DepositOwnerType,
 } from './dto/deposit-transaction.dto';
+import { OwnershipClaimDto, OwnershipClaimType } from './dto/ownership-claim.dto';
 import { DepositStatusChangedEvent } from './events/deposit-transaction.events';
 import type { SceneTag } from '../../deposit-sumsub/deposit-kyt-verdict.handler';
 import type { DispoTag } from '../../sumsub-shared/scene-tags';
@@ -921,6 +922,79 @@ export class DepositWorkflowService implements OnModuleInit {
       trigger: 'ownership-claim request',
       reason: 'Source ownership claim required (unhosted wallet at or above the Travel Rule threshold)',
     });
+  }
+
+  /**
+   * 客户提交来源认领(unhosted 超线挂起之后,客户亲手答"这个钱包是谁的")。
+   *
+   *   校验   SELF 零附加(夹带的 name/relationship 一律不落);THIRD_PARTY_PERSON 要 name + relationship;
+   *          THIRD_PARTY_VASP 要 name(VASP 名),relationship 恒 null。字符串去首尾空白,空白等同没给 → 400。
+   *   守卫   本人(403,先判——别人的单连状态都不确认) → ACTION_PENDING(409) → 该单有未提交的认领单(409)。
+   *          409 文案不回显真实状态:FROZEN 等处置态客户面本就收敛成"处理中",不能从这里漏。
+   *   落账   快照四列 → DEPOSIT_SOURCE_CLAIM_SUBMITTED(客户主体,快照进 afterData) → 材料账 markSubmitted + applyReview(GREEN)。
+   *          顺序是硬的:GREEN 一落章就广播 MATERIAL_REQUEST_REVIEWED,既有 onMaterialRequestReviewed 随即 RESUME 回合规重筛,
+   *          重筛里的已知来源判别要读得到本单的 sourceClaimedAt。
+   *
+   * mock 的"即时 APPROVED"是项目允许假设(外部系统准时回调且只回一次);本方法自己不推状态,回炉全走既有链路。
+   */
+  async submitOwnershipClaim(depositNo: string, customerId: string, dto: OwnershipClaimDto): Promise<void> {
+    const claim = this.normalizeOwnershipClaim(dto);
+
+    const deposit = await this.depositService.findOneByNo(depositNo);
+    if (deposit.ownerId !== customerId) {
+      throw new ForbiddenException('This deposit does not belong to you');
+    }
+    const notAwaiting = () =>
+      new ConflictException({
+        code: 'OWNERSHIP_CLAIM_NOT_AWAITED',
+        message: `No ownership claim is awaiting your submission on deposit ${depositNo}`,
+      });
+    if (deposit.status !== DepositTransactionStatus.ACTION_PENDING) throw notAwaiting();
+    const pending = await this.applicantActions.findPendingOwnershipClaim(depositNo);
+    if (!pending) throw notAwaiting();
+
+    const sourceClaimedAt = new Date();
+    await this.depositService.saveOwnershipClaim(deposit.id, { ...claim, sourceClaimedAt });
+
+    const customerNo: string = deposit.customer?.customerNo ?? deposit.ownerNo ?? 'UNKNOWN';
+    await this.depositAudit(deposit, {
+      action: 'DEPOSIT_SOURCE_CLAIM_SUBMITTED',
+      reason: `Customer submitted source ownership claim: ${claim.sourceClaimType}`,
+      afterData: { ...claim, sourceClaimedAt: sourceClaimedAt.toISOString() },
+      metadata: { requestNo: pending.requestNo },
+      actor: {
+        actorType: 'CUSTOMER',
+        actorNo: customerNo,
+        actorDisplayName: customerNo,
+        actorRolesAtTime: ['CUSTOMER'],
+      },
+      sourcePlatform: 'CLIENT_API',
+    });
+
+    await this.applicantActions.settleOwnershipClaim(pending, { customerId, customerNo });
+  }
+
+  /** 三分支校验 + 归一:返回要落的快照(去空白,SELF 零附加,VASP 无 relationship)。 */
+  private normalizeOwnershipClaim(dto: OwnershipClaimDto): {
+    sourceClaimType: OwnershipClaimType;
+    sourceClaimName: string | null;
+    sourceClaimRelationship: string | null;
+  } {
+    const name = dto.name?.trim() || null;
+    const relationship = dto.relationship?.trim() || null;
+    const invalid = (message: string) =>
+      new BadRequestException({ code: 'OWNERSHIP_CLAIM_INVALID', message });
+
+    switch (dto.claimType) {
+      case OwnershipClaimType.SELF:
+        return { sourceClaimType: dto.claimType, sourceClaimName: null, sourceClaimRelationship: null };
+      case OwnershipClaimType.THIRD_PARTY_PERSON:
+        if (!name || !relationship) throw invalid('Name and relationship are required for a third-party individual');
+        return { sourceClaimType: dto.claimType, sourceClaimName: name, sourceClaimRelationship: relationship };
+      case OwnershipClaimType.THIRD_PARTY_VASP:
+        if (!name) throw invalid('VASP name is required for a third-party VASP wallet');
+        return { sourceClaimType: dto.claimType, sourceClaimName: name, sourceClaimRelationship: null };
+    }
   }
 
   /**
@@ -1901,8 +1975,13 @@ export class DepositWorkflowService implements OnModuleInit {
       metadata?: Record<string, unknown>;
       /** requiredFields 含 afterData 的审计码（如对手方波二的来源归因 / 同源免问）必传 */
       afterData?: Record<string, unknown>;
-      /** 人为动作传 actor → 走 recordByActor；缺省系统动作走 recordSystem */
-      actor?: ReturnType<DepositWorkflowService['toAuditActor']>;
+      /** 人为动作传 actor → 走 recordByActor；缺省系统动作走 recordSystem。运营是 ADMIN,客户亲手的动作(来源认领提交)是 CUSTOMER。 */
+      actor?: {
+        actorType: string;
+        actorNo: string;
+        actorDisplayName: string;
+        actorRolesAtTime: string[];
+      };
       sourcePlatform?: string;
       /** 额外次主体（如 L1 挂起证据的资产 / 限额规则），追加在固定三项之后。 */
       extraSubjects?: AuditSubjectInput[];

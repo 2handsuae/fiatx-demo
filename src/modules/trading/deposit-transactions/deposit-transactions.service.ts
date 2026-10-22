@@ -426,6 +426,9 @@ export class DepositTransactionsService {
    * `buildCustomerTimeline` 收敛构建，逐条 toStatus 先过 `toCustomerStatus`
    * 再去重同态折叠，FROZEN/SEIZED 等处置态在时间线里与正常单不可区分，
    * 和上面 `status`/`completedAt` 遵守同一条规则 A）。
+   *
+   * 2026-10-22 对手方波二新增五键：`counterpartyVasp`（对手方 VASP 名称，由 ⚡归因写入）
+   * 与来源认领快照四列 `sourceClaimType/Name/Relationship/ClaimedAt`（客户亲手提交的申报）。
    */
   private toCustomerDepositView(item: any) {
     const customerStatus = this.toCustomerStatus(item.status);
@@ -447,6 +450,14 @@ export class DepositTransactionsService {
         this.toCustomerStatus(s),
       ),
       asset: toCustomerAssetView(item.asset),
+      // 对手方波二（白名单 +5）：对手方 VASP 名称 + 客户自己提交的来源认领快照四列——都是客户自己这笔
+      // 交易上本来就知道/亲手报的事实。归因的 did / 归因时刻 / 同源回链 knownSourceRef 属 admin 面，
+      // 构造式白名单天然不外泄，SENSITIVE_KEYS 断言钉死。
+      counterpartyVasp: item.counterpartyVasp,
+      sourceClaimType: item.sourceClaimType,
+      sourceClaimName: item.sourceClaimName,
+      sourceClaimRelationship: item.sourceClaimRelationship,
+      sourceClaimedAt: item.sourceClaimedAt,
     };
   }
 
@@ -1056,7 +1067,7 @@ export class DepositTransactionsService {
    * 对手方波二：⚡喂归因的落列出口（workflow 禁直写 domain 表，铁律③）。
    * VASP 出口落四列；Unhosted 出口落 isVasp=false + 归因时刻，并把名称 / did 显式置 null
    * （refeed 时清掉先前 VASP 归因的残留；null = 清空，undefined = 不碰）。
-   * ⚠️ 这些列属 admin 面——不在客户面白名单里（客户可见的只有 counterpartyVasp 名称，由 Task 5 加入白名单）。
+   * ⚠️ did / 归因时刻属 admin 面，不在客户面白名单里；客户可见的只有 counterpartyVasp 名称（Task 5 已入白名单）。
    */
   async saveSourceAttribution(
     id: string,
@@ -1073,6 +1084,24 @@ export class DepositTransactionsService {
   /** 对手方波二：同源免问命中——回链先前那笔已认领单的 depositNo。 */
   async saveKnownSource(id: string, knownSourceRef: string) {
     return (this.prisma as any).depositTransaction.update({ where: { id }, data: { knownSourceRef } });
+  }
+
+  /**
+   * 对手方波二 Task 5：客户认领提交的快照落列出口(workflow 禁直写 domain 表,铁律③)。
+   * 只写这四列,不碰状态——认领之后的回炉(RESUME)走既有材料账广播链。
+   * sourceClaimedAt 同时是「已知来源」的判别键(MockTrRulesService.findKnownSource 按它非空查同址历史单)。
+   * 四列客户面可见(白名单 +5),与 admin 面的归因列不同。
+   */
+  async saveOwnershipClaim(
+    id: string,
+    data: {
+      sourceClaimType: string;
+      sourceClaimName: string | null;
+      sourceClaimRelationship: string | null;
+      sourceClaimedAt: Date;
+    },
+  ) {
+    return (this.prisma as any).depositTransaction.update({ where: { id }, data });
   }
 
   /** Sumsub getTxn 原始报文存证(乙口径落库)。 */

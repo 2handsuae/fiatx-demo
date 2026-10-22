@@ -76,6 +76,7 @@ export class MaterialRequestsClientController {
       requestNo: r.requestNo,
       materialType: r.materialType,
       materialLabel: materialLabel(r.materialType),
+      formKind: r.formKind,
       status: r.status as (typeof MATERIAL_REQUEST_LIVE_STATUSES)[number],
       blocking: r.restrictionNo !== null,
       // 上一次裁决是 RED+RETRY 打回来的 —— 这一轮是重交，不是第一次要。

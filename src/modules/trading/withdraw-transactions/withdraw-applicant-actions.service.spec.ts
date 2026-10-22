@@ -1,5 +1,6 @@
 import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.service';
 import { MaterialRequestsService } from '../../identity/material-requests/material-requests.service';
+import { MaterialPolicyLoader } from '../../identity/material-requests/material-policy';
 import { MaterialRequestIssuerService } from '../../identity/material-requests/material-request-issuer.service';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 import { CustomerRestrictionWorkflowService } from '../../identity/customers/customer-restriction-workflow.service';
@@ -278,7 +279,7 @@ describe('便签挂谁由 tag 决定', () => {
     } as any;
     const eventEmitter = { emit: jest.fn() } as any;
 
-    const requests = new MaterialRequestsService(prisma, audit, {} as any);
+    const requests = new MaterialRequestsService(prisma, audit, {} as any, new MaterialPolicyLoader());
     const restrictionsSvc = new CustomerRestrictionsService(prisma, audit, eventEmitter);
     const restrictionWorkflow = new CustomerRestrictionWorkflowService(prisma, restrictionsSvc, {} as any, audit);
     const issuer = new MaterialRequestIssuerService(prisma, requests, restrictionWorkflow, {} as any, {} as any);

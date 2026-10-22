@@ -25,7 +25,7 @@ import {
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { TransactionLimitRulesService } from '../../asset-treasury/transaction-limits/transaction-limit-rules.service';
 import { NotificationsService } from '../../../core/notifications/notifications.service';
@@ -181,6 +181,8 @@ describe('DepositWorkflowService', () => {
       // 对手方波二：⚡归因喂的两个落列出口（主体服务写自己的表，workflow 不直写）。
       saveSourceAttribution: jest.fn().mockResolvedValue(undefined),
       saveKnownSource: jest.fn().mockResolvedValue(undefined),
+      // 对手方波二 Task 5：客户认领快照四列的落列出口。
+      saveOwnershipClaim: jest.fn().mockResolvedValue(undefined),
     };
     const realTrRules = new MockTrRulesService({} as any);
     trRules = {
@@ -196,6 +198,9 @@ describe('DepositWorkflowService', () => {
       submitBySeq: jest.fn(),
       // 对手方波二：认领挂起落材料账（SOURCE_OWNERSHIP_CLAIM）。
       registerOwnershipClaim: jest.fn().mockResolvedValue(undefined),
+      // 对手方波二 Task 5：客户提交认领——找未决认领单 + 材料账 markSubmitted/applyReview(GREEN) 门面。
+      findPendingOwnershipClaim: jest.fn().mockResolvedValue(null),
+      settleOwnershipClaim: jest.fn().mockResolvedValue(undefined),
     };
     auditLogsService = {
       recordSystem: jest.fn().mockResolvedValue(undefined),
@@ -4281,6 +4286,206 @@ describe('DepositWorkflowService', () => {
         expect(actionsService.registerOwnershipClaim).toHaveBeenCalledTimes(1);
         expect(depositService.updateStatus).not.toHaveBeenCalled();
         expect(actionsOf(auditLogsService.recordSystem)).toEqual([]);
+      });
+    });
+  });
+
+  // ═══ 对手方波二 Task 5：客户认领提交（三分支校验 + 快照 + mock 即时 APPROVED，回炉走既有链路）═══
+  describe('submitOwnershipClaim — 客户来源认领提交', () => {
+    const OWNER = 'cust-uuid-1';
+    const CLAIM_NO = 'DEP-CLAIM-001';
+    /** 一笔被认领挂起的单：ACTION_PENDING，本人名下。 */
+    const claimDeposit = (overrides: Record<string, unknown> = {}) => ({
+      id: 'dep-claim-1',
+      depositNo: CLAIM_NO,
+      ownerType: 'CUSTOMER',
+      ownerId: OWNER,
+      customer: { customerNo: 'CU-CLAIM-1' },
+      status: DepositTransactionStatus.ACTION_PENDING,
+      amount: '1500',
+      fromAddress: 'TXsourceWallet0001',
+      correlationId: 'corr-claim-1',
+      traceId: 'trace-claim-1',
+      asset: { type: 'CRYPTO', currency: 'USDT' },
+      ...overrides,
+    });
+    const PENDING_CLAIM = { requestNo: 'MRQ-CLAIM-1', externalActionId: 'FORM-ext-1' };
+    const actionsOf = (mock: jest.Mock) => mock.mock.calls.map((c: any[]) => c[0].action);
+
+    beforeEach(() => {
+      depositService.findOneByNo.mockResolvedValue(claimDeposit());
+      actionsService.findPendingOwnershipClaim.mockResolvedValue(PENDING_CLAIM);
+    });
+
+    const expectNothingWritten = () => {
+      expect(depositService.saveOwnershipClaim).not.toHaveBeenCalled();
+      expect(auditLogsService.recordByActor).not.toHaveBeenCalled();
+      expect(actionsService.settleOwnershipClaim).not.toHaveBeenCalled();
+    };
+
+    describe('三分支校验（SELF 零附加 / 个人 name+relationship / VASP name）', () => {
+      it('① SELF：快照四列（name/relationship 为 null）+ DEPOSIT_SOURCE_CLAIM_SUBMITTED（actor=客户，带显式 requestId）+ 材料账提交并即时通过', async () => {
+        await service.submitOwnershipClaim(CLAIM_NO, OWNER, { claimType: 'SELF' } as any);
+
+        expect(depositService.saveOwnershipClaim).toHaveBeenCalledWith('dep-claim-1', {
+          sourceClaimType: 'SELF',
+          sourceClaimName: null,
+          sourceClaimRelationship: null,
+          sourceClaimedAt: expect.any(Date),
+        });
+        // 审计：客户亲手做的动作 → recordByActor，actor 是客户而不是系统/运营
+        expect(actionsOf(auditLogsService.recordByActor)).toEqual(['DEPOSIT_SOURCE_CLAIM_SUBMITTED']);
+        const [input, actor] = auditLogsService.recordByActor.mock.calls[0];
+        expect(actor).toMatchObject({ actorType: 'CUSTOMER', actorNo: 'CU-CLAIM-1' });
+        expect(input).toMatchObject({
+          actionDomain: 'DEPOSIT',
+          primarySubjectNo: CLAIM_NO,
+          outcome: AuditOutcome.SUCCESS,
+          correlationId: 'corr-claim-1',
+          sourcePlatform: 'CLIENT_API',
+          afterData: {
+            sourceClaimType: 'SELF',
+            sourceClaimName: null,
+            sourceClaimRelationship: null,
+            sourceClaimedAt: expect.any(String),
+          },
+        });
+        expect(input.requestId).toMatch(/^DEPOSIT_SOURCE_CLAIM_SUBMITTED_DEP-CLAIM-001_/);
+        // 审计快照的时刻与落列的时刻是同一个（不是两次 new Date）
+        expect(input.afterData.sourceClaimedAt).toBe(
+          depositService.saveOwnershipClaim.mock.calls[0][1].sourceClaimedAt.toISOString(),
+        );
+        expect(auditLogsService.recordSystem).not.toHaveBeenCalled();
+
+        // 材料账：交给门面做 markSubmitted + applyReview(GREEN)，认的是客户本人
+        expect(actionsService.settleOwnershipClaim).toHaveBeenCalledWith(PENDING_CLAIM, {
+          customerId: OWNER,
+          customerNo: 'CU-CLAIM-1',
+        });
+        // 回炉（RESUME）是既有 MATERIAL_REQUEST_REVIEWED 链路的事，本方法不自己推状态
+        expect(depositService.updateStatus).not.toHaveBeenCalled();
+      });
+
+      it('①b 顺序：快照与审计先于材料账通过（通过广播会立刻触发 RESUME 回炉重筛，重筛要读得到快照）', async () => {
+        await service.submitOwnershipClaim(CLAIM_NO, OWNER, { claimType: 'SELF' } as any);
+
+        const saved = depositService.saveOwnershipClaim.mock.invocationCallOrder[0];
+        const audited = auditLogsService.recordByActor.mock.invocationCallOrder[0];
+        const settled = actionsService.settleOwnershipClaim.mock.invocationCallOrder[0];
+        expect(saved).toBeLessThan(audited);
+        expect(audited).toBeLessThan(settled);
+      });
+
+      it('①c SELF 夹带 name/relationship → 一律不落（SELF 零附加，快照里 name/relationship 恒为 null）', async () => {
+        await service.submitOwnershipClaim(CLAIM_NO, OWNER, {
+          claimType: 'SELF', name: 'Someone', relationship: 'Friend',
+        } as any);
+
+        expect(depositService.saveOwnershipClaim).toHaveBeenCalledWith('dep-claim-1', expect.objectContaining({
+          sourceClaimType: 'SELF', sourceClaimName: null, sourceClaimRelationship: null,
+        }));
+      });
+
+      it('② THIRD_PARTY_PERSON：name + relationship 都落列（去首尾空白），审计 afterData 同快照', async () => {
+        await service.submitOwnershipClaim(CLAIM_NO, OWNER, {
+          claimType: 'THIRD_PARTY_PERSON', name: '  Alice Wong ', relationship: ' Business partner ',
+        } as any);
+
+        expect(depositService.saveOwnershipClaim).toHaveBeenCalledWith('dep-claim-1', {
+          sourceClaimType: 'THIRD_PARTY_PERSON',
+          sourceClaimName: 'Alice Wong',
+          sourceClaimRelationship: 'Business partner',
+          sourceClaimedAt: expect.any(Date),
+        });
+        expect(auditLogsService.recordByActor.mock.calls[0][0].afterData).toMatchObject({
+          sourceClaimType: 'THIRD_PARTY_PERSON',
+          sourceClaimName: 'Alice Wong',
+          sourceClaimRelationship: 'Business partner',
+        });
+        expect(actionsService.settleOwnershipClaim).toHaveBeenCalledTimes(1);
+      });
+
+      it.each([
+        ['缺 relationship', { claimType: 'THIRD_PARTY_PERSON', name: 'Alice Wong' }],
+        ['relationship 只有空白', { claimType: 'THIRD_PARTY_PERSON', name: 'Alice Wong', relationship: '   ' }],
+        ['缺 name', { claimType: 'THIRD_PARTY_PERSON', relationship: 'Friend' }],
+        ['name 只有空白', { claimType: 'THIRD_PARTY_PERSON', name: '  ', relationship: 'Friend' }],
+        ['两个都缺', { claimType: 'THIRD_PARTY_PERSON' }],
+      ])('② THIRD_PARTY_PERSON %s → 400，什么都不写', async (_label, dto) => {
+        await expect(service.submitOwnershipClaim(CLAIM_NO, OWNER, dto as any))
+          .rejects.toBeInstanceOf(BadRequestException);
+        expectNothingWritten();
+      });
+
+      it('④ THIRD_PARTY_VASP：sourceClaimName = VASP 名，relationship 恒为 null（哪怕调用方夹带了）', async () => {
+        await service.submitOwnershipClaim(CLAIM_NO, OWNER, {
+          claimType: 'THIRD_PARTY_VASP', name: ' Binance ', relationship: 'Employer',
+        } as any);
+
+        expect(depositService.saveOwnershipClaim).toHaveBeenCalledWith('dep-claim-1', {
+          sourceClaimType: 'THIRD_PARTY_VASP',
+          sourceClaimName: 'Binance',
+          sourceClaimRelationship: null,
+          sourceClaimedAt: expect.any(Date),
+        });
+        expect(auditLogsService.recordByActor.mock.calls[0][0].afterData).toMatchObject({
+          sourceClaimType: 'THIRD_PARTY_VASP', sourceClaimName: 'Binance', sourceClaimRelationship: null,
+        });
+        expect(actionsService.settleOwnershipClaim).toHaveBeenCalledTimes(1);
+      });
+
+      it.each([
+        ['缺 name', { claimType: 'THIRD_PARTY_VASP' }],
+        ['name 只有空白', { claimType: 'THIRD_PARTY_VASP', name: ' ' }],
+      ])('④ THIRD_PARTY_VASP %s → 400，什么都不写', async (_label, dto) => {
+        await expect(service.submitOwnershipClaim(CLAIM_NO, OWNER, dto as any))
+          .rejects.toBeInstanceOf(BadRequestException);
+        expectNothingWritten();
+      });
+    });
+
+    describe('③ 守卫（本人 / ACTION_PENDING / 有未决认领单）', () => {
+      it('非本人 → 403，不查材料账、什么都不写', async () => {
+        await expect(service.submitOwnershipClaim(CLAIM_NO, 'someone-else', { claimType: 'SELF' } as any))
+          .rejects.toBeInstanceOf(ForbiddenException);
+        expect(actionsService.findPendingOwnershipClaim).not.toHaveBeenCalled();
+        expectNothingWritten();
+      });
+
+      it.each([
+        DepositTransactionStatus.COMPLIANCE_PENDING,
+        DepositTransactionStatus.MANUAL_CHECKING,
+        DepositTransactionStatus.FROZEN,
+        DepositTransactionStatus.SUCCESS,
+      ])('状态 %s（非 ACTION_PENDING）→ 409，不查材料账、什么都不写；响应文案不回显真实状态', async (status) => {
+        depositService.findOneByNo.mockResolvedValue(claimDeposit({ status }));
+
+        const err: any = await service
+          .submitOwnershipClaim(CLAIM_NO, OWNER, { claimType: 'SELF' } as any)
+          .catch((e) => e);
+
+        expect(err).toBeInstanceOf(ConflictException);
+        expect(JSON.stringify(err.getResponse())).not.toContain(status);
+        expect(actionsService.findPendingOwnershipClaim).not.toHaveBeenCalled();
+        expectNothingWritten();
+      });
+
+      it('ACTION_PENDING 但没有未决的认领单（挂的是别的补料）→ 409，什么都不写', async () => {
+        actionsService.findPendingOwnershipClaim.mockResolvedValue(null);
+
+        await expect(service.submitOwnershipClaim(CLAIM_NO, OWNER, { claimType: 'SELF' } as any))
+          .rejects.toBeInstanceOf(ConflictException);
+        expect(actionsService.findPendingOwnershipClaim).toHaveBeenCalledWith(CLAIM_NO);
+        expectNothingWritten();
+      });
+
+      it('三个守卫的先后：先判本人（别人的单连 409 都不给，不确认状态）', async () => {
+        depositService.findOneByNo.mockResolvedValue(
+          claimDeposit({ status: DepositTransactionStatus.FROZEN }),
+        );
+
+        await expect(service.submitOwnershipClaim(CLAIM_NO, 'someone-else', { claimType: 'SELF' } as any))
+          .rejects.toBeInstanceOf(ForbiddenException);
       });
     });
   });

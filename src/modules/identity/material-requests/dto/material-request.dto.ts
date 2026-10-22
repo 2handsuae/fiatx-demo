@@ -89,6 +89,12 @@ export interface ClientMaterialRequestRow {
   requestNo: string;
   materialType: string;
   materialLabel: string;
+  /**
+   * 表单型材料的判别：非空 = 客户端渲染我方自己的表单（如来源认领 OWNERSHIP_CLAIM），
+   * 不起 Sumsub SDK session（这类行没有 Sumsub 侧 action，session 端点一律回「没什么可做」）；
+   * null = 照旧走 Sumsub SDK 认证页。
+   */
+  formKind: 'OWNERSHIP_CLAIM' | null;
   status: 'PENDING_SUBMISSION' | 'SUBMITTED';
   /** 挂了限制 = 真摁住你了（红档）；没挂 = 只是提醒（黄档） */
   blocking: boolean;

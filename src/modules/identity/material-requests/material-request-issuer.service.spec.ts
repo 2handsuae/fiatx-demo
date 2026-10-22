@@ -232,7 +232,8 @@ describe('MaterialRequestIssuerService.register（路径 1：Sumsub 已建好 ac
       recordByActor: jest.fn().mockResolvedValue(undefined),
     } as any;
     const sumsubClient = {} as any;
-    const requests = new MaterialRequestsService(prisma, auditLogsService, sumsubClient);
+    const { MaterialPolicyLoader } = require('./material-policy');
+    const requests = new MaterialRequestsService(prisma, auditLogsService, sumsubClient, new MaterialPolicyLoader());
 
     const restrictionWorkflow = { openRestriction: jest.fn() } as any;
     const policy = { getMaterialConfig: jest.fn().mockReturnValue({ sumsubActionLevelName: 'wave3-action-sof-refresh' }) } as any;

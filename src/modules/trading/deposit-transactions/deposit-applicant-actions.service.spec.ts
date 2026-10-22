@@ -1,6 +1,9 @@
 import { DepositApplicantActionsService } from './deposit-applicant-actions.service';
 import { MaterialRequestsService } from '../../identity/material-requests/material-requests.service';
 import { MaterialRequestIssuerService } from '../../identity/material-requests/material-request-issuer.service';
+import { MaterialRequestReviewService } from '../../identity/material-requests/material-request-review.service';
+import { MaterialPolicyLoader } from '../../identity/material-requests/material-policy';
+import { DomainEventNames } from '../../../common/events/domain-events.constants';
 import { CustomerRestrictionsService } from '../../identity/customers/customer-restrictions.service';
 import { CustomerRestrictionWorkflowService } from '../../identity/customers/customer-restriction-workflow.service';
 
@@ -31,10 +34,12 @@ function build() {
   const requests = {
     listLiveByOrder: jest.fn().mockResolvedValue([]),
     cancel: jest.fn().mockResolvedValue(undefined),
+    markSubmitted: jest.fn().mockResolvedValue(true),
   } as any;
   const issuer = { register: jest.fn().mockResolvedValue({ requestNo: 'MRQ-new', restrictionNo: 'RST-1' }) } as any;
-  const svc = new DepositApplicantActionsService(prisma, requests, issuer);
-  return { svc, prisma, requests, issuer };
+  const review = { applyReview: jest.fn().mockResolvedValue({ requestNo: 'MRQ-claim', outcome: 'APPROVED' }) } as any;
+  const svc = new DepositApplicantActionsService(prisma, requests, issuer, review);
+  return { svc, prisma, requests, issuer, review };
 }
 
 describe('DepositApplicantActionsService', () => {
@@ -254,6 +259,67 @@ describe('DepositApplicantActionsService', () => {
     });
   });
 
+  // 对手方波二 Task 5：客户提交认领——找未决认领单 + 走材料账既有 markSubmitted / applyReview(GREEN)。
+  describe('findPendingOwnershipClaim — 该单上客户还没交的认领单', () => {
+    const live = (over: Record<string, unknown>) => ({
+      requestNo: 'MRQ-x', externalActionId: 'ext-x', materialType: 'SOURCE_OWNERSHIP_CLAIM',
+      status: 'PENDING_SUBMISSION', ...over,
+    });
+
+    it('按业务键查本单活行，只认 SOURCE_OWNERSHIP_CLAIM ∧ PENDING_SUBMISSION，返回定位用的 requestNo + 复核钥匙', async () => {
+      const { svc, requests } = build();
+      requests.listLiveByOrder.mockResolvedValue([
+        live({ requestNo: 'MRQ-sof', externalActionId: 'ext-sof', materialType: 'SOURCE_OF_FUNDS' }),
+        live({ requestNo: 'MRQ-claim', externalActionId: 'FORM-ext-claim' }),
+      ]);
+
+      await expect(svc.findPendingOwnershipClaim('DP2608170001'))
+        .resolves.toEqual({ requestNo: 'MRQ-claim', externalActionId: 'FORM-ext-claim' });
+      expect(requests.listLiveByOrder).toHaveBeenCalledWith('DEPOSIT', 'DP2608170001');
+    });
+
+    it('同单只有别的补料（SOF）待交 → null：补料不是认领，不能拿认领端点去交', async () => {
+      const { svc, requests } = build();
+      requests.listLiveByOrder.mockResolvedValue([live({ materialType: 'SOURCE_OF_FUNDS' })]);
+
+      await expect(svc.findPendingOwnershipClaim('DP2608170001')).resolves.toBeNull();
+    });
+
+    it('认领单已提交（SUBMITTED，客户已交、等裁决）→ null：不能重复交', async () => {
+      const { svc, requests } = build();
+      requests.listLiveByOrder.mockResolvedValue([live({ status: 'SUBMITTED' })]);
+
+      await expect(svc.findPendingOwnershipClaim('DP2608170001')).resolves.toBeNull();
+    });
+
+    it('该单没有任何活行 → null', async () => {
+      const { svc } = build();
+      await expect(svc.findPendingOwnershipClaim('DP2608170001')).resolves.toBeNull();
+    });
+  });
+
+  describe('settleOwnershipClaim — mock Sumsub 即时回调：客户提交 → GREEN', () => {
+    it('先 markSubmitted（actor=客户本人），再 applyReview(GREEN，actor=SYSTEM，按 externalActionId 定位)', async () => {
+      const { svc, requests, review } = build();
+
+      await svc.settleOwnershipClaim(
+        { requestNo: 'MRQ-claim', externalActionId: 'FORM-ext-claim' },
+        { customerId: 'c1', customerNo: 'CU-1' },
+      );
+
+      expect(requests.markSubmitted).toHaveBeenCalledWith('MRQ-claim', {
+        actorType: 'CUSTOMER', actorId: 'c1', actorNo: 'CU-1', actorRole: 'CUSTOMER',
+      });
+      expect(review.applyReview).toHaveBeenCalledWith({
+        externalActionId: 'FORM-ext-claim',
+        reviewAnswer: 'GREEN',
+        actor: { actorType: 'SYSTEM', actorId: 'SYSTEM', actorNo: 'SYSTEM', actorRole: 'SYSTEM' },
+      });
+      expect(requests.markSubmitted.mock.invocationCallOrder[0])
+        .toBeLessThan(review.applyReview.mock.invocationCallOrder[0]);
+    });
+  });
+
   describe('hasOutstanding 的两个守卫分支', () => {
     it('充值单不存在 → false，不查材料账', async () => {
       const { svc, prisma, requests } = build();
@@ -318,6 +384,13 @@ describe('便签挂谁由 tag 决定', () => {
         }),
         findFirst: jest.fn(async ({ where }: any) => materialRequests.find((r) => matchesWhere(r, where)) ?? null),
         findMany: jest.fn(async ({ where }: any) => materialRequests.filter((r) => matchesWhere(r, where))),
+        // 认领提交链路（markSubmitted → markReviewed）用到的读/条件写。
+        findUnique: jest.fn(async ({ where }: any) => materialRequests.find((r) => matchesWhere(r, where)) ?? null),
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          const hit = materialRequests.filter((r) => matchesWhere(r, where));
+          hit.forEach((r) => Object.assign(r, data));
+          return { count: hit.length };
+        }),
       },
       customerRestriction: {
         findFirst: jest.fn(async ({ where }: any) => customerRestrictions.find((r) => matchesWhere(r, where)) ?? null),
@@ -337,13 +410,14 @@ describe('便签挂谁由 tag 决定', () => {
     } as any;
     const eventEmitter = { emit: jest.fn() } as any;
 
-    const requests = new MaterialRequestsService(prisma, audit, {} as any);
+    const requests = new MaterialRequestsService(prisma, audit, {} as any, new MaterialPolicyLoader());
     const restrictionsSvc = new CustomerRestrictionsService(prisma, audit, eventEmitter);
     const restrictionWorkflow = new CustomerRestrictionWorkflowService(prisma, restrictionsSvc, {} as any, audit);
     const issuer = new MaterialRequestIssuerService(prisma, requests, restrictionWorkflow, {} as any, {} as any);
-    const svc = new DepositApplicantActionsService(prisma, requests, issuer);
+    const review = new MaterialRequestReviewService(prisma, requests, restrictionsSvc, restrictionWorkflow, eventEmitter);
+    const svc = new DepositApplicantActionsService(prisma, requests, issuer, review);
 
-    return { svc, prisma, customerId: customer.id, depositId: deposit.id };
+    return { svc, prisma, eventEmitter, customerId: customer.id, customerNo: customer.customerNo, depositId: deposit.id, depositNo: deposit.depositNo };
   }
 
   it('普通 SOF 补料（无 sceneTag）→ 材料请求不带 restrictionNo，客户不受限', async () => {
@@ -383,5 +457,94 @@ describe('便签挂谁由 tag 决定', () => {
 
     const row = await prisma.materialRequest.findFirst({ where: { externalActionId: 'e3' } });
     expect(row.restrictionNo).not.toBeNull();
+  });
+});
+
+/**
+ * 对手方波二 Task 5：认领提交走的是**真实**材料账全链（registerOwnershipClaim → findPending → settle），
+ * 内存版 Prisma 只替掉 I/O 边界。证明两件事，单看桩的实参证明不了：
+ *   1) 认领单真的走完 PENDING_SUBMISSION → SUBMITTED → APPROVED（状态机边是生产代码判的）；
+ *   2) 广播出去的 MATERIAL_REQUEST_REVIEWED 载荷恰是既有回炉监听（deposit-workflow.onMaterialRequestReviewed）
+ *      认的形状——orderDomain='DEPOSIT'、orderRef=depositNo、outcome='APPROVED'。回炉本身（RESUME）由该监听的既有 spec 作证。
+ */
+describe('认领提交：真实材料账全链', () => {
+  const CUSTOMER_ID = 'c-claim-1';
+  const DEPOSIT_ID = 'dep-claim-1';
+
+  function matchesWhere(row: any, where: any = {}): boolean {
+    return Object.entries(where).every(([key, cond]: [string, any]) => {
+      if (cond && typeof cond === 'object' && 'in' in cond) return (cond.in as any[]).includes(row[key]);
+      return row[key] === cond;
+    });
+  }
+
+  function buildChain() {
+    const materialRequests: any[] = [];
+    const customer = { id: CUSTOMER_ID, customerNo: 'CUS-CLAIM-0001', sumsubApplicantId: 'app-claim-1' };
+    const deposit = { id: DEPOSIT_ID, depositNo: 'DP2610220001', ownerId: CUSTOMER_ID };
+    const prisma: any = {
+      depositTransaction: { findUnique: jest.fn(async () => ({ ...deposit })) },
+      customerMain: { findUnique: jest.fn(async () => ({ ...customer })) },
+      materialRequest: {
+        create: jest.fn(async ({ data }: any) => {
+          const row = { restrictionNo: null, ...data };
+          materialRequests.push(row);
+          return row;
+        }),
+        findFirst: jest.fn(async ({ where }: any) => materialRequests.find((r) => matchesWhere(r, where)) ?? null),
+        findMany: jest.fn(async ({ where }: any) => materialRequests.filter((r) => matchesWhere(r, where))),
+        findUnique: jest.fn(async ({ where }: any) => materialRequests.find((r) => matchesWhere(r, where)) ?? null),
+        updateMany: jest.fn(async ({ where, data }: any) => {
+          const hit = materialRequests.filter((r) => matchesWhere(r, where));
+          hit.forEach((r) => Object.assign(r, data));
+          return { count: hit.length };
+        }),
+      },
+      $transaction: jest.fn((cb: any) => cb(prisma)),
+    };
+    const audit = {
+      recordSystem: jest.fn().mockResolvedValue(undefined),
+      recordByActor: jest.fn().mockResolvedValue(undefined),
+    } as any;
+    const eventEmitter = { emit: jest.fn() } as any;
+    const requests = new MaterialRequestsService(prisma, audit, {} as any, new MaterialPolicyLoader());
+    const restrictionsSvc = new CustomerRestrictionsService(prisma, audit, eventEmitter);
+    const restrictionWorkflow = new CustomerRestrictionWorkflowService(prisma, restrictionsSvc, {} as any, audit);
+    const issuer = new MaterialRequestIssuerService(prisma, requests, restrictionWorkflow, {} as any, {} as any);
+    const review = new MaterialRequestReviewService(prisma, requests, restrictionsSvc, restrictionWorkflow, eventEmitter);
+    const svc = new DepositApplicantActionsService(prisma, requests, issuer, review);
+    return { svc, prisma, audit, eventEmitter, materialRequests, deposit };
+  }
+
+  it('挂起登记 → 找到未决认领单 → 提交并即时通过：行走到 APPROVED，广播 MATERIAL_REQUEST_REVIEWED(DEPOSIT/depositNo/APPROVED)，审计走材料账既有三条', async () => {
+    const { svc, audit, eventEmitter, materialRequests, deposit } = buildChain();
+    await svc.registerOwnershipClaim(DEPOSIT_ID);
+    expect(materialRequests).toHaveLength(1);
+    expect(materialRequests[0]).toMatchObject({
+      materialType: 'SOURCE_OWNERSHIP_CLAIM', status: 'PENDING_SUBMISSION', orderDomain: 'DEPOSIT', orderRef: deposit.depositNo,
+    });
+
+    const claim = await svc.findPendingOwnershipClaim(deposit.depositNo);
+    expect(claim).toEqual({ requestNo: materialRequests[0].requestNo, externalActionId: materialRequests[0].externalActionId });
+
+    await svc.settleOwnershipClaim(claim!, { customerId: CUSTOMER_ID, customerNo: 'CUS-CLAIM-0001' });
+
+    expect(materialRequests[0]).toMatchObject({ status: 'APPROVED', reviewAnswer: 'GREEN' });
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      DomainEventNames.MATERIAL_REQUEST_REVIEWED,
+      expect.objectContaining({
+        requestNo: materialRequests[0].requestNo,
+        orderDomain: 'DEPOSIT',
+        orderRef: deposit.depositNo,
+        outcome: 'APPROVED',
+      }),
+    );
+    // 提交人是客户本人（MATERIAL_REQUEST_SUBMITTED 的 actor），通过由系统落（MATERIAL_REQUEST_APPROVED）
+    const submitted = audit.recordByActor.mock.calls.find((c: any[]) => c[0].action === 'MATERIAL_REQUEST_SUBMITTED');
+    expect(submitted?.[1]).toMatchObject({ actorType: 'CUSTOMER', actorNo: 'CUS-CLAIM-0001' });
+    expect(audit.recordSystem.mock.calls.map((c: any[]) => c[0].action)).toContain('MATERIAL_REQUEST_APPROVED');
+
+    // 提交完这张单就不再是"未决"：同一张认领单不能被第二次提交
+    await expect(svc.findPendingOwnershipClaim(deposit.depositNo)).resolves.toBeNull();
   });
 });

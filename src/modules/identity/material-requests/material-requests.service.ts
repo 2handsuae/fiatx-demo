@@ -15,6 +15,7 @@ import {
 import { AuditOutcome } from '../../audit-logging/dto/audit-log.dto';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { SumsubClient } from '../../sumsub-applicant-client/sumsub.client';
+import { MaterialPolicyLoader, type MaterialConfig } from './material-policy';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import {
   MATERIAL_REQUEST_LIVE_STATUSES,
@@ -53,6 +54,11 @@ export interface MaterialRequestRow {
   /** Sumsub 侧 id —— 服务端专用，禁止进任何客户面响应（spec I2 / G5） */
   applicantActionId: string;
   externalActionId: string;
+  /**
+   * 表单型材料的判别（由 materialType 查注册表得来，不落库）：非空 = 我方自己的表单，
+   * 行上 levelName/applicantActionId/externalActionId 是本地占位串、没有 Sumsub 侧 action。
+   */
+  formKind: NonNullable<MaterialConfig['formKind']> | null;
   orderDomain: MaterialRequestOrderDomain | null;
   orderRef: string | null;
   restrictionNo: string | null;
@@ -86,6 +92,7 @@ export class MaterialRequestsService {
     private readonly prisma: PrismaService & Record<string, any>,
     private readonly auditLogsService: AuditLogsService,
     private readonly sumsubClient: SumsubClient,
+    private readonly policyLoader: MaterialPolicyLoader,
   ) {}
 
   async create(
@@ -208,10 +215,14 @@ export class MaterialRequestsService {
    *
    * 归属 / 状态 / 客户是否有 sumsubApplicantId 任一不满足都返回 null ——
    * 调用方（controller）把 null 统一映射成同一句「没什么可做」，不区分原因。
+   * 表单型材料（row.formKind 非空，如来源认领）同口径返回 null：它是我方自己的表单，
+   * 行上的 levelName/externalActionId 是本地占位串，铸 Sumsub token 必败；客户端据
+   * 列表里的 formKind 分叉，不会来要 session。
    */
   async mintSessionToken(requestNo: string, customerId: string): Promise<string | null> {
     const row = await this.findByNo(requestNo);
     if (!row || row.customerId !== customerId || row.status !== 'PENDING_SUBMISSION') return null;
+    if (row.formKind) return null;
 
     const customer = await this.prisma.customerMain.findUnique({
       where: { id: customerId },
@@ -478,6 +489,7 @@ export class MaterialRequestsService {
       levelName: row.levelName,
       applicantActionId: row.applicantActionId,
       externalActionId: row.externalActionId,
+      formKind: this.policyLoader.getMaterialConfig(row.materialType)?.formKind ?? null,
       orderDomain: row.orderDomain ?? null,
       orderRef: row.orderRef ?? null,
       restrictionNo: row.restrictionNo ?? null,

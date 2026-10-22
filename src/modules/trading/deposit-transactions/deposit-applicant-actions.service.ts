@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { MaterialRequestsService, type MaterialActor } from '../../identity/material-requests/material-requests.service';
 import { MaterialRequestIssuerService, mintLocalFormAction } from '../../identity/material-requests/material-request-issuer.service';
+import { MaterialRequestReviewService } from '../../identity/material-requests/material-request-review.service';
 import type { SceneTag } from '../../sumsub-shared/scene-tags';
 
 export interface IncomingApplicantAction {
@@ -43,6 +44,8 @@ export class DepositApplicantActionsService {
     private readonly prisma: PrismaService & Record<string, any>,
     private readonly requests: MaterialRequestsService,
     private readonly issuer: MaterialRequestIssuerService,
+    // 对手方波二 Task 5：认领 mock 即时通过要走材料账既有的裁决编排（落章 + 广播 MATERIAL_REQUEST_REVIEWED）。
+    private readonly review: MaterialRequestReviewService,
   ) {}
 
   /**
@@ -175,6 +178,43 @@ export class DepositApplicantActionsService {
       issuedBy: 'SYSTEM',
       restrict: false,
       actor: { actorType: 'SYSTEM', userId: 'SYSTEM', userNo: 'SYSTEM', role: 'SYSTEM', roleCodes: ['SYSTEM'] } as any,
+    });
+  }
+
+  /**
+   * 该单上客户还没交的来源认领单(SOURCE_OWNERSHIP_CLAIM ∧ PENDING_SUBMISSION)。
+   * 认领提交端点的守卫用它——挂起的若是别的补料(SOF/PEP)、或认领单已交过,都不算「有未决认领单」。
+   * 返回的 externalActionId 只供 settleOwnershipClaim 定位复核行,不出本服务端。
+   */
+  async findPendingOwnershipClaim(
+    depositNo: string,
+  ): Promise<{ requestNo: string; externalActionId: string } | null> {
+    const live = await this.requests.listLiveByOrder('DEPOSIT', depositNo);
+    const claim = live.find(
+      (r) => r.materialType === 'SOURCE_OWNERSHIP_CLAIM' && r.status === 'PENDING_SUBMISSION',
+    );
+    return claim ? { requestNo: claim.requestNo, externalActionId: claim.externalActionId } : null;
+  }
+
+  /**
+   * 客户提交认领 → mock Sumsub 侧即时回调 GREEN(项目允许假设:外部系统准时回调且只回一次)。
+   * 走材料账既有的两步,不另造捷径:客户本人 markSubmitted,再由系统 applyReview(GREEN)——
+   * 后者广播 MATERIAL_REQUEST_REVIEWED,既有 onMaterialRequestReviewed 听到后把单 RESUME 回合规重筛。
+   */
+  async settleOwnershipClaim(
+    claim: { requestNo: string; externalActionId: string },
+    customer: { customerId: string; customerNo: string },
+  ): Promise<void> {
+    await this.requests.markSubmitted(claim.requestNo, {
+      actorType: 'CUSTOMER',
+      actorId: customer.customerId,
+      actorNo: customer.customerNo,
+      actorRole: 'CUSTOMER',
+    });
+    await this.review.applyReview({
+      externalActionId: claim.externalActionId,
+      reviewAnswer: 'GREEN',
+      actor: SYSTEM_ACTOR,
     });
   }
 
