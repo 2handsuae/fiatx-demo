@@ -150,7 +150,7 @@ CANCELLED / DEACTIVATED / REJECTED: 终态
 - Produces: `WithdrawalAddressAction.RELEASE`、`WithdrawalAddressAction.REJECT`；迁移表照「目标终态速查」终形；`assertWithdrawalAddressTransition` 签名不变。
 
 - [ ] **Step 1: 写失败测试**——新增断言：`PENDING_VERIFICATION+RELEASE→PENDING_ACTIVATION`、`PENDING_VERIFICATION+REJECT→REJECTED`、`PENDING_VERIFICATION+CANCEL→CANCELLED`、`PENDING_ACTIVATION+REJECT→REJECTED`、`ACTIVE+REJECT` 抛 ConflictException、`REJECTED` 任意动作抛、**边数恰为 9**（展开计数，防多加少加）
-- [ ] **Step 2: 跑测试确认红**：`npx jest src/modules/asset-treasury/withdrawal-addresses/constants -t transitions`
+- [ ] **Step 2: 跑测试确认红**：`npx jest src/modules/asset-treasury/withdrawal-addresses/constants`（⚠️勿加 `-t transitions`——spec 名不含该词，过滤后 8 测全跳过、exit 0 假绿，2026-10-22 执行中实证）
 - [ ] **Step 3: 实现**（枚举 +2、表 +2 态 +4 边，注释标 2026-10-22 波一）
 - [ ] **Step 4: 跑测试确认绿**
 - [ ] **Step 5: Commit** `feat(address-book): state machine — PENDING_VERIFICATION/REJECTED, RELEASE/REJECT edges`
