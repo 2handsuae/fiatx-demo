@@ -1,4 +1,4 @@
-import { IsString, IsBoolean, IsOptional, Equals } from 'class-validator';
+import { IsString, IsBoolean, IsOptional, IsIn, Equals, ValidateIf } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateBankAccountDto {
@@ -22,6 +22,15 @@ export class CreateBankAccountDto {
   @IsString()
   @IsOptional()
   label?: string;
+
+  @ApiProperty({ description: 'Whose account this is: the customer (SELF) or someone else (THIRD_PARTY)', enum: ['SELF', 'THIRD_PARTY'] })
+  @IsIn(['SELF', 'THIRD_PARTY'])
+  ownerType!: 'SELF' | 'THIRD_PARTY';
+
+  @ApiProperty({ required: false, description: 'Relationship to the account holder, e.g. "Spouse" (required when ownerType is THIRD_PARTY)' })
+  @ValidateIf((o) => o.ownerType === 'THIRD_PARTY')
+  @IsString()
+  beneficiaryRelationship?: string;
 
   @ApiProperty({ description: 'Must be true — ownership declaration' })
   @IsBoolean()
