@@ -856,7 +856,7 @@ model DepositTransaction {
   sumsubScore          Int?
   sumsubScoredAt       DateTime?
   sumsubTxnDetailJson  String?
-  counterpartyIsVasp   Boolean?  // crypto 必填；fiat 为 null
+  counterpartyIsVasp   Boolean?  // 归因写入（⚡喂）；出生为 null
   manualReason          String?
   slaDeadline           DateTime?
   slaBreached           Boolean   @default(false)

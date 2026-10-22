@@ -85,7 +85,7 @@ Last Updated: 2026-10-08（报送台整备波文档收口：销 6 行（整行�
 
 - [x] ~~`CAPABILITY_RESTRICTED` 挂起原因区分不出 SANCTION 与 ADMIN_SUSPENSION，客户面一律藏~~ —— **管理台侧已解**（2026-09-14 波五 D10）：`L1GateService` ②格 detail 从"holds down X capability"升级为带具体因由 + 限制便签号（`l1-gate.service.ts:115` `restrictionNotes` 携带 `{cause, restrictionNo}`），管理台按此渲染因由与便签号（文本展示；终审 2026-09-15 勘误：便签号链接到客户详情为 spec 撰写期外延，业主裁定「只做展示」，不建链接）；**客户面部分维持刻意藏**——2026-09-14 业主裁定「D10 只做展示」，客户面继续不区分 SANCTION 与 ADMIN_SUSPENSION（tipping-off 代价不对称：藏错了客户少看见一条记录，露错了是刑事风险），不再是待办、是设计决定，见 `decisions.md` 2026-09-14 条 ｜来源: 2026-08-22 第四批 B4；2026-09-08 业主裁定归订单域；2026-09-14 波五销账
 
-- [ ] **TR 适用判定未自动计算**：充值 PRD 定义 Travel Rule 适用 = 虚拟币 且 来源地址为 VASP 托管 且 单笔 ≥ 3,500 AED（三条件 AND，否则 NOT_REQUIRED）；现状条件①法币→NOT_REQUIRED 已落地，条件③金额阈值已实现（`kyt-txn-type.resolver.ts` `TR_THRESHOLD_BY_CURRENCY`，USDT 1000 / AED 3500，边界取 ≥）；仅剩条件②（对手方 VASP 打标靠 DTO 自报）未自动化 ｜来源: 2026-07-11 充值 PRD v2
+- [x] ~~**TR 适用判定未自动计算**：充值 PRD 定义 Travel Rule 适用 = 虚拟币 且 来源地址为 VASP 托管 且 单笔 ≥ 3,500 AED（三条件 AND，否则 NOT_REQUIRED）；现状条件①法币→NOT_REQUIRED 已落地，条件③金额阈值已实现（`kyt-txn-type.resolver.ts` `TR_THRESHOLD_BY_CURRENCY`，USDT 1000 / AED 3500，边界取 ≥）；仅剩条件②（对手方 VASP 打标靠 DTO 自报）未自动化~~ —— **已销账（结构性取代）**：2026-10-22 对手方波二：自报退役，归因归 Sumsub(mock ⚡)，缺口结构性取代。条件②「对手方 VASP 打标靠 DTO 自报」整条链已拆（信号 DTO / 信号表 `counterpartyIsVasp` 列删除、客户端模拟弹窗的"是不是交易所"两按钮删除）；现状 TR 适用判定 = 虚拟币 ∧ 金额 ≥ 阈值（`isTrApplicable`，USDT 1000 / AED 3500，边界取 ≥），对手方是谁由 ⚡喂归因（Sumsub 一侧告知）写入，Unhosted 超线且没认领过再挂起认领——VASP 打标不再是 TR 适用的闸，而是适用之后的分支依据 ｜来源: 2026-07-11 充值 PRD v2
 
 **没做的自动化（现全靠人工）**
 

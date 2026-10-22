@@ -2,6 +2,7 @@
 
 > 2026-10-22 立纲（业主脑暴收口于 2026-10-21/22 会话）｜两波｜波一 spec 同日落档
 > 研究底座：`doc-final/reference/sumsub-services-needed.md` + 2026-10-19~22 Sumsub 真实沙箱实证（见 §5）
+> **两波收官 2026-10-22**（波一地址簿已合 main；波二交易接线 12 任务 + 收尾闸，证据册 `doc-final/superpowers/checkups/2026-10-22-counterparty-wave2-evidence/`；总纲与两波 spec / plan / 骨架归档随合并批执行）
 
 ## §0 这是什么
 
