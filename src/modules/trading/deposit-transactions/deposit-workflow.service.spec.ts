@@ -658,11 +658,11 @@ describe('DepositWorkflowService', () => {
       traceId: null,
       amount: '500',
       asset: { type: 'FIAT', currency: 'AED' },
-      counterpartyIsVasp: null,
       customer: { sumsubApplicantId: 'applicant-1' },
     };
 
-    // crypto + VASP + amount >= USDT 阈值(1000) → resolveKytTxnType 判 travelRule
+    // crypto(这里恰好是已归因 VASP 且过旧 USDT 阈值 1000 的一笔)→ resolveKytTxnType 判 travelRule;
+    // 判型只看资产类型,VASP/金额不参与,所以同类 crypto 单换成别的形态结论不变(见下一夹具)。
     const baseCryptoVaspOverThreshold = {
       id: 'dep-sub-crypto-tr',
       depositNo: 'DEP-SUB-CRYPTO-TR-001',
@@ -675,16 +675,15 @@ describe('DepositWorkflowService', () => {
       customer: { sumsubApplicantId: 'applicant-1' },
     };
 
-    // crypto + 非 VASP(counterpartyIsVasp=false) → 恒 finance,即使超阈值
-    const baseCryptoNotVasp = {
-      id: 'dep-sub-crypto-nonvasp',
-      depositNo: 'DEP-SUB-CRYPTO-NONVASP-001',
+    // crypto 小额、尚未归因 → 同样判 travelRule(旧口径:非 VASP / 低于阈值会落 finance)
+    const baseCryptoSmallUnattributed = {
+      id: 'dep-sub-crypto-small',
+      depositNo: 'DEP-SUB-CRYPTO-SMALL-001',
       ownerType: 'CUSTOMER',
       ownerId: 'cust-1',
       traceId: null,
-      amount: '1500',
+      amount: '50',
       asset: { type: 'CRYPTO', currency: 'USDT' },
-      counterpartyIsVasp: false,
       customer: { sumsubApplicantId: 'applicant-1' },
     };
 
@@ -756,23 +755,23 @@ describe('DepositWorkflowService', () => {
         );
       });
 
-      it('crypto + non-VASP → submitTxn called once, type=finance', async () => {
-        depositService.findOne.mockResolvedValue(baseCryptoNotVasp);
-        sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-FIN-2' });
+      it('crypto 小额且未归因 → submitTxn called once, type=travelRule(判型不看对手方/金额)', async () => {
+        depositService.findOne.mockResolvedValue(baseCryptoSmallUnattributed);
+        sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-TR-2' });
 
-        await service.handleDepositStatusChanged(mkEvent('dep-sub-crypto-nonvasp'));
+        await service.handleDepositStatusChanged(mkEvent('dep-sub-crypto-small'));
 
         expect(sumsubTxnClient.submitTxn).toHaveBeenCalledTimes(1);
         expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
-          expect.objectContaining({ type: 'finance', currencyType: 'crypto', currencyCode: 'USDT' }),
+          expect.objectContaining({ type: 'travelRule', currencyType: 'crypto', currencyCode: 'USDT', amount: 50 }),
         );
-        expect(depositService.setSumsubTxn).toHaveBeenCalledWith('dep-sub-crypto-nonvasp', {
-          sumsubTxnId: 'TXN-FIN-2',
-          sumsubTxnType: 'finance',
+        expect(depositService.setSumsubTxn).toHaveBeenCalledWith('dep-sub-crypto-small', {
+          sumsubTxnId: 'TXN-TR-2',
+          sumsubTxnType: 'travelRule',
         });
         expect(auditLogsService.recordSystem).toHaveBeenCalledWith(
           expect.objectContaining({
-            metadata: { sumsubTxnId: 'TXN-FIN-2', txnType: 'finance', decisionReason: 'COUNTERPARTY_NOT_VASP' },
+            metadata: { sumsubTxnId: 'TXN-TR-2', txnType: 'travelRule', decisionReason: 'TR_REQUIRED' },
           }),
         );
       });
@@ -819,7 +818,7 @@ describe('DepositWorkflowService', () => {
         process.env.SUMSUB_MOCK_MODE = 'true';
       });
 
-      it('crypto + VASP + over threshold → type=travelRule(判定生效,不被降级)', async () => {
+      it('crypto → type=travelRule(判定生效,不被降级)', async () => {
         depositService.findOne.mockResolvedValue(baseCryptoVaspOverThreshold);
         sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-TR-MOCK' });
 
@@ -834,14 +833,14 @@ describe('DepositWorkflowService', () => {
         });
       });
 
-      it('crypto + non-VASP → type=finance(mock 模式不是无条件 TR)', async () => {
-        depositService.findOne.mockResolvedValue(baseCryptoNotVasp);
-        sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-FIN-MOCK' });
+      it('crypto 小额且未归因 → type=travelRule(判型只看资产类型)', async () => {
+        depositService.findOne.mockResolvedValue(baseCryptoSmallUnattributed);
+        sumsubTxnClient.submitTxn.mockResolvedValue({ txnId: 'TXN-TR-MOCK-2' });
 
-        await service.handleDepositStatusChanged(mkEvent('dep-sub-crypto-nonvasp'));
+        await service.handleDepositStatusChanged(mkEvent('dep-sub-crypto-small'));
 
         expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
-          expect.objectContaining({ type: 'finance' }),
+          expect.objectContaining({ type: 'travelRule' }),
         );
       });
     });

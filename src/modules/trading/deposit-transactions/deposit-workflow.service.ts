@@ -365,12 +365,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const amount = Number(deposit.amount);
     const currencyCode = deposit.asset?.currency;
 
-    const decision = resolveKytTxnType({
-      assetType: deposit.asset?.type,
-      currency: deposit.asset?.currency,
-      amount,
-      counterpartyIsVasp: deposit.counterpartyIsVasp,
-    });
+    const decision = resolveKytTxnType({ assetType: deposit.asset?.type });
     const submitType = SINGLE_TXN_SUBMIT_ENABLED ? decision.type : 'finance';
 
     const result = await this.sumsubTxnClient.submitTxn({

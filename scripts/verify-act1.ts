@@ -495,15 +495,10 @@ async function main(): Promise<void> {
   const toAddress: string = wallet.json?.address ?? wallet.json?.wallet?.address;
   if (!toAddress) throw new Error(`POST /client/deposit-wallets 没返回地址：${wallet.status} ${wallet.text}`);
   const txSeed = `${Date.now()}`;
-  // counterpartyIsVasp 是运行时必填（inbound-transfer-signals.service.ts 对 crypto
-  // 起手就查，DTO 上标 optional 但没带就 400 "counterpartyIsVasp is required for
-  // crypto deposits"）——brief 骨架漏了这个字段，实测会让整条信号创建静默 400、
-  // scan 找不到任何 PENDING_SCAN 信号，depositIds 恒为空。
   const sig = await call('POST', '/deposit-transactions/my/inbound-signals', aliceTok, {
     network: 'TRON', toAddress, contractAddress: usdt.contractAddress, amount: '150',
     txHash: Buffer.from(`v3-${txSeed}`).toString('hex').padEnd(64, '0').slice(0, 64),
     fromAddress: `TVerifyAct1${txSeed}`.padEnd(34, 'x').slice(0, 34),
-    counterpartyIsVasp: false,
   });
   if (sig.status >= 300) throw new Error(`夹具：创建入站信号失败 → ${sig.status} ${sig.text}`);
   const scan = await call('POST', '/deposit-transactions/my/inbound-signals/scan', aliceTok, { network: 'TRON', toAddress });

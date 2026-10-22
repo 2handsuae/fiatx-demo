@@ -1,6 +1,5 @@
 import {
   ValidateIf,
-  IsBoolean,
   IsEnum,
   IsNumber,
   IsNumberString,
@@ -106,12 +105,6 @@ export class CreateInboundTransferSignalDto {
   @IsOptional()
   @IsEnum(SimulationRiskReason)
   simulationRiskReason?: SimulationRiskReason;
-
-  // crypto 必填 / fiat 禁传 —— 判据依赖 wallet 的 asset.type,校验在
-  // InboundTransferSignalsService.createForCustomer() 内(DTO 层拿不到 assetType)。
-  @IsOptional()
-  @IsBoolean()
-  counterpartyIsVasp?: boolean;
 }
 
 export class ScanInboundTransferSignalsDto {

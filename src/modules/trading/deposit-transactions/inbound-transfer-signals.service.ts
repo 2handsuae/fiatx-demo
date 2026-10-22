@@ -162,14 +162,6 @@ export class InboundTransferSignalsService {
 
     this.assertSimulationRiskProfile(dto, channelType);
 
-    const isCrypto = asset.type === 'CRYPTO';
-    if (isCrypto && dto.counterpartyIsVasp == null) {
-      throw new BadRequestException('counterpartyIsVasp is required for crypto deposits');
-    }
-    if (!isCrypto && dto.counterpartyIsVasp != null) {
-      throw new BadRequestException('counterpartyIsVasp must not be provided for fiat deposits');
-    }
-
     const dedupeKey = this.buildDedupeKey({
       channelType,
       walletId: wallet.id,
@@ -214,7 +206,6 @@ export class InboundTransferSignalsService {
           fromIban: dto.fromIban,
           simulationRiskLevel: dto.simulationRiskLevel || null,
           simulationRiskReason: dto.simulationRiskReason || null,
-          counterpartyIsVasp: dto.counterpartyIsVasp ?? null,
           status: InboundTransferSignalStatus.PENDING_SCAN,
           dedupeKey,
           submittedAt: new Date(),
@@ -351,7 +342,6 @@ export class InboundTransferSignalsService {
             amount: new Prisma.Decimal(line.amountMajor),
             txHash: isCrypto ? line.externalRef : null, referenceNo: isCrypto ? null : line.externalRef,
             fromAddress: dto.fromAddress ?? null, fromIban: dto.fromIban ?? null,
-            counterpartyIsVasp: isCrypto ? false : null,
             status: InboundTransferSignalStatus.SUPPLEMENT_PENDING, dedupeKey, submittedAt: new Date(),
             supplementOfExternalLineId: line.externalLineId, supplementReconCaseNo: line.caseNo,
             supplementDispositionNo: line.dispositionNo, supplementEffectiveDate: line.businessDate,
@@ -585,7 +575,6 @@ export class InboundTransferSignalsService {
         fromIban: signal.fromIban || undefined,
         referenceNo: signal.referenceNo || undefined,
         providerTxnId: signal.id,
-        counterpartyIsVasp: signal.counterpartyIsVasp,
         effectiveDate: opts?.effectiveDate,
       });
       deposit = detected.deposit;

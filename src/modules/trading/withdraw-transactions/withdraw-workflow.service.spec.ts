@@ -806,6 +806,10 @@ describe('WithdrawWorkflowService.submitSumsubTxn (private, Task 5)', () => {
   });
 
   it('success: submits with direction=out, clientTxnId=withdrawNo, persists sumsubTxnId/Type, audits WITHDRAW_SUMSUB_SUBMITTED', async () => {
+    // 判型改为 crypto 一律 travelRule 后,落库类型只取决于开关;worktree 的 .env 带 SUMSUB_MOCK_MODE=true
+    // 会经 dotenv 漏进本进程,这里显式钉成开关关(强制 finance),不吃环境。
+    delete process.env.SUMSUB_MOCK_MODE;
+    delete process.env.SUMSUB_SINGLE_TXN_SUBMIT;
     const { workflow, withdrawService, auditLogsService, sumsubTxnClient } = buildFullWorkflow();
     withdrawService.findOneInternal.mockResolvedValue(baseWithdrawRow());
 
@@ -830,13 +834,11 @@ describe('WithdrawWorkflowService.submitSumsubTxn (private, Task 5)', () => {
     );
   });
 
-  it('travelRule decision under SUMSUB_MOCK_MODE=true: crypto+VASP+over-threshold → type=travelRule', async () => {
+  it('travelRule decision under SUMSUB_MOCK_MODE=true: crypto → type=travelRule(不看对手方/金额,默认行是 100 USDT 小额)', async () => {
     process.env.SUMSUB_MOCK_MODE = 'true';
     delete process.env.SUMSUB_SINGLE_TXN_SUBMIT;
     const { workflow, withdrawService, sumsubTxnClient } = buildFullWorkflow();
-    withdrawService.findOneInternal.mockResolvedValue(
-      baseWithdrawRow({ counterpartyIsVasp: true, amount: new Prisma.Decimal('5000') }),
-    );
+    withdrawService.findOneInternal.mockResolvedValue(baseWithdrawRow());
 
     await (workflow as any).submitSumsubTxn('wd-sumsub-1');
 
@@ -850,7 +852,7 @@ describe('WithdrawWorkflowService.submitSumsubTxn (private, Task 5)', () => {
     delete process.env.SUMSUB_SINGLE_TXN_SUBMIT;
     const { workflow, withdrawService, sumsubTxnClient } = buildFullWorkflow();
     withdrawService.findOneInternal.mockResolvedValue(
-      baseWithdrawRow({ counterpartyIsVasp: true, amount: new Prisma.Decimal('5000') }),
+      baseWithdrawRow({ amount: new Prisma.Decimal('5000') }),
     );
 
     await (workflow as any).submitSumsubTxn('wd-sumsub-1');

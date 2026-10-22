@@ -572,8 +572,22 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     expect(raw.travelRuleInfo).toBeTruthy();
   });
 
-  it('finance 分型: 非 VASP 3000 USDT 单投 ① → 报文 data.type===finance 且 travelRuleInfo 不存在', async () => {
+  it('travelRule 分型不看对手方: 非 VASP(自报链拆除后订单列仅作归因产物)的 3000 USDT 单投 ① → 同样 travelRule 且 travelRuleInfo 存在', async () => {
     const deposit = await createDeposit({ isCrypto: true, amount: '3000.000000', counterpartyIsVasp: false });
+
+    await deliver(deposit.id, 'V1_APPROVED');
+
+    const refreshed = await depositService.findOne(deposit.id);
+    expect((refreshed as any).sumsubTxnType).toBe('travelRule');
+
+    const detail = await depositService.findOneForAdmin(deposit.id);
+    const raw = (detail as any).sumsubDetail.raw;
+    expect(raw.data.type).toBe('travelRule');
+    expect(raw.travelRuleInfo).toBeTruthy();
+  });
+
+  it('finance 分型: 法币单投 ① → 报文 data.type===finance 且 travelRuleInfo 不存在', async () => {
+    const deposit = await createDeposit({ isCrypto: false, amount: '80.00' });
 
     await deliver(deposit.id, 'V1_APPROVED');
 

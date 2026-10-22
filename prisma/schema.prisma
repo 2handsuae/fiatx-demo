@@ -793,7 +793,6 @@ model InboundTransferSignal {
   fromIban             String?
   simulationRiskLevel  String?
   simulationRiskReason String?
-  counterpartyIsVasp   Boolean?
   status               String       @default("PENDING_SCAN")
   dedupeKey            String       @unique
   submittedAt          DateTime     @default(now())
@@ -862,6 +861,14 @@ model DepositTransaction {
   slaDeadline           DateTime?
   slaBreached           Boolean   @default(false)
   sumsubActionId          String?
+  // 对手方波二：来源归因（⚡喂归因写 counterpartyIsVasp / counterpartyVasp / counterpartyVaspDid / sourceAttributedAt）+ 来源认领快照
+  counterpartyVaspDid     String?
+  sourceAttributedAt      DateTime?
+  sourceClaimType         String?   // SELF | THIRD_PARTY_PERSON | THIRD_PARTY_VASP
+  sourceClaimName         String?   // 乙分支：个人姓名或 VASP 名
+  sourceClaimRelationship String?   // 仅 THIRD_PARTY_PERSON
+  sourceClaimedAt         DateTime? // 认领提交时刻（已知来源判别键）
+  knownSourceRef          String?   // 同源免问时回链的 depositNo
   asset                Asset             @relation(fields: [assetId], references: [id])
   wallet               Wallet            @relation(fields: [toWalletId], references: [id])
   fromWallet           Wallet?           @relation("DepositFromWallet", fields: [fromWalletId], references: [id])
@@ -1251,6 +1258,13 @@ model WithdrawTransaction {
   sumsubScoredAt       DateTime?
   sumsubTxnDetailJson  String?
   counterpartyIsVasp   Boolean?
+  // 对手方波二：建单时抄自提现地址簿的受益人/对手方，travelRule 型提交时一次性写快照
+  withdrawalAddressNo  String?   // 地址簿业务键（铁律⑥）
+  beneficiaryName      String?
+  beneficiaryType      String?   // SELF | THIRD_PARTY（抄地址簿 ownerType；订单自身 ownerType 已被占用）
+  counterpartyVaspName String?
+  counterpartyVaspDid  String?
+  travelRuleSnapshotJson String?
   manualReason         String?
   slaDeadline          DateTime?
   slaBreached          Boolean               @default(false)

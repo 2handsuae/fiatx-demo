@@ -1627,28 +1627,10 @@ describe('DepositTransactionsService', () => {
       );
     });
 
-    it('detected(): counterpartyIsVasp true → written through to deposit create data', async () => {
-      await service.detected({
-        assetId: 'a1',
-        toWalletId: 'w1',
-        amount: '100',
-        counterpartyIsVasp: true,
-      });
-      expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ counterpartyIsVasp: true }) }),
-      );
-    });
-
-    it('detected(): counterpartyIsVasp false → written through as false, not coerced to true', async () => {
-      await service.detected({
-        assetId: 'a1',
-        toWalletId: 'w1',
-        amount: '100',
-        counterpartyIsVasp: false,
-      });
-      expect(prisma.depositTransaction.create).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ counterpartyIsVasp: false }) }),
-      );
+    it('detected(): 建单不写对手方标记 —— counterpartyIsVasp 出生为空,由 ⚡ 喂归因事后写入', async () => {
+      await service.detected({ assetId: 'a1', toWalletId: 'w1', amount: '100' });
+      const createArg = (prisma.depositTransaction.create as jest.Mock).mock.calls[0][0];
+      expect(createArg.data).not.toHaveProperty('counterpartyIsVasp');
     });
 
     it('detected(): DEPOSIT_CREATED 审计 currency 落币种码，不落资产 UUID（铁律⑥）', async () => {

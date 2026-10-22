@@ -62,7 +62,7 @@ describe('InboundTransferSignalsService · 按网络与合约找钥匙（波一�
     prisma.asset.findFirst.mockResolvedValue(null);
     await expect(service.createForCustomer('c1', {
       network: 'TRON', toAddress: wallet.address, contractAddress: 'TScamScamScamScamScamScamScamScamXX',
-      amount: '100', txHash: 'ab'.repeat(32), fromAddress: 'TSender', counterpartyIsVasp: false,
+      amount: '100', txHash: 'ab'.repeat(32), fromAddress: 'TSender',
     } as any)).rejects.toBeInstanceOf(BadRequestException);
     expect(audit.recordSystem).toHaveBeenCalledWith(expect.objectContaining({
       action: 'DEPOSIT_SIGNAL_REJECTED', actionDomain: 'DEPOSIT', outcome: 'DENIED', reasonCode: 'UNKNOWN_ASSET', ownerCustomerNo: 'CU001',
@@ -72,7 +72,7 @@ describe('InboundTransferSignalsService · 按网络与合约找钥匙（波一�
 
   it('地址不是本客户在该网络上的收款行：404', async () => {
     prisma.wallet.findFirst.mockResolvedValue(null);
-    await expect(service.createForCustomer('c1', { network: 'TRON', toAddress: 'Tnobody', amount: '1', txHash: 'x', fromAddress: 'y', counterpartyIsVasp: false } as any))
+    await expect(service.createForCustomer('c1', { network: 'TRON', toAddress: 'Tnobody', amount: '1', txHash: 'x', fromAddress: 'y' } as any))
       .rejects.toBeInstanceOf(NotFoundException);
   });
 
@@ -84,7 +84,7 @@ describe('InboundTransferSignalsService · 按网络与合约找钥匙（波一�
     prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 's1' });
     await service.createForCustomer('c1', {
       network: 'TRON', toAddress: wallet.address, contractAddress: usdt.contractAddress,
-      amount: '100', txHash: 'ab'.repeat(32), fromAddress: 'TSender', counterpartyIsVasp: false,
+      amount: '100', txHash: 'ab'.repeat(32), fromAddress: 'TSender',
     } as any);
     expect(prisma.inboundTransferSignal.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ walletId: 'w1', assetId: 'a-usdt', channelType: 'CRYPTO' }),
@@ -110,7 +110,7 @@ describe('InboundTransferSignalsService · 按网络与合约找钥匙（波一�
     prisma.inboundTransferSignal.create.mockResolvedValueOnce({ id: 's-chain' });
     await service.createForCustomer('c1', {
       network: 'TRON', toAddress: wallet.address, contractAddress: usdt.contractAddress,
-      amount: '100', txHash: 'ab'.repeat(32), fromAddress: 'TSender', counterpartyIsVasp: false,
+      amount: '100', txHash: 'ab'.repeat(32), fromAddress: 'TSender',
     } as any);
     expect(prisma.wallet.findFirst).toHaveBeenLastCalledWith({
       where: {
@@ -155,7 +155,7 @@ describe('InboundTransferSignalsService · 按网络与合约找钥匙（波一�
     prisma.asset.findFirst.mockResolvedValue(null);
     await expect(service.createForCustomer('c1', {
       network: 'TRON', toAddress: wallet.address, contractAddress: 'TScamScamScamScamScamScamScamScamXX',
-      amount: '100', txHash: 'ab'.repeat(32), fromAddress: 'TSender', counterpartyIsVasp: false,
+      amount: '100', txHash: 'ab'.repeat(32), fromAddress: 'TSender',
     } as any)).rejects.toBeInstanceOf(BadRequestException);
 
     expect(audit.recordSystem).toHaveBeenCalledTimes(1);
@@ -313,7 +313,6 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
       amount: '12.50',
       txHash: '0xabc',
       fromAddress: '0xfrom',
-      counterpartyIsVasp: true,
     } as any);
 
     expect(prisma.inboundTransferSignal.create).toHaveBeenCalledWith(
@@ -323,7 +322,6 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
           walletId: cryptoWallet.id,
           assetId: usdtAsset.id,
           status: InboundTransferSignalStatus.PENDING_SCAN,
-          counterpartyIsVasp: true,
         }),
       }),
     );
@@ -362,7 +360,6 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
       amount: '12.50',
       txHash: '0xabc',
       fromAddress: '0xfrom',
-      counterpartyIsVasp: true,
     } as any);
 
     expect(customerAccess.assertTradingIntake).toHaveBeenCalledWith('cust-1', 'DEPOSIT');
@@ -383,66 +380,34 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
         amount: '12.50',
         txHash: '0xabc',
         fromAddress: '0xfrom',
-        counterpartyIsVasp: true,
       } as any),
     ).rejects.toBe(denial);
 
     expect(prisma.inboundTransferSignal.create).not.toHaveBeenCalled();
   });
 
-  it('should reject a crypto inbound signal missing counterpartyIsVasp', async () => {
+  // 对手方波二：客户自报"对手方是不是 VASP"整条链拆除——crypto 信号不再要求这个字段，
+  // 也不再落它（对手方归因改由 ⚡ 喂归因写在订单上，见 sumsub mock 触点登记册）。
+  it('crypto 信号无需自报 VASP 标记即可创建，信号行不带 counterpartyIsVasp', async () => {
     customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
     prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
     prisma.asset.findFirst.mockResolvedValue(usdtAsset);
+    prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce(null);
+    prisma.inboundTransferSignal.create.mockResolvedValue({ id: 'sig-noflag-1', signalNo: 'SIG0003' });
+    prisma.inboundTransferSignal.findUnique.mockResolvedValueOnce({ id: 'sig-noflag-1', signalNo: 'SIG0003' });
 
-    await expect(
-      service.createForCustomer('cust-1', {
-        network: 'TRON',
-        toAddress: cryptoWallet.address,
-        contractAddress: usdtAsset.contractAddress,
-        amount: '12.50',
-        txHash: '0xabc',
-        fromAddress: '0xfrom',
-      } as any),
-    ).rejects.toThrow('counterpartyIsVasp is required for crypto deposits');
-    expect(prisma.inboundTransferSignal.create).not.toHaveBeenCalled();
-  });
+    const result = await service.createForCustomer('cust-1', {
+      network: 'TRON',
+      toAddress: cryptoWallet.address,
+      contractAddress: usdtAsset.contractAddress,
+      amount: '12.50',
+      txHash: '0xabc',
+      fromAddress: '0xfrom',
+    } as any);
 
-  it('should reject a crypto inbound signal with counterpartyIsVasp explicitly null', async () => {
-    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
-    prisma.wallet.findFirst.mockResolvedValue(cryptoWallet);
-    prisma.asset.findFirst.mockResolvedValue(usdtAsset);
-
-    await expect(
-      service.createForCustomer('cust-1', {
-        network: 'TRON',
-        toAddress: cryptoWallet.address,
-        contractAddress: usdtAsset.contractAddress,
-        amount: '12.50',
-        txHash: '0xabc',
-        fromAddress: '0xfrom',
-        counterpartyIsVasp: null as any,
-      } as any),
-    ).rejects.toThrow('counterpartyIsVasp is required for crypto deposits');
-    expect(prisma.inboundTransferSignal.create).not.toHaveBeenCalled();
-  });
-
-  it('should reject a fiat inbound signal that provides counterpartyIsVasp', async () => {
-    customerAccess.assertTradingIntake.mockResolvedValue({ fold: false });
-    prisma.wallet.findFirst.mockResolvedValue(fiatWallet);
-    prisma.asset.findFirst.mockResolvedValue(aedAsset);
-
-    await expect(
-      service.createForCustomer('cust-1', {
-        network: 'AED_ZAND',
-        iban: fiatWallet.iban,
-        amount: '88.10',
-        referenceNo: 'REF-1001',
-        fromIban: 'IBAN-001',
-        counterpartyIsVasp: false,
-      } as any),
-    ).rejects.toThrow('counterpartyIsVasp must not be provided for fiat deposits');
-    expect(prisma.inboundTransferSignal.create).not.toHaveBeenCalled();
+    expect(result.id).toBe('sig-noflag-1');
+    const createArg = prisma.inboundTransferSignal.create.mock.calls[0][0];
+    expect(createArg.data).not.toHaveProperty('counterpartyIsVasp');
   });
 
   it('should return existing inbound signal when dedupe key already exists', async () => {
@@ -621,7 +586,6 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
         channelType: 'CRYPTO',
         txHash: '0xabc',
         fromAddress: '0xfrom',
-        counterpartyIsVasp: true,
         submittedAt: new Date(),
       },
     ]);
@@ -677,9 +641,8 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
       undefined,
       undefined,
     );
-    expect(depositService.detected).toHaveBeenCalledWith(
-      expect.objectContaining({ counterpartyIsVasp: true }),
-    );
+    // 自报链拆除:信号→detected() 不再透传任何 VASP 标记。
+    expect(depositService.detected.mock.calls[0][0]).not.toHaveProperty('counterpartyIsVasp');
   });
 
   // 波五 T4 评审 Important（执行期勘误）：Simulate Deposit 是"自报→扫描"两步
@@ -701,7 +664,6 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
         channelType: 'CRYPTO',
         txHash: '0xabc',
         fromAddress: '0xfrom',
-        counterpartyIsVasp: true,
         submittedAt: new Date(),
       },
     ]);
@@ -760,7 +722,6 @@ describe('InboundTransferSignalsService · 既有行为回归（钥匙改按网�
         channelType: 'CRYPTO',
         txHash: '0xfrozen',
         fromAddress: '0xfrom',
-        counterpartyIsVasp: true,
         submittedAt: new Date(),
       },
     ]);

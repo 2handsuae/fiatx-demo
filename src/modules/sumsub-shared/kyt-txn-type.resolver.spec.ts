@@ -1,22 +1,27 @@
 import { resolveKytTxnType } from './kyt-txn-type.resolver';
 
 describe('resolveKytTxnType', () => {
-  const vasp = { assetType: 'CRYPTO', currency: 'USDT', counterpartyIsVasp: true };
+  it('法币 → finance / NOT_CRYPTO', () => {
+    expect(resolveKytTxnType({ assetType: 'FIAT' })).toEqual({ type: 'finance', reason: 'NOT_CRYPTO' });
+  });
 
-  it.each([
-    // [说明, 输入, 期望 type, 期望 reason]
-    ['法币直接短路',            { assetType: 'FIAT', currency: 'AED', amount: 99999, counterpartyIsVasp: true }, 'finance', 'NOT_CRYPTO'],
-    ['非 VASP 对手方',          { ...vasp, counterpartyIsVasp: false, amount: 99999 },                            'finance', 'COUNTERPARTY_NOT_VASP'],
-    ['VASP 未知(null)',        { ...vasp, counterpartyIsVasp: null, amount: 99999 },                             'finance', 'COUNTERPARTY_NOT_VASP'],
-    ['低于阈值',                { ...vasp, amount: 999.99 },                                                      'finance', 'BELOW_TR_THRESHOLD'],
-    ['正好等于阈值 → TR',       { ...vasp, amount: 1000 },                                                        'travelRule', 'TR_REQUIRED'],
-    ['高于阈值 → TR',           { ...vasp, amount: 1000.01 },                                                     'travelRule', 'TR_REQUIRED'],
-    ['AED 阈值 3500 边界',      { assetType: 'CRYPTO', currency: 'AED', counterpartyIsVasp: true, amount: 3500 }, 'travelRule', 'TR_REQUIRED'],
-    ['AED 低于 3500',           { assetType: 'CRYPTO', currency: 'AED', counterpartyIsVasp: true, amount: 3499 }, 'finance', 'BELOW_TR_THRESHOLD'],
-    ['币种未配阈值 → 兜底',      { assetType: 'CRYPTO', currency: 'BTC', counterpartyIsVasp: true, amount: 1e9 },  'finance', 'NO_TR_THRESHOLD_CONFIGURED'],
-  ])('%s', (_label, input, expectedType, expectedReason) => {
-    const out = resolveKytTxnType(input as any);
-    expect(out.type).toBe(expectedType);
-    expect(out.reason).toBe(expectedReason);
+  it('crypto 一律 travelRule / TR_REQUIRED —— 与币种、金额、对手方无关(含无阈值币种 BTC、低于旧阈值金额、旧自报 VASP=false)', () => {
+    // 阈值与对手方归因另走 mock TR 规则(只管挂不挂起),不再左右提交类型。
+    // 用旧形态的富输入(宽类型变量,绕过字面量多余属性检查)证明多余字段不再有任何影响。
+    const legacyShaped: Array<Record<string, unknown>> = [
+      { assetType: 'CRYPTO' },
+      { assetType: 'CRYPTO', currency: 'BTC', amount: 1e9, counterpartyIsVasp: true },
+      { assetType: 'CRYPTO', currency: 'USDT', amount: 0.01, counterpartyIsVasp: false },
+      { assetType: 'CRYPTO', currency: 'AED', amount: 1, counterpartyIsVasp: null },
+    ];
+    for (const input of legacyShaped) {
+      expect(resolveKytTxnType(input as any)).toEqual({ type: 'travelRule', reason: 'TR_REQUIRED' });
+    }
+  });
+
+  it('assetType 大小写不敏感', () => {
+    expect(resolveKytTxnType({ assetType: 'crypto' })).toEqual({ type: 'travelRule', reason: 'TR_REQUIRED' });
+    expect(resolveKytTxnType({ assetType: 'Crypto' })).toEqual({ type: 'travelRule', reason: 'TR_REQUIRED' });
+    expect(resolveKytTxnType({ assetType: 'fiat' })).toEqual({ type: 'finance', reason: 'NOT_CRYPTO' });
   });
 });

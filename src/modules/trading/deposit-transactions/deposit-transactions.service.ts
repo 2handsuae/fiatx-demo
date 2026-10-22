@@ -1247,7 +1247,6 @@ export class DepositTransactionsService {
     referenceNo?: string | null;
     providerTxnId?: string | null;
     traceId?: string;
-    counterpartyIsVasp?: boolean | null;
     effectiveDate?: string;
   }) {
     const wallet = await (this.prisma as any).wallet.findUnique({ where: { id: input.toWalletId } });
@@ -1299,7 +1298,6 @@ export class DepositTransactionsService {
         toAddress: wallet.address,
         toIban: wallet.iban,
         limitHoldReason,
-        counterpartyIsVasp: input.counterpartyIsVasp ?? null,
         effectiveDate: input.effectiveDate ?? undefined,
       },
     });

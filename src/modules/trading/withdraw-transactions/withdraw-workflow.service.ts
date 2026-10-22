@@ -2484,12 +2484,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       }
 
       const amount = Number(w.amount);
-      const decision = resolveKytTxnType({
-        assetType: w.asset?.type,
-        currency: w.asset?.currency,
-        amount,
-        counterpartyIsVasp: w.counterpartyIsVasp,
-      });
+      const decision = resolveKytTxnType({ assetType: w.asset?.type });
       const SINGLE_TXN_SUBMIT_ENABLED =
         process.env.SUMSUB_SINGLE_TXN_SUBMIT === 'true' ||
         process.env.SUMSUB_MOCK_MODE === 'true';
