@@ -770,6 +770,10 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/withdrawal-addresses/:addressNo/unsuspend', 'Lift withdrawal address suspension', [
     'WITHDRAWAL_ADDRESS_WRITE',
   ]),
+  // 筛查站在 Sumsub 一侧，与喂裁决同义 → 挂 DEMO_VERDICT_WRITE（零新权限组；合规官同时持 WITHDRAWAL_ADDRESS_READ）
+  route('POST', '/admin/withdrawal-addresses/:addressNo/simulate-screening', 'Feed a simulated address screening verdict (demo only)', [
+    'DEMO_VERDICT_WRITE',
+  ]),
 
   // Withdrawal Fee Levels
   route('GET', '/admin/withdrawal-fee-levels', 'List withdrawal fee levels', [

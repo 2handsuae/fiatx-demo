@@ -4,6 +4,7 @@ import { validate } from 'class-validator';
 import { CreateWithdrawalAddressDto } from './create-withdrawal-address.dto';
 import { CreateBankAccountDto } from './create-bank-account.dto';
 import { UpdateWithdrawalAddressDto } from './update-withdrawal-address.dto';
+import { SimulateScreeningDto } from './simulate-screening.dto';
 
 /** 与 main.ts 全局 ValidationPipe 同口径：transform + whitelist */
 async function check<T extends object>(cls: new () => T, plain: Record<string, unknown>) {
@@ -56,6 +57,22 @@ describe('CreateBankAccountDto', () => {
   it('ownerType 必填且限值域', async () => {
     expect((await check(CreateBankAccountDto, { ...bankBase, ownerType: undefined })).failedProps).toEqual(['ownerType']);
     expect((await check(CreateBankAccountDto, { ...bankBase, ownerType: 'COMPANY' })).failedProps).toEqual(['ownerType']);
+  });
+});
+
+describe('SimulateScreeningDto（⚡筛查喂：answer + reason 缺一 400）', () => {
+  it('answer + reason 齐 → 通过', async () => {
+    expect((await check(SimulateScreeningDto, { answer: 'RED', reason: 'Sanctions exposure' })).failedProps).toEqual([]);
+  });
+
+  it('缺 reason → 400；空串 reason → 400', async () => {
+    expect((await check(SimulateScreeningDto, { answer: 'GREEN' })).failedProps).toEqual(['reason']);
+    expect((await check(SimulateScreeningDto, { answer: 'GREEN', reason: '' })).failedProps).toEqual(['reason']);
+  });
+
+  it('缺 answer / 越值域 → 400', async () => {
+    expect((await check(SimulateScreeningDto, { reason: 'x' })).failedProps).toEqual(['answer']);
+    expect((await check(SimulateScreeningDto, { answer: 'ORANGE', reason: 'x' })).failedProps).toEqual(['answer']);
   });
 });
 

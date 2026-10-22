@@ -6,6 +6,7 @@ import { WithdrawalAddressService } from './withdrawal-address.service';
 import { ListWithdrawalAddressQueryDto } from './dto/list-withdrawal-address-query.dto';
 import { SuspendWithdrawalAddressDto } from './dto/suspend-withdrawal-address.dto';
 import { UnsuspendWithdrawalAddressDto } from './dto/unsuspend-withdrawal-address.dto';
+import { SimulateScreeningDto } from './dto/simulate-screening.dto';
 import { AdminPermissionGuard } from '../../identity/access-control/admin-permission.guard';
 
 @ApiTags('admin/withdrawal-addresses')
@@ -60,5 +61,12 @@ export class WithdrawalAddressAdminController {
   async skipCooling(@Request() req: any, @Param('addressNo') addressNo: string, @Body() body: { reason: string }) {
     const actor = this.extractAdmin(req);
     return this.workflowService.skipCoolingPeriod(addressNo, actor, body?.reason);
+  }
+
+  @Post(':addressNo/simulate-screening')
+  @ApiOperation({ summary: 'Feed a simulated address screening verdict (demo only)' })
+  async simulateScreening(@Request() req: any, @Param('addressNo') addressNo: string, @Body() dto: SimulateScreeningDto) {
+    const actor = this.extractAdmin(req);
+    return this.workflowService.feedScreening(addressNo, actor, dto.answer, dto.reason);
   }
 }

@@ -128,6 +128,22 @@ describe('rbac.catalog', () => {
     ).toBe(true);
   });
 
+  // 对手方波一 T5：地址筛查 ⚡喂挂 DEMO_VERDICT_WRITE（站在 Sumsub 一侧，与喂裁决同位），零新权限组。
+  // 未登记 = AdminPermissionGuard 全员 403，故断言「登记了 + 谁点得动」。
+  it('simulate-screening route is registered under DEMO_VERDICT_WRITE: compliance officer can click it (and read the page), treasury cannot', () => {
+    const code = buildPermissionCode('POST', '/admin/withdrawal-addresses/:addressNo/simulate-screening');
+    expect(code).toBe('api.post.admin_withdrawal_addresses_addressno_simulate_screening');
+
+    const def = RBAC_PERMISSION_DEFINITIONS.find((item) => item.code === code);
+    expect(def).toBeDefined();
+    expect(def!.groups).toEqual(['DEMO_VERDICT_WRITE']);
+
+    const map = buildRolePermissionCodeMap();
+    expect(map.COMPLIANCE_OFFICER).toContain(code);
+    expect(map.COMPLIANCE_OFFICER).toContain(buildPermissionCode('GET', '/admin/withdrawal-addresses/:addressNo'));
+    expect(map.TREASURY_OFFICER).not.toContain(code);
+  });
+
   // 甲波一 T5 修2（复审新 Important：族区分性质零红测，点 3 纯函数测试）：C1 修复的
   // 前提是这五个标记码各自只挂一个组、且互不相同——如果哪个码不小心挂了两个组，或两个码
   // 挂了同一个组，"族独占"的假设就塌了，assertOperator 的精确判定也就名不副实。
