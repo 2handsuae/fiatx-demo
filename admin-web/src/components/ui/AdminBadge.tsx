@@ -19,6 +19,7 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   DISABLED:             'failed',
   FROZEN:               'rejected',
   PENDING_ACTIVATION:   'pending',
+  PENDING_VERIFICATION: 'pending',
   CANCELLED:            'deleted',
   SUSPENDED:            'failed',
   USED:                 'info',

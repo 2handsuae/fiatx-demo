@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { AlertTriangle } from 'lucide-react';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
@@ -20,9 +21,16 @@ interface WithdrawalAddr {
   label: string | null;
   counterpartyVaspName: string | null;
   counterpartyVaspDid: string | null;
-  ownershipDeclaredAt: string | null;
-  ownershipProofType: string | null;
+  ownerType: string;
   beneficiaryName: string | null;
+  beneficiaryRelationship: string | null;
+  declaredHosting: string | null;
+  hostingMismatch: boolean;
+  ownershipProofType: string | null;
+  ownershipDeclaredAt: string | null;
+  ownershipVerifiedAt: string | null;
+  screeningAnswer: string | null;
+  screenedAt: string | null;
   iban: string | null;
   swiftBic: string | null;
   bankName: string | null;
@@ -114,6 +122,39 @@ const AddressTypeBadge = ({ type }: { type: string }) => {
   );
 };
 
+/* ── Screening verdict badge ── */
+
+type ScreeningAnswer = 'GREEN' | 'YELLOW' | 'RED';
+
+const SCREENING_CLS: Record<string, string> = {
+  GREEN:  'bg-adm-green/10 text-adm-green border-adm-green/25',
+  YELLOW: 'bg-adm-amber/10 text-adm-amber border-adm-amber/25',
+  RED:    'bg-adm-red/10   text-adm-red   border-adm-red/25',
+};
+
+const ScreeningBadge = ({ answer }: { answer: string }) => {
+  const cls = SCREENING_CLS[answer] ?? 'bg-adm-t3/10 text-adm-t2 border-adm-t3/25';
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${cls}`}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+      {answer}
+    </span>
+  );
+};
+
+const OWNER_LABEL: Record<string, string> = {
+  SELF: 'Self',
+  THIRD_PARTY: 'Third party',
+};
+
+const PROOF_LABEL: Record<string, string> = {
+  SIGNATURE: 'Wallet signature',
+  DECLARATION: 'Self declaration',
+  ATTESTATION: 'Third-party attestation',
+};
+
 /* ── Main Component ──────────────────────────────────────────── */
 
 export default function WithdrawalAddressDetail() {
@@ -132,8 +173,12 @@ export default function WithdrawalAddressDetail() {
   const [unsuspendReason, setUnsuspendReason] = useState('');
   const [showSkipCoolingModal, setShowSkipCoolingModal] = useState(false);
   const [skipCoolingReason, setSkipCoolingReason] = useState('');
+  const [screeningPick, setScreeningPick] = useState<ScreeningAnswer | null>(null);
+  const [screeningReason, setScreeningReason] = useState('');
 
   const canWrite = hasAnyPermission([PERMISSIONS.WITHDRAWAL_ADDRESS_SUSPEND]);
+  // ⚡筛查喂挂 DEMO_VERDICT_WRITE（合规官持有，金库不持有）——有意不用 canWrite 门它
+  const canSimulateScreening = hasAnyPermission([PERMISSIONS.WITHDRAWAL_ADDRESS_SIMULATE_SCREENING]);
 
   const fetchData = async () => {
     if (!addressNo) return;
@@ -178,6 +223,38 @@ export default function WithdrawalAddressDetail() {
       void fetchData();
     } catch (err) {
       if (!(err instanceof AdminSessionError)) setError('Failed to skip cooling period');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSimulateScreening = async () => {
+    if (!screeningPick || !screeningReason.trim()) return;
+    setActionLoading(true);
+    setError(null);
+    try {
+      const res = await adminFetch(
+        `${import.meta.env.VITE_API_URL}/admin/withdrawal-addresses/${addressNo}/simulate-screening`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ answer: screeningPick, reason: screeningReason }),
+        },
+      );
+      if (!res.ok) {
+        setError(await getApiErrorMessage(res, 'Failed to feed screening verdict'));
+        return;
+      }
+      setNotice(
+        screeningPick === 'RED'
+          ? 'Screening RED fed — address rejected.'
+          : `Screening ${screeningPick} recorded.`,
+      );
+      setScreeningPick(null);
+      setScreeningReason('');
+      void fetchData();
+    } catch (err) {
+      if (!(err instanceof AdminSessionError)) setError('Failed to feed screening verdict');
     } finally {
       setActionLoading(false);
     }
@@ -271,6 +348,8 @@ export default function WithdrawalAddressDetail() {
   const isBank = data.addressType === 'BANK';
   const isVasp = data.addressType === 'VASP';
   const showActions = isActive || data.status === 'SUSPENDED';
+  const awaitingScreening = data.status === 'PENDING_VERIFICATION' || data.status === 'PENDING_ACTIVATION';
+  const isThirdParty = data.ownerType === 'THIRD_PARTY';
 
   const remaining = isPending ? Math.max(0, new Date(data.activatesAt).getTime() - Date.now()) : 0;
   const remainingHours = Math.floor(remaining / 3600000);
@@ -368,7 +447,6 @@ export default function WithdrawalAddressDetail() {
                   <InfoField label="IBAN" value={data.iban} mono />
                   <InfoField label="SWIFT / BIC" value={data.swiftBic} mono />
                   <InfoField label="Bank Name" value={data.bankName} />
-                  <InfoField label="Beneficiary Name" value={data.beneficiaryName} />
                 </>
               ) : (
                 <>
@@ -380,31 +458,93 @@ export default function WithdrawalAddressDetail() {
             </div>
           </section>
 
-          {/* ④ VASP Info (conditional) */}
-          {isVasp && (
+          {/* ④ Attribution — 系统归因（地址筛查/Travel Rule 的结论，不是客户自述） */}
+          {!isBank && (
             <section className="px-6 py-5">
-              <Cap>VASP Information</Cap>
+              <Cap>Attribution</Cap>
+              <p className="mt-1 font-mono text-[10px] text-adm-t3">
+                What the system attributed this address to — independent of what the customer declared.
+              </p>
               <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
-                <InfoField label="Counterparty VASP" value={data.counterpartyVaspName} />
-                <InfoField label="VASP DID" value={data.counterpartyVaspDid} mono />
+                <div className="min-w-0">
+                  <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Address Type (system attribution)</div>
+                  <div className="mt-1"><AddressTypeBadge type={data.addressType} /></div>
+                </div>
+                {isVasp && (
+                  <>
+                    <InfoField label="Counterparty VASP" value={data.counterpartyVaspName} />
+                    <InfoField label="VASP DID" value={data.counterpartyVaspDid} mono />
+                  </>
+                )}
               </div>
             </section>
           )}
 
-          {/* ⑤ Ownership Declaration */}
+          {/* ⑤ Self-declaration & red flag — 客户自报托管类型 vs 系统归因 */}
+          {!isBank && (
+            <section className="px-6 py-5">
+              <Cap>Self-declaration &amp; Red Flag</Cap>
+              {data.hostingMismatch && (
+                <div className="mt-3 flex items-start gap-2.5 rounded border border-adm-red/40 bg-adm-red/10 px-4 py-3 text-adm-red">
+                  <AlertTriangle size={16} className="mt-px shrink-0" />
+                  <div>
+                    <div className="font-mono text-[12px] font-bold">Declared hosting does not match attribution</div>
+                    <div className="mt-0.5 font-mono text-[10px]">
+                      Customer declared {TYPE_LABEL[data.declaredHosting ?? ''] ?? data.declaredHosting ?? '—'}; system attributed {TYPE_LABEL[data.addressType] ?? data.addressType}.
+                      Flag only — registration was not blocked.
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+                <InfoField
+                  label="Declared Hosting (customer-declared)"
+                  value={data.declaredHosting ? (TYPE_LABEL[data.declaredHosting] ?? data.declaredHosting) : null}
+                />
+                <InfoField label="Hosting Match" value={data.hostingMismatch ? 'Mismatch' : 'Consistent'} />
+              </div>
+            </section>
+          )}
+
+          {/* ⑥ Beneficiary */}
           <section className="px-6 py-5">
-            <Cap>Ownership Declaration</Cap>
+            <Cap>Beneficiary</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+              <InfoField label="Owner" value={OWNER_LABEL[data.ownerType] ?? data.ownerType} />
+              <InfoField label="Beneficiary Name" value={data.beneficiaryName} />
+              {isThirdParty && (
+                <InfoField label="Relationship to Customer" value={data.beneficiaryRelationship} />
+              )}
               <InfoField
-                label="Declared"
-                value={data.ownershipDeclaredAt ? fmt(data.ownershipDeclaredAt) : '—'}
-                mono
+                label="Evidence"
+                value={data.ownershipProofType ? (PROOF_LABEL[data.ownershipProofType] ?? data.ownershipProofType) : null}
               />
-              <InfoField label="Proof Type" value={data.ownershipProofType || '—'} />
+              <InfoField label="Declared" value={data.ownershipDeclaredAt ? fmt(data.ownershipDeclaredAt) : null} mono />
+              {data.ownershipProofType === 'SIGNATURE' && (
+                <InfoField
+                  label="Ownership Verified"
+                  value={data.ownershipVerifiedAt ? fmt(data.ownershipVerifiedAt) : 'Awaiting wallet signature'}
+                  mono={!!data.ownershipVerifiedAt}
+                />
+              )}
             </div>
           </section>
 
-          {/* ⑥ Cooling Period (conditional) */}
+          {/* ⑦ Screening */}
+          {data.screeningAnswer && (
+            <section className="px-6 py-5">
+              <Cap>Screening</Cap>
+              <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
+                <div className="min-w-0">
+                  <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">Verdict</div>
+                  <div className="mt-1"><ScreeningBadge answer={data.screeningAnswer} /></div>
+                </div>
+                <InfoField label="Screened At" value={data.screenedAt ? fmt(data.screenedAt) : null} mono />
+              </div>
+            </section>
+          )}
+
+          {/* ⑧ Cooling Period (conditional) */}
           {isPending && (
             <section className="px-6 py-5">
               <Cap>Cooling Period</Cap>
@@ -423,7 +563,7 @@ export default function WithdrawalAddressDetail() {
             </section>
           )}
 
-          {/* ⑦ Suspension Info (conditional) */}
+          {/* ⑨ Suspension Info (conditional) */}
           {data.status === 'SUSPENDED' && (
             <section className="px-6 py-5">
               <Cap>Suspension</Cap>
@@ -437,7 +577,7 @@ export default function WithdrawalAddressDetail() {
             </section>
           )}
 
-          {/* ⑧ Audit */}
+          {/* ⑩ Audit */}
           <section className="px-6 py-5">
             <Cap>Audit</Cap>
             <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
@@ -490,6 +630,37 @@ export default function WithdrawalAddressDetail() {
               >
                 ⚡ Skip Cooling Period
               </button>
+            </div>
+          )}
+
+          {/* Screening Simulation — demo backdoor：站在 Sumsub 一侧喂地址筛查结论 */}
+          {canSimulateScreening && awaitingScreening && (
+            <div className="border-b border-adm-border py-4">
+              <Cap>Screening Simulation ⚡</Cap>
+              <p className="mt-1 font-mono text-[10px] text-adm-t3">Demo backdoor — feeds the address-screening verdict, as if returned by Sumsub. RED rejects the address for good. Reason is audited.</p>
+              <div className="mt-2 flex flex-col gap-2">
+                <button
+                  onClick={() => setScreeningPick('GREEN')}
+                  disabled={actionLoading}
+                  className={adminButtonClass('simulationAction')}
+                >
+                  ⚡ Feed GREEN
+                </button>
+                <button
+                  onClick={() => setScreeningPick('YELLOW')}
+                  disabled={actionLoading}
+                  className={adminButtonClass('simulationAction')}
+                >
+                  ⚡ Feed YELLOW
+                </button>
+                <button
+                  onClick={() => setScreeningPick('RED')}
+                  disabled={actionLoading}
+                  className={adminButtonClass('workflowNegative')}
+                >
+                  ⚡ Feed RED
+                </button>
+              </div>
             </div>
           )}
 
@@ -581,6 +752,48 @@ export default function WithdrawalAddressDetail() {
                 className={adminButtonClass('workflowPrimary')}
               >
                 Unsuspend
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Screening Simulation Modal ── */}
+      {screeningPick && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="w-full max-w-md rounded-xl border border-adm-border bg-adm-panel shadow-xl">
+            <div className="border-b border-adm-border px-6 py-4">
+              <h2 className="text-base font-semibold text-adm-t1">Feed {screeningPick} Screening Verdict</h2>
+              <p className="mt-1 text-xs text-adm-t3">
+                {screeningPick === 'RED'
+                  ? 'The address will be rejected and can never be used or re-registered.'
+                  : 'The screening result is rewritten; the address stays in its current state.'}
+              </p>
+            </div>
+            <div className="px-6 py-4">
+              <label className="block font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3 mb-1.5">
+                Reason
+              </label>
+              <textarea
+                value={screeningReason}
+                onChange={(e) => setScreeningReason(e.target.value)}
+                placeholder="e.g. Address linked to a sanctioned cluster"
+                className="w-full rounded border border-adm-border bg-adm-bg px-2.5 py-2 text-xs text-adm-t1 placeholder:text-adm-t3 outline-none focus:border-adm-amber h-20 resize-none"
+              />
+            </div>
+            <div className="flex justify-end gap-3 border-t border-adm-border px-6 py-4">
+              <button
+                onClick={() => { setScreeningPick(null); setScreeningReason(''); }}
+                className={adminButtonClass('modalCancel')}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleSimulateScreening()}
+                disabled={!screeningReason.trim() || actionLoading}
+                className={adminButtonClass(screeningPick === 'RED' ? 'workflowNegative' : 'workflowPrimary')}
+              >
+                Feed {screeningPick}
               </button>
             </div>
           </div>

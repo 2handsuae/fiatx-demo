@@ -25,6 +25,7 @@ interface WithdrawalAddr {
   customerName: string | null;
   address: string;
   addressType: string;
+  ownerType: string;
   network: string;
   label: string | null;
   status: string;
@@ -73,6 +74,30 @@ const AddressTypeBadge = ({ type }: { type: string }) => {
     >
       <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
       {TYPE_LABEL[type] || type}
+    </span>
+  );
+};
+
+/* ── Owner badge（SELF = 本人名下；THIRD_PARTY = 第三方受益人，管理员需留意） ── */
+
+const OWNER_CLS: Record<string, string> = {
+  SELF:        'bg-adm-t3/10 text-adm-t2 border-adm-t3/25',
+  THIRD_PARTY: 'bg-adm-blue/10 text-adm-blue border-adm-blue/25',
+};
+
+const OWNER_LABEL: Record<string, string> = {
+  SELF: 'Self',
+  THIRD_PARTY: 'Third party',
+};
+
+const OwnerBadge = ({ ownerType }: { ownerType: string }) => {
+  const cls = OWNER_CLS[ownerType] ?? 'bg-adm-t3/10 text-adm-t2 border-adm-t3/25';
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${cls}`}
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
+      {OWNER_LABEL[ownerType] || ownerType}
     </span>
   );
 };
@@ -212,11 +237,13 @@ const WithdrawalAddressList = () => {
           className={`${fi} w-40`}
         >
           <option value="">All status</option>
+          <option value="PENDING_VERIFICATION">PENDING_VERIFICATION</option>
           <option value="PENDING_ACTIVATION">PENDING_ACTIVATION</option>
           <option value="ACTIVE">ACTIVE</option>
           <option value="CANCELLED">CANCELLED</option>
           <option value="SUSPENDED">SUSPENDED</option>
           <option value="DEACTIVATED">DEACTIVATED</option>
+          <option value="REJECTED">REJECTED</option>
         </select>
         <select
           value={filters.addressType}
@@ -262,6 +289,7 @@ const WithdrawalAddressList = () => {
                   ['Network',       '90px'],
                   ['Address',       '160px'],
                   ['Type',          '110px'],
+                  ['Owner',         '110px'],
                   ['Status',        '130px'],
                   ['Registered',    '150px'],
                 ] as [string, string][]
@@ -279,14 +307,14 @@ const WithdrawalAddressList = () => {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   Loading…
                 </td>
               </tr>
             )}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
+                <td colSpan={10} className="px-4 py-10 text-center font-mono text-[11px] text-adm-t3">
                   No withdrawal addresses found.
                 </td>
               </tr>
@@ -353,6 +381,11 @@ const WithdrawalAddressList = () => {
                 {/* Type */}
                 <td className="px-4 py-2.5">
                   <AddressTypeBadge type={item.addressType} />
+                </td>
+
+                {/* Owner */}
+                <td className="px-4 py-2.5">
+                  <OwnerBadge ownerType={item.ownerType} />
                 </td>
 
                 {/* Status */}

@@ -283,6 +283,7 @@ export const PERMISSIONS = {
   WITHDRAWAL_ADDRESS_SUSPEND: 'api.post.admin_withdrawal_addresses_addressno_suspend',
   WITHDRAWAL_ADDRESS_SKIP_COOLING: 'api.post.admin_withdrawal_addresses_addressno_skip_cooling',
   WITHDRAWAL_ADDRESS_UNSUSPEND: 'api.post.admin_withdrawal_addresses_addressno_unsuspend',
+  WITHDRAWAL_ADDRESS_SIMULATE_SCREENING: 'api.post.admin_withdrawal_addresses_addressno_simulate_screening',
   WITHDRAWAL_FEE_LEVELS_READ: 'api.get.admin_withdrawal_fee_levels',
   SWAP_FEE_LEVELS_READ: 'api.get.admin_swap_fee_levels',
   SWAP_FEE_LEVEL_RETIRE: 'api.post.admin_swap_fee_levels_levelcode_retire',
