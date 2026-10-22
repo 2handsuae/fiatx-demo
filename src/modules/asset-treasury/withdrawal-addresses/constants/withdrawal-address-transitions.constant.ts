@@ -6,15 +6,23 @@ export enum WithdrawalAddressAction {
   SUSPEND = 'SUSPEND',       // 管理员强制暂停
   UNSUSPEND = 'UNSUSPEND',   // 管理员恢复（D5 补的出边）
   DEACTIVATE = 'DEACTIVATE', // 客户自助停用
+  RELEASE = 'RELEASE',       // 2026-10-22 波一：签名验证 + 筛查两绿汇合，PENDING_VERIFICATION 推进进冷却
+  REJECT = 'REJECT',         // 2026-10-22 波一：筛查 RED（⚡喂 RED 打在 pending 态）
 }
 
-/** 提现地址状态迁移表（法二，spec §5）。CANCELLED / DEACTIVATED 是终态。 */
+/**
+ * 提现地址状态迁移表（法二，spec §5）。CANCELLED / DEACTIVATED / REJECTED 是终态。
+ * 2026-10-22 波一：+PENDING_VERIFICATION（自托管×本人，等签名验证）/ +REJECTED（筛查 RED，占坑即封禁、不可复活），共 7 态 9 边 7 动作。
+ * 首法币直落 ACTIVE 与「尾号 3333 登记即拒」都是登记时的落点计算，不是边。
+ */
 export const WITHDRAWAL_ADDRESS_TRANSITIONS: Record<string, Partial<Record<WithdrawalAddressAction, string>>> = {
-  PENDING_ACTIVATION: { [WithdrawalAddressAction.ACTIVATE]: 'ACTIVE', [WithdrawalAddressAction.CANCEL]: 'CANCELLED' },
-  ACTIVE:             { [WithdrawalAddressAction.SUSPEND]: 'SUSPENDED', [WithdrawalAddressAction.DEACTIVATE]: 'DEACTIVATED' },
-  SUSPENDED:          { [WithdrawalAddressAction.UNSUSPEND]: 'ACTIVE' },
-  CANCELLED:          {},
-  DEACTIVATED:        {},
+  PENDING_VERIFICATION: { [WithdrawalAddressAction.RELEASE]: 'PENDING_ACTIVATION', [WithdrawalAddressAction.REJECT]: 'REJECTED', [WithdrawalAddressAction.CANCEL]: 'CANCELLED' },
+  PENDING_ACTIVATION:   { [WithdrawalAddressAction.ACTIVATE]: 'ACTIVE', [WithdrawalAddressAction.CANCEL]: 'CANCELLED', [WithdrawalAddressAction.REJECT]: 'REJECTED' },
+  ACTIVE:               { [WithdrawalAddressAction.SUSPEND]: 'SUSPENDED', [WithdrawalAddressAction.DEACTIVATE]: 'DEACTIVATED' },
+  SUSPENDED:            { [WithdrawalAddressAction.UNSUSPEND]: 'ACTIVE' },
+  CANCELLED:            {},
+  DEACTIVATED:          {},
+  REJECTED:             {},
 };
 
 export function assertWithdrawalAddressTransition(from: string, action: WithdrawalAddressAction): string {
