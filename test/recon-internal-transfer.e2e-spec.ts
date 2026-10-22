@@ -334,7 +334,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
    *  本身不需要余额铺底就能成功——不为它单独铺底。 */
   async function makeSuccessfulFiatWithdraw(amount: string, customer: { id: string; customerNo: string }, toIban: string): Promise<any> {
     // 改成收一个**独立客户**（合并 main / V3 波一 T5）：新模型下一客户一网络只有一行
-    // 收款地址，Bob 的那一行是 demo:all 花名册 29 笔反复用过的公共钱包，外部收盘上挂满
+    // 收款地址，Bob 的那一行是 demo:all 花名册 35 笔反复用过的公共钱包，外部收盘上挂满
     // 了别人的历史；③ 的判据要按「这只钱包出 net+fee、回 net，净变化 = -fee」精确摆
     // 收盘余额才能重跑自愈，落在这样一只公共钱包上永远对不平（案子停在 OPEN）。
     // 独立客户 = 独立钱包 = 干净的外部历史，收盘算术才成立。

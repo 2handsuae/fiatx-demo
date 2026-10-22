@@ -926,6 +926,8 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
         if (!dep.sourceAttributedAt || !dep.sourceClaimedAt) throw new Error(`#${entry.seq} 认领甲: 归因时刻 / 认领时刻应都已落库`);
         await expectAuditCount(ctx, dep.depositNo, 'DEPOSIT_SOURCE_ATTRIBUTED', 1, '⚡喂归因应留痕');
         await expectAuditCount(ctx, dep.depositNo, 'DEPOSIT_SOURCE_CLAIM_SUBMITTED', 1, '客户认领应留痕');
+        // 与 #32 的 0 成对:认领甲确实被挂起要过客户(ACTION_REQUIRED=1),同源对照才是"免问"而不是"本来就没问过"。
+        await expectAuditCount(ctx, dep.depositNo, 'DEPOSIT_ACTION_REQUIRED', 1, '超线 unhosted 应挂起要客户认领');
         claimSelfDepositNo = dep.depositNo;
         console.log(`    fromAddress=${dep.fromAddress}`);
         break;
@@ -978,6 +980,10 @@ export async function runDeposits(ctx: DemoCtx): Promise<Array<{ seq: number; or
         );
         await driveVerdict(ctx, dep.id, 'V12_VASP_UNQUALIFIED');
         dep = await waitDepositStatus(ctx, dep.id, 'MANUAL_CHECKING');
+        // 判别 V12 落点:裁决路径与 #9(V11 转人工)同形,光看终态 RETURNED 错接 V11 也会绿——
+        // 复核台的原因码 vasp_unqualified 与专属审计才是 V12 的指纹,须在后续退回弧覆盖行之前断言。
+        expectColumns(`#${entry.seq} 复核台`, dep, { manualReason: 'vasp_unqualified' });
+        await expectAuditCount(ctx, dep.depositNo, 'DEPOSIT_MANUAL_CHECKING', 1, 'V12 落人工复核台应留痕');
         const ret = await ctx.depositWf.initiateReturn(
           dep.id,
           { reason: 'Counterparty VASP failed qualification — return funds to the originating address (demo fixture)' },
@@ -1569,7 +1575,7 @@ export async function verifyEndState(
   //    (the tables no longer exist), so the runtime assertions are obsolete.
 
   // 5. data.md:3 早已声明生成区由 demo:all 自动写入——这就是那个写入点。写在
-  //    断言判据算完、返回结果之前：不管本轮 29 笔是否全绿，data.md 都应反映
+  //    断言判据算完、返回结果之前：不管本轮 35 笔是否全绿，data.md 都应反映
   //    "刚刚实到的样子"（供排障时对照），而不是只在全绿时才落盘。
   writeDataMdSnapshot(renderDataMdSnapshot(rosterResults, coaRows));
 

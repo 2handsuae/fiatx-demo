@@ -290,7 +290,7 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
         }
         // demo 数据在场（充值单非空）而本块活体行为零——建行被删或判别式漂移，必须报红。
         // ⚠️ 边界：ensureSetup 整段被删（行、审计、连 demo 主流程一起消失）不归本判据管——
-        // 那种退化 demo:all 自己的 29/29 花名册断言会先炸（没有客户收款钱包/提现地址，
+        // 那种退化 demo:all 自己的 35/35 花名册断言会先炸（没有客户收款钱包/提现地址，
         // 充值/提现单一张都建不起来），轮不到这里。
         violations.push({
           rule: 'R5',

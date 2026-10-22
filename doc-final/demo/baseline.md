@@ -383,10 +383,10 @@ sqlite3 -readonly <栈库> "select count(*) from data_subject_requests;"        
 
 | # | 域 | 客户 | 金额 | 终态 | 展品要点（`runDeposits`/`runWithdraws` 内断言的列/审计） |
 |---|---|---|---|---|---|
-| 30 | 充值 | alice | 1500 USDT | SUCCESS | ⚡Unhosted → 超线挂起 → 客户认领 SELF → 回炉 → ⚡①；`sourceClaimType=SELF`，审计 `DEPOSIT_SOURCE_ATTRIBUTED`×1 / `DEPOSIT_SOURCE_CLAIM_SUBMITTED`×1；`fromAddress=TnTuTp9kiuy2NXtvXc1niNxxaHcheKiY1n` |
+| 30 | 充值 | alice | 1500 USDT | SUCCESS | ⚡Unhosted → 超线挂起 → 客户认领 SELF → 回炉 → ⚡①；`sourceClaimType=SELF`，审计 `DEPOSIT_SOURCE_ATTRIBUTED`×1 / `DEPOSIT_ACTION_REQUIRED`×1（与 #32 的 0 成对）/ `DEPOSIT_SOURCE_CLAIM_SUBMITTED`×1；`fromAddress=TnTuTp9kiuy2NXtvXc1niNxxaHcheKiY1n` |
 | 31 | 充值 | bob | 1200 USDT | SUCCESS | 同套路，认领 THIRD_PARTY_PERSON（`Omar Al Mansoori` / `Business partner`）；`fromAddress=TtLuxwQT85Aogkd2C5283ADypk9gMYxPTt` |
 | 32 | 充值 | alice | 1100 USDT | SUCCESS | 与 #30 **同 fromAddress**：⚡Unhosted → 已知来源免问（`knownSourceRef`=#30 单号，`sourceClaimedAt` 为空），审计 `DEPOSIT_KNOWN_SOURCE_MATCHED`×1、`DEPOSIT_ACTION_REQUIRED`×0（没挂起） |
-| 33 | 充值 | kate | 1300 USDT | RETURNED | ⚡VASP·Grey Harbor → ⚡⑫（`V12_VASP_UNQUALIFIED`）→ 人工复核（`manualReason=vasp_unqualified`）→ 运营提退回 → MLRO 批 → 退回腿确认 |
+| 33 | 充值 | kate | 1300 USDT | RETURNED | ⚡VASP·Grey Harbor → ⚡⑫（`V12_VASP_UNQUALIFIED`）→ 人工复核（断言 `manualReason=vasp_unqualified` 且 `DEPOSIT_MANUAL_CHECKING`×1——V12 的指纹，错接 V11 会红）→ 运营提退回 → MLRO 批 → 退回腿确认 |
 | 34 | 提现 | grace | 1200 USDT | SUCCESS | 打她的 `…1111` VASP 地址；`travelRuleSnapshotJson.status=EXCHANGED`，对手方 `Mock VASP Exchange`，审计 `WITHDRAW_TRAVEL_RULE_SNAPSHOTTED`×1 |
 | 35 | 提现 | alice | 1500 USDT | SUCCESS | 打她的已签名自托管地址；快照 `SELF_HOSTED_NO_EXCHANGE`，对手方为空 |
 
