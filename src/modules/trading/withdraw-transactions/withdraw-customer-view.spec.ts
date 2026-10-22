@@ -5,6 +5,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { NotificationsService } from '../../../core/notifications/notifications.service';
+import { TRAVEL_RULE_ADAPTER } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
 
 describe('WithdrawTransactionsService customer view enrichment (Task 3)', () => {
   let service: WithdrawTransactionsService;
@@ -25,6 +26,7 @@ describe('WithdrawTransactionsService customer view enrichment (Task 3)', () => 
         { provide: ApprovalsService, useValue: {} },
         // 本 spec 只测 toCustomerWithdrawView，不触发 updateStatus——不需要真实行为。
         { provide: NotificationsService, useValue: {} },
+        { provide: TRAVEL_RULE_ADAPTER, useValue: {} },
       ],
     }).compile();
 
@@ -61,6 +63,13 @@ describe('WithdrawTransactionsService customer view enrichment (Task 3)', () => 
         sumsubScore: 90,
         sumsubTxnDetailJson: '{}',
         counterpartyIsVasp: true,
+        // 对手方波二：受益人（客户自己登记的）可见；VASP 名录标识 / TR 快照 / 地址簿号不进白名单
+        beneficiaryName: 'Grace Wu',
+        beneficiaryType: 'THIRD_PARTY',
+        withdrawalAddressNo: 'WA0007',
+        counterpartyVaspName: 'Mock VASP Exchange',
+        counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+        travelRuleSnapshotJson: '{"status":"EXCHANGED"}',
         slaDeadline: new Date(),
         slaBreached: true,
         needsReview: true,
@@ -83,6 +92,9 @@ describe('WithdrawTransactionsService customer view enrichment (Task 3)', () => 
       ]);
       expect(view.status).toBe('COMPLIANCE_PENDING');
       expect(view.completedAt).toBeNull();
+      // 对手方波二：受益人两项进客户面（建单时从客户自己的地址簿抄来的）
+      expect(view.beneficiaryName).toBe('Grace Wu');
+      expect(view.beneficiaryType).toBe('THIRD_PARTY');
 
       // 禁入清单（白名单放行制）：statusHistory 原文 / manualReason /
       // sumsub* / kyt* / travelRule* / limitHoldReason* / sla* 等一个不漏；
@@ -97,6 +109,9 @@ describe('WithdrawTransactionsService customer view enrichment (Task 3)', () => 
         'sumsubScore',
         'sumsubTxnDetailJson',
         'counterpartyIsVasp',
+        // 对手方波二：Travel Rule 快照 / VASP DID 是 Sumsub 侧报文与名录标识，永不出客户面
+        'travelRuleSnapshotJson',
+        'counterpartyVaspDid',
         'slaDeadline',
         'slaBreached',
         'needsReview',
@@ -134,9 +149,10 @@ describe('WithdrawTransactionsService customer view enrichment (Task 3)', () => 
       asset: { code: 'USDT-TRON', currency: 'USDT', network: 'TRON', decimals: 6 },
     };
 
-    it('pricingQuote 命中 → view.quote 三键；withdrawalAddress 命中 → addressLabel', async () => {
+    it('pricingQuote 命中 → view.quote 三键；单上带 withdrawalAddressNo → 按该键查地址簿 → addressLabel', async () => {
       jest.spyOn(service, 'findOneInternal').mockResolvedValue({
         ...baseRow,
+        withdrawalAddressNo: 'WA0007',
         pricingQuote: {
           quoteNo: 'WQT1',
           feeLevelCode: 'STD-USDT',
@@ -153,6 +169,47 @@ describe('WithdrawTransactionsService customer view enrichment (Task 3)', () => 
         tierName: 'Tier 1 (0-500)',
       });
       expect(view.addressLabel).toBe('My cold wallet');
+      // 键回链：where 只认业务键 addressNo——不是按 toAddress / toIban 的值反查
+      expect(prisma.withdrawalAddress.findFirst).toHaveBeenCalledTimes(1);
+      expect(prisma.withdrawalAddress.findFirst).toHaveBeenCalledWith({
+        where: { addressNo: 'WA0007' },
+        select: { label: true },
+      });
+    });
+
+    it('地址簿里另有一条同 toAddress 值的条目（label 不同）→ 取的仍是单上 addressNo 指的那条（值反查退场）', async () => {
+      jest.spyOn(service, 'findOneInternal').mockResolvedValue({
+        ...baseRow,
+        toAddress: 'Taddr',
+        withdrawalAddressNo: 'WA0007',
+        pricingQuote: null,
+      } as any);
+      // 一个会按「值」回答的假地址簿：toAddress='Taddr' 的行有两条，按键只有 WA0007 是 'Mine'
+      prisma.withdrawalAddress.findFirst.mockImplementation(({ where }: any) => {
+        if (where.addressNo === 'WA0007') return Promise.resolve({ label: 'Mine' });
+        if (where.OR || where.address) return Promise.resolve({ label: 'Same value, other entry' });
+        return Promise.resolve(null);
+      });
+
+      const view: any = await service.findOneForCustomer('w-detail-1', 'cust-1');
+
+      expect(view.addressLabel).toBe('Mine');
+    });
+
+    it('单上没有 withdrawalAddressNo（无键）→ 不查地址簿、addressLabel 为 null——旧的按值反查已删', async () => {
+      jest.spyOn(service, 'findOneInternal').mockResolvedValue({
+        ...baseRow,
+        toAddress: 'Taddr',
+        withdrawalAddressNo: null,
+        pricingQuote: null,
+      } as any);
+      // 即便地址簿里有一条同值的条目，也不该再按值把它捞出来
+      prisma.withdrawalAddress.findFirst.mockResolvedValue({ label: 'would-be value match' });
+
+      const view: any = await service.findOneForCustomer('w-detail-1', 'cust-1');
+
+      expect(prisma.withdrawalAddress.findFirst).not.toHaveBeenCalled();
+      expect(view.addressLabel).toBeNull();
     });
 
     it('pricingQuote 为 null → view.quote 为 null（不抛，不臆造字段）', async () => {
@@ -167,9 +224,10 @@ describe('WithdrawTransactionsService customer view enrichment (Task 3)', () => 
       expect(view.quote).toBeNull();
     });
 
-    it('withdrawalAddress 查不到（findFirst 回 null）→ addressLabel 为 null', async () => {
+    it('withdrawalAddress 查不到（单上有键、findFirst 回 null）→ addressLabel 为 null', async () => {
       jest.spyOn(service, 'findOneInternal').mockResolvedValue({
         ...baseRow,
+        withdrawalAddressNo: 'WA-GONE',
         pricingQuote: null,
       } as any);
       prisma.withdrawalAddress.findFirst.mockResolvedValue(null);

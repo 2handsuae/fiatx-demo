@@ -1,4 +1,5 @@
 import {
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -28,6 +29,7 @@ import { toCustomerAssetView } from '../shared/customer-view.util';
 import { resolveSlaFields as resolveSlaFieldsShared } from '../shared/sla-fields.util';
 import { freezeScanQueryArgs } from '../shared/freeze-scan.util';
 import { buildCustomerTimeline } from '../shared/customer-timeline.util';
+import { TRAVEL_RULE_ADAPTER, type TravelRuleAdapter } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
 
 // 客户面筛选桶（波三B，镜像 deposit CUSTOMER_BUCKETS）：客户端只发桶名，
 // 原始状态码不再出现在客户可见的任何 option/query 里。PROCESSING = 补集，
@@ -194,6 +196,8 @@ export class WithdrawTransactionsService {
     private readonly auditLogsService: AuditLogsService,
     private readonly approvalsService: ApprovalsService,
     private readonly notificationsService: NotificationsService,
+    // 对手方波二：admin 详情现拼 VASP 名录档案（Sumsub 侧数据，不落库）。
+    @Inject(TRAVEL_RULE_ADAPTER) private readonly travelRuleAdapter: TravelRuleAdapter,
   ) {}
 
   private normalizeStatusUpdateContext(
@@ -453,6 +457,10 @@ export class WithdrawTransactionsService {
       referenceNo: item.referenceNo,
       toAddress: item.toAddress,
       toIban: item.toIban,
+      // 对手方波二：建单时从客户自己的地址簿抄来的受益人——客户登记的东西，客户可见。
+      // 对手方 VASP（名/DID）、Travel Rule 快照、地址簿号不在白名单（Sumsub 侧报文 / 名录标识）。
+      beneficiaryName: item.beneficiaryName,
+      beneficiaryType: item.beneficiaryType,
       asset: toCustomerAssetView(item.asset),
       timeline: buildCustomerTimeline(item.statusHistory, 'COMPLIANCE_PENDING', item.createdAt, (s) =>
         this.toCustomerWithdrawStatus(s),
@@ -520,15 +528,14 @@ export class WithdrawTransactionsService {
           tierName: item.pricingQuote.matchedTierName,
         }
       : null;
-    // 地址标签：值匹配反查（无 FK；查不到 → null，前端整行不渲染）。改名跟着变，
-    // demo 语义可接受，同 deposit 域先例。
-    const addr = await (this.prisma as any).withdrawalAddress.findFirst({
-      where: {
-        customerId,
-        OR: [{ address: item.toAddress ?? '__none__' }, { iban: item.toIban ?? '__none__' }],
-      },
-      select: { label: true },
-    });
+    // 地址标签：对手方波二起按业务键 withdrawalAddressNo 回链地址簿（铁律⑥），弃按值反查；
+    // 单上无键 / 条目已不在 → null，前端整行不渲染。改名跟着变，demo 语义可接受。
+    const addr = item.withdrawalAddressNo
+      ? await (this.prisma as any).withdrawalAddress.findFirst({
+          where: { addressNo: item.withdrawalAddressNo },
+          select: { label: true },
+        })
+      : null;
     view.addressLabel = addr?.label ?? null;
     return view;
   }
@@ -739,7 +746,13 @@ export class WithdrawTransactionsService {
     // loadClawbackOrigin（本单自己的一列 + 一次账单行查参考号，横向只读）。
     const returnOrigin = await this.loadReturnOrigin(item);
 
-    return { ...item, sumsubDetail, approvals, returnOrigin };
+    // 对手方波二：VASP 名录档案（EEC / 评分 / 牌照）是 Sumsub 侧数据，按单上 did 现拼、不落库；
+    // 自托管 / 法币（did 空）或名录里查无 → null。
+    const vaspProfile = item.counterpartyVaspDid
+      ? this.travelRuleAdapter.getVaspProfile(item.counterpartyVaspDid)
+      : null;
+
+    return { ...item, sumsubDetail, approvals, returnOrigin, vaspProfile };
   }
 
   /**
@@ -945,6 +958,17 @@ export class WithdrawTransactionsService {
         sumsubTxnId: data.sumsubTxnId,
         sumsubTxnType: data.sumsubTxnType,
       },
+    });
+  }
+
+  /**
+   * 对手方波二：travelRule 型提交 KYT 时一次性写 Travel Rule 快照（受益人 / 对手方 VASP / 三档状态）。
+   * 单据即快照——只在 WithdrawWorkflowService#submitSumsubTxn 提交成功后写一次。
+   */
+  async saveTravelRuleSnapshot(id: string, snapshotJson: string) {
+    return (this.prisma as any).withdrawTransaction.update({
+      where: { id },
+      data: { travelRuleSnapshotJson: snapshotJson },
     });
   }
 

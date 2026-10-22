@@ -22,6 +22,9 @@ import { L1GateModule } from '../shared/l1-gate/l1-gate.module';
 import { ReconciliationModule } from '../../clearing-settle/reconciliation/reconciliation.module';
 import { WithdrawReturnClaimApprovalService } from './withdraw-return-claim-approval.service';
 import { NotificationsModule } from '../../../core/notifications/notifications.module';
+import { TRAVEL_RULE_ADAPTER } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
+import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
+import { MockTrRulesService } from '../../sumsub-shared/travel-rule/mock-tr-rules.service';
 
 @Module({
   imports: [
@@ -59,6 +62,10 @@ import { NotificationsModule } from '../../../core/notifications/notifications.m
     WithdrawSanctionRefundApprovalService,
     WithdrawApplicantActionsService,
     WithdrawReturnClaimApprovalService,
+    // 对手方波二：Sumsub 侧 TR mock（名录档案 adapter + 阈值规则），由消费方模块各自 provide
+    // （同 DepositTransactionsModule / WithdrawalAddressesModule 的写法，mock 无状态、互不依赖）。
+    { provide: TRAVEL_RULE_ADAPTER, useClass: MockTravelRuleAdapter },
+    MockTrRulesService,
   ],
   exports: [
     WithdrawTransactionsService,

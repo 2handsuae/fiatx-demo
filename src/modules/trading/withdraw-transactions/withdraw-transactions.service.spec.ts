@@ -16,6 +16,8 @@ import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/c
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { NotificationsService } from '../../../core/notifications/notifications.service';
+import { TRAVEL_RULE_ADAPTER } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
+import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
 
 describe('WithdrawTransactionsService', () => {
   let service: WithdrawTransactionsService;
@@ -62,6 +64,8 @@ describe('WithdrawTransactionsService', () => {
           provide: NotificationsService,
           useValue: notificationsService,
         },
+        // 对手方波二：admin 详情现拼 VASP 档案——用真 mock 名录，断言的是名录里真有的值。
+        { provide: TRAVEL_RULE_ADAPTER, useClass: MockTravelRuleAdapter },
         {
           provide: PrismaService,
       useValue: {
@@ -140,6 +144,7 @@ describe('WithdrawTransactionsService', () => {
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
 
     jest.clearAllMocks();
@@ -206,6 +211,42 @@ describe('WithdrawTransactionsService', () => {
         timeout: 20000,
       }),
     );
+  });
+
+  // 对手方波二：建单抄列走**真** insertRecord——断言落到 tx.withdrawTransaction.create 的 data，
+  // 即「库里这一行最终长什么样」，而不是 workflow 把什么传给了一个桩。
+  describe('对手方波二 · 建单带出对手方（真 insertRecord → create 实参）', () => {
+    it('crypto × VASP 地址：create.data 带 addressNo / 受益人 / 受益人类型 / VASP 名 / VASP did', async () => {
+      prisma.asset.findUnique.mockResolvedValue({ id: 'asset-1', type: 'CRYPTO', network: 'TRON' });
+      prisma.customerMain.findUnique.mockResolvedValue({ customerNo: 'C001' });
+      prisma.withdrawalAddress.findFirst.mockResolvedValue({
+        addressNo: 'WA0007', addressType: 'VASP', ownerType: 'THIRD_PARTY',
+        beneficiaryName: 'Grace Wu',
+        counterpartyVaspName: 'Mock VASP Exchange', counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+      });
+      mockTx.withdrawTransaction.create.mockResolvedValue({
+        id: 'wd-cp-1', ownerType: 'CUSTOMER', ownerId: 'user-1', assetId: 'asset-1',
+        amount: new Prisma.Decimal(100), netAmount: new Prisma.Decimal(100), feeAmount: new Prisma.Decimal(0),
+        withdrawNo: 'WD1010', fromWalletId: null, fromWalletNo: null, toWalletId: null, toWalletNo: null,
+      });
+      mockTx.auditLogEvent.create.mockResolvedValue({ id: 'audit-cp-1' });
+
+      await workflow.createWithdrawal(
+        { assetId: 'asset-1', amount: 100, quoteId: 'wq-1', toAddress: 'TXYZ' } as any,
+        'user-1',
+      );
+
+      const data = mockTx.withdrawTransaction.create.mock.calls[0][0].data;
+      expect(data).toMatchObject({
+        withdrawalAddressNo: 'WA0007',
+        beneficiaryName: 'Grace Wu',
+        beneficiaryType: 'THIRD_PARTY',
+        counterpartyVaspName: 'Mock VASP Exchange',
+        counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+      });
+      // 快照不在建单时写——它归 KYT 提交处（travelRule 型一次性写）
+      expect(data.travelRuleSnapshotJson).toBeUndefined();
+    });
   });
 
   // B2（第四批）：提现的 assertCapability 快速失败保留不动；这里再跑一次
@@ -966,6 +1007,60 @@ describe('WithdrawTransactionsService', () => {
         },
       ]);
     });
+
+    // 对手方波二：VASP 名录档案（EEC / 评分 / 牌照）是 Sumsub 侧数据，按单上 did 现拼、不落库。
+    describe('vaspProfile 现拼（对手方波二）', () => {
+      const adminRow = (counterpartyVaspDid: string | null) => ({
+        id: 'wd-1',
+        withdrawNo: 'WD001',
+        counterpartyVaspDid,
+        asset: { type: 'CRYPTO', code: 'USDT-TRON', network: 'TRON' },
+        customer: null,
+        fundsOrders: [],
+      });
+
+      it('单上 did = Grey Harbor → 名录整档案（PENDING / 42 / 无牌照）', async () => {
+        prisma.withdrawTransaction.findUnique.mockResolvedValue(adminRow('did:mock:grey-harbor-001'));
+
+        const result: any = await service.findOneForAdmin('wd-1');
+
+        expect(result.vaspProfile).toEqual({
+          name: 'Grey Harbor Exchange', eecStatus: 'PENDING', riskScore: 42, licensed: false,
+        });
+      });
+
+      it('单上 did = Mock VASP Exchange → 合格档案（COMPLETED / 3 / 有牌照）——两条名录各给各的，不是写死一份', async () => {
+        prisma.withdrawTransaction.findUnique.mockResolvedValue(adminRow('did:mock:vasp-exchange-001'));
+
+        const result: any = await service.findOneForAdmin('wd-1');
+
+        expect(result.vaspProfile).toEqual({
+          name: 'Mock VASP Exchange', eecStatus: 'COMPLETED', riskScore: 3, licensed: true,
+        });
+      });
+
+      it('自托管 / 法币（did 为空）→ vaspProfile = null；名录查无 → null（不抛）', async () => {
+        prisma.withdrawTransaction.findUnique.mockResolvedValue(adminRow(null));
+        expect(((await service.findOneForAdmin('wd-1')) as any).vaspProfile).toBeNull();
+
+        prisma.withdrawTransaction.findUnique.mockResolvedValue(adminRow('did:mock:not-in-directory'));
+        expect(((await service.findOneForAdmin('wd-1')) as any).vaspProfile).toBeNull();
+      });
+
+      it('不改写单上列：快照 / did / VASP 名原样随 admin 读返回（管理台可见）', async () => {
+        prisma.withdrawTransaction.findUnique.mockResolvedValue({
+          ...adminRow('did:mock:vasp-exchange-001'),
+          counterpartyVaspName: 'Mock VASP Exchange',
+          travelRuleSnapshotJson: '{"status":"EXCHANGED"}',
+        });
+
+        const result: any = await service.findOneForAdmin('wd-1');
+
+        expect(result.counterpartyVaspDid).toBe('did:mock:vasp-exchange-001');
+        expect(result.counterpartyVaspName).toBe('Mock VASP Exchange');
+        expect(result.travelRuleSnapshotJson).toBe('{"status":"EXCHANGED"}');
+      });
+    });
   });
 
   // Task 11: customer-facing field whitelist (tipping-off guard). Mirrors
@@ -1010,6 +1105,13 @@ describe('WithdrawTransactionsService', () => {
       approvalCaseId: 'case-1',
       approvalNo: 'APR-1',
       traceId: 'WITHDRAW:w-sensitive-1',
+      // 对手方波二：建单抄来的受益人（客户自己填的，客户面可见）+ 对手方 VASP / TR 快照（只管理台可见）
+      withdrawalAddressNo: 'WA0007',
+      beneficiaryName: 'Grace Wu',
+      beneficiaryType: 'THIRD_PARTY',
+      counterpartyVaspName: 'Mock VASP Exchange',
+      counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+      travelRuleSnapshotJson: '{"status":"EXCHANGED","beneficiaryName":"Grace Wu"}',
     };
 
     const SENSITIVE_KEYS = [
@@ -1031,6 +1133,11 @@ describe('WithdrawTransactionsService', () => {
       'approvalCaseId',
       'approvalNo',
       'traceId',
+      // 对手方波二：Travel Rule 快照与 VASP DID 是 Sumsub 侧报文 / 名录标识，永不出客户面。
+      // （VASP 名 counterpartyVaspName / 地址簿号 withdrawalAddressNo 同样不在白名单——
+      //  下面 EXPECTED_VIEW 的 toEqual 把它们钉在门外。）
+      'travelRuleSnapshotJson',
+      'counterpartyVaspDid',
     ];
 
     const EXPECTED_VIEW = {
@@ -1051,6 +1158,9 @@ describe('WithdrawTransactionsService', () => {
       toAddress: 'T_TO',
       toIban: null,
       asset: { currency: 'USDT', code: 'USDT', network: 'TRON', decimals: 6 },
+      // 对手方波二：客户自己登记的受益人，客户面可见（Address label 经键回链走详情富化，见 EXPECTED_DETAIL_VIEW）
+      beneficiaryName: 'Grace Wu',
+      beneficiaryType: 'THIRD_PARTY',
       // Task 3 (action-embed) 开的 `actions` 口子已在 2026-08-18 材料请求账
       // Task 12 随专属子表一起物理删除，见 toCustomerWithdrawView 的文档注释——
       // 不再列出这个键就是在断言它已经不在客户面响应体里。

@@ -11,6 +11,7 @@ import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/c
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { hexToBigint } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { ApprovalActionTypes, ApprovalStatuses } from '../../governance/approvals/constants/approval.constants';
+import { MockTrRulesService } from '../../sumsub-shared/travel-rule/mock-tr-rules.service';
 
 describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
   let workflow: WithdrawWorkflowService;
@@ -74,6 +75,7 @@ describe('WithdrawWorkflowService — releaseLock on approval decline', () => {
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
   });
 
@@ -162,6 +164,7 @@ describe('WithdrawWorkflowService — releaseLock on payout leg failure (P6)', (
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
   });
 
@@ -272,6 +275,7 @@ describe('WithdrawWorkflowService — assertWithdrawSettled (乙 SUCCESS invaria
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
   });
 
@@ -349,6 +353,7 @@ describe('WithdrawWorkflowService — ensureSourceWalletBound (R4)', () => {
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
   });
 
@@ -562,6 +567,7 @@ describe('WithdrawWorkflowService.handleWithdrawalCreated — birth landing (Tas
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
     return { workflow, withdrawService, approvalsService, binanceRateProvider, limitRulesService };
   }
@@ -671,6 +677,7 @@ function buildFullWorkflow(overrides: {
     findOneInternal: jest.fn(),
     getOwnerComplianceStatus: jest.fn().mockResolvedValue('ACTIVE'),
     setSumsubTxn: jest.fn().mockResolvedValue(undefined),
+    saveTravelRuleSnapshot: jest.fn().mockResolvedValue(undefined),
     saveSumsubVerdict: jest.fn().mockResolvedValue(undefined),
     setSlaDeadline: jest.fn().mockResolvedValue(undefined),
     // reissue 路径(applyKytAwaitUser 的 clearWithdrawCache 调用点)显式查一次
@@ -730,6 +737,7 @@ function buildFullWorkflow(overrides: {
     { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     {} as any, // supplementEvidence
     {} as any, // reconDisposition
+    new MockTrRulesService({} as any), // trRules（真阈值表：三档矩阵的结论来自真规则而非手写桩）
   );
 
   return { workflow, withdrawService, auditLogsService, accountingService, sumsubTxnClient, applicantActions, customerRestrictionsService };
@@ -861,6 +869,110 @@ describe('WithdrawWorkflowService.submitSumsubTxn (private, Task 5)', () => {
     expect(sumsubTxnClient.submitTxn).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'finance' }),
     );
+  });
+
+  // ── 对手方波二 · TR 快照三档（业主 2026-10-22 拍甲案「分档如实」）──────────────
+  // travelRule 型（crypto）在 KYT 提交处一次性写 travelRuleSnapshotJson：
+  //   低于阈值 → NOT_APPLICABLE ｜ ≥阈值 ∧ 对手方 VASP → EXCHANGED ｜ ≥阈值 ∧ 自托管 → SELF_HOSTED_NO_EXCHANGE
+  describe('TR 快照三档（travelRule 型一次性写）', () => {
+    beforeEach(() => {
+      process.env.SUMSUB_MOCK_MODE = 'true';
+      delete process.env.SUMSUB_SINGLE_TXN_SUBMIT;
+    });
+
+    const VASP = { counterpartyVaspName: 'Mock VASP Exchange', counterpartyVaspDid: 'did:mock:vasp-exchange-001' };
+    const SELF_HOSTED = { counterpartyVaspName: null, counterpartyVaspDid: null };
+    const BENEFICIARY = { beneficiaryName: 'Alice Chen', beneficiaryType: 'SELF' };
+
+    async function submitWith(rowOverrides: Record<string, any>) {
+      const ctx = buildFullWorkflow();
+      ctx.withdrawService.findOneInternal.mockResolvedValue(baseWithdrawRow(rowOverrides));
+      await (ctx.workflow as any).submitSumsubTxn('wd-sumsub-1');
+      return ctx;
+    }
+    const snapshotOf = (ctx: ReturnType<typeof buildFullWorkflow>) =>
+      JSON.parse(ctx.withdrawService.saveTravelRuleSnapshot.mock.calls[0][1]);
+
+    it('50 USDT × 自托管（低于线）→ NOT_APPLICABLE：快照五键落单，审计带同一份 afterData', async () => {
+      const ctx = await submitWith({ amount: new Prisma.Decimal('50'), ...BENEFICIARY, ...SELF_HOSTED });
+
+      expect(ctx.withdrawService.saveTravelRuleSnapshot).toHaveBeenCalledTimes(1);
+      expect(ctx.withdrawService.saveTravelRuleSnapshot.mock.calls[0][0]).toBe('wd-sumsub-1');
+      expect(snapshotOf(ctx)).toEqual({
+        status: 'NOT_APPLICABLE',
+        beneficiaryName: 'Alice Chen',
+        beneficiaryType: 'SELF',
+        counterpartyVaspName: null,
+        counterpartyVaspDid: null,
+      });
+
+      const snapAudit = ctx.auditLogsService.recordSystem.mock.calls
+        .map((c: any[]) => c[0])
+        .find((a: any) => a.action === 'WITHDRAW_TRAVEL_RULE_SNAPSHOTTED');
+      expect(snapAudit).toBeDefined();
+      // afterData 即快照本体（审计码 requiredFields=['afterData']）；requestId 显式
+      expect(snapAudit.afterData).toEqual(snapshotOf(ctx));
+      expect(snapAudit.requestId).toMatch(/^WITHDRAW_TRAVEL_RULE_SNAPSHOTTED_WD-SUMSUB-1_/);
+      expect(snapAudit.primarySubjectNo).toBe('WD-SUMSUB-1');
+    });
+
+    it('恰好 1000 USDT（≥ 语义，过线）× VASP → EXCHANGED，受益人与 VASP 随快照', async () => {
+      const ctx = await submitWith({ amount: new Prisma.Decimal('1000'), ...BENEFICIARY, ...VASP });
+
+      expect(snapshotOf(ctx)).toEqual({
+        status: 'EXCHANGED',
+        beneficiaryName: 'Alice Chen',
+        beneficiaryType: 'SELF',
+        counterpartyVaspName: 'Mock VASP Exchange',
+        counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+      });
+    });
+
+    it('999.99 USDT（线下一分）× VASP → NOT_APPLICABLE——钉住 ≥ 的边界，不是 >', async () => {
+      const ctx = await submitWith({ amount: new Prisma.Decimal('999.99'), ...BENEFICIARY, ...VASP });
+      expect(snapshotOf(ctx).status).toBe('NOT_APPLICABLE');
+    });
+
+    it('1500 USDT × 自托管（过线）→ SELF_HOSTED_NO_EXCHANGE，而不是 EXCHANGED', async () => {
+      const ctx = await submitWith({ amount: new Prisma.Decimal('1500'), ...BENEFICIARY, ...SELF_HOSTED });
+      expect(snapshotOf(ctx).status).toBe('SELF_HOSTED_NO_EXCHANGE');
+    });
+
+    it('AED 法币单（finance 型）→ 不写快照、不记 WITHDRAW_TRAVEL_RULE_SNAPSHOTTED', async () => {
+      const ctx = await submitWith({
+        amount: new Prisma.Decimal('5000'),
+        asset: { type: 'FIAT', currency: 'AED', decimals: 2 },
+        ...BENEFICIARY,
+      });
+
+      expect(ctx.sumsubTxnClient.submitTxn).toHaveBeenCalledWith(expect.objectContaining({ type: 'finance' }));
+      expect(ctx.withdrawService.saveTravelRuleSnapshot).not.toHaveBeenCalled();
+      const actions = ctx.auditLogsService.recordSystem.mock.calls.map((c: any[]) => c[0].action);
+      expect(actions).toContain('WITHDRAW_SUMSUB_SUBMITTED');
+      expect(actions).not.toContain('WITHDRAW_TRAVEL_RULE_SNAPSHOTTED');
+    });
+
+    it('SINGLE_TXN_SUBMIT 开关关闭（crypto 被强制 finance 提交）→ 同样不写快照', async () => {
+      delete process.env.SUMSUB_MOCK_MODE;
+      const ctx = await submitWith({ amount: new Prisma.Decimal('1500'), ...BENEFICIARY, ...VASP });
+
+      expect(ctx.sumsubTxnClient.submitTxn).toHaveBeenCalledWith(expect.objectContaining({ type: 'finance' }));
+      expect(ctx.withdrawService.saveTravelRuleSnapshot).not.toHaveBeenCalled();
+      const actions = ctx.auditLogsService.recordSystem.mock.calls.map((c: any[]) => c[0].action);
+      expect(actions).not.toContain('WITHDRAW_TRAVEL_RULE_SNAPSHOTTED');
+    });
+
+    it('已提交过（sumsubTxnId 非空，幂等跳过）→ 快照不重写、不重记', async () => {
+      const ctx = await submitWith({
+        sumsubTxnId: 'ALREADY-SUBMITTED',
+        amount: new Prisma.Decimal('1500'),
+        ...BENEFICIARY,
+        ...VASP,
+      });
+
+      expect(ctx.withdrawService.saveTravelRuleSnapshot).not.toHaveBeenCalled();
+      expect(ctx.auditLogsService.recordSystem).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -1825,6 +1937,7 @@ function buildFeeWorkflow(overrides: {
     { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     {} as any, // supplementEvidence
     {} as any, // reconDisposition
+    {} as any, // trRules
   );
 
   return {
@@ -2175,6 +2288,7 @@ function buildBounceWorkflow(overrides: {
     { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     {} as any, // supplementEvidence
     {} as any, // reconDisposition
+    {} as any, // trRules
   );
 
   return { workflow, withdrawService, auditLogsService, accountingService, fundsOrders, prisma, sumsubTxnClient };
@@ -2543,6 +2657,7 @@ describe('WithdrawWorkflowService.initiateUnfreeze / initiateRefund (Task 8)', (
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService };
@@ -2783,6 +2898,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
 
     return { workflow, withdrawService, auditLogsService, approvalsService, accountingService, sumsubTxnClient };
@@ -3041,6 +3157,7 @@ describe('WithdrawWorkflowService — Task 9: FROZEN execution side', () => {
         { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
         {} as any, // supplementEvidence
         {} as any, // reconDisposition
+        {} as any, // trRules
       );
 
       // Trigger onLegCleared indirectly via handleFundsOrderChanged (which calls onLegCleared)
@@ -3117,6 +3234,7 @@ describe('WithdrawWorkflowService — onCustomerRestrictionOpened 批量冻单�
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
     return { workflow, withdrawService, auditLogsService };
   }
@@ -3256,6 +3374,7 @@ describe('WithdrawWorkflowService.onMaterialRequestReviewed — 材料审过后�
       {} as any, // l1Gate
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
     return { workflow, withdrawService, auditLogsService };
   }
@@ -3397,6 +3516,7 @@ describe('WithdrawWorkflowService — 平账 B 批③：退回认领', () => {
       {} as any, // l1Gate
       supplementEvidence as any,
       reconDisposition as any,
+      {} as any, // trRules
     );
   });
 
@@ -3520,6 +3640,7 @@ describe('波二 · L1 BLOCK 留痕（提现）', () => {
       l1Gate as any,
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
 
     // createWithdrawal(dto, userId, ownerType) —— 见 withdraw-workflow.service.ts 的
@@ -3642,6 +3763,7 @@ describe('WithdrawWorkflowService.createWithdrawal — 波五 Task 4：创建即
       mocks.l1Gate as any,
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
   }
 
@@ -3721,5 +3843,142 @@ describe('WithdrawWorkflowService.createWithdrawal — 波五 Task 4：创建即
     expect(mocks.accountingService.executePendingTransfer).toHaveBeenCalledTimes(2);
     // fold 冻结不放锁——releaseLock/voidPendingTransferBestEffort 全程未被调用
     expect(mocks.accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────
+// 对手方波二 · 提现建单抄对手方（受益人 / 对手方 VASP 带出到单上）
+// 建单守卫已经拿到地址簿整行；这里断言它把五列（法币三列）抄进 insertRecord 的 create 实参。
+// 断言的是「单上落了什么」，不是「守卫跑过」——地址簿条目换一组值，单上的列必须跟着换。
+// ─────────────────────────────────────────────────────────────
+describe('WithdrawWorkflowService.createWithdrawal — 对手方波二：建单带出地址簿对手方', () => {
+  const quote = {
+    id: 'q-1', ownerType: 'CUSTOMER', ownerId: 'cust-1', assetId: 'a-1',
+    amount: new Prisma.Decimal('10'), status: 'ACTIVE',
+    expiresAt: new Date(Date.now() + 60_000), totalsJson: JSON.stringify({ USDT: '0.5', AED: '1' }),
+  };
+  const createdRecord = {
+    id: 'wd-new', withdrawNo: 'WDR0001', ownerId: 'cust-1', ownerNo: 'C0001', ownerType: 'CUSTOMER',
+    status: 'COMPLIANCE_PENDING', assetId: 'a-1', traceId: 'trace-1', correlationId: 'corr-1', fromWalletId: null,
+  };
+
+  function build(asset: any, addressRow: any) {
+    const withdrawService = {
+      insertRecord: jest.fn((_tx: any, data: Record<string, any>) => Promise.resolve({ ...createdRecord, ...data })),
+      setPendingIds: jest.fn(() => Promise.resolve({})),
+    };
+    const prisma: any = {
+      asset: { findUnique: jest.fn(() => Promise.resolve(asset)) },
+      customerMain: { findUnique: jest.fn(() => Promise.resolve({ customerNo: 'C0001' })) },
+      withdrawalAddress: { findFirst: jest.fn(() => Promise.resolve(addressRow)) },
+      $transaction: jest.fn((cb: any) => cb({ asset: { findUnique: jest.fn(() => Promise.resolve(asset)) } })),
+    };
+    const workflow = new WithdrawWorkflowService(
+      prisma,
+      { emit: jest.fn() } as any, // eventEmitter
+      withdrawService as any,
+      { getActiveQuoteOrThrow: jest.fn(() => Promise.resolve({ ...quote, assetId: asset.id })), consumeQuote: jest.fn(() => Promise.resolve({})) } as any,
+      { recordByActor: jest.fn(() => Promise.resolve()), recordSystem: jest.fn(() => Promise.resolve()) } as any,
+      {
+        resolveTbAccountId: jest.fn(() => Promise.resolve(1n)),
+        executePendingTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 1n })),
+        voidPendingTransferBestEffort: jest.fn(() => Promise.resolve()),
+      } as any,
+      {} as any, // fundsOrders
+      {} as any, // approvalsService
+      {} as any, // binanceRateProvider
+      {} as any, // systemWalletResolver
+      {} as any, // tbEvidenceService
+      { evaluate: jest.fn(() => Promise.resolve({ grossAedValue: null, aedRate: null, rateFetchedAt: null, rateFetchFailed: false })) } as any, // limitGateService
+      {} as any, // limitRulesService
+      {} as any, // sumsubTxnClient
+      {} as any, // applicantActions
+      { assertTradingIntake: jest.fn().mockResolvedValue({ fold: false }) } as any, // customerAccessService
+      {} as any, // customerRestrictionsService
+      { evaluate: jest.fn(() => Promise.resolve({ evaluatedAt: '2026-10-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] })) } as any, // l1Gate
+      {} as any, // supplementEvidence
+      {} as any, // reconDisposition
+      {} as any, // trRules
+    );
+    return { workflow, withdrawService, prisma };
+  }
+
+  const cryptoAsset = { id: 'a-1', assetNo: 'AS0001', currency: 'USDT', decimals: 6, type: 'CRYPTO', network: 'TRON' };
+  const fiatAsset = { id: 'a-1', assetNo: 'AS0002', currency: 'AED', decimals: 2, type: 'FIAT', network: 'AED_ZAND' };
+
+  it('crypto × VASP 地址：五列 = 地址簿条目值（addressNo / 受益人 / 受益人类型 / VASP 名 / VASP did）', async () => {
+    const { workflow, withdrawService } = build(cryptoAsset, {
+      addressNo: 'WA0007', addressType: 'VASP', ownerType: 'THIRD_PARTY',
+      beneficiaryName: 'Grace Wu', counterpartyVaspName: 'Mock VASP Exchange', counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+    });
+
+    await workflow.createWithdrawal({ assetId: 'a-1', amount: 10, toAddress: 'TXYZ', quoteId: 'q-1' } as any, 'cust-1', 'CUSTOMER');
+
+    expect(withdrawService.insertRecord).toHaveBeenCalledTimes(1);
+    expect(withdrawService.insertRecord.mock.calls[0][1]).toEqual(expect.objectContaining({
+      withdrawalAddressNo: 'WA0007',
+      beneficiaryName: 'Grace Wu',
+      beneficiaryType: 'THIRD_PARTY',
+      counterpartyVaspName: 'Mock VASP Exchange',
+      counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+      counterpartyIsVasp: true,
+    }));
+  });
+
+  it('crypto × 自托管地址：VASP 两列抄成 null（不是 undefined 漏列），受益人三列照抄', async () => {
+    const { workflow, withdrawService } = build(cryptoAsset, {
+      addressNo: 'WA0003', addressType: 'SELF_CUSTODY', ownerType: 'SELF',
+      beneficiaryName: 'Alice Chen', counterpartyVaspName: null, counterpartyVaspDid: null,
+    });
+
+    await workflow.createWithdrawal({ assetId: 'a-1', amount: 10, toAddress: 'TXYZ', quoteId: 'q-1' } as any, 'cust-1', 'CUSTOMER');
+
+    const data = withdrawService.insertRecord.mock.calls[0][1];
+    expect(data).toEqual(expect.objectContaining({
+      withdrawalAddressNo: 'WA0003',
+      beneficiaryName: 'Alice Chen',
+      beneficiaryType: 'SELF',
+      counterpartyVaspName: null,
+      counterpartyVaspDid: null,
+    }));
+    expect(data.counterpartyIsVasp).toBe(false);
+  });
+
+  it('法币（银行账户）：抄 addressNo / 受益人 / 受益人类型三列；VASP 两列恒 null（即便条目上有值也不抄）', async () => {
+    const { workflow, withdrawService, prisma } = build(fiatAsset, {
+      addressNo: 'WA0011', addressType: 'BANK', ownerType: 'SELF', beneficiaryName: 'Alice Chen',
+      // 银行行上不该有 VASP 信息；故意塞一个，证明法币路径不会把它抄上单
+      counterpartyVaspName: 'SHOULD-NOT-COPY', counterpartyVaspDid: 'did:mock:should-not-copy',
+    });
+
+    await workflow.createWithdrawal({ assetId: 'a-1', amount: 10, toIban: 'AE070331234567890123456', quoteId: 'q-1' } as any, 'cust-1', 'CUSTOMER');
+
+    // 走的是 fiat 分支（按 iban + addressType BANK 查），不是 crypto 分支
+    expect(prisma.withdrawalAddress.findFirst).toHaveBeenCalledWith({
+      where: expect.objectContaining({ iban: 'AE070331234567890123456', addressType: 'BANK' }),
+    });
+    const data = withdrawService.insertRecord.mock.calls[0][1];
+    expect(data).toEqual(expect.objectContaining({
+      withdrawalAddressNo: 'WA0011',
+      beneficiaryName: 'Alice Chen',
+      beneficiaryType: 'SELF',
+      counterpartyVaspName: null,
+      counterpartyVaspDid: null,
+    }));
+    expect(data.counterpartyIsVasp).toBeNull();
+  });
+
+  it('crypto 未带 toAddress（守卫整段跳过的既有行为）→ 五列全 null，不抛、不臆造', async () => {
+    const { workflow, withdrawService } = build(cryptoAsset, null);
+
+    await workflow.createWithdrawal({ assetId: 'a-1', amount: 10, quoteId: 'q-1' } as any, 'cust-1', 'CUSTOMER');
+
+    expect(withdrawService.insertRecord.mock.calls[0][1]).toEqual(expect.objectContaining({
+      withdrawalAddressNo: null,
+      beneficiaryName: null,
+      beneficiaryType: null,
+      counterpartyVaspName: null,
+      counterpartyVaspDid: null,
+    }));
   });
 });

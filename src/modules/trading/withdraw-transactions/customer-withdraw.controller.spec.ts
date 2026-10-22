@@ -29,6 +29,9 @@ const CUSTOMER_WHITELIST_KEYS = [
   'timeline',
   'quote',
   'addressLabel',
+  // 对手方波二：建单时从客户自己的地址簿抄来的受益人（Address label 仍是上面的 addressLabel，改走键回链）。
+  'beneficiaryName',
+  'beneficiaryType',
 ].sort();
 
 // 建单事务落库的原始行（withdraw-workflow.service.ts#createWithdrawal 的真实返回
@@ -76,6 +79,13 @@ const RAW_ROW_FIELDS = {
   rateFetchedAt: null,
   rateFetchFailed: false,
   counterpartyIsVasp: false,
+  // 对手方波二：白名单外的对手方列——受益人两项出、地址簿号 / VASP 标识 / TR 快照不出
+  beneficiaryName: 'Grace Wu',
+  beneficiaryType: 'THIRD_PARTY',
+  withdrawalAddressNo: 'WA0007',
+  counterpartyVaspName: 'Mock VASP Exchange',
+  counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+  travelRuleSnapshotJson: '{"status":"EXCHANGED"}',
   fromWalletId: null,
   toWalletId: null,
   pricingQuoteId: 'quote-1',
@@ -99,6 +109,7 @@ function buildController(rawRow: any) {
     {} as any, // auditLogsService — not touched
     {} as any, // approvalsService — not touched
     {} as any, // notificationsService — not touched by findOneForCustomer
+    {} as any, // travelRuleAdapter — only findOneForAdmin touches it
   );
   const workflow = { createWithdrawal: jest.fn(() => Promise.resolve(rawRow)) };
   const customerAccess = { assertTradingIntake: jest.fn(() => Promise.resolve({ fold: rawRow.status === 'FROZEN' })) };
@@ -124,6 +135,8 @@ describe('CustomerWithdrawController.create — 波五 T4 评审 Critical：建�
     // 逐字符串扫描兜底：响应体里不能出现任何执法态词汇的痕迹
     const serialized = JSON.stringify(result);
     expect(serialized).not.toMatch(/l1Snapshot|CUSTOMER_RESTRICTION|needsReview|sumsub|statusHistory|traceId|manualReason/i);
+    // 对手方波二：TR 快照 / VASP DID（含值本身）不得出现在响应体任何位置
+    expect(serialized).not.toMatch(/travelRuleSnapshot|counterpartyVaspDid|did:mock:/i);
   });
 
   it('② 普通客户（COMPLIANCE_PENDING）：响应键集合同样=客户白名单，status 原样透传', async () => {

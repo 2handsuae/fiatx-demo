@@ -68,6 +68,7 @@ import {
   SumsubTxnClient,
 } from '../../sumsub-shared/sumsub-txn-client.interface';
 import { resolveKytTxnType } from '../../sumsub-shared/kyt-txn-type.resolver';
+import { MockTrRulesService } from '../../sumsub-shared/travel-rule/mock-tr-rules.service';
 import { WithdrawApplicantActionsService } from './withdraw-applicant-actions.service';
 import { SupplementEvidenceService } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
 import { DispositionService as ReconDispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
@@ -219,6 +220,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
     // 为了两域写法一致、读起来不用记两套名字。
     private readonly supplementEvidence: SupplementEvidenceService,
     private readonly reconDisposition: ReconDispositionService,
+    // 对手方波二：提现 TR 快照三档的阈值判（Sumsub 侧 TR 规则 mock，同充值域 DepositWorkflowService 的注入）。
+    private readonly trRules: MockTrRulesService,
   ) {}
 
   // Phase B helper: resolve the platform's F_FEE wallet id for an asset, used
@@ -292,6 +295,21 @@ export class WithdrawWorkflowService implements OnModuleInit {
     // 下面整段被跳过（既有行为，本批不改），那种情况下 ACCOUNT_READINESS 只能记
     // SKIPPED —— 记成 PASS 就是给一份合规证据盖了没查过的章。
     let destinationVerified = false;
+    // 对手方波二：守卫已经拿到地址簿整行，建单时把受益人 / 对手方 VASP 抄到提现单上（单据即证据，
+    // 之后地址簿条目再怎么改，这笔单当时是谁收款不变）。无目的地时五列全 null。
+    let counterpartyCopy: {
+      withdrawalAddressNo: string | null;
+      beneficiaryName: string | null;
+      beneficiaryType: string | null;
+      counterpartyVaspName: string | null;
+      counterpartyVaspDid: string | null;
+    } = {
+      withdrawalAddressNo: null,
+      beneficiaryName: null,
+      beneficiaryType: null,
+      counterpartyVaspName: null,
+      counterpartyVaspDid: null,
+    };
     if (isCryptoWithdraw && toAddress) {
       const registeredAddress = await (this.prisma as any).withdrawalAddress.findFirst({
         where: { customerId: userId, network: asset.network, address: toAddress, status: 'ACTIVE' },
@@ -303,6 +321,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
         });
       }
       counterpartyIsVasp = registeredAddress.addressType === 'VASP';
+      counterpartyCopy = {
+        withdrawalAddressNo: registeredAddress.addressNo,
+        beneficiaryName: registeredAddress.beneficiaryName,
+        // 订单自身 ownerType 列已被「下单主体」占用，故地址簿的 ownerType 抄进 beneficiaryType
+        beneficiaryType: registeredAddress.ownerType,
+        counterpartyVaspName: registeredAddress.counterpartyVaspName,
+        counterpartyVaspDid: registeredAddress.counterpartyVaspDid,
+      };
       destinationVerified = true;
     } else if (!isCryptoWithdraw && toIban) {
       // NOTE: registered bank rows are stamped addressType='BANK' and
@@ -321,6 +347,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
         });
       }
       // counterpartyIsVasp stays null — VASP counterparty is a crypto-only concept.
+      // 法币同抄受益人三列（银行账户同样有 ownerType / beneficiaryName）；VASP 两列恒 null。
+      counterpartyCopy = {
+        withdrawalAddressNo: registeredAddress.addressNo,
+        beneficiaryName: registeredAddress.beneficiaryName,
+        beneficiaryType: registeredAddress.ownerType,
+        counterpartyVaspName: null,
+        counterpartyVaspDid: null,
+      };
       destinationVerified = true;
     }
 
@@ -506,6 +540,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
             toAddress,
             toIban,
             counterpartyIsVasp,
+            ...counterpartyCopy,
             traceId,
             grossAedValue: gateValuation?.grossAedValue ?? undefined,
             aedRate: gateValuation?.aedRate ?? undefined,
@@ -1917,6 +1952,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
       causationId?: string;
       fundsOrderNo?: string;
       metadata?: Record<string, unknown>;
+      /** requiredFields 含 afterData 的审计码（如对手方波二的 TR 快照）必传 */
+      afterData?: Record<string, unknown>;
       /** 人为动作传 actor → 走 recordByActor；缺省系统动作走 recordSystem */
       actor?: AuditActorContext;
       sourcePlatform?: string;
@@ -1957,6 +1994,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
       subjects,
       traceId: w.traceId || undefined,
       metadata: patch.metadata,
+      afterData: patch.afterData,
       requestId: `${patch.action}_${w.withdrawNo}_${randomUUID()}`,
       sourcePlatform: patch.sourcePlatform ?? 'SYSTEM',
     };
@@ -2514,6 +2552,13 @@ export class WithdrawWorkflowService implements OnModuleInit {
         metadata: { sumsubTxnId: result.txnId, txnType: submitType, decisionReason: decision.reason },
       });
 
+      // 对手方波二：travelRule 型（crypto）提交的同时把「这笔 TR 报文长什么样」一次性写进单上。
+      // 只在真提交了 travelRule 型时写——开关关闭被强制 finance 的 crypto、法币单都不写；
+      // 幂等跳过（上面 sumsubTxnId 已有）根本走不到这里，所以天然只写一次。
+      if (submitType === 'travelRule') {
+        await this.snapshotTravelRule(w, amount);
+      }
+
       this.logger.log(
         `Sumsub txn submitted for withdrawal ${w.id}: type=${submitType} txnId=${result.txnId} (decision=${decision.type}/${decision.reason})`,
       );
@@ -2522,6 +2567,35 @@ export class WithdrawWorkflowService implements OnModuleInit {
         `submitSumsubTxn failed for withdrawal ${withdrawId}: ${(err as Error).message} — staying in COMPLIANCE_PENDING for retry`,
       );
     }
+  }
+
+  /**
+   * 对手方波二 · Travel Rule 快照（业主 2026-10-22 拍甲案「分档如实」，三档）：
+   *   低于 TR 阈值                → NOT_APPLICABLE（照常报送，没有 TR 报文可交换）
+   *   ≥ 阈值 ∧ 对手方是 VASP      → EXCHANGED（受益人随报文交换给对方 VASP）
+   *   ≥ 阈值 ∧ 自托管（无 VASP）  → SELF_HOSTED_NO_EXCHANGE（无对手方可交换，所有权登记时已验证）
+   * 阈值判走 Sumsub 侧 TR 规则 mock（边界 ≥，与充值域同一份）；受益人 / 对手方取自建单时
+   * 抄在单上的列，不回头读地址簿——单据即快照。
+   */
+  private async snapshotTravelRule(w: any, amount: number): Promise<void> {
+    const status = !this.trRules.isTrApplicable(w.asset?.currency, amount)
+      ? 'NOT_APPLICABLE'
+      : w.counterpartyVaspName
+        ? 'EXCHANGED'
+        : 'SELF_HOSTED_NO_EXCHANGE';
+    const snapshot = {
+      status,
+      beneficiaryName: w.beneficiaryName ?? null,
+      beneficiaryType: w.beneficiaryType ?? null,
+      counterpartyVaspName: w.counterpartyVaspName ?? null,
+      counterpartyVaspDid: w.counterpartyVaspDid ?? null,
+    };
+    await this.withdrawService.saveTravelRuleSnapshot(w.id, JSON.stringify(snapshot));
+    await this.withdrawAudit(w, {
+      action: 'WITHDRAW_TRAVEL_RULE_SNAPSHOTTED',
+      reason: `Travel Rule snapshot recorded at KYT submission: ${status}`,
+      afterData: snapshot,
+    });
   }
 
   // ── Sumsub KYT verdict application (drives the 20-edge state machine) ──

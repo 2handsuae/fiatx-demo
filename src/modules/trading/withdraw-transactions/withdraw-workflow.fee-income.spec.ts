@@ -183,6 +183,7 @@ function makeWorkflowForCreate(mocks: ReturnType<typeof buildServiceMocks>) {
     { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     {} as any, // supplementEvidence
     {} as any, // reconDisposition
+    {} as any, // trRules
   );
 }
 
@@ -359,6 +360,7 @@ function makeWorkflowForLegs(mocks: ReturnType<typeof buildWorkflowMocks>) {
     { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
     {} as any, // supplementEvidence
     {} as any, // reconDisposition
+    {} as any, // trRules
   );
 }
 
@@ -440,6 +442,7 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
       { evaluate: jest.fn().mockResolvedValue({ evaluatedAt: '2026-08-22T00:00:00.000Z', domain: 'WITHDRAW', verdict: 'PASS', holdReason: null, tradingTier: 'BASIC', checks: [] }) } as any, // l1Gate
       {} as any, // supplementEvidence
       {} as any, // reconDisposition
+      {} as any, // trRules
     );
   }
 
