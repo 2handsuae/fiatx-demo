@@ -400,7 +400,7 @@ sqlite3 -readonly <栈库> "select count(*) from data_subject_requests;"        
 
 ## LP 两步准入种子断言与闸判据（reset 判据，2026-10-24 Task 10 起）
 
-本节是 LP 两步准入（档案背调 + 打款地址簿 + 开单选地址抄单 + 到货来源筛查 + 改结算流程退役）落地后的 reset 判据。它**覆盖前文「战役乙波一 LP 地基种子断言」节里「档案带结算坐标」的口径**（四坐标列已退役）；该节的行数、单号、F_LIQ / F_OPS 余额与对账直比判据**照旧有效**——本轮不动账本分录。reset 日志里认这两行标记：`Seeded 2 LP profile rows (... both entity-screened GREEN) + 1 APPROVED profile-registration approval case.` 与 `Seeded 3 Falcon payout addresses (AED IBAN ×1 / USDT TRON ×2, all ACTIVE) + 3 APPROVED address approval cases.`
+本节是 LP 两步准入（档案背调 + 打款地址簿 + 开单选地址抄单 + 到货来源筛查 + 改结算流程退役）落地后的 reset 判据。种子形态变化（档案不再带结算坐标、新增打款地址簿与单据新列）**不影响前文「战役乙波一 LP 地基种子断言」节的任何判据**：该节的行数、单号、F_LIQ / F_OPS 余额与对账直比判据**照旧有效**——本轮不动账本分录。reset 日志里认这两行标记：`Seeded 2 LP profile rows (... both entity-screened GREEN) + 1 APPROVED profile-registration approval case.` 与 `Seeded 3 Falcon payout addresses (AED IBAN ×1 / USDT TRON ×2, all ACTIVE) + 3 APPROVED address approval cases.`
 
 **种子行断言**（`bash scripts/stack.sh reset self` 之后、`demo:all` 之前；2026-10-24 在 HEAD `c66ba7a6` 的 self 栈上直查，种子行逐字相符；手驱过 LP 建档 / 审批的库会多出现场行，核对时按单号过滤，别数总行数）：
 

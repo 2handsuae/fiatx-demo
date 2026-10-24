@@ -165,7 +165,7 @@ const ScreeningFeedBody = ({
         <h2 className="text-base font-semibold text-adm-t1">Feed {pick} Screening Verdict</h2>
         <p className="mt-1 text-xs text-adm-t3">
           {pick === 'RED'
-            ? 'The address will be rejected and can never be used or re-registered.'
+            ? 'RED rejects this registration on the spot. If needed, the same coordinate can be registered again.'
             : 'The screening result is rewritten; the address stays pending CFO approval.'}
         </p>
       </div>
@@ -548,7 +548,7 @@ export default function LpPayoutAddressDetail() {
             <div className="border-b border-adm-border py-4">
               <Cap>Screening Simulation ⚡</Cap>
               <p className="mt-1 font-mono text-[10px] text-adm-t3">
-                Demo backdoor — feeds the address-screening verdict, as if returned by Sumsub. RED rejects the address for good. Reason is audited.
+                Demo backdoor — feeds the address-screening verdict, as if returned by Sumsub. RED rejects this registration on the spot (the same coordinate can be registered again if needed). Reason is audited.
               </p>
               <div className="mt-2 flex flex-col gap-2">
                 <button onClick={() => setScreeningPick('GREEN')} disabled={actionLoading} className={adminButtonClass('simulationAction')}>
