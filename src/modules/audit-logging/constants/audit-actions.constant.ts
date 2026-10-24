@@ -501,9 +501,6 @@ export const AuditActions = {
   LP_PROFILE_SCREENED: 'LP_PROFILE_SCREENED',
   LP_PROFILE_APPROVED: 'LP_PROFILE_APPROVED',
   LP_PROFILE_REJECTED: 'LP_PROFILE_REJECTED',
-  LP_PROFILE_CHANGE_PROPOSED: 'LP_PROFILE_CHANGE_PROPOSED',
-  LP_PROFILE_CHANGE_APPLIED: 'LP_PROFILE_CHANGE_APPLIED',
-  LP_PROFILE_CHANGE_REJECTED: 'LP_PROFILE_CHANGE_REJECTED',
   LP_PROFILE_SUSPENDED: 'LP_PROFILE_SUSPENDED',
   LP_PROFILE_REACTIVATED: 'LP_PROFILE_REACTIVATED',
   // LP 两步准入 Task 4（2026-10-24）：LP 打款地址九码（财资件，域 TREASURY）
@@ -1254,11 +1251,14 @@ export const COMPLAINT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   COMPLAINT_DEADLINE_FASTFORWARDED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['target'], requiresCausation: false },
 };
 
-/** 战役乙波一 T2（spec §2）：LP 档案八码，域 TREASURY（财资件，同 V7_TREASURY 挂法但独立
+/** 战役乙波一 T2（spec §2）：LP 档案码族，域 TREASURY（财资件，同 V7_TREASURY 挂法但独立
  * 成表——LiquidityProvider 没有 traceId 列，CREATED 老实标 NONE，其余 INHERIT 时读
  * row.lpNo 当 correlationId（lpNo 本身就是稳定业务键，够当锚，不必另开一列）。
- * APPROVED/CHANGE_APPLIED/CHANGE_REJECTED 由审批裁决驱动，requiresCausation
- * 真、必填 approvalNo；CHANGE_PROPOSED/SUSPENDED/REACTIVATED 是直接操作，必填 reason。
+ * APPROVED 由审批裁决驱动，requiresCausation 真、必填 approvalNo；SUSPENDED/REACTIVATED
+ * 是直接操作，必填 reason。
+ * LP 两步准入 Task 9（2026-10-24）：改结算坐标流程整体退役（档案不再持有结算坐标，收款坐标改由
+ * 打款地址簿承载），其提案 / 落地 / 驳回三个审计码从本表与 AuditActions 摘除，登
+ * DEPRECATED_AUDIT_ACTIONS 拒写。现 6 码。
  * LP 两步准入 Task 2（2026-10-24）：
  *   · LP_PROFILE_SCREENED（新）= 建档时刻实体背调出了三档结论（系统主体；afterData 携
  *     screeningAnswer/screenedAt，必填；INHERIT 读 lpNo；非异步驱动故无 causation）。
@@ -1270,9 +1270,6 @@ export const CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS: Record<string, AuditActionSpec
   LP_PROFILE_SCREENED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
   LP_PROFILE_APPROVED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   LP_PROFILE_REJECTED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
-  LP_PROFILE_CHANGE_PROPOSED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
-  LP_PROFILE_CHANGE_APPLIED:  { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
-  LP_PROFILE_CHANGE_REJECTED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   LP_PROFILE_SUSPENDED:       { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   LP_PROFILE_REACTIVATED:     { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
 };
@@ -1533,6 +1530,10 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   // 甲波二 T6 退役（通报单槽收编，事故名册 11→9）：saveReportDraft/markReported 两方法
   // 随事故表六列一并删除，通报的过程改统一走报送单主体（REG_FILING_AUDIT_ACTIONS 接手）
   'INCIDENT_REGULATOR_REPORT_DRAFTED', 'INCIDENT_REGULATOR_REPORTED',
+  // LP 两步准入 Task 9（2026-10-24）：改结算坐标流程整体退役（档案坐标列物理删除，收款坐标改由打款地址簿
+  // LpPayoutAddress 承载——登新停旧一拍代替改坐标），提案 / 落地 / 驳回三码的写点（档案服务与 workflow 的
+  // 改坐标方法、变更审批裁决收口）随之删除，三码登退役闸
+  'LP_PROFILE_CHANGE_PROPOSED', 'LP_PROFILE_CHANGE_APPLIED', 'LP_PROFILE_CHANGE_REJECTED',
 ] as const;
 
 /** 第七幕波二（2026-09-16）：承诺写 audit_log_subjects 子表的码族名册。

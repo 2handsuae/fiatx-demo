@@ -11,10 +11,6 @@ const treasury: ApprovalActorContext = { actorType: 'ADMIN', userId: 'uuid-treas
 
 const baseCreateDto: CreateLpProfileDto = {
   name: 'Falcon Liquidity FZE',
-  fiatBankName: 'Emirates NBD',
-  fiatIban: 'AE070331234567890123456',
-  cryptoNetwork: 'TRON',
-  cryptoAddress: 'TXfake00000000000000000000000001',
   agreementRef: 'AGR-2026-LP-001',
   dueDiligenceRef: 'DD-2026-LP-001',
   reason: 'Onboarding a new AED/USDT liquidity corridor',
@@ -140,15 +136,6 @@ describe('LpProfileService (乙波一 T2)', () => {
       await expect(service.transition(lpNo, LpProfileStatus.SUSPENDED)).rejects.toThrow(/Illegal/);
     });
 
-    it('rejects settlement change while SUSPENDED', async () => {
-      const lpNo = await createProfile();
-      await activate(lpNo);
-      await service.transition(lpNo, LpProfileStatus.SUSPENDED, {}, { actor: treasury, reason: 'Underperforming this quarter' });
-      await expect(
-        service.applySettlementChange(lpNo, { fiatIban: 'AE070331234567890999999', approvalNo: 'APR260101000002', causationId: randomUUID() }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
     it('REJECTED is terminal (no out-edges)', async () => {
       const lpNo = await createProfile();
       await service.transition(lpNo, LpProfileStatus.REJECTED, {}, { approvalNo: 'APR260101000001', causationId: randomUUID() });
@@ -225,44 +212,6 @@ describe('LpProfileService (乙波一 T2)', () => {
     });
   });
 
-  // ── applySettlementChange：只许 ACTIVE ───────────────────────────────
-  describe('applySettlementChange', () => {
-    it('rejects while PENDING_APPROVAL (profile not yet ACTIVE)', async () => {
-      const lpNo = await createProfile();
-      await expect(
-        service.applySettlementChange(lpNo, { fiatIban: 'AE070331234567890999999', approvalNo: 'APR260101000002', causationId: randomUUID() }),
-      ).rejects.toThrow(BadRequestException);
-    });
-
-    it('while ACTIVE: patches only the given coordinate fields, leaves the create-time approvalNo column untouched (评审Imp#1), and records LP_PROFILE_CHANGE_APPLIED carrying the change approvalNo only in the audit envelope', async () => {
-      const lpNo = await createProfile();
-      await service.stampApprovalNo(lpNo, 'APR-CREATE-0001'); // 建档审批单号(spec §2.1) —— 真实流程由 Task 3 workflow 在 initiateCreate 里调用
-      await activate(lpNo);
-      const causationId = randomUUID();
-
-      const updated = await service.applySettlementChange(lpNo, {
-        fiatIban: 'AE070331234567890999999',
-        approvalNo: 'APR260101000002', // 改坐标这次的审批单号——与建档审批单号不同
-        causationId,
-      });
-      expect(updated.fiatIban).toBe('AE070331234567890999999');
-      expect(updated.fiatBankName).toBe('Emirates NBD'); // 未传的坐标字段原样不动
-      expect(updated.cryptoAddress).toBe('TXfake00000000000000000000000001');
-      // 评审 Imp#1：approvalNo 列是建档审批单号,改坐标不许覆盖它——原样保持建档时的值。
-      expect(updated.approvalNo).toBe('APR-CREATE-0001');
-      expect(updated.status).toBe(LpProfileStatus.ACTIVE); // 改坐标不动状态
-
-      const call = auditLogs.recordSystem.mock.calls.find((c) => c[0].action === 'LP_PROFILE_CHANGE_APPLIED')![0];
-      // 改坐标这次的审批单号只进审计信封(专列 + INSTRUMENT 子主体),不进主体行。
-      expect(call).toMatchObject({ approvalNo: 'APR260101000002', causationId });
-      expect(call.subjects).toEqual(expect.arrayContaining([
-        { subjectType: 'APPROVAL_CASE', subjectNo: 'APR260101000002', subjectRole: 'INSTRUMENT' },
-      ]));
-      expect(call.metadata.before).toMatchObject({ fiatIban: 'AE070331234567890123456' });
-      expect(call.metadata.after).toMatchObject({ fiatIban: 'AE070331234567890999999' });
-    });
-  });
-
   // ── toView / list：零 UUID 投影 ───────────────────────────────────────
   describe('toView / list', () => {
     it('toView projects business fields only — no id key present', async () => {
@@ -271,8 +220,6 @@ describe('LpProfileService (乙波一 T2)', () => {
       const view = service.toView(row);
       expect(view).toEqual({
         lpNo, name: 'Falcon Liquidity FZE',
-        fiatBankName: 'Emirates NBD', fiatIban: 'AE070331234567890123456',
-        cryptoNetwork: 'TRON', cryptoAddress: 'TXfake00000000000000000000000001',
         agreementRef: 'AGR-2026-LP-001', status: LpProfileStatus.PENDING_APPROVAL,
         approvalNo: null,
         screeningAnswer: 'GREEN', screenedAt: greenScreening.screenedAt.toISOString(), dueDiligenceRef: 'DD-2026-LP-001',

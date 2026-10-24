@@ -1,4 +1,5 @@
-// 战役乙波一 T2 · LP 档案主体（LiquidityProvider）：建行 / 四态四边迁移表 / 结算坐标改动 / 读投影。
+// 战役乙波一 T2 · LP 档案主体（LiquidityProvider）：建行 / 四态四边迁移表 / 读投影。
+// （LP 两步准入 Task 9：结算坐标列与改坐标流程退役，收款坐标改由打款地址簿 LpPayoutAddress 承载。）
 // 照甲波四 ResponsibleIndividualsService 先例：档案审计动作全收在本服务，workflow（Task 3）零审计写入。
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, InternalServerErrorException, NotFoundException } from '@nestjs/common';
@@ -29,20 +30,6 @@ export interface LpEntityScreening {
 
 /** RED 登记即拒的固定拒因（落点计算写 LP_PROFILE_REJECTED 的 reason）。 */
 export const LP_ENTITY_SCREENING_RED_REASON = 'Entity screening returned RED at registration';
-
-/** applySettlementChange 的 patch——四坐标字段各自可选（哪几项变了传哪几项）。approvalNo/
- *  causationId 只喂审计（LP_PROFILE_CHANGE_APPLIED 专列 + INSTRUMENT 子主体），不回写主体
- *  行的 approvalNo 列——评审 Imp#1：该列 spec §2.1 定义为「建档审批单号」，改坐标不许覆盖它
- *  （照 RI 换人先例 applyReplacement：换人审批号不回写 RI 表，只落审计）。causationId 必填
- *  （评审随轮小项：CHANGE_APPLIED 契约 requiresCausation 真，可选会让坐标先落库、审计才炸）。 */
-export interface ApplySettlementChangeInput {
-  fiatBankName?: string;
-  fiatIban?: string;
-  cryptoNetwork?: string;
-  cryptoAddress?: string;
-  approvalNo: string;
-  causationId: string;
-}
 
 /** (from→to) 边到审计动作码的映射——与 LP_PROFILE_TRANSITIONS 的四条边一一对应。 */
 const ACTION_BY_EDGE: Record<string, string> = {
@@ -85,10 +72,6 @@ export class LpProfileService {
     return {
       lpNo: row.lpNo,
       name: row.name,
-      fiatBankName: row.fiatBankName,
-      fiatIban: row.fiatIban,
-      cryptoNetwork: row.cryptoNetwork,
-      cryptoAddress: row.cryptoAddress,
       agreementRef: row.agreementRef,
       status: row.status,
       approvalNo: row.approvalNo ?? null,
@@ -112,10 +95,6 @@ export class LpProfileService {
       data: {
         lpNo: generateReferenceNo('LPP'),
         name: dto.name,
-        fiatBankName: dto.fiatBankName,
-        fiatIban: dto.fiatIban,
-        cryptoNetwork: dto.cryptoNetwork,
-        cryptoAddress: dto.cryptoAddress,
         agreementRef: dto.agreementRef,
         dueDiligenceRef: dto.dueDiligenceRef,
         screeningAnswer: screening.answer,
@@ -177,59 +156,9 @@ export class LpProfileService {
     await this.prisma.liquidityProvider.update({ where: { lpNo }, data: { approvalNo } });
   }
 
-  // ── 改结算坐标（动作不是状态，只许 ACTIVE 期间落地） ──────────────────────
-
-  async applySettlementChange(lpNo: string, patch: ApplySettlementChangeInput): Promise<LiquidityProvider> {
-    const row = await this.findByNo(lpNo);
-    if (row.status !== LpProfileStatus.ACTIVE) {
-      throw new BadRequestException(`Cannot apply a settlement change to ${lpNo} while status is ${row.status} — the profile must be ACTIVE.`);
-    }
-    const { approvalNo, causationId, ...coordPatch } = patch;
-    const before = { fiatBankName: row.fiatBankName, fiatIban: row.fiatIban, cryptoNetwork: row.cryptoNetwork, cryptoAddress: row.cryptoAddress };
-    // 评审 Imp#1：approvalNo 列是建档审批单号（spec §2.1），改坐标不回写它——只更新
-    // 传入的坐标字段，变更审批号只进审计（下方 writeAudit 的 approvalNo 专列 + INSTRUMENT 子主体）。
-    const updated = await this.prisma.liquidityProvider.update({ where: { lpNo }, data: coordPatch });
-    await this.writeAudit(AuditActions.LP_PROFILE_CHANGE_APPLIED, updated, {
-      approvalNo,
-      causationId,
-      metadata: {
-        before,
-        after: { fiatBankName: updated.fiatBankName, fiatIban: updated.fiatIban, cryptoNetwork: updated.cryptoNetwork, cryptoAddress: updated.cryptoAddress },
-      },
-    });
-    return updated;
-  }
-
-  // ── 变更审批留痕（控制者裁定 R6）：workflow 只编排、零审计写入——CHANGE_PROPOSED /
-  //     CHANGE_REJECTED 两码收在本服务，复用下方私有 writeAudit（同 create/transition 先例）。──
-
-  /** 变更审批已提交（SUBMITTED）——金库提单人 actor 驱动。snapshot.reason 供
-   *  LP_PROFILE_CHANGE_PROPOSED 契约（requiredFields:['reason']）；before/after 落审计
-   *  metadata，供事后核对「批的是不是当初提的」。 */
-  async recordChangeProposed(
-    row: LiquidityProvider,
-    snapshot: { before: Record<string, unknown>; after: Record<string, unknown>; reason: string },
-    actor: ApprovalActorContext,
-    approvalNo: string,
-  ): Promise<void> {
-    await this.writeAudit(AuditActions.LP_PROFILE_CHANGE_PROPOSED, row, {
-      approvalNo,
-      reason: snapshot.reason,
-      actor,
-      metadata: { before: snapshot.before, after: snapshot.after },
-    });
-  }
-
-  /** 变更审批被拒 / 超时——坐标原样不动，只留痕（workflow 的 onDecided 系统写，无 actor）。
-   *  LP_PROFILE_CHANGE_REJECTED 契约 requiresCausation:true，causationId 必填。 */
-  async recordChangeRejected(row: LiquidityProvider, approvalNo: string, causationId: string, reason: string): Promise<void> {
-    await this.writeAudit(AuditActions.LP_PROFILE_CHANGE_REJECTED, row, { approvalNo, causationId, reason });
-  }
-
   // ── 审计（信封构造可复用；照划转单 transferAudit 的样子——action/subjects/metadata
   //     参数化，patch.actor 有则 recordByActor、无则 recordSystem。primarySubject 恒为
-  //     LIQUIDITY_PROVIDER/lpNo；审批单为 INSTRUMENT 子主体；每条带显式 requestId。
-  //     Task 3 的 recordChangeProposed/recordChangeRejected 走同一个 writeAudit）──────────
+  //     LIQUIDITY_PROVIDER/lpNo；审批单为 INSTRUMENT 子主体；每条带显式 requestId）──────────
 
   private async writeAudit(action: string, row: LiquidityProvider, patch: {
     fromStatus?: string; toStatus?: string; approvalNo?: string; causationId?: string;

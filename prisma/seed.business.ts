@@ -28,6 +28,7 @@ import { getFilingTypeConfig } from '../src/modules/governance/regulatory-filing
 import { addBusinessDays } from '../src/modules/governance/regulatory-filings/business-days';
 import { DUBAI_UTC_OFFSET_MS, businessMonthOf, toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { fakeChainTxHash, fakeBankRef } from '../src/common/utils/fake-external-refs.util';
+import { DEFAULT_DELIVERY_SOURCE } from '../src/modules/asset-treasury/lp-desk/lp-exchange-workflow.service';
 import { INCIDENT_REPORT_BASES } from '../src/modules/governance/incidents/incident.constants';
 import { ObligationFrequencies, ObligationStatus, VendorStatus } from '../src/modules/governance/compliance-office/compliance-office.constants';
 import { ComplaintCategories, ComplaintClientMessageTypes, ComplaintEntryKinds, ComplaintResolutionOutcomes, ComplaintStatus } from '../src/modules/governance/complaints/complaint.constants';
@@ -2104,7 +2105,9 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// LP desk — 战役乙波一 Task 9：两档案 + 一张 SUCCESS 历史兑换单。
+// LP desk — 战役乙波一 Task 9：两档案 + 一张 SUCCESS 历史兑换单；LP 两步准入 Task 9 增补：
+// Falcon 打款地址簿三条（各配已批地址审批单 + 登记/批准审计），历史兑换单的收款坐标改抄地址条目、
+// 到货来源改用干净占位 + 到货筛查 GREEN。
 //
 // 照 seedCapitalInjection 的直写形态：不走 LpProfileService/LpExchangeWorkflowService
 // ——那两个服务链路长（Nest DI / 事件总线 / 审批服务），本脚本走的是裸 PrismaClient +
@@ -2169,10 +2172,18 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     throw new Error('seedLpDesk: 找不到 treasury/CFO 种子管理员——seed.base.ts 的 db:base:sync 是否先跑？');
   }
 
-  // ── 两档案 ────────────────────────────────────────────────────────────
+  // ── 两档案（终态直铺，不走流程重放）────────────────────────────────────
+  // LP 两步准入（2026-10-24）：档案不再持有结算坐标，收款坐标只在下方「打款地址簿」里；
+  // 两家都回填尽调引用号 + 实体背调 GREEN（reset 世界里每家 LP 都有背调结论，详情页不出空洞）。
   const falconLpNo = buildDeterministicNo('LPP', 'falcon-liquidity-fze');
   const duneLpNo = buildDeterministicNo('LPP', 'dune-otc-dmcc');
   const falconApprovalNo = buildDeterministicNo('APR', 'lp-falcon-liquidity-registration');
+
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const nowMs = Date.now();
+  // Falcon 建档审批：铺场时刻−10天提交（实体背调同刻出结论）、+1h CFO 批
+  const falconApprovalSubmittedAt = new Date(nowMs - 10 * DAY_MS);
+  const falconApprovalDecidedAt = new Date(falconApprovalSubmittedAt.getTime() + 60 * 60 * 1000);
 
   const falcon = await prisma.liquidityProvider.upsert({
     where: { lpNo: falconLpNo },
@@ -2180,11 +2191,10 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     create: {
       lpNo: falconLpNo,
       name: 'Falcon Liquidity FZE',
-      fiatBankName: 'Mashreq Bank PJSC',
-      fiatIban: buildSystemPoolIban('LP_FALCON', 'AED'),
-      cryptoNetwork: 'TRON',
-      cryptoAddress: fakeTronAddress('LP|Falcon Liquidity FZE'),
       agreementRef: 'LPA-2026-FALCON-001',
+      dueDiligenceRef: 'DD-2026-FALCON-001',
+      screeningAnswer: 'GREEN',
+      screenedAt: falconApprovalSubmittedAt,
       status: 'ACTIVE',
       approvalNo: falconApprovalNo,
       createdByUserId: TREASURY_USER_NO,
@@ -2196,11 +2206,10 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     create: {
       lpNo: duneLpNo,
       name: 'Dune OTC DMCC',
-      fiatBankName: 'RAKBANK',
-      fiatIban: buildSystemPoolIban('LP_DUNE', 'AED'),
-      cryptoNetwork: 'TRON',
-      cryptoAddress: fakeTronAddress('LP|Dune OTC DMCC'),
       agreementRef: 'LPA-2026-DUNE-002',
+      dueDiligenceRef: 'DD-2026-DUNE-002',
+      screeningAnswer: 'GREEN',
+      screenedAt: new Date(nowMs - 14 * DAY_MS),
       status: 'SUSPENDED',
       createdByUserId: TREASURY_USER_NO,
     },
@@ -2216,15 +2225,13 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     // 起支持 reason 通道，见 prisma/seed-audit.helper.ts）。
     reason: 'LP registered — new liquidity provider onboarded for AED/USDT exchange desk.',
     afterData: {
-      name: falcon.name, fiatBankName: falcon.fiatBankName, cryptoNetwork: falcon.cryptoNetwork,
-      agreementRef: falcon.agreementRef, status: falcon.status, approvalNo: falcon.approvalNo,
+      name: falcon.name, agreementRef: falcon.agreementRef, dueDiligenceRef: falcon.dueDiligenceRef,
+      status: falcon.status, approvalNo: falcon.approvalNo,
     },
   });
 
   // 评审 R15 甲案：Falcon 建档审批——单步 CFO 已批，objectSnapshot 逐字对齐
-  // lp-profile-workflow.service.ts#initiateCreate 的真实快照形状（零 UUID）。
-  const falconApprovalSubmittedAt = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000); // 铺场时刻−10天
-  const falconApprovalDecidedAt = new Date(falconApprovalSubmittedAt.getTime() + 60 * 60 * 1000); // +1h
+  // lp-profile-workflow.service.ts#initiateCreate 的真实快照形状（零 UUID；含背调结论与尽调引用）。
   await prisma.approvalCase.upsert({
     where: { approvalNo: falconApprovalNo },
     update: {},
@@ -2235,8 +2242,8 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
       createdByUserId: treasuryUser.id, createdByUserNo: TREASURY_USER_NO,
       status: 'APPROVED', allowCancel: true,
       objectSnapshot: JSON.stringify({
-        lpNo: falcon.lpNo, name: falcon.name, fiatIban: falcon.fiatIban,
-        cryptoAddress: falcon.cryptoAddress, agreementRef: falcon.agreementRef,
+        lpNo: falcon.lpNo, name: falcon.name, agreementRef: falcon.agreementRef,
+        screeningAnswer: falcon.screeningAnswer, dueDiligenceRef: falcon.dueDiligenceRef,
       }),
       traceId: `SEED_LP_PROFILE_${falcon.lpNo}`,
       createdAt: falconApprovalSubmittedAt, submittedAt: falconApprovalSubmittedAt,
@@ -2245,23 +2252,143 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
         create: [{
           stepNo: 1, status: 'APPROVED', checkerRoleCandidates: 'CFO',
           decidedByUserId: cfoUser.id, decidedByUserNo: CFO_USER_NO, decidedByRole: 'CFO',
-          reason: 'LP registration reviewed against agreement and settlement coordinates — approved.',
+          reason: 'LP registration reviewed against agreement and due-diligence file — approved.',
           decidedAt: falconApprovalDecidedAt, createdAt: falconApprovalSubmittedAt,
         }],
       },
     },
   });
 
-  console.log(`Seeded 2 LP profile rows (${falcon.name} ACTIVE / ${dune.name} SUSPENDED) + 1 APPROVED profile-registration approval case.`);
+  console.log(`Seeded 2 LP profile rows (${falcon.name} ACTIVE / ${dune.name} SUSPENDED, both entity-screened GREEN) + 1 APPROVED profile-registration approval case.`);
 
-  // ── 一张 SUCCESS 历史兑换单：卖 50,000 AED 买 13,600 USDT（示例价 3.6765 手填口径）──
-  const SELL_AMOUNT = '50000';
-  const BUY_AMOUNT = '13600';
+  // ── Falcon 打款地址簿三条（终态 ACTIVE，各配一张已批 LP_ADDRESS_APPROVAL）────────────
+  // AED IBAN ×1（复用平台池 IBAN 生成器）+ USDT TRON ×2（演开单时多选；两个不同种子串），
+  // 登记即筛 GREEN。objectSnapshot 逐字对齐 lp-payout-address-workflow.service.ts#registerAddress
+  // 的真实快照形状（零 UUID），登记 / 批准审计照 writeSeedAudit 惯例（种子无 operator，actor=DEMO_SEED）。
+  // Dune（SUSPENDED）零地址。
   const [aedAsset, usdtAsset] = await Promise.all([
     prisma.asset.findFirst({ where: { currency: 'AED', status: 'ACTIVE' } }),
     prisma.asset.findFirst({ where: { currency: 'USDT', status: 'ACTIVE' } }),
   ]);
   if (!aedAsset || !usdtAsset) throw new Error('seedLpDesk: AED/USDT 资产行缺失——seedAssets 是否先跑？');
+
+  const falconAddressSeeds = [
+    {
+      key: 'falcon-aed-payout', asset: aedAsset, label: 'Mashreq AED settlement account',
+      evidenceRef: 'LPA-2026-FALCON-001 Annex B', addressType: 'BANK', declaredHosting: null as string | null,
+      network: null as string | null, address: null as string | null,
+      iban: buildSystemPoolIban('LP_FALCON', 'AED') as string | null, bankName: 'Mashreq Bank PJSC' as string | null,
+    },
+    {
+      key: 'falcon-usdt-primary', asset: usdtAsset, label: 'Primary USDT payout',
+      evidenceRef: 'LPA-2026-FALCON-001 Annex C-1', addressType: 'SELF_CUSTODY', declaredHosting: 'SELF_CUSTODY' as string | null,
+      network: usdtAsset.network as string | null, address: fakeTronAddress('LP|Falcon Liquidity FZE') as string | null,
+      iban: null as string | null, bankName: null as string | null,
+    },
+    {
+      key: 'falcon-usdt-reserve', asset: usdtAsset, label: 'Reserve USDT payout',
+      evidenceRef: 'LPA-2026-FALCON-001 Annex C-2', addressType: 'SELF_CUSTODY', declaredHosting: 'SELF_CUSTODY' as string | null,
+      network: usdtAsset.network as string | null, address: fakeTronAddress('LP|Falcon Liquidity FZE|reserve') as string | null,
+      iban: null as string | null, bankName: null as string | null,
+    },
+  ];
+  const falconAddresses: Record<string, { addressNo: string; iban: string | null; address: string | null }> = {};
+  for (let i = 0; i < falconAddressSeeds.length; i += 1) {
+    const a = falconAddressSeeds[i];
+    const addressNo = buildDeterministicNo('LPA', a.key);
+    const addressApprovalNo = buildDeterministicNo('APR', `lpa-${a.key}`);
+    const addressTraceId = `SEED_LP_ADDRESS_${addressNo}`;
+    // 档案批准后第二天起逐条登记（每条间隔 1h），CFO 半小时内批
+    const registeredAt = new Date(falconApprovalDecidedAt.getTime() + DAY_MS + i * 60 * 60 * 1000);
+    const approvedAt = new Date(registeredAt.getTime() + 30 * 60 * 1000);
+
+    const coordinate = a.iban ? (a.bankName ? `${a.iban} (${a.bankName})` : a.iban) : `${a.network} ${a.address}`;
+    const custody = a.declaredHosting ? `${a.addressType} custody, matches the declaration` : 'bank account';
+    const addressImpact = `Register ${a.asset.code} payout address ${coordinate} for ${falcon.name} (${custody}; screening GREEN; evidence ${a.evidenceRef}). `
+      + 'Once approved it can be selected as the payout destination of LP exchange orders';
+
+    await prisma.lpPayoutAddress.upsert({
+      where: { addressNo },
+      update: {},
+      create: {
+        addressNo, lpId: falcon.id, lpNo: falcon.lpNo, assetId: a.asset.id,
+        network: a.network, address: a.address, iban: a.iban, bankName: a.bankName,
+        declaredHosting: a.declaredHosting, addressType: a.addressType, hostingMismatch: false,
+        screeningAnswer: 'GREEN', screenedAt: registeredAt,
+        evidenceRef: a.evidenceRef, label: a.label,
+        approvalNo: addressApprovalNo, status: 'ACTIVE',
+        traceId: addressTraceId,
+        createdAt: registeredAt, updatedAt: approvedAt,
+      },
+    });
+    falconAddresses[a.key] = { addressNo, iban: a.iban, address: a.address };
+
+    const addressApproval = await prisma.approvalCase.upsert({
+      where: { approvalNo: addressApprovalNo },
+      update: {},
+      create: {
+        approvalNo: addressApprovalNo,
+        actionType: 'LP_ADDRESS_APPROVAL',
+        entityRef: addressNo,
+        createdByUserId: treasuryUser.id, createdByUserNo: TREASURY_USER_NO,
+        status: 'APPROVED', allowCancel: true,
+        objectSnapshot: JSON.stringify({
+          addressNo, lpNo: falcon.lpNo, lpName: falcon.name, assetCode: a.asset.code,
+          coordinate, declaredHosting: a.declaredHosting, addressType: a.addressType,
+          screeningAnswer: 'GREEN', evidenceRef: a.evidenceRef, impact: addressImpact,
+        }),
+        traceId: addressTraceId,
+        createdAt: registeredAt, submittedAt: registeredAt,
+        timeoutAt: new Date(registeredAt.getTime() + 48 * 60 * 60 * 1000),
+        steps: {
+          create: [{
+            stepNo: 1, status: 'APPROVED', checkerRoleCandidates: 'CFO',
+            decidedByUserId: cfoUser.id, decidedByUserNo: CFO_USER_NO, decidedByRole: 'CFO',
+            reason: 'Payout address reviewed against the agreement annex and screening result — approved.',
+            decidedAt: approvedAt, createdAt: registeredAt,
+          }],
+        },
+      },
+    });
+
+    // 登记（契约 requiredFields=['afterData']：坐标 / 申报 / 归因 / 协议锚快照，形状同
+    // lp-payout-address.service.ts#registrationSnapshot）→ 批准（契约 approvalNo + causation：
+    // causationId = 审批单 id，from→to 状态边）。同一段旅程：correlationId = 地址自己的 traceId。
+    await writeSeedAudit(prisma, {
+      action: 'LP_ADDRESS_REGISTERED',
+      subjectType: 'LP_ADDRESS',
+      subjectNo: addressNo,
+      actorNo: 'DEMO_SEED',
+      actionDomain: 'TREASURY',
+      correlationId: addressTraceId,
+      afterData: {
+        assetCode: a.asset.code,
+        network: a.network, address: a.address,
+        iban: a.iban, bankName: a.bankName, swiftBic: null,
+        declaredHosting: a.declaredHosting, addressType: a.addressType, hostingMismatch: false,
+        counterpartyVaspName: null, counterpartyVaspDid: null,
+        evidenceRef: a.evidenceRef, label: a.label,
+      },
+    });
+    await writeSeedAudit(prisma, {
+      action: 'LP_ADDRESS_APPROVED',
+      subjectType: 'LP_ADDRESS',
+      subjectNo: addressNo,
+      actorNo: 'DEMO_SEED',
+      actionDomain: 'TREASURY',
+      correlationId: addressTraceId,
+      approvalNo: addressApprovalNo,
+      causationId: addressApproval.id,
+      fromStatus: 'PENDING_APPROVAL',
+      toStatus: 'ACTIVE',
+      afterData: { addressNo, approvalNo: addressApprovalNo, status: 'ACTIVE' },
+    });
+  }
+  console.log(`Seeded ${falconAddressSeeds.length} Falcon payout addresses (AED IBAN ×1 / USDT TRON ×2, all ACTIVE) + ${falconAddressSeeds.length} APPROVED address approval cases.`);
+
+  // ── 一张 SUCCESS 历史兑换单：卖 50,000 AED 买 13,600 USDT（示例价 3.6765 手填口径）──
+  const SELL_AMOUNT = '50000';
+  const BUY_AMOUNT = '13600';
 
   const [sellFrom, buyVia, buyTo] = await Promise.all([
     findLpDeskPlatformWallet(prisma, 'F_OPS', aedAsset.network),
@@ -2272,11 +2399,10 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
   const exchangeNo = buildDeterministicNo('LPX', 'falcon-aed-usdt-2026-history');
   const exchangeApprovalNo = buildDeterministicNo('APR', 'lpx-falcon-aed-usdt-2026-history');
   const traceId = `SEED_LP_EXCHANGE_${exchangeNo}`;
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  const nowMs = Date.now();
   const executedAt = new Date(nowMs - 3 * DAY_MS);
   const deliveredAt = new Date(nowMs - 2 * DAY_MS);
   const settledAt = new Date(nowMs - 1 * DAY_MS);
+  const payoutAed = falconAddresses['falcon-aed-payout'];
 
   const exchange = await prisma.lpExchange.upsert({
     where: { exchangeNo },
@@ -2290,6 +2416,11 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
       status: 'SUCCESS',
       reason: 'Quarterly USDT liquidity top-up ahead of settlement peak — swap surplus AED operating float for USDT via the approved LP.',
       sellFromWalletId: sellFrom.id, buyViaWalletId: buyVia.id, buyToWalletId: buyTo.id,
+      // 卖 AED → 收款地址是 Falcon 的 AED IBAN 条目；坐标抄进单据（单据即快照，此后不回读地址簿）
+      payoutAddressNo: payoutAed.addressNo, payoutAddress: null, payoutIban: payoutAed.iban,
+      // 买 USDT（crypto）→ 到货来源用干净占位串 + 筛查 GREEN（reset 世界里每笔到货都有筛查结论）
+      deliveryFromAddress: DEFAULT_DELIVERY_SOURCE.CRYPTO, deliveryFromIban: null,
+      deliveryScreeningAnswer: 'GREEN', deliveryScreenedAt: deliveredAt,
       approvalNo: exchangeApprovalNo,
       executedAt, deliveredAt, settledAt,
       traceId, createdByUserId: TREASURY_USER_NO,
@@ -2298,7 +2429,7 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
   });
 
   // 评审 R15 甲案：兑换单审批——单步 CFO 已批，objectSnapshot 逐字对齐
-  // lp-exchange-workflow.service.ts#initiate 的真实快照形状（零 UUID，含 impact 一句话）。
+  // lp-exchange-workflow.service.ts#initiate 的真实快照形状（零 UUID，含收款地址单号 + 坐标与 impact 一句话）。
   const sellFormatted = new Prisma.Decimal(SELL_AMOUNT).toFixed(aedAsset.decimals);
   const buyFormatted = new Prisma.Decimal(BUY_AMOUNT).toFixed(usdtAsset.decimals);
   const exchangeImpact = `Sell ${sellFormatted} ${aedAsset.currency} to LP ${falcon.lpNo} for ${buyFormatted} ${usdtAsset.currency} `
@@ -2318,6 +2449,7 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
       objectSnapshot: JSON.stringify({
         exchangeNo: exchange.exchangeNo, lpNo: falcon.lpNo, lpName: falcon.name,
         sell: `${sellFormatted} ${aedAsset.currency}`, buy: `${buyFormatted} ${usdtAsset.currency}`,
+        payoutAddressNo: payoutAed.addressNo, coordinate: payoutAed.address ?? payoutAed.iban,
         prudentialPurpose: exchange.prudentialPurpose, impact: exchangeImpact,
       }),
       traceId,
@@ -2349,7 +2481,7 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
       fundsOrderNo: leg1No, lpExchangeId: exchange.id, legSeq: 1, attempt: 1, status: 'CLEARED',
       assetId: aedAsset.id, amount: SELL_AMOUNT, netAmount: SELL_AMOUNT,
       fromWalletId: sellFrom.id, fromIban: sellFrom.iban,
-      toIban: falcon.fiatIban,
+      toIban: exchange.payoutIban,
       referenceNo: leg1Ref,
       statusHistory: JSON.stringify([
         { toStatus: 'CREATED', action: 'CREATE', at: executedAt.toISOString() },
@@ -2365,7 +2497,7 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     create: {
       fundsOrderNo: leg2No, lpExchangeId: exchange.id, legSeq: 2, attempt: 1, status: 'CLEARED',
       assetId: usdtAsset.id, amount: BUY_AMOUNT, netAmount: BUY_AMOUNT,
-      fromAddress: falcon.cryptoAddress,
+      fromAddress: exchange.deliveryFromAddress,
       toWalletId: buyVia.id, toAddress: buyVia.address,
       txHash: leg2TxHash,
       statusHistory: JSON.stringify([

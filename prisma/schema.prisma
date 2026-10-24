@@ -920,15 +920,12 @@ model InternalTransfer {
   @@map("internal_transfers")
 }
 
-// 战役乙波一（2026-09-29）：LP 档案——流动性提供方名册。结算坐标定义卖出腿的钱打到哪，建档/改坐标走 CFO 审批。
+// 战役乙波一（2026-09-29）：LP 档案——流动性提供方名册，建档走 CFO 审批。
+// 2026-10-24 LP 两步准入：档案不再持有结算坐标（四列已退役），卖出腿的钱打到哪由 LpPayoutAddress 打款地址簿承载。
 model LiquidityProvider {
   id            String   @id @default(uuid())
   lpNo          String   @unique
   name          String
-  fiatBankName  String
-  fiatIban      String
-  cryptoNetwork String   // TRON
-  cryptoAddress String
   agreementRef  String
   status        String   @default("PENDING_APPROVAL") // PENDING_APPROVAL | ACTIVE | SUSPENDED | REJECTED
   approvalNo    String?

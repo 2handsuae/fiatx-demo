@@ -11,7 +11,7 @@ import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.co
 const USDT = { id: 'a-usdt', assetNo: 'ASUSDT0001', code: 'USDT-TRON', currency: 'USDT', decimals: 6, type: 'CRYPTO', network: 'TRON' };
 const AED = { id: 'a-aed', code: 'AED', currency: 'AED', decimals: 2, type: 'FIAT' };
 const treasury = { actorType: 'ADMIN' as const, userId: 'uuid-tre', userNo: 'ADM-TRE', roleCodes: ['TREASURY_OFFICER'] };
-const profile = { id: 'uuid-lp', lpNo: 'LPP1', name: 'Acme LP', fiatBankName: 'Bank', fiatIban: 'AE-LP-IBAN', cryptoNetwork: 'TRON', cryptoAddress: 'TLP-ADDR', agreementRef: 'AGR1', status: 'ACTIVE' };
+const profile = { id: 'uuid-lp', lpNo: 'LPP1', name: 'Acme LP', agreementRef: 'AGR1', status: 'ACTIVE' };
 
 // 修复轮 1 随轮小项 #2：resolveTbAccountId 的 mock 按 (code, ledger) 编码出不同的账户 id——
 // 若实现把 ledger 传错（例如买入腿误用卖出币 ledger），断言里期望的账户 id 会对不上，能
@@ -259,7 +259,7 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       await wf.onDecided(decided('APPROVED') as any);
       expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({
         lpExchangeId: 'uuid-lpx', legSeq: 1, initialStatus: 'CREATED', assetId: USDT.id, amount: '20000',
-        // LP 两步准入 Task 5：腿 1 的 to 坐标读单据抄下的收款地址（'TLP-PAYOUT-1'），不再读档案 cryptoAddress（'TLP-ADDR'）。
+        // LP 两步准入 Task 5：腿 1 的 to 坐标读单据抄下的收款地址（'TLP-PAYOUT-1'）。
         fromWalletId: 'w-ops-usdt', fromAddress: 'Tops-usdt', toWalletId: null, toAddress: 'TLP-PAYOUT-1', toIban: null,
       }));
       expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'EXECUTING', expect.objectContaining({ executedAt: expect.any(Date) }));
@@ -274,7 +274,7 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 1, toAddress: 'TLP-PAYOUT-1', toIban: null }));
     });
 
-    it('fiat sell: leg 1 pays the snapshotted IBAN (toIban), toAddress null — never the profile fiatIban', async () => {
+    it('fiat sell: leg 1 pays the snapshotted IBAN (toIban), toAddress null', async () => {
       const fiatRow = { ...exchangeRowBase, sellAssetId: AED.id, sellAsset: AED, sellFromWalletId: 'w-ops-aed', payoutAddressNo: 'LPA2', payoutAddress: null, payoutIban: 'AE-LP-PAYOUT' };
       const { wf, fundsOrders } = makeWorkflow({ exchangeRow: fiatRow, payoutAddress: aedAddress });
       await wf.onDecided(decided('APPROVED') as any);
@@ -361,7 +361,7 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       await expect(wf.simulateDelivery('LPX1', treasury)).rejects.toThrow(/not awaiting delivery/);
     });
 
-    it('creates leg 2 born CONFIRMED (buy asset FIAT, no source given → fromIban = the clean placeholder, never the profile fiatIban; toIban/toWalletId = our F_LIQ wallet), records the F_LIQ custodian line BEFORE posting 85 (评审 R12：回单先于落账，否则 bumpClosing 兜底基准双计), then CLEARs, DELIVERED + audit DELIVERED with explicit requestId', async () => {
+    it('creates leg 2 born CONFIRMED (buy asset FIAT, no source given → fromIban = the clean placeholder; toIban/toWalletId = our F_LIQ wallet), records the F_LIQ custodian line BEFORE posting 85 (评审 R12：回单先于落账，否则 bumpClosing 兜底基准双计), then CLEARs, DELIVERED + audit DELIVERED with explicit requestId', async () => {
       const { wf, fundsOrders, accounting, custodianStatement, exchanges, auditLogs } = makeWorkflow({ exchangeRow: awaitingDelivery });
       const r = await wf.simulateDelivery('LPX1', treasury);
       expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -490,12 +490,11 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       expect(deliveredPatch(exchanges)).toMatchObject({ deliveryFromIban: RED_IBAN, deliveryScreeningAnswer: 'RED' });
     });
 
-    it('leg 2 from-coordinate = the ⚡ input, NOT the profile coordinate (fiat buy: fromIban; profile fiatIban "AE-LP-IBAN" is not used any more)', async () => {
+    it('leg 2 from-coordinate = the ⚡ input (fiat buy: fromIban)', async () => {
       const { wf, fundsOrders } = makeWorkflow({ exchangeRow: awaitingDelivery });
       await wf.simulateDelivery('LPX1', treasury, { fromSource: 'AE123400000000000009999' });
       const leg = fundsOrders.create.mock.calls.find((c: any[]) => c[0].legSeq === 2)![0];
       expect(leg).toMatchObject({ fromIban: 'AE123400000000000009999', fromAddress: null, fromWalletId: null, toWalletId: 'w-liq-aed', toIban: 'AE-LIQ' });
-      expect(JSON.stringify(leg)).not.toContain('AE-LP-IBAN');
     });
 
     it('crypto buy: the source goes to leg 2 fromAddress (fromIban null), screening gets the buy asset\'s chain network, snapshot lands in the ADDRESS column', async () => {
@@ -503,7 +502,6 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       await wf.simulateDelivery('LPX1', treasury, { fromSource: RED_ADDR });
       const leg = fundsOrders.create.mock.calls.find((c: any[]) => c[0].legSeq === 2)![0];
       expect(leg).toMatchObject({ assetId: USDT.id, fromAddress: RED_ADDR, fromIban: null, fromWalletId: null, toWalletId: 'w-liq-usdt', toAddress: 'Tliq-usdt' });
-      expect(JSON.stringify(leg)).not.toContain('TLP-ADDR'); // 档案 cryptoAddress
       expect(screenSpy).toHaveBeenCalledWith(RED_ADDR, 'TRON');
       expect(deliveredPatch(exchanges)).toMatchObject({ deliveryFromAddress: RED_ADDR, deliveryFromIban: null, deliveryScreeningAnswer: 'RED' });
       expect(screenedAudit(auditLogs)[0]).toMatchObject({ afterData: { fromSource: RED_ADDR, screeningAnswer: 'RED' } });

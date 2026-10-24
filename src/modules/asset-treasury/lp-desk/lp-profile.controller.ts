@@ -7,9 +7,9 @@ import { buildPermissionCode } from '../../identity/access-control/permission-co
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { LpProfileService } from './lp-profile.service';
 import { LpProfileWorkflowService } from './lp-profile-workflow.service';
-import { CreateLpProfileDto, ProposeSettlementChangeDto, ReactivateLpProfileDto, SuspendLpProfileDto } from './dto/lp-profile.dto';
+import { CreateLpProfileDto, ReactivateLpProfileDto, SuspendLpProfileDto } from './dto/lp-profile.dto';
 
-/** 战役乙波一 T3 · LP 档案端点。建档 / 改结算坐标 / 启停归金库（LP_WRITE），列表 / 详情归
+/** 战役乙波一 T3 · LP 档案端点。建档 / 启停归金库（LP_WRITE），列表 / 详情归
  *  LP_READ；写动作全在 workflow（同 internal-transfer.controller.ts 先例）。 */
 @ApiTags('Admin - LP Desk')
 @ApiBearerAuth()
@@ -32,13 +32,6 @@ export class LpProfileController {
   @RequirePermissions(buildPermissionCode('POST', '/admin/lp-profiles'))
   create(@Body() dto: CreateLpProfileDto, @Req() req: any) {
     return this.workflow.initiateCreate(dto, this.buildActor(req));
-  }
-
-  @Post(':lpNo/settlement-change')
-  @ApiOperation({ summary: 'Propose a settlement-coordinate change (CFO signs off)' })
-  @RequirePermissions(buildPermissionCode('POST', '/admin/lp-profiles/:lpNo/settlement-change'))
-  settlementChange(@Param('lpNo') lpNo: string, @Body() dto: ProposeSettlementChangeDto, @Req() req: any) {
-    return this.workflow.proposeSettlementChange(lpNo, dto, this.buildActor(req));
   }
 
   @Post(':lpNo/suspend')

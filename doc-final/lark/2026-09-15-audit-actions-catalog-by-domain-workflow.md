@@ -588,7 +588,7 @@
 | `INTERNAL_TRANSFER_SETTLED` | 整单结清、客户余额复位 | I 继承 | amount, effectiveDate |  |
 | `INTERNAL_TRANSFER_FAILED` | 执行失败（腿 2 失败款停结算户，人工处理） | I 继承 | reasonCode |  |
 
-### LP 档案生命周期（9） — 战役乙波一 T2/T3 新增，金库建档 / 改结算坐标 / 启停，CFO 单步批；LP 两步准入 T2 加建档即筛
+### LP 档案生命周期（6） — 战役乙波一 T2/T3 新增，金库建档 / 启停，CFO 单步批；LP 两步准入 T2 加建档即筛、T9 退役改结算坐标三码
 
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
 |---|---|---|---|---|
@@ -596,9 +596,6 @@
 | `LP_PROFILE_SCREENED` | 建档提交瞬间实体背调出结论（system 记账，afterData 带三档结论 GREEN / YELLOW / RED 与筛查时刻；名称含 sanction → RED、含 offshore → YELLOW，mock 约定）（LP 两步准入） | I 继承 | afterData |  |
 | `LP_PROFILE_APPROVED` | CFO 批准建档，档案转 ACTIVE | I 继承 | approvalNo | ✓ |
 | `LP_PROFILE_REJECTED` | 档案转 REJECTED（终态）：CFO 驳回或超时；或建档实体背调 RED 登记即拒（落点计算，system 记账，无审批单，固定拒因 Entity screening returned RED at registration）（LP 两步准入） | I 继承 | reason |  |
-| `LP_PROFILE_CHANGE_PROPOSED` | 提结算坐标变更（金库提，新坐标快照进审批单，待 CFO 批） | I 继承 | reason |  |
-| `LP_PROFILE_CHANGE_APPLIED` | CFO 批准变更，新结算坐标落地（档案仍 ACTIVE） | I 继承 | approvalNo | ✓ |
-| `LP_PROFILE_CHANGE_REJECTED` | CFO 驳回或超时变更，坐标原样不动 | I 继承 | approvalNo | ✓ |
 | `LP_PROFILE_SUSPENDED` | 金库暂停 LP（直接迁移，留痕不批） | I 继承 | reason |  |
 | `LP_PROFILE_REACTIVATED` | 金库恢复 LP（直接迁移，留痕不批） | I 继承 | reason |  |
 

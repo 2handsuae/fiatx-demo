@@ -9,7 +9,7 @@ import { ReconciliationModule } from '../../clearing-settle/reconciliation/recon
 import { PrudentialModule } from '../prudential/prudential.module';
 import { LpProfileService } from './lp-profile.service';
 import { LpProfileWorkflowService } from './lp-profile-workflow.service';
-import { LpProfileApprovalService, LpProfileChangeApprovalService } from './lp-profile-approval.service';
+import { LpProfileApprovalService } from './lp-profile-approval.service';
 import { LpProfileController } from './lp-profile.controller';
 import { LpExchangeService } from './lp-exchange.service';
 import { LpExchangeWorkflowService } from './lp-exchange-workflow.service';
@@ -23,8 +23,8 @@ import { TRAVEL_RULE_ADAPTER } from '../../sumsub-shared/travel-rule/travel-rule
 import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
 
 /**
- * 战役乙波一 · LP 档案（LiquidityProvider）：建行 + 结算坐标变更 + 启停，建档 / 改坐标
- * 均走 ApprovalsService 正门（CFO 单步）。T5：LP 兑换单（LpExchange）——先款后货三腿
+ * 战役乙波一 · LP 档案（LiquidityProvider）：建行 + 启停，建档走 ApprovalsService 正门
+ * （CFO 单步）。LP 两步准入 Task 9：结算坐标变更退役，收款坐标改由打款地址簿承载。T5：LP 兑换单（LpExchange）——先款后货三腿
  * workflow，依赖对账域的 SimulatedCustodianStatementService（同划转单先例：腿提交/到货
  * 时写模拟托管方回单），账本/资金单/审批三家照 internal-transfers.module 的 imports 清单。
  * T6：LpExchangeController 薄层，六端点全转发 workflow/服务，不加逻辑。
@@ -35,7 +35,7 @@ import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-trav
   imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, FundsLayerModule, ApprovalsModule, ReconciliationModule, PrudentialModule],
   controllers: [LpProfileController, LpExchangeController, LpPayoutAddressController],
   providers: [
-    LpProfileService, LpProfileWorkflowService, LpProfileApprovalService, LpProfileChangeApprovalService,
+    LpProfileService, LpProfileWorkflowService, LpProfileApprovalService,
     LpExchangeService, LpExchangeWorkflowService, LpExchangeApprovalService,
     // LP 两步准入 Task 3：地址簿登记即筛——复用对手方套件，同一 DI token 自行 provide（第四个 provide 点）
     // Task 4：地址登记审批（CFO 单步）+ workflow（审批裁决 / 撤回 / 启停退 / ⚡筛查覆写）+ 端点

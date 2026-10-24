@@ -274,9 +274,8 @@ function runStaticChecks(): void {
     DEPOSIT_CLAWBACK: 'DEPOSIT_CLAWBACK_WRITE',
     WITHDRAW_RETURN_CLAIM: 'WITHDRAW_RETURN_CLAIM_WRITE',
     INTERNAL_TRANSFER_APPROVAL: 'INTERNAL_TRANSFER_WRITE',
-    // 战役乙波一 T3：LP 档案建档 / 结算坐标变更——maker（金库，LP_WRITE）≠ checker（CFO）。
+    // 战役乙波一 T3：LP 档案建档——maker（金库，LP_WRITE）≠ checker（CFO）。
     LP_PROFILE_APPROVAL: 'LP_WRITE',
-    LP_PROFILE_CHANGE: 'LP_WRITE',
     // LP 两步准入 Task 4：LP 打款地址登记——同上 maker（金库，LP_WRITE）≠ checker（CFO）。
     LP_ADDRESS_APPROVAL: 'LP_WRITE',
     // 战役乙波一 T5：LP 兑换单发起——同上 maker（金库，LP_WRITE）≠ checker（CFO）。
@@ -749,13 +748,13 @@ function runStaticChecks(): void {
   // 同 S10/S11/S12 范式：两个新组（LP_READ/LP_WRITE）一次性核验 route() 挂载 /
   // ACTION_BUCKET_CATALOG 桶挂载 / 职务持有均 >=1（联合类型成员由 tsc 收口，同 S10/S11/S12
   // 头注释）；两桶挂既有 Treasury 域（treasury.view_lp/treasury.act_lp，T3 域注释），域数
-  // 不变仍 15。再加两条精确持有断言——LP_WRITE 金库独持（开档案/改结算坐标/启停/开兑换单/
+  // 不变仍 15。再加两条精确持有断言——LP_WRITE 金库独持（开档案/启停/登记打款地址/开兑换单/
   // 验收全在金库手上，CFO 单步裁决不占本组，同 INTERNAL_TRANSFER_WRITE「maker≠checker」
   // 反向先例）；LP_READ 恰为 {TREASURY_OFFICER,CFO,INTERNAL_AUDITOR,COMPLIANCE_OFFICER}（金库=经办人、
   // CFO=裁决人要看得见列表/详情、内审=全域只读人设，同 INTERNAL_TRANSFER_READ 三持先例；LP 两步准入 T4
   // 评审裁定加第四者合规官——⚡筛查覆写的持有者要可达 LP 页面，同客户地址簿合规官持 WITHDRAWAL_ADDRESS_READ）。
-  // 三条新审批策略（LP_PROFILE_APPROVAL/LP_PROFILE_CHANGE/LP_EXCHANGE_APPROVAL）在
-  // MAKER_GROUP_BY_POLICY 里已由 T3/T5 登记（见上方 S5/S8 消费的那张表本体）——策略全集
+  // 审批策略（LP_PROFILE_APPROVAL/LP_ADDRESS_APPROVAL/LP_EXCHANGE_APPROVAL）在
+  // MAKER_GROUP_BY_POLICY 里已由 T3/T4/T5 登记（见上方 S5/S8 消费的那张表本体）——策略全集
   // 覆盖由已有的 S8「MAKER 表与策略一一对应」自动兜住，不必在这里重复一条判据。
   const LP_GROUPS: PermissionGroup[] = ['LP_READ', 'LP_WRITE'];
   const lpCoverage = LP_GROUPS.map((g) => {

@@ -29,10 +29,6 @@ const RegisterLpModal = ({
   onSaved: (result: { lpNo: string; approvalNo: string | null; status: string }) => void;
 }) => {
   const [name, setName] = useState('');
-  const [fiatBankName, setFiatBankName] = useState('');
-  const [fiatIban, setFiatIban] = useState('');
-  const [cryptoNetwork, setCryptoNetwork] = useState('');
-  const [cryptoAddress, setCryptoAddress] = useState('');
   const [agreementRef, setAgreementRef] = useState('');
   const [dueDiligenceRef, setDueDiligenceRef] = useState('');
   const [reason, setReason] = useState('');
@@ -42,10 +38,6 @@ const RegisterLpModal = ({
   useEffect(() => {
     if (!open) return;
     setName('');
-    setFiatBankName('');
-    setFiatIban('');
-    setCryptoNetwork('');
-    setCryptoAddress('');
     setAgreementRef('');
     setDueDiligenceRef('');
     setReason('');
@@ -57,10 +49,6 @@ const RegisterLpModal = ({
   const submit = async () => {
     setError('');
     if (!name.trim()) { setError('Name is required'); return; }
-    if (!fiatBankName.trim()) { setError('Fiat bank name is required'); return; }
-    if (!fiatIban.trim()) { setError('Fiat IBAN is required'); return; }
-    if (!cryptoNetwork.trim()) { setError('Crypto network is required'); return; }
-    if (!cryptoAddress.trim()) { setError('Crypto address is required'); return; }
     if (!agreementRef.trim()) { setError('Agreement ref is required'); return; }
     if (!dueDiligenceRef.trim()) { setError('Due diligence ref is required'); return; }
     if (!reason.trim()) { setError('Reason is required'); return; }
@@ -70,10 +58,6 @@ const RegisterLpModal = ({
         method: 'POST',
         body: JSON.stringify({
           name: name.trim(),
-          fiatBankName: fiatBankName.trim(),
-          fiatIban: fiatIban.trim(),
-          cryptoNetwork: cryptoNetwork.trim(),
-          cryptoAddress: cryptoAddress.trim(),
           agreementRef: agreementRef.trim(),
           dueDiligenceRef: dueDiligenceRef.trim(),
           reason: reason.trim(),
@@ -101,24 +85,6 @@ const RegisterLpModal = ({
         <label className="mb-3 block text-xs">Name
           <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="e.g. Northbridge Liquidity Ltd" />
         </label>
-
-        <div className="mb-3 grid grid-cols-2 gap-2">
-          <label className="block text-xs">Fiat Bank Name
-            <input value={fiatBankName} onChange={(e) => setFiatBankName(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" />
-          </label>
-          <label className="block text-xs">Fiat IBAN
-            <input value={fiatIban} onChange={(e) => setFiatIban(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
-          </label>
-        </div>
-
-        <div className="mb-3 grid grid-cols-2 gap-2">
-          <label className="block text-xs">Crypto Network
-            <input value={cryptoNetwork} onChange={(e) => setCryptoNetwork(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="e.g. TRC20" />
-          </label>
-          <label className="block text-xs">Crypto Address
-            <input value={cryptoAddress} onChange={(e) => setCryptoAddress(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
-          </label>
-        </div>
 
         <div className="mb-3 grid grid-cols-2 gap-2">
           <label className="block text-xs">Agreement Ref

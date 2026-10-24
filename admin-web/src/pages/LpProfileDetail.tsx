@@ -1,9 +1,11 @@
 // admin-web/src/pages/LpProfileDetail.tsx
-// 战役乙波一 Task 7：LP 档案详情——基本信息 + 结算坐标 + 动作区（状态×持码双维，禁加第三维）
+// 战役乙波一 Task 7：LP 档案详情——基本信息 + 动作区（状态×持码双维，禁加第三维）
 // + 审计区。模板：InternalTransferDetail.tsx（结构/fetch/权限门控写法）。
 // 铁律⑥：后端投影已无 UUID，本页类型里也不出现。
 // LP 两步准入 Task 7：加「Entity Screening」背调结论区与「Payout Addresses」打款地址簿区块
 // （列表行 + Register modal；条目详情在 LpPayoutAddressDetail.tsx，route-only）。
+// LP 两步准入 Task 9：档案不再持有结算坐标——「Settlement Coordinates」区块与「Propose settlement
+// change」入口随四坐标列一并退役，收款坐标只在打款地址簿里。
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
@@ -21,14 +23,10 @@ import { PERMISSIONS } from '../rbac/permissions';
 interface Detail {
   lpNo: string;
   name: string;
-  fiatBankName: string;
-  fiatIban: string;
-  cryptoNetwork: string;
-  cryptoAddress: string;
   agreementRef: string;
   status: string;
   approvalNo: string | null;
-  /** 建档时刻的实体背调结论与尽调档案引用号（种子档案可能为空，T9 回填） */
+  /** 建档时刻的实体背调结论与尽调档案引用号 */
   screeningAnswer: string | null;
   screenedAt: string | null;
   dueDiligenceRef: string | null;
@@ -230,121 +228,12 @@ const RegisterPayoutAddressModal = ({
   );
 };
 
-const ProposeSettlementChangeModal = ({
-  open,
-  detail,
-  onClose,
-  onSaved,
-}: {
-  open: boolean;
-  detail: Detail | null;
-  onClose: () => void;
-  onSaved: (result: { approvalNo: string }) => void;
-}) => {
-  const [fiatBankName, setFiatBankName] = useState('');
-  const [fiatIban, setFiatIban] = useState('');
-  const [cryptoNetwork, setCryptoNetwork] = useState('');
-  const [cryptoAddress, setCryptoAddress] = useState('');
-  const [reason, setReason] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    if (!open || !detail) return;
-    setFiatBankName(detail.fiatBankName);
-    setFiatIban(detail.fiatIban);
-    setCryptoNetwork(detail.cryptoNetwork);
-    setCryptoAddress(detail.cryptoAddress);
-    setReason('');
-    setError('');
-  }, [open, detail]);
-
-  if (!open || !detail) return null;
-
-  const submit = async () => {
-    setError('');
-    if (!fiatBankName.trim()) { setError('Fiat bank name is required'); return; }
-    if (!fiatIban.trim()) { setError('Fiat IBAN is required'); return; }
-    if (!cryptoNetwork.trim()) { setError('Crypto network is required'); return; }
-    if (!cryptoAddress.trim()) { setError('Crypto address is required'); return; }
-    if (!reason.trim()) { setError('Reason is required'); return; }
-    setSubmitting(true);
-    try {
-      const res = await adminFetch(
-        `${import.meta.env.VITE_API_URL}/admin/lp-profiles/${encodeURIComponent(detail.lpNo)}/settlement-change`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            fiatBankName: fiatBankName.trim(),
-            fiatIban: fiatIban.trim(),
-            cryptoNetwork: cryptoNetwork.trim(),
-            cryptoAddress: cryptoAddress.trim(),
-            reason: reason.trim(),
-          }),
-        },
-      );
-      if (!res.ok) { setError(await getApiErrorMessage(res, 'Failed to propose the settlement change')); return; }
-      const data = await res.json();
-      onSaved({ approvalNo: data.approvalNo });
-    } catch (e) {
-      if (e instanceof AdminSessionError) return;
-      setError(e instanceof Error ? e.message : 'Failed to propose the settlement change');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="w-[520px] rounded-lg border border-adm-border bg-adm-panel p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-1 text-sm font-semibold text-adm-t1">Propose Settlement Change</h3>
-        <p className="mb-3 font-mono text-[10px] text-adm-t3">{detail.lpNo} · {detail.name}</p>
-
-        <div className="mb-3 grid grid-cols-2 gap-2">
-          <label className="block text-xs">Fiat Bank Name
-            <input value={fiatBankName} onChange={(e) => setFiatBankName(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" />
-          </label>
-          <label className="block text-xs">Fiat IBAN
-            <input value={fiatIban} onChange={(e) => setFiatIban(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
-          </label>
-        </div>
-
-        <div className="mb-3 grid grid-cols-2 gap-2">
-          <label className="block text-xs">Crypto Network
-            <input value={cryptoNetwork} onChange={(e) => setCryptoNetwork(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" />
-          </label>
-          <label className="block text-xs">Crypto Address
-            <input value={cryptoAddress} onChange={(e) => setCryptoAddress(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" />
-          </label>
-        </div>
-
-        <label className="mb-3 block text-xs">Reason
-          <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="Why is this settlement change being proposed?" />
-        </label>
-
-        <div className="mb-3 rounded border border-adm-amber/30 bg-adm-amber/10 px-3 py-2 font-mono text-[10px] text-adm-amber">
-          This opens an approval — the CFO decides.
-        </div>
-
-        {error && <p className="mb-2 text-xs text-adm-red">{error}</p>}
-        <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className={adminButtonClass('modalCancel')}>Cancel</button>
-          <button type="button" disabled={submitting} onClick={() => void submit()} className={adminButtonClass('modalConfirm')}>
-            {submitting ? 'Submitting…' : 'Propose Change'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
 const LpProfileDetail = () => {
   const { lpNo } = useParams<{ lpNo: string }>();
   const navigate = useNavigate();
   const { hasPermission } = useAdminSession();
   const canSuspend = hasPermission(PERMISSIONS.LP_PROFILE_SUSPEND);
   const canReactivate = hasPermission(PERMISSIONS.LP_PROFILE_REACTIVATE);
-  const canProposeChange = hasPermission(PERMISSIONS.LP_PROFILE_SETTLEMENT_CHANGE_WRITE);
   const canReadAddresses = hasPermission(PERMISSIONS.LP_PAYOUT_ADDRESSES_READ);
   const canRegisterAddress = hasPermission(PERMISSIONS.LP_PAYOUT_ADDRESS_CREATE);
   const [detail, setDetail] = useState<Detail | null>(null);
@@ -352,7 +241,6 @@ const LpProfileDetail = () => {
   const [showRegisterAddress, setShowRegisterAddress] = useState(false);
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
-  const [showChangeModal, setShowChangeModal] = useState(false);
   const [notice, setNotice] = useState<{ text: string; approvalNo?: string } | null>(null);
 
   const fetchDetail = async () => {
@@ -463,11 +351,6 @@ const LpProfileDetail = () => {
       >
         <StatusPill value={detail.status} size="md" />
         <ViewAuditTrailButton params={{ subjectNo: detail.lpNo }} />
-        {detail.status === 'ACTIVE' && canProposeChange && (
-          <button type="button" disabled={working} onClick={() => setShowChangeModal(true)} className={adminButtonClass('detailUtility')}>
-            Propose settlement change
-          </button>
-        )}
         {detail.status === 'ACTIVE' && canSuspend && (
           <button type="button" disabled={working} onClick={() => void suspend()} className={adminButtonClass('workflowNegative')}>
             Suspend
@@ -580,12 +463,6 @@ const LpProfileDetail = () => {
             </div>
           )}
 
-          <DetailCard title="Settlement Coordinates" columns={2}>
-            <InfoField label="Fiat Bank" value={detail.fiatBankName} />
-            <InfoField label="Fiat IBAN" value={detail.fiatIban} mono />
-            <InfoField label="Crypto Network" value={detail.cryptoNetwork} />
-            <InfoField label="Crypto Address" value={detail.cryptoAddress} mono />
-          </DetailCard>
         </div>
 
         <aside className="w-[272px] min-w-[272px] overflow-y-auto border-l border-adm-border bg-adm-panel px-4">
@@ -611,16 +488,6 @@ const LpProfileDetail = () => {
               : { text: `Registered ${result.addressNo} — address screening came back RED, rejected on the spot (no approval opened).` },
           );
           void fetchAddresses();
-        }}
-      />
-
-      <ProposeSettlementChangeModal
-        open={showChangeModal}
-        detail={detail}
-        onClose={() => setShowChangeModal(false)}
-        onSaved={(result) => {
-          setShowChangeModal(false);
-          setNotice({ text: 'Settlement change proposed — awaiting CFO.', approvalNo: result.approvalNo });
         }}
       />
     </div>

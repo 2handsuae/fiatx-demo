@@ -22,6 +22,16 @@ export interface SeedAuditInput {
    *  注意：`writeSeedAudit` 绕过 `AuditLogsService`，`requiredFields` 校验本身不会在这条
    *  路径上跑——加这个参数是为了让写出的行本身带上业务要求的字段，不是让校验通过。 */
   reason?: string | null;
+  /** 状态迁移 / 审批驱动动作的契约列（默认 null）——LP 两步准入 Task 9 加：种子直铺终态的「批准」留痕
+   *  （LP_ADDRESS_APPROVED，契约 requiredFields=['approvalNo']、requiresCausation）要让行本身带上
+   *  approvalNo / causationId / from→to，否则按审批单号反查审计会漏掉种子行。同 `reason` 的做法：
+   *  只是让写出的行带上业务要求的列，不让校验通过（本函数绕过 AuditLogsService）。
+   *  correlationId 默认每行随机铸一个；同一主体的多条种子留痕要落在同一段旅程时显式传（如地址自己的 traceId）。 */
+  approvalNo?: string | null;
+  causationId?: string | null;
+  fromStatus?: string | null;
+  toStatus?: string | null;
+  correlationId?: string | null;
 }
 
 // 审计单号 = AUD + 日期 + 6 位随机数，同一天内会撞（生日问题）。服务侧
@@ -62,7 +72,7 @@ export async function writeSeedAudit(prisma: PrismaClient, input: SeedAuditInput
   if (existing) return existing;
 
   const occurredAt = new Date();
-  const correlationId = randomUUID();
+  const correlationId = input.correlationId ?? randomUUID();
   const afterData = JSON.stringify(input.afterData);
   const metadataObj = { seedVersion: process.env.npm_package_version ?? '0.0.0', commit: currentCommit() };
   const metadata = JSON.stringify(metadataObj);
@@ -114,6 +124,10 @@ export async function writeSeedAudit(prisma: PrismaClient, input: SeedAuditInput
           ownerCustomerNo: input.ownerCustomerNo ?? null,
           outcome: 'SUCCESS',
           reason: input.reason ?? null,
+          approvalNo: input.approvalNo ?? null,
+          causationId: input.causationId ?? null,
+          fromStatus: input.fromStatus ?? null,
+          toStatus: input.toStatus ?? null,
           afterData,
           correlationId,
           traceId: correlationId,

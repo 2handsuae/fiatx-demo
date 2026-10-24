@@ -91,10 +91,10 @@ export const ApprovalActionTypes = {
   // 战役甲波五 T3（2026-09-28）：客户族结案：运营提、合规官批。挂在 Incident（客户族），
   // closeActionType 值与本键同名（同 INCIDENT_CLOSE_TECHSEC/PRUDENTIAL 先例）。
   INCIDENT_CLOSE_CUSTOMER: 'INCIDENT_CLOSE_CUSTOMER',
-  // 战役乙波一 T3（2026-09-29）：LP 档案——建档 / 结算坐标变更两条链，均金库提、CFO 单步批。
-  // 挂在 LiquidityProvider 主体（entityRef=lpNo），复刻 INTERNAL_TRANSFER_APPROVAL 形状。
+  // 战役乙波一 T3（2026-09-29）：LP 档案建档——金库提、CFO 单步批。挂在 LiquidityProvider 主体
+  // （entityRef=lpNo），复刻 INTERNAL_TRANSFER_APPROVAL 形状。（结算坐标变更那条链已于
+  // LP 两步准入 Task 9 随档案坐标列一并退役。）
   LP_PROFILE_APPROVAL: 'LP_PROFILE_APPROVAL',
-  LP_PROFILE_CHANGE: 'LP_PROFILE_CHANGE',
   // LP 两步准入 Task 4（2026-10-24）：LP 打款地址登记——金库提、CFO 单步批，复刻
   // LP_PROFILE_APPROVAL 同形状。挂在 LpPayoutAddress 主体（entityRef=addressNo）。
   LP_ADDRESS_APPROVAL: 'LP_ADDRESS_APPROVAL',
@@ -456,11 +456,8 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   [ApprovalActionTypes.INCIDENT_CLOSE_CUSTOMER]: {
     steps: [{ stepNo: 1, roles: ['COMPLIANCE_OFFICER'] }], timeoutHours: 48, allowCancel: true,
   },
-  // 战役乙波一 T3（task-3-brief.md 原文逐字）：LP 档案建档 / 结算坐标变更——金库提、CFO 单步批。
+  // 战役乙波一 T3（task-3-brief.md 原文逐字）：LP 档案建档——金库提、CFO 单步批。
   [ApprovalActionTypes.LP_PROFILE_APPROVAL]: {
-    steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true,
-  },
-  [ApprovalActionTypes.LP_PROFILE_CHANGE]: {
     steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true,
   },
   // LP 两步准入 Task 4（brief 原文）：LP 打款地址登记——金库提、CFO 单步 48h 可撤，同 LP_PROFILE_APPROVAL 形状。
@@ -535,10 +532,9 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   // （approval-policy.service.ts list() 按 V1_APPROVAL_ACTION_TYPES 过滤，不在册=页面
   // 永远不渲染这一行）。
   ApprovalActionTypes.COMPLAINT_RESOLUTION,
-  // 战役乙波一 T3：LP 档案建档 / 结算坐标变更——漏白名单=ApprovalPoliciesPage.tsx 永不
-  // 渲染这两行（甲教训，见上方 COMPLAINT_RESOLUTION 注释）。
+  // 战役乙波一 T3：LP 档案建档——漏白名单=ApprovalPoliciesPage.tsx 永不渲染这一行
+  // （甲教训，见上方 COMPLAINT_RESOLUTION 注释）。
   ApprovalActionTypes.LP_PROFILE_APPROVAL,
-  ApprovalActionTypes.LP_PROFILE_CHANGE,
   // LP 两步准入 Task 4：LP 打款地址登记——同上漏白名单教训（漏登 = ApprovalPoliciesPage 永不渲染这一行）。
   ApprovalActionTypes.LP_ADDRESS_APPROVAL,
   // 战役乙波一 T5：LP 兑换单——同上 LP_PROFILE_* 漏白名单教训，一并登记。
