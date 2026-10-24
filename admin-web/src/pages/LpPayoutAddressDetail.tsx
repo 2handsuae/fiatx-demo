@@ -58,7 +58,7 @@ const PROMPT_META: Record<PromptKind, {
 }> = {
   cancel: {
     title: 'Withdraw Payout Address',
-    description: 'Withdraws the pending registration and its approval. The address can never be used; register a new one if needed.',
+    description: 'Withdraws the pending registration and its approval. This registration is voided; the same coordinate can be registered again if needed.',
     field: 'Reason', placeholder: 'e.g. Wrong coordinate keyed in', confirm: 'Withdraw', negative: true,
   },
   suspend: {
@@ -490,7 +490,7 @@ export default function LpPayoutAddressDetail() {
                 <div className="mt-3 flex items-start gap-2.5 rounded border border-adm-red/40 bg-adm-red/10 px-4 py-3 text-adm-red">
                   <AlertTriangle size={16} className="mt-px shrink-0" />
                   <div className="font-mono text-[11px]">
-                    Screening returned RED — the address was rejected and can never be used. To use another coordinate, register a new address.
+                    Screening returned RED — this registration was rejected. If needed, the same coordinate can be registered again.
                   </div>
                 </div>
               )}
