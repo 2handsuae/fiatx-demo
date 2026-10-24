@@ -97,6 +97,7 @@ import { AccountingService } from '../src/modules/accounting/tigerbeetle/account
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { endOfBusinessDate, startOfBusinessDate, toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
 import { TERMINAL_STATUSES } from '../src/modules/funds-orders/constants/funds-order-transitions.constant';
 import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
@@ -222,10 +223,6 @@ interface ManifestV3 {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
-function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
-
 /**
  * Route a wallet's external feed to ZAND (fiat) or HEXTRUST (custody) by
  * looking at the asset code prefix. The wallet recon engine doesn't
@@ -561,7 +558,7 @@ async function writeMirror(
   plans: WalletPlan[],
   cutoff: Date,
 ): Promise<{ balances: number; lines: number }> {
-  const cutoffDate = ymd(cutoff);
+  const cutoffDate = toBusinessDate(cutoff);
   let balances = 0;
   let lines = 0;
   for (const p of plans) {
@@ -733,7 +730,7 @@ async function injectCrisisScenario(
   plans: WalletPlan[],
   cutoff: Date,
 ): Promise<CrisisInjectionResult> {
-  const cutoffDate = ymd(cutoff);
+  const cutoffDate = toBusinessDate(cutoff);
   const owner = await (prisma as any).customerMain.findUnique({
     where: { email: CRISIS_THEFT_OWNER_EMAIL }, select: { customerNo: true },
   });
@@ -797,7 +794,7 @@ async function injectScenarios(
   accounting: AccountingService,
 ): Promise<ManifestV3> {
   if (plans.length === 0) throw new Error('No eligible wallets — seed business data first');
-  const cutoffDate = ymd(cutoff);
+  const cutoffDate = toBusinessDate(cutoff);
 
   // ── Scenario 1 FIRST — real stuck withdraw on a demo customer's C_VIBAN ──
   // Runs FIRST, before the explicit per-persona slot lookups below, because its
@@ -1829,14 +1826,14 @@ async function injectScenarios(
 // Runs in both pass and break modes so demo lines always carry a running
 // balance for the External Balances detail page roll-forward column.
 async function populateBalanceAfter(prisma: PrismaService, cutoff: Date): Promise<number> {
-  const cutoffDate = cutoff.toISOString().slice(0, 10);
+  const cutoffDate = toBusinessDate(cutoff);
   const balances = (await (prisma as any).externalBalance.findMany({
     where: { cutoffDate },
     select: { source: true, accountRef: true, currency: true, openingBalance: true },
   })) as Array<{ source: string; accountRef: string; currency: string; openingBalance: Prisma.Decimal | null }>;
 
-  const dayLo = new Date(`${cutoffDate}T00:00:00.000Z`);
-  const dayHi = new Date(`${cutoffDate}T23:59:59.999Z`);
+  const dayLo = startOfBusinessDate(cutoffDate);
+  const dayHi = endOfBusinessDate(cutoffDate);
   let updated = 0;
 
   for (const b of balances) {

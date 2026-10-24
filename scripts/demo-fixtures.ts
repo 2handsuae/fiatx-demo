@@ -13,6 +13,7 @@
 import { Prisma } from '@prisma/client';
 import { FundsOrderAction, FundsOrderStatus } from '../src/modules/funds-orders/dto/funds-order.dto';
 import { WalletBalanceCheckerService } from '../src/modules/clearing-settle/reconciliation/engine/v2/wallet-balance-checker.service';
+import { toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { sleep, waitFor } from './demo-lib';
 
 // 与 recon-demo.ts 一致：法币走银行对账单（ZAND），虚拟币走托管（HEXTRUST）。
@@ -23,10 +24,6 @@ function sourceFor(assetCode: string): 'HEXTRUST' | 'ZAND' {
 // dedupKey / referenceNo 前缀，reset 时可精确定位并清理本夹具造的行。
 export const DEMO_STUCK_WD_REF_PREFIX = 'DEMO-STUCK-WD-';
 export const DEMO_STUCK_SWAP_REF_PREFIX = 'DEMO-STUCK-SWAP-';
-
-function ymd(d: Date): string {
-  return d.toISOString().slice(0, 10);
-}
 
 /**
  * 造"外部已过账、内部账本尚未记该腿"的对账镜像，让 recon 能看见该钱包并把差额认领为
@@ -78,7 +75,7 @@ export async function injectStuckExternalMirror(
   const bumpMinor = BigInt(amount.mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0)); // 元→分
   const closingMinor = direction === 'OUT' ? internalPosted - bumpMinor : internalPosted + bumpMinor;
 
-  const cutoffDate = ymd(cutoff);
+  const cutoffDate = toBusinessDate(cutoff);
   await ctx.prisma.externalBalance.upsert({
     where: { source_accountRef_cutoffDate: { source, accountRef: walletRef, cutoffDate } },
     update: {
