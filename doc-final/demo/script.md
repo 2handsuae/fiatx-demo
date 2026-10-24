@@ -456,7 +456,7 @@
 
 ## 场景 26 · 库存见底找 LP 补货：LP 兑换单正向全弧（V7 财资 · LP 兑换台）
 
-> 战役乙波一交付（2026-09-29），2026-09-30 战役乙收官随第九幕定稿。主篇文档 `modules/lp-desk.md`。本场景 2026-09-29 T11 在 self 栈全程实走一遍（真提交/真点击，非种子摆拍），十二张截图留证。**2026-10-24 LP 两步准入对步骤 ①②⑤ 做了增补**（开单多选打款地址一拍 / 审批载荷多两项 / ⚡到货改弹层），增补处对照代码与页面文案改写，未重走全程。
+> 战役乙波一交付（2026-09-29），2026-09-30 战役乙收官随第九幕定稿。主篇文档 `modules/lp-desk.md`。本场景 2026-09-29 T11 在 self 栈全程实走一遍（真提交/真点击，非种子摆拍），十二张截图留证。**2026-10-24 LP 两步准入对步骤 ①②⑤ 做了增补**（开单多选打款地址一拍 / 审批载荷多两项 / ⚡到货改弹层），增补处先对照代码与页面文案改写，**2026-10-24 战役收尾（T11）已按增补后的流程在 self 栈真实重走全弧**（真点击、非种子摆拍；含 ④ 悬空期账本与 ⑤ 中间态 `verify:coa`），回归截图 `70`~`85`（`82` 为中间态 `verify:coa` 原始输出；`75` / `79` 两张冗余帧已删，编号有断号属正常；`96` 为走完三条 LP 弧后的 `recon:demo:pass` 原始输出，即 ⑦「终态平」的实测）入 `doc-final/superpowers/checkups/2026-10-24-lp-two-step-evidence/`。
 
 **讲什么**：客户天天兑换消耗库存，运营户迟早见底——这时金库向签了约的场外流动性提供商（LP）开一张兑换单：卖出一种资产、买入另一种，两边金额手填。先款后货：我方先出钱（卖出腿运营户直出），等 LP 把货打进一间在途验收前厅（`FIRM_LIQ` 复活，2026-08-13 因零活体退役、本波因这个真实需求复活），金库清点核对（应收 vs 实到并排，纯展示零逻辑）后才正式转进运营户——悬空期里运营户已经瘪下去、前厅还空着，这个中间态账本页看得见。
 
@@ -469,7 +469,7 @@
 ② 切 `cfo@` → 审批中心打开该单（`ACTION TYPE: LP_EXCHANGE_APPROVAL`，Impact 摘要一句话读到"the firm's AED operating balance decreases once the sell leg clears, and its USDT operating balance increases once the delivery is accepted"；载荷里多了 `payoutAddressNo` 与 `coordinate` 两项，CFO 批的是带着收款坐标的单）→ Approve（二次确认弹层，同一按钮打开确认层再点一次同名按钮，本弧两处 CFO 批准均如此）→ 单据转 `EXECUTING`，卖出腿资金单已建。
 ③ 切回 `treasury@` → 打开卖出腿资金单详情（AED 法币腿）→ ⚡ Submit → ⚡ Settle → 腿转 `CLEARED`，兑换单转 `AWAITING_DELIVERY`——详情页蓝色横幅明写"Sell leg cleared, waiting for the LP to deliver the buy leg to the front desk — the firm's AED operating balance has already decreased."，八态时间线停在「Awaiting LP delivery」。
 ④ 打开 Ledger Accounts，按 Code 筛 `203 · FIRM_LIQ`：两条资产行（AED/USDT-TRON）余额均 `0.00`——前厅还空着；再筛 `200 · FIRM_OPS`：AED 行已比开单前少了卖出金额——运营户已经瘪。悬空期账实两头都能在账本页对照给观众看。
-⑤ 回兑换单详情，点「⚡ Simulate LP delivery」→ 弹层「Source Address / IBAN (optional)」**留空**（LP 两步准入起 ⚡ 到货可选填来源坐标，留空 = 干净来源；本场景走干净路径，带红来源的对照见场景 36）→ Simulate delivery → 单据转 `DELIVERED`，买入腿资金单已建并 `CLEARED`（模拟 LP 打款一步到位落前厅），详情页多出 Delivery Screening 区块（来源 `TDeliverySourcePlaceholder00000000`，Verdict = GREEN）。**此刻是 F_LIQ 真正持有非零余额的唯一窗口**——回 Ledger Accounts 按 `203 · FIRM_LIQ` 再筛一次，买入资产那一行余额已变成买入金额（非零）；这正是 spec 要求「在途中间态」的取证时点，运营侧此刻现场跑一次 `bash scripts/on-stack.sh self verify:coa`，两恒等式 + 负余额检查全绿——账实在这个中间态依然一致，不是等到终态才平。
+⑤ 回兑换单详情，点「⚡ Simulate LP delivery」→ 弹层「Source Address / IBAN (optional)」**留空**（LP 两步准入起 ⚡ 到货可选填来源坐标，留空 = 干净来源；本场景走干净路径，带红来源的对照见场景 36）→ Simulate delivery → 单据转 `DELIVERED`，买入腿资金单已建并 `CLEARED`（模拟 LP 打款一步到位落前厅），详情页多出 Delivery Screening 区块（来源 `TDeliverySourcePlaceholder00000000`，Verdict = GREEN）。**此刻是 F_LIQ 真正持有非零余额的唯一窗口**——回 Ledger Accounts 按 `203 · FIRM_LIQ` 再筛一次，买入资产那一行余额已变成买入金额（非零；⚠️ 账本科目页对 `USDT-TRON` 这类 code≠currency 的资产按 2 位小数显示——T11 实走读到 2720 USDT 显示为 `27,200,000.00`，已登记 `BACKLOG.md` 的 `LedgerAccountList.tsx` decimals 一行，未修；讲解时以兑换单页金额为准，AED 行不受影响）；这正是 spec 要求「在途中间态」的取证时点，运营侧此刻现场跑一次 `bash scripts/on-stack.sh self verify:coa`，两恒等式 + 负余额检查全绿——账实在这个中间态依然一致，不是等到终态才平。
 ⑥ 详情页「Accept delivery」→ 验收弹层：Expected（应收，来自单据 buyAmount）与 Received（实到，腿 2 资金单自己的金额）并排展示 → 数字一致 → Accept delivery 确认 → 单据转 `SUCCESS`，八态时间线全绿，验收转腿（腿 3）自动建并清算——买入资产从前厅转进运营户，`203 · FIRM_LIQ` 两资产行回落 `0.00`。
 ⑦ 收尾核对：现场跑一次 `bash scripts/on-stack.sh self recon:demo:pass`（或点 Reconciliation Runs 页 Re-reconcile）——`status=PASS`、`casesOpened=0`，F_LIQ 钱包在检查范围内且 `MATCHED`——终态平，本弧对账机制吃进了这三腿流水，不需要额外收编。
 
@@ -479,7 +479,7 @@
 
 ## 场景 27 · 反向快演：USDT 积压回吐（V7 财资 · LP 兑换台）
 
-> 战役乙波一交付（2026-09-29），2026-09-30 战役乙收官随第九幕定稿，幕次归属同场景 26。2026-10-24 LP 两步准入增补步骤 ①（两条 USDT 候选须点选）与 ③（⚡到货弹层），对照代码改写。
+> 战役乙波一交付（2026-09-29），2026-09-30 战役乙收官随第九幕定稿，幕次归属同场景 26。2026-10-24 LP 两步准入增补步骤 ①（两条 USDT 候选须点选）与 ③（⚡到货弹层），先对照代码改写，同日战役收尾（T11）已在 self 栈真实重走快演全弧，截图 `86`~`94`（`89` / `91` 两张冗余帧已删）入 `doc-final/superpowers/checkups/2026-10-24-lp-two-step-evidence/`。
 
 **讲什么**：同一张单据、同一套状态机、同一组转账码——只是卖出/买入两边资产对调（卖 USDT-TRON 买 AED）。没有 IN/OUT 两种订单类型，方向只是同一张单的两个立场。
 
@@ -487,7 +487,7 @@
 
 **账号**：`treasury@fiatx.com` → `cfo@fiatx.com`（同场景 26）。
 
-**走查**：① Initiate exchange → Sell Asset=USDT-TRON（如 3000）→ **Payout Address 下拉有两条候选**（Falcon 的两条 ACTIVE USDT-TRON 地址，每行形如 `LPA… · <地址> · <label>`：`LPA2601014090 · TP8CA9uffHQmsP9HNXa9KpQ6TomURrr3eP · Primary USDT payout` / `LPA2601018028 · TT7y4FMXAN3FAwM8DLki9Du8ShJMqvXJZT · Reserve USDT payout`）——多条候选**不预选**，须点选一条（对照场景 26 唯一候选自动选中）、Buy Asset=AED（如 11030）→ CFO 批 → ② ⚡ 推卖出腿——这次是加密币腿，走 `⚡ Broadcast → ⚡ Seen in Mempool → ⚡ Confirm` 三步（法币腿场景 26 是 `⚡ Submit → ⚡ Settle` 两步，两族资金单推进节奏本就不同，对照着讲）→ `AWAITING_DELIVERY` → ③ ⚡ Simulate LP delivery（弹层来源栏留空 = 干净来源，AED 买入落占位 IBAN `AE000000000000000000000`，GREEN）→ `DELIVERED` → ④ Accept delivery：Expected/Received 并排（本弧 11030.00 AED 对 11,030.00 AED）→ Accept → `SUCCESS`，八态时间线全绿。
+**走查**：① Initiate exchange → Sell Asset=USDT-TRON（如 3000）→ **Payout Address 下拉有两条候选**（Falcon 的两条 ACTIVE USDT-TRON 地址，每行形如 `LPA… · <地址> · <label>`，**按登记时间倒序、新的在上**：先 `LPA2601018028 · TT7y4FMXAN3FAwM8DLki9Du8ShJMqvXJZT · Reserve USDT payout`，后 `LPA2601014090 · TP8CA9uffHQmsP9HNXa9KpQ6TomURrr3eP · Primary USDT payout`）——多条候选**不预选**，须点选一条（对照场景 26 唯一候选自动选中）、Buy Asset=AED（如 11030）→ CFO 批 → ② ⚡ 推卖出腿——这次是加密币腿，走 `⚡ Broadcast → ⚡ Seen in Mempool → ⚡ Confirm` 三步（法币腿场景 26 是 `⚡ Submit → ⚡ Settle` 两步，两族资金单推进节奏本就不同，对照着讲）→ `AWAITING_DELIVERY` → ③ ⚡ Simulate LP delivery（弹层来源栏留空 = 干净来源，AED 买入落占位 IBAN `AE000000000000000000000`，GREEN）→ `DELIVERED` → ④ Accept delivery：Expected/Received 并排（本弧 11030.00 AED 对 11,030.00 AED）→ Accept → `SUCCESS`，八态时间线全绿。
 
 **判据**：与场景 26 完全同一状态机、同一组转账码（84/85/86，只是 ledger 对调）；验收并排数字一致。走查截图（`35`~`39`）入同一 evidence 目录。
 
@@ -659,7 +659,7 @@ bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash script
 
 ## 场景 36 · LP 两步准入与地址治理：建档背调 → 地址先筛后批 → 换地址 → 开单选地址 → 到货红旗拦人不拦状态（V7 财资 · LP 兑换台）
 
-> LP 两步准入战役交付（2026-10-24），幕次归属第九幕（编号接全剧本尾号 35 之后）。主篇文档 `modules/lp-desk.md`，mock 登记 `reference/sumsub-mock-touchpoints.md` ⑨ 行（实体背调）与 ①②⑥ 行的 LP 侧调用点，可复制的测试串全在 `demo/data.md`「mock 测试地址速查」LP 侧块。本场景逐拍对照代码与管理台页面文案写成；整条全程实走与截图证据留待战役收尾走查补入 `doc-final/superpowers/checkups/`。
+> LP 两步准入战役交付（2026-10-24），幕次归属第九幕（编号接全剧本尾号 35 之后）。主篇文档 `modules/lp-desk.md`，mock 登记 `reference/sumsub-mock-touchpoints.md` ⑨ 行（实体背调）与 ①②⑥ 行的 LP 侧调用点，可复制的测试串全在 `demo/data.md`「mock 测试地址速查」LP 侧块。本场景逐拍对照代码与管理台页面文案写成，**2026-10-24 战役收尾（T11）已在 self 栈全程真实走查**（真提交 / 真点击，非种子摆拍，① 至 ⑩ 逐拍；另补拍 Offshore 名称得 YELLOW 一拍），截图与 `verify:coa` / `recon:demo:pass` 输出共 94 份入 `doc-final/superpowers/checkups/2026-10-24-lp-two-step-evidence/`（编号 `01`~`69` 为本场景，其中 `26` / `55` 两张冗余帧已删、编号有断号；`04b`~`04d` 为 YELLOW 建档补拍；`38b` 为 Withdraw 弹层文案补拍；全部为 256 色 PNG）。
 
 **讲什么**：场景 26 / 27 讲"库存见底怎么找 LP 补货"，默认 LP 早已是熟人。这一场回答它的前一步——**一家新 LP 怎么成为我们愿意打钱的对象**，准入分两步，各裁一件事。第一步裁"**跟不跟这家做生意**"：建档带协议锚与尽调档案引用号，提交瞬间过实体背调（mock 三档），名称带 sanction 当场拒、连审批队列都进不去；过了才进 CFO。第二步裁"**钱打到哪条路上**"：按资产登记打款地址，登记即筛（归因出 VASP、风险三档），先筛后批，CFO 批了才可被兑换单选用；开单时必选一条抄进单据，之后单据不回读地址簿。最后一拍是 LP 的货打进前厅时，对**来源**再过一遍筛查——结论亮红，但**验收照点**：筛查是监控不是门，看见红不点是业务纪律，系统不替人拦。
 
@@ -675,7 +675,7 @@ bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash script
 ③ **登记地址三拍**（`treasury@`，Northbridge 详情页 Payout Addresses →「Register address」；Asset 选 `USDT-TRON`，Network 由资产带出且只读，Evidence Ref 每条必填——协议锚，合同附件 / 条款引用号，如 `LPA-2026-014 Annex C`；串全部照抄 `data.md`）：
 　a）Address `TDm5cSJoEP2DpN1VyZG3TQrd1JZdSX1111`（尾号 **1111**），Declared Hosting 选 `VASP`，Label `Primary USDT payout` → Register → 提示条「Registered LPA… — awaiting CFO.」（含 View approval 链接），Screening GREEN，状态 `PENDING_APPROVAL` → 点进条目详情：**Attribution** 区读到 Counterparty VASP = Mock VASP Exchange、VASP DID `did:mock:vasp-exchange-001`，下面三行名录资质 **VASP EEC Status = COMPLETED ｜ VASP Risk Score = 3 ｜ VASP Licence = LICENSED**（名录数据住 Sumsub 一侧，读时现拼、不落库）；Hosting Match = Consistent。（若 Declared Hosting 故意选 `Self-Custody`：Self-declaration & Red Flag 区出红旗「Declared hosting does not match attribution」——只留痕不拦截，登记照常。）
 　b）Address `TD2Cm1x6HwVV78amHf8prJn5zkiwCK2222`（尾号 **2222**），Declared Hosting `Self-Custody`，Label `Reserve USDT payout` → Register → 待批，Screening **YELLOW**（中风险放行留痕，审批载荷里带 YELLOW）。
-　c）Address `TSf8p11LABtkukQGWVnkUjR6LMrvH13333`（尾号 **3333**），Declared Hosting `Self-Custody` → Register → 提示条「…address screening came back RED, rejected on the spot (no approval opened).」→ 条目详情状态 `REJECTED`，Screening 区**红条**「Screening returned RED — the address was rejected …」，无审批单。
+　c）Address `TSf8p11LABtkukQGWVnkUjR6LMrvH13333`（尾号 **3333**），Declared Hosting `Self-Custody` → Register → 提示条「…address screening came back RED, rejected on the spot (no approval opened).」→ 条目详情状态 `REJECTED`，Screening 区**红条**「Screening returned RED — this registration was rejected. If needed, the same coordinate can be registered again.」（这条登记作废，同一坐标可重新登记），无审批单。
 　讲：**先筛后批**——筛查在登记那一刻跑完，红的当场拒、不进 CFO 队列；无冷却、无验签（客户簿那套自助机制 LP 用不上，CFO 的批准就是真门）。
 
 ④ **⚡只在待批态可喂**（排在 CFO 批之前）：`treasury@` 再登记第四条普通链上地址——Address `TaFGEagtJpZ6uzaSaH1gMhWKRmBqr4KuCa`，Declared Hosting `Self-Custody`，Label `Test payout`（GREEN，待批）→ 切 `compliance_lead@`（合规官持 `LP_READ`，打得开 LP 页面）→ 侧栏 Treasury → LP Register → Northbridge → Payout Addresses 点开该条 → 右栏 **Screening Simulation ⚡** →「⚡ Feed RED」→ 弹层填 Reason（必填，如 `Address linked to a sanctioned cluster`）→ 状态翻 `REJECTED`（提示「Screening RED fed — address rejected.」）。⚠️ **⚡ 只对 `PENDING_APPROVAL` 的条目可用——此拍必须排在 CFO 批之前**：已批（ACTIVE）的地址右栏不再出现 ⚡ 区（后端同守卫，直打接口 409）。讲：这是"站在 Sumsub 一侧改判"的后门，真环境里是 Sumsub 筛查回调把待批地址翻红；它是覆写后门，不是绕迁移表的通道。
@@ -684,9 +684,9 @@ bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash script
 
 ⑥ **换地址 = 登新停旧**：`treasury@` 再登记一条普通地址 Address `T4noF9Q4C2oPCb9jzojh9C7gAQZFS3b9e4`（`Self-Custody`，Label `Payout v2`）→ 切 `cfo@` Approve → 回 `treasury@`，打开 b（2222 那条，旧的）→ 右栏 Actions →「Retire」→ 填 Reason（如 `Replaced by a new address`）→ 状态 `DEACTIVATED`（**永久退役**，没有回头路；Suspend 是可恢复的暂停，换地址用 Retire）。讲：坐标与自报登记后冻结，唯一能改的是 label（Rename Label）；要换坐标就是新登记——登新、批准后停旧，期间始终有一条生效的。此刻 USDT-TRON 的 ACTIVE 地址恰两条：a（Primary USDT payout）与 Payout v2。
 
-⑦ **开单选地址（两条候选演多选）**：`treasury@` → LP Exchanges →「Initiate exchange」→ Liquidity Provider 选 Northbridge → Sell Asset=`USDT-TRON`、Sell Amount `3000` → **Payout Address 下拉列出两条候选**（每行形如 `LPA… · <整串地址> · <label>`：a 的 `…1111 · Primary USDT payout` 与 `T4no…b9e4 · Payout v2`），多条候选**不预选**，须点选；已退役的 b、被拒的 c 与 ④ 都不在列（候选 = 该 LP × 该卖出资产 × ACTIVE）→ 选 `Primary USDT payout` → Buy Asset=`AED`、Buy Amount `11030`、Prudential Purpose、Reason → Initiate → `PENDING_APPROVAL`；详情页 Payout Address 读到 LPA 号（可点回链地址详情）与坐标。旁白：绕过界面直接接口传一个退役 / 他家 LP / 资产不符 / 不存在的地址号，后端同样拒，四道各一个错误码（`PAYOUT_ADDRESS_INACTIVE` / `PAYOUT_ADDRESS_WRONG_LP` / `PAYOUT_ADDRESS_ASSET_MISMATCH` / `PAYOUT_ADDRESS_NOT_FOUND`）；批准那一刻还会再复查所选地址仍 ACTIVE（开单到批准之间被停用的，单据落 `FAILED`，一分钱没付）。
+⑦ **开单选地址（两条候选演多选）**：`treasury@` → LP Exchanges →「Initiate exchange」→ Liquidity Provider 选 Northbridge → Sell Asset=`USDT-TRON`、Sell Amount `3000` → **Payout Address 下拉列出两条候选**（每行形如 `LPA… · <整串地址> · <label>`，**按登记时间倒序、新的在上**：先是 `T4no…b9e4 · Payout v2`，再是 a 的 `…1111 · Primary USDT payout`），多条候选**不预选**，须点选；已退役的 b、被拒的 c 与 ④ 都不在列（候选 = 该 LP × 该卖出资产 × ACTIVE）→ 选 `Primary USDT payout` → Buy Asset=`AED`、Buy Amount `11030`、Prudential Purpose、Reason → Initiate → `PENDING_APPROVAL`；详情页 Payout Address 读到 LPA 号（可点回链地址详情）与坐标。旁白：绕过界面直接接口传一个退役 / 他家 LP / 资产不符 / 不存在的地址号，后端同样拒，四道各一个错误码（`PAYOUT_ADDRESS_INACTIVE` / `PAYOUT_ADDRESS_WRONG_LP` / `PAYOUT_ADDRESS_ASSET_MISMATCH` / `PAYOUT_ADDRESS_NOT_FOUND`）；批准那一刻还会再复查所选地址仍 ACTIVE（开单到批准之间被停用的，单据落 `FAILED`，一分钱没付）。
 
-⑧ **推腿到悬空期，⚡到货带红来源**：切 `cfo@` 批该单（`LP_EXCHANGE_APPROVAL`，载荷带 `payoutAddressNo` 与坐标）→ `EXECUTING` → 切 `treasury@` 打开卖出腿资金单（加密腿，收款地址 = 开单时抄下的那条）→ ⚡ Broadcast → ⚡ Seen in Mempool → ⚡ Confirm → 兑换单 `AWAITING_DELIVERY`。回兑换单详情点「⚡ Simulate LP delivery」→ 弹层「Source Address / IBAN (optional)」：买入的是 AED（法币），所以填 IBAN `AE720860000000000003333`（尾号 **3333** = RED）→ Simulate delivery → 单据转 `DELIVERED`；详情页新出 **Delivery Screening** 区块：**红色横幅**「The source of this delivery screened RED — flagged for review. Acceptance is not blocked.」，Source Address / IBAN = 该 IBAN，Verdict = RED 徽章，Screened At。讲："检查站有情报了"——腿 2 是全系统唯一"外部资金直进公司科目"的口子，来源在落前厅的这一刻被筛了一遍。（对照：来源栏留空 = 干净占位，GREEN，不亮横幅；尾号 2222 = YELLOW，琥珀横幅。）
+⑧ **推腿到悬空期，⚡到货带红来源**：切 `cfo@` 批该单（`LP_EXCHANGE_APPROVAL`，载荷带 `payoutAddressNo` 与坐标）→ `EXECUTING` → 切 `treasury@` 打开卖出腿资金单（加密腿，收款地址 = 开单时抄下的那条）→ ⚡ Broadcast → ⚡ Seen in Mempool → ⚡ Confirm → 兑换单 `AWAITING_DELIVERY`（T11 实走：点完最后一个 ⚡ 的瞬间资金单页先显示 `Confirmed`、页内「Linked LP exchange」徽章仍是 `EXECUTING`，清算落定要数秒——点 Refresh 或回兑换单页即见 `Cleared` / `AWAITING_DELIVERY`，场景 26 / 27 同此）。回兑换单详情点「⚡ Simulate LP delivery」→ 弹层「Source Address / IBAN (optional)」：买入的是 AED（法币），所以填 IBAN `AE720860000000000003333`（尾号 **3333** = RED）→ Simulate delivery → 单据转 `DELIVERED`；详情页新出 **Delivery Screening** 区块：**红色横幅**「The source of this delivery screened RED — flagged for review. Acceptance is not blocked.」，Source Address / IBAN = 该 IBAN，Verdict = RED 徽章，Screened At。讲："检查站有情报了"——腿 2 是全系统唯一"外部资金直进公司科目"的口子，来源在落前厅的这一刻被筛了一遍。（对照：来源栏留空 = 干净占位，GREEN，不亮横幅；尾号 2222 = YELLOW，琥珀横幅。）
 
 ⑨ **RED 下 Accept delivery 照点**：同一页「Accept delivery」**仍然可点**（没被禁用）→ 弹层 Expected / Received 并排 → Accept delivery → 单据转 `SUCCESS`，验收转腿自动清算，前厅回落 0。讲词：**拦人不拦状态**——筛查是监控标记，不是门；红旗摆在验收的人眼前，看见红不点是业务纪律，系统不替人拦，状态机一条边没加；这与"验收是核数不是审批"同口径。红旗之后的「拒收 / 退回」正式分支演示不做（BACKLOG），讲到"红旗亮在人眼前"为止。
 
