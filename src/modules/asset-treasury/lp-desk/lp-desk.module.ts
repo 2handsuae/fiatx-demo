@@ -15,6 +15,9 @@ import { LpExchangeService } from './lp-exchange.service';
 import { LpExchangeWorkflowService } from './lp-exchange-workflow.service';
 import { LpExchangeApprovalService } from './lp-exchange-approval.service';
 import { LpExchangeController } from './lp-exchange.controller';
+import { LpPayoutAddressService } from './lp-payout-address.service';
+import { TRAVEL_RULE_ADAPTER } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
+import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
 
 /**
  * 战役乙波一 · LP 档案（LiquidityProvider）：建行 + 结算坐标变更 + 启停，建档 / 改坐标
@@ -31,6 +34,9 @@ import { LpExchangeController } from './lp-exchange.controller';
   providers: [
     LpProfileService, LpProfileWorkflowService, LpProfileApprovalService, LpProfileChangeApprovalService,
     LpExchangeService, LpExchangeWorkflowService, LpExchangeApprovalService,
+    // LP 两步准入 Task 3：地址簿登记即筛——复用对手方套件，同一 DI token 自行 provide（第四个 provide 点）
+    LpPayoutAddressService,
+    { provide: TRAVEL_RULE_ADAPTER, useClass: MockTravelRuleAdapter },
   ],
   exports: [LpProfileService, LpExchangeService],
 })
