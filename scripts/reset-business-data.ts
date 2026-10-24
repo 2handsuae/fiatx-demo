@@ -157,6 +157,9 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   // FK → lp_exchanges（ON DELETE CASCADE），但 fundsOrder 已在上方「Funds layer」段
   // 更早被清空，顺序天然安全。
   'lpExchange',
+  // 2026-10-24 LP 两步准入：lp_payout_addresses FK → liquidity_providers(RESTRICT)，
+  // 子先删；与 lpExchange 互无 FK，排在其后、liquidityProvider 之前即可。
+  'lpPayoutAddress',
   'liquidityProvider',
 
   // ── Customers / assets / wallets / TB registry ─────────────────────

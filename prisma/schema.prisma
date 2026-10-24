@@ -932,12 +932,60 @@ model LiquidityProvider {
   agreementRef  String
   status        String   @default("PENDING_APPROVAL") // PENDING_APPROVAL | ACTIVE | SUSPENDED | REJECTED
   approvalNo    String?
+  // 2026-10-24 LP 两步准入：建档证据（DTO 层必填，schema 可空——加法迁移不碰既有种子）
+  screeningAnswer String?   // GREEN / YELLOW / RED（mock 筛查结论）
+  screenedAt      DateTime?
+  dueDiligenceRef String?   // 尽调材料引用
   createdByUserId String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
   lpExchanges LpExchange[] @relation("LpProviderExchanges")
+  payoutAddresses LpPayoutAddress[] @relation("LpProviderPayoutAddresses")
   @@index([status])
   @@map("liquidity_providers")
+}
+
+// 2026-10-24 LP 两步准入：LP 收款地址簿——一个 LP 在某资产上可登记多个收款坐标（链上或法币两组字段二选一）。
+// 不建坐标唯一键：同坐标重复登记的守卫在应用层。
+model LpPayoutAddress {
+  id                   String   @id @default(uuid())
+  addressNo            String   @unique
+  lpId                 String
+  lpNo                 String
+  assetId              String
+
+  network              String?  // 链上组
+  address              String?
+  iban                 String?  // 法币组
+  bankName             String?
+  swiftBic             String?
+
+  declaredHosting      String?  // SELF_CUSTODY / VASP；crypto 必填，法币恒 null
+  addressType          String?
+  hostingMismatch      Boolean  @default(false) // 自报托管 ≠ 归因结果
+  counterpartyVaspName String?
+  counterpartyVaspDid  String?
+
+  screeningAnswer      String?  // GREEN / YELLOW / RED（mock 筛查结论）
+  screenedAt           DateTime?
+  evidenceRef          String
+  label                String?
+  approvalNo           String?
+
+  status               String   @default("PENDING_APPROVAL")
+  suspendedAt          DateTime?
+  cancelledAt          DateTime?
+  deactivatedAt        DateTime?
+
+  traceId              String
+
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  lp                   LiquidityProvider @relation("LpProviderPayoutAddresses", fields: [lpId], references: [id])
+
+  @@index([lpId, assetId, status])
+  @@map("lp_payout_addresses")
 }
 
 // 战役乙波一：LP 兑换单——公司卖出一种资产、向 LP 买入另一种。先款后货，买入腿落 F_LIQ 前厅验收后入库。
@@ -962,6 +1010,14 @@ model LpExchange {
   executedAt        DateTime?
   deliveredAt       DateTime?
   settledAt         DateTime?
+  // 2026-10-24 LP 两步准入：兑换单上的收款/来款坐标快照与交割筛查
+  payoutAddressNo         String?
+  payoutAddress           String?
+  payoutIban              String?
+  deliveryFromAddress     String?
+  deliveryFromIban        String?
+  deliveryScreeningAnswer String?   // GREEN / YELLOW / RED
+  deliveryScreenedAt      DateTime?
   traceId           String
   createdByUserId   String
   createdAt         DateTime @default(now())
