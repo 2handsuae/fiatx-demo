@@ -117,7 +117,8 @@ export class LpPayoutAddressService {
    *  - 链上：adapter 归因（VASP / 自托管）→ 比对金库自报，不一致 = hostingMismatch 红旗（留痕不拦截）；再筛查
    *  - 法币：IBAN 清洗后只筛查（传 BANK_RAIL_NETWORK），不归因、无托管自报
    *  - 筛查 RED 一票否决 → 直落 REJECTED（连 CFO 审批队列都进不去）；GREEN / YELLOW → PENDING_APPROVAL
-   * 守卫：档案必须 ACTIVE ｜ evidenceRef trim 非空 ｜ 坐标二选一且组内必填（COORDINATE_REQUIRED）｜ 链上必填 declaredHosting ｜
+   * 守卫：档案必须 ACTIVE ｜ 资产存在（ASSET_NOT_FOUND）｜ evidenceRef trim 非空 ｜ 坐标组由资产类型定（CRYPTO → 链上组、
+   * 其余 → IBAN 组），带错组 COORDINATE_GROUP_MISMATCH、本组空缺 COORDINATE_REQUIRED ｜ 链上必填 declaredHosting ｜
    * 同 (lpId, 资产, 坐标) 非终态已存在 → 409 ADDRESS_ALREADY_REGISTERED（终态 REJECTED / CANCELLED / DEACTIVATED 后可重登）。
    * 留痕随写：REGISTERED（操作员 actor）→ SCREENED（系统，筛查是 Sumsub 侧 mock 能力）→ RED 时再加 REJECTED
    * （系统、固定拒因、无 fromStatus——插入即终态，落点不是边；同 LpProfileService.create 先例）。
@@ -127,25 +128,42 @@ export class LpPayoutAddressService {
     if (profile.status !== LpProfileStatus.ACTIVE) {
       throw new ConflictException({ code: 'LP_PROFILE_NOT_ACTIVE', message: `Liquidity provider ${profile.lpNo} is ${profile.status} — payout addresses can only be registered on an ACTIVE profile` });
     }
+    const asset = await this.prisma.asset.findUnique({ where: { id: input.assetId } });
+    if (!asset) {
+      throw new BadRequestException({ code: 'ASSET_NOT_FOUND', message: `Asset ${input.assetId} not found — payout addresses are registered per asset` });
+    }
     const evidenceRef = input.evidenceRef.trim();
     if (!evidenceRef) {
       throw new BadRequestException({ code: 'EVIDENCE_REF_REQUIRED', message: 'evidenceRef (agreement clause / contract attachment reference) is required' });
     }
 
-    // 坐标二选一且组内必填（表单业务语义，同 evidenceRef 必填；只判有无，不做格式校验）：
-    // 法币 = 清洗后的 IBAN；链上 = (network, address)。下面所有读写都只用这里判定过非空的局部量构造——
-    // 查重 where 里不可能出现 undefined 键（Prisma 会静默忽略 undefined，占坑查重就退化成「同 LP 同资产任一行」）。
+    // 坐标组由资产类型决定（spec §3.1：法币资产 → IBAN 组、crypto 资产 → 链上组），不由载荷形状决定。
+    // 带错组 = COORDINATE_GROUP_MISMATCH，本组空缺 = COORDINATE_REQUIRED（两码分清，错组先于空缺判）。
+    // 只判有无，不做格式校验（表单业务语义，同 evidenceRef 必填）；纯空白 iban 清洗后为空，等于没给。
+    // 下面所有读写都只用这里判定过非空的局部量构造——查重 where 里不可能出现 undefined 键
+    // （Prisma 会静默忽略 undefined，占坑查重就退化成「同 LP 同资产任一行」）。
+    const isCrypto = asset.type === 'CRYPTO';
+    const iban = (input.iban ?? '').replace(/\s/g, '').toUpperCase();
     let coordinate: { iban: string } | { network: string; address: string };
-    if (input.iban) {
-      coordinate = { iban: input.iban.replace(/\s/g, '').toUpperCase() };
-    } else {
+    if (isCrypto) {
+      if (iban) {
+        throw new BadRequestException({ code: 'COORDINATE_GROUP_MISMATCH', message: `${asset.code} is a crypto asset — register an on-chain network + address, not an IBAN` });
+      }
       const { network, address } = input;
       if (!network || !address) {
-        throw new BadRequestException({ code: 'COORDINATE_REQUIRED', message: 'a payout coordinate is required: an IBAN, or an on-chain network + address' });
+        throw new BadRequestException({ code: 'COORDINATE_REQUIRED', message: `an on-chain network + address is required for ${asset.code}` });
       }
       coordinate = { network, address };
+    } else {
+      if (input.network || input.address) {
+        throw new BadRequestException({ code: 'COORDINATE_GROUP_MISMATCH', message: `${asset.code} is a fiat asset — register an IBAN, not an on-chain network + address` });
+      }
+      if (!iban) {
+        throw new BadRequestException({ code: 'COORDINATE_REQUIRED', message: `an IBAN is required for ${asset.code}` });
+      }
+      coordinate = { iban };
     }
-    if (!('iban' in coordinate) && !input.declaredHosting) {
+    if (isCrypto && !input.declaredHosting) {
       throw new BadRequestException({ code: 'DECLARED_HOSTING_REQUIRED', message: 'declaredHosting (SELF_CUSTODY / VASP) is required for an on-chain address' });
     }
 
@@ -193,8 +211,7 @@ export class LpPayoutAddressService {
       },
     });
 
-    const assetCode = (await this.assetCodes([row.assetId])).get(row.assetId) ?? null;
-    await this.writeAudit(AuditActions.LP_ADDRESS_REGISTERED, row, { actor, afterData: this.registrationSnapshot(row, assetCode) });
+    await this.writeAudit(AuditActions.LP_ADDRESS_REGISTERED, row, { actor, afterData: this.registrationSnapshot(row, asset.code) });
     await this.writeAudit(AuditActions.LP_ADDRESS_SCREENED, row, {
       afterData: { screeningAnswer: row.screeningAnswer, screenedAt: row.screenedAt?.toISOString() },
       metadata: { screeningAnswer: row.screeningAnswer },

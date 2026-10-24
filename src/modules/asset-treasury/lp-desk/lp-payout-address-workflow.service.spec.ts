@@ -16,8 +16,8 @@ import { ApprovalActionTypes } from '../../governance/approvals/constants/approv
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 
 const FALCON = { id: 'lp-uuid-falcon', lpNo: 'LPP-FALCON', name: 'Falcon Liquidity FZE', status: 'ACTIVE' };
-const USDT = { id: 'asset-uuid-usdt', code: 'USDT_TRC20' };
-const AED = { id: 'asset-uuid-aed', code: 'AED' };
+const USDT = { id: 'asset-uuid-usdt', code: 'USDT_TRC20', type: 'CRYPTO' };
+const AED = { id: 'asset-uuid-aed', code: 'AED', type: 'FIAT' };
 
 const treasury = { actorType: 'ADMIN' as const, userId: 'uuid-treasury', userNo: 'ADM-TREASURY', role: 'TREASURY_OFFICER', roleCodes: ['TREASURY_OFFICER'] };
 const compliance = { actorType: 'ADMIN' as const, userId: 'uuid-compliance', userNo: 'ADM-COMPLIANCE', role: 'COMPLIANCE_OFFICER', roleCodes: ['COMPLIANCE_OFFICER'] };
@@ -67,6 +67,7 @@ function makePrisma() {
     },
     asset: {
       findMany: jest.fn(async ({ where }: any) => [USDT, AED].filter((a) => matches(a, where))),
+      findUnique: jest.fn(async ({ where }: any) => [USDT, AED].find((a) => a.id === where.id) ?? null),
     },
   };
 }
@@ -233,6 +234,19 @@ describe('LpPayoutAddressWorkflowService.registerAddress', () => {
     expect(snapshot.impact).toMatch(/mismatch/i);
     expect(d.prisma.rows.get(result.addressNo).hostingMismatch).toBe(true);
     expect(d.audits[0].input.afterData).toMatchObject({ hostingMismatch: true, addressType: 'VASP', counterpartyVaspName: 'Mock VASP Exchange' });
+  });
+
+  it('坐标组跟资产类型走（spec §3.1）：CRYPTO 资产 + IBAN 载荷 / 法币资产 + 链上载荷 / 未知资产 → 400，且零副作用（不落行、不开审批、不写审计）', async () => {
+    const d = buildDeps();
+    await expect(d.svc.registerAddress(FALCON.lpNo, chainDto({ network: undefined, address: undefined, iban: 'AE070331234567890123456' }), treasury))
+      .rejects.toMatchObject({ response: { code: 'COORDINATE_GROUP_MISMATCH' } });
+    await expect(d.svc.registerAddress(FALCON.lpNo, fiatDto({ iban: undefined, network: 'TRON', address: 'TXfake0000000000000000000000000000' }), treasury))
+      .rejects.toMatchObject({ response: { code: 'COORDINATE_GROUP_MISMATCH' } });
+    await expect(d.svc.registerAddress(FALCON.lpNo, chainDto({ assetId: 'asset-uuid-nope' }), treasury))
+      .rejects.toMatchObject({ response: { code: 'ASSET_NOT_FOUND' } });
+    expect(d.prisma.rows.size).toBe(0);
+    expect(d.approvals.createAndSubmit).not.toHaveBeenCalled();
+    expect(d.audits).toHaveLength(0);
   });
 
   it('③ 补：自报与归因一致时 impact 不提不一致', async () => {

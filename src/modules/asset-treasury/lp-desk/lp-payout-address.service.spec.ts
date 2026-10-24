@@ -10,9 +10,9 @@ import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-trav
 import { LpPayoutAddressAction as A, LpPayoutAddressStatus as S } from './constants/lp-payout-address-transitions.constant';
 
 const FALCON = { id: 'lp-uuid-falcon', lpNo: 'LPP-FALCON', name: 'Falcon Liquidity FZE', status: 'ACTIVE' };
-const USDT = { id: 'asset-uuid-usdt', code: 'USDT_TRC20' };
-const USDC = { id: 'asset-uuid-usdc', code: 'USDC_TRC20' };
-const AED = { id: 'asset-uuid-aed', code: 'AED' };
+const USDT = { id: 'asset-uuid-usdt', code: 'USDT_TRC20', type: 'CRYPTO' };
+const USDC = { id: 'asset-uuid-usdc', code: 'USDC_TRC20', type: 'CRYPTO' };
+const AED = { id: 'asset-uuid-aed', code: 'AED', type: 'FIAT' };
 const TREASURY = { actorType: 'ADMIN' as const, userId: 'uuid-treasury', userNo: 'ADM-TREASURY', role: 'TREASURY_OFFICER', roleCodes: ['TREASURY_OFFICER'] };
 
 /** 行为化内存 mock：where 真按 equals / in / notIn 过滤（本仓「mock 无视 where 直接吐行」假绿判例）。 */
@@ -64,6 +64,8 @@ function makePrisma() {
     },
     asset: {
       findMany: jest.fn(async ({ where }: any) => [USDT, USDC, AED].filter((a) => matches(a, where))),
+      // 登记按 assetId 查资产定坐标组（spec §3.1）；查无 → null，同 Prisma
+      findUnique: jest.fn(async ({ where }: any) => [USDT, USDC, AED].find((a) => a.id === where.id) ?? null),
     },
   };
 }
@@ -223,6 +225,43 @@ describe('LpPayoutAddressService (LP 两步准入 Task 3)', () => {
         await expect(register(chainInput(over))).rejects.toMatchObject({ response: { code: 'COORDINATE_REQUIRED' } });
         await expect(register(chainInput(over))).rejects.toBeInstanceOf(BadRequestException);
       }
+      expect(prisma.lpPayoutAddress.findFirst).not.toHaveBeenCalled();
+      expect(prisma.lpPayoutAddress.create).not.toHaveBeenCalled();
+    });
+
+    it('坐标组由资产类型定（spec §3.1）：CRYPTO 资产 + IBAN 载荷 → 400 COORDINATE_GROUP_MISMATCH；法币资产 + 链上载荷 → 400 COORDINATE_GROUP_MISMATCH；不查重、不落行', async () => {
+      // CRYPTO + 只带 IBAN（链上组缺省）→ 错组，不是「缺失」
+      await expect(register(chainInput({ network: undefined, address: undefined, iban: 'AE070331234567890123456' })))
+        .rejects.toMatchObject({ response: { code: 'COORDINATE_GROUP_MISMATCH' } });
+      // CRYPTO + 链上组齐又多带 IBAN → 同样错组（iban 必须缺省）
+      await expect(register(chainInput({ iban: 'AE070331234567890123456' })))
+        .rejects.toMatchObject({ response: { code: 'COORDINATE_GROUP_MISMATCH' } });
+      // 法币资产 + 链上载荷（没有 IBAN）→ 错组
+      await expect(register(fiatInput({ iban: undefined, network: 'TRON', address: 'TXfake0000000000000000000000000000' })))
+        .rejects.toMatchObject({ response: { code: 'COORDINATE_GROUP_MISMATCH' } });
+      // 法币资产 + IBAN 又多带链上组 → 错组（network / address 必须缺省）
+      await expect(register(fiatInput({ network: 'TRON' })))
+        .rejects.toMatchObject({ response: { code: 'COORDINATE_GROUP_MISMATCH' } });
+      await expect(register(fiatInput({ address: 'TXfake0000000000000000000000000000' })))
+        .rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.lpPayoutAddress.findFirst).not.toHaveBeenCalled();
+      expect(prisma.lpPayoutAddress.create).not.toHaveBeenCalled();
+    });
+
+    it('本组空缺 = COORDINATE_REQUIRED（与错组分清）：法币资产不带任何坐标 / 纯空白 iban（清洗后为空）→ 400 REQUIRED；CRYPTO 资产空白 iban 视同没给，照走链上组', async () => {
+      await expect(register(fiatInput({ iban: undefined }))).rejects.toMatchObject({ response: { code: 'COORDINATE_REQUIRED' } });
+      await expect(register(fiatInput({ iban: '' }))).rejects.toMatchObject({ response: { code: 'COORDINATE_REQUIRED' } });
+      await expect(register(fiatInput({ iban: '   ' }))).rejects.toMatchObject({ response: { code: 'COORDINATE_REQUIRED' } });
+      await expect(register(fiatInput({ iban: '   ' }))).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.lpPayoutAddress.findFirst).not.toHaveBeenCalled();
+      expect(prisma.lpPayoutAddress.create).not.toHaveBeenCalled();
+      // 空白 iban 不是「带了 IBAN」：CRYPTO 资产链上组齐 + iban 为空白串 → 正常登记
+      await expect(register(chainInput({ iban: '   ' }))).resolves.toMatchObject({ status: S.PENDING_APPROVAL, iban: null });
+    });
+
+    it('未知 assetId → 400 ASSET_NOT_FOUND，不查重、不落行', async () => {
+      await expect(register(chainInput({ assetId: 'asset-uuid-nope' }))).rejects.toMatchObject({ response: { code: 'ASSET_NOT_FOUND' } });
+      await expect(register(fiatInput({ assetId: 'asset-uuid-nope' }))).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.lpPayoutAddress.findFirst).not.toHaveBeenCalled();
       expect(prisma.lpPayoutAddress.create).not.toHaveBeenCalled();
     });
