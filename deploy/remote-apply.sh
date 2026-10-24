@@ -12,6 +12,8 @@ cd "${APP}"
 LOCK_HASH="$(sha256sum package-lock.json | cut -d' ' -f1)"
 if [[ ! -f node_modules/.lock-hash ]] || [[ "$(cat node_modules/.lock-hash)" != "${LOCK_HASH}" ]]; then
   echo "[apply] 依赖清单有变 → npm ci"
+  # 4 GB 机器：账本常驻约 1.4 GB，演示服务与 npm ci 同时跑会把内存挤进 swap；反正后面要重启，先停
+  if systemctl is-active --quiet exchange-demo; then sudo systemctl stop exchange-demo; fi
   npm ci --no-audit --no-fund
   echo "${LOCK_HASH}" > node_modules/.lock-hash
 else

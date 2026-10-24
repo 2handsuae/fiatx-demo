@@ -52,12 +52,14 @@ sudo mkdir -p "${ROOT}"/app "${ROOT}"/web/admin "${ROOT}"/web/client "${ROOT}"/d
 sudo chown -R ubuntu:ubuntu "${ROOT}"
 sudo chmod 755 "${ROOT}" "${ROOT}/web"
 
-echo "[bootstrap] 6/6 账本数据目录挂内存盘（1400 MB tmpfs）：云硬盘同步写约 4 ms/次，账本落盘会拖出数据库锁超时"
-if ! mountpoint -q "${ROOT}/data"; then
-  if systemctl is-active --quiet exchange-demo; then sudo systemctl stop exchange-demo; fi
-  find "${ROOT}/data" -mindepth 1 -delete
-  grep -qF "tmpfs ${ROOT}/data tmpfs" /etc/fstab || echo "tmpfs ${ROOT}/data tmpfs size=1400m,mode=0755,uid=$(id -u ubuntu),gid=$(id -g ubuntu) 0 0" | sudo tee -a /etc/fstab >/dev/null
-  sudo mount "${ROOT}/data"
+echo "[bootstrap] 6/6 账本数据目录放云硬盘 + swap 兜底（2 核 4 GB：账本文件固定 1.1 GB，放内存盘就占掉内存的四分之一）"
+if [[ -z "$(swapon --show --noheadings)" ]]; then
+  sudo fallocate -l 2G /swapfile
+  sudo chmod 600 /swapfile
+  sudo mkswap /swapfile >/dev/null
+  sudo swapon /swapfile
+  grep -qF "/swapfile none swap" /etc/fstab || echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab >/dev/null
 fi
-echo "  $(findmnt -n -o SOURCE,FSTYPE,SIZE "${ROOT}/data")"
+echo "  data: $(findmnt -n -o SOURCE,FSTYPE --target "${ROOT}/data")"
+echo "  swap: $(swapon --show --noheadings --bytes | awk '{s += $3} END {printf "%.0f MB", s / 1048576}')"
 echo "[bootstrap] ✅ 完成"
