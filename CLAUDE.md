@@ -125,7 +125,7 @@ bash scripts/stack.sh status       # 看各栈端口与状态
 - **并行任务一律 worktree 隔离**：一会话 = 一 worktree（统一放 `.claude/worktrees/<名>/`）= 一分支 = 一套自动分的栈；要为某分支起服务只在它的 worktree 里 `stack.sh up`，绝不在主工作树切分支跑服务；合并后清 worktree + 分支
 - **合并进 main 后必做**：重启后端 + `npm run db:base:sync`（权限字典与内存 `RBAC_PERMISSION_DEFINITIONS` 都是旧的会 403）；动过 schema / seed 再 `stack.sh reset main`
 
-**云端演示环境**（2026-09-12 起，给同事自助看）：腾讯云新加坡轻量服务器 `101.32.141.97`（Ubuntu 26.04 / 2 核 8 GB）｜管理台 `https://admin-fiatx-demo.duckdns.org` ｜客户端 `https://fiatx-demo.duckdns.org`（2026-09-15 起用 DuckDNS 免费域名替代裸 IP，两域名都解析到该 IP、都走 443；SSH 仍连 IP。域名/IP 拆分见 `.cloud.env` 的 `CLOUD_HOST`(SSH) vs `CLOUD_ADMIN_HOST`/`CLOUD_CLIENT_HOST`(对外)）
+**云端演示环境**（2026-09-12 起，给同事自助看）：腾讯云新加坡轻量服务器 `43.134.44.194`（Ubuntu 26.04 / 2 核 4 GB；2026-10-25 旧机到期换新机，从 8 GB 降配）｜管理台 `https://admin-fiatx-demo.duckdns.org` ｜客户端 `https://fiatx-demo.duckdns.org`（2026-09-15 起用 DuckDNS 免费域名替代裸 IP，两域名都解析到该 IP、都走 443；SSH 仍连 IP。域名/IP 拆分见 `.cloud.env` 的 `CLOUD_HOST`(SSH) vs `CLOUD_ADMIN_HOST`/`CLOUD_CLIENT_HOST`(对外)）
 
 ```bash
 npm run cloud:deploy      # 部署本机已提交版本（= 新数据）；或双击仓库根「部署.command」
@@ -136,7 +136,8 @@ npm run cloud:bootstrap   # 开服（一次性；控制台重装系统后重跑�
 - 配置在 `.cloud.env`（未入库，照 `.cloud.env.example`）；SSH 密钥 `~/.ssh/exchange_demo_ed25519`，只用密钥
 - 服务器不用 Docker：systemd 管 `exchange-demo`（账本 + API，每次启动从零铺数据）与 `caddy`（Let's Encrypt IP 证书 6 天自动续、托管两个前端、`/api` 反代）；启动日志 `/opt/exchange-demo/run/boot.log`，线上版本 `/opt/exchange-demo/app/DEPLOYED_VERSION`
 - 服务的环境变量由 `deploy/demo.env.template` 渲染；其中 `DATABASE_URL` 末尾带 `?connection_limit=1`（每进程 1 条数据库连接，业主 2026-09-12 拍板；原委见 `archive/superpowers/specs/2026-09-11-tx-leak-fix-design.md`）
-- 实测（2026-09-12 最终配置）：常规部署 74 秒 ｜ 重铺 47 秒 ｜ 开机 37 秒 ｜ 内存峰值 3623 MB（8 GB 机器，swap 0）
+- 实测（2026-10-25，2 核 4 GB）：常规部署 92 秒 ｜ 重铺 63 秒 ｜ 开机 53 秒 ｜ 内存峰值 used 2508 MB（swap 0，最低可用 1210 MB；`free -m` 的 used 列，三次采样一致）。账本进程固定约 1.46 GB（`--development` 下网格缓存仅 32 MiB，无可调余地），1.1 GB 账本数据文件落云硬盘（4 GB 机放不下内存盘）；SQLite 仍在内存盘 `/run/exchange-demo`
+- 换机 / 重装要点：轻量防火墙必须放行 TCP 22 / 80 / 443（2026-10-25 新机默认无 443——证书走 80 照样签得下，但 HTTPS 全球不通）；两个 DuckDNS 域名都改指新 IP 后再跑 `cloud:bootstrap`；新机先手工把 `~/.ssh/exchange_demo_ed25519.pub` 加进 ubuntu 的 `authorized_keys`
 - 绝不删 `/var/lib/caddy`（证书存储；重签会撞 Let's Encrypt 频率上限）
 - 同事自助还原：管理台顶栏 Simulation 开关 → Demo Data 面板（重铺数据=整服务自退重启约 1 分钟；重摆对账场景=recon:demo:break 秒级）；`DEMO_OPS=1` 门控，仅云端 demo.env 有，本地无此入口
 
