@@ -11,6 +11,7 @@ import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/admi
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
 import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
+import { VaspProfileFields, type VaspProfile } from '../components/compliance/VaspProfileFields';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { ADDRESS_TYPE_LABEL, AddressTypeBadge, ScreeningBadge } from '../components/ui/AddressBadges';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
@@ -33,6 +34,8 @@ interface LpPayoutAddress {
   hostingMismatch: boolean;
   counterpartyVaspName: string | null;
   counterpartyVaspDid: string | null;
+  /** VASP 名录档案（EEC / 评分 / 牌照），后端详情读时按 counterpartyVaspDid 现拼；无归因 / 名录查无为 null。 */
+  vaspProfile?: VaspProfile | null;
   screeningAnswer: string | null;
   screenedAt: string | null;
   evidenceRef: string;
@@ -446,6 +449,7 @@ export default function LpPayoutAddressDetail() {
                   <>
                     <InfoField label="Counterparty VASP" value={data.counterpartyVaspName} />
                     <InfoField label="VASP DID" value={data.counterpartyVaspDid} mono />
+                    {data.vaspProfile && <VaspProfileFields profile={data.vaspProfile} />}
                   </>
                 )}
               </div>

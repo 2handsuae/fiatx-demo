@@ -11,7 +11,7 @@ import { AuditActions, AuditBusinessWorkflowTypes, AuditEntityTypes } from '../.
 import { AuditCategory, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { TRAVEL_RULE_ADAPTER } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
-import type { AddressAttributionResult, ScreeningAnswer, TravelRuleAdapter } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
+import type { AddressAttributionResult, ScreeningAnswer, TravelRuleAdapter, VaspProfile } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
 import { BANK_RAIL_NETWORK } from '../withdrawal-addresses/withdrawal-address.service';
 import { LpProfileStatus } from './dto/lp-profile.dto';
 import { LpProfileService } from './lp-profile.service';
@@ -99,6 +99,13 @@ export interface LpPayoutAddressView {
   cancelledAt: string | null;
   deactivatedAt: string | null;
   createdAt: string;
+}
+
+/** 详情读投影 = 列表投影 + VASP 名录档案（EEC / 评分 / 牌照）。档案是 Sumsub 侧数据，读时按
+ *  counterpartyVaspDid 现拼、不落库（先例：deposit-transactions.service 的 findOneForAdmin）；
+ *  没归因（无 did）或名录里查无 → null。列表 / 工作流内部读（getView）都不带这个键。 */
+export interface LpPayoutAddressDetailView extends LpPayoutAddressView {
+  vaspProfile: VaspProfile | null;
 }
 
 @Injectable()
@@ -304,6 +311,13 @@ export class LpPayoutAddressService {
     const row = await this.findByNoOrThrow(addressNo);
     const codes = await this.assetCodes([row.assetId]);
     return this.toView(row, codes.get(row.assetId) ?? null);
+  }
+
+  /** 详情页读：getView + VASP 名录档案（同步 mock 名录，按 did 现取；只挂详情读，列表与工作流内部读不带）。 */
+  async getDetailView(addressNo: string): Promise<LpPayoutAddressDetailView> {
+    const view = await this.getView(addressNo);
+    const vaspProfile = view.counterpartyVaspDid ? this.travelRule.getVaspProfile(view.counterpartyVaspDid) : null;
+    return { ...view, vaspProfile };
   }
 
   /** 对外投影（铁律⑥）：无 id / lpId / assetId / traceId。 */

@@ -48,7 +48,7 @@ export class LpPayoutAddressController {
   @ApiOperation({ summary: 'LP payout address detail' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/lp-payout-addresses/:addressNo'))
   detail(@Param('addressNo') addressNo: string) {
-    return this.addresses.getView(addressNo);
+    return this.addresses.getDetailView(addressNo);
   }
 
   @Post('lp-payout-addresses/:addressNo/cancel')

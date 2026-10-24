@@ -94,6 +94,7 @@ describe('LpPayoutAddressService (LP 两步准入 Task 3)', () => {
   let prisma: ReturnType<typeof makePrisma>;
   let service: LpPayoutAddressService;
   let profile: { findByNo: jest.Mock };
+  let adapter: MockTravelRuleAdapter;
 
   beforeEach(async () => {
     prisma = makePrisma();
@@ -109,6 +110,7 @@ describe('LpPayoutAddressService (LP 两步准入 Task 3)', () => {
       ],
     }).compile();
     service = mod.get(LpPayoutAddressService);
+    adapter = mod.get(TRAVEL_RULE_ADAPTER);
   });
 
   /** Task 4 起登记要带操作员（留痕）；本文件的断言与 Task 3 一致，只是调用多传一个 actor。 */
@@ -356,6 +358,50 @@ describe('LpPayoutAddressService (LP 两步准入 Task 3)', () => {
       expect(list.find((v) => v.addressNo === a.addressNo)).toMatchObject({ assetCode: 'USDT_TRC20', network: 'TRON', status: S.PENDING_APPROVAL });
       expect(list.find((v) => v.addressNo === b.addressNo)).toMatchObject({ assetCode: 'AED', iban: 'AE070331234567890123456' });
       expect(await service.getView(a.addressNo)).toMatchObject({ addressNo: a.addressNo, assetCode: 'USDT_TRC20' });
+    });
+
+    describe('getDetailView：详情读现拼 VASP 名录档案（不落库、只挂详情）', () => {
+      const MOCK_VASP_PROFILE = { name: 'Mock VASP Exchange', eecStatus: 'COMPLETED', riskScore: 3, licensed: true };
+
+      it('已知 did（尾号 1111 → Mock VASP Exchange）→ 带 vaspProfile 三项 + 名称；Grey Harbor（4444）→ 不合格档案', async () => {
+        const mock = await register(chainInput({ address: 'TXfake0000000000000000000000001111' }));
+        const grey = await register(chainInput({ address: 'TXfake0000000000000000000000004444' }));
+        expect((await service.getDetailView(mock.addressNo)).vaspProfile).toEqual(MOCK_VASP_PROFILE);
+        expect((await service.getDetailView(grey.addressNo)).vaspProfile).toEqual({
+          name: 'Grey Harbor Exchange', eecStatus: 'PENDING', riskScore: 42, licensed: false,
+        });
+        // 档案是读时现拼：行本身不落这个键（update 的 data 里从未出现过 vaspProfile）
+        for (const call of prisma.lpPayoutAddress.create.mock.calls) expect(call[0].data).not.toHaveProperty('vaspProfile');
+        // 详情仍是同一份列表投影之上加一个键：既有字段原样在
+        expect(await service.getDetailView(mock.addressNo)).toMatchObject({
+          addressNo: mock.addressNo, addressType: 'VASP', counterpartyVaspName: 'Mock VASP Exchange', counterpartyVaspDid: 'did:mock:vasp-exchange-001',
+        });
+      });
+
+      it('未知 did（名录里查无）→ vaspProfile: null', async () => {
+        const a = await register(chainInput({ address: 'TXfake0000000000000000000000001111' }));
+        await prisma.lpPayoutAddress.update({ where: { addressNo: a.addressNo }, data: { counterpartyVaspDid: 'did:mock:nobody-999' } });
+        expect((await service.getDetailView(a.addressNo)).vaspProfile).toBeNull();
+      });
+
+      it('无 did（自托管 / 法币）→ vaspProfile: null，且根本不去问名录', async () => {
+        const self = await register(chainInput({ address: 'TXfake0000000000000000000000005555' }));
+        const bank = await register(fiatInput());
+        const spy = jest.spyOn(adapter, 'getVaspProfile');
+        expect((await service.getDetailView(self.addressNo)).vaspProfile).toBeNull();
+        expect((await service.getDetailView(bank.addressNo)).vaspProfile).toBeNull();
+        expect(spy).not.toHaveBeenCalled();
+      });
+
+      it('列表投影与 getView（工作流内部读）都不带 vaspProfile 键；详情投影零 UUID', async () => {
+        const a = await register(chainInput({ address: 'TXfake0000000000000000000000001111' }));
+        const spy = jest.spyOn(adapter, 'getVaspProfile');
+        for (const v of await service.listByLp(FALCON.lpNo)) expect(v).not.toHaveProperty('vaspProfile');
+        expect(await service.getView(a.addressNo)).not.toHaveProperty('vaspProfile');
+        expect(spy).not.toHaveBeenCalled(); // 列表 / getView 路径不碰名录
+        expect(JSON.stringify(await service.getDetailView(a.addressNo))).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
+        expect(spy).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });
