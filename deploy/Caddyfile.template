@@ -30,3 +30,7 @@ https://__CLIENT_HOST__ {
 		file_server
 	}
 }
+
+# 同机其他站点（如日更英语）各放一个 /etc/caddy/sites/<名>.caddy，由那些项目自己维护；本文件每次部署整份覆盖，站点不能写进这里。
+# 目录不存在或为空时 Caddy 只告警不报错；但站点文件写坏会让 remote-apply.sh 的 caddy validate 失败、fiatx 部署中止。
+import /etc/caddy/sites/*.caddy

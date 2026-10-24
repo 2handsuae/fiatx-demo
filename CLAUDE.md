@@ -135,6 +135,7 @@ npm run cloud:bootstrap   # 开服（一次性；控制台重装系统后重跑�
 
 - 配置在 `.cloud.env`（未入库，照 `.cloud.env.example`）；SSH 密钥 `~/.ssh/exchange_demo_ed25519`，只用密钥
 - 服务器不用 Docker：systemd 管 `exchange-demo`（账本 + API，每次启动从零铺数据）与 `caddy`（Let's Encrypt IP 证书 6 天自动续、托管两个前端、`/api` 反代）；启动日志 `/opt/exchange-demo/run/boot.log`，线上版本 `/opt/exchange-demo/app/DEPLOYED_VERSION`
+- 同机其他站点（日更英语 `daily-dedao-english.duckdns.org` 等，由各自项目维护）：`Caddyfile.template` 末尾 `import /etc/caddy/sites/*.caddy`，各站一个文件，fiatx 部署整份覆盖 Caddyfile 也冲不掉它们。站点文件写坏会让 `cloud:deploy` 在 caddy validate 步中止——部署报 Caddy 校验错先查 `/etc/caddy/sites/`。服务器 ubuntu 的 `authorized_keys` 里 `exchange-demo-deploy` 是本项目部署钥匙，任何会话清理钥匙时不许删
 - 服务的环境变量由 `deploy/demo.env.template` 渲染；其中 `DATABASE_URL` 末尾带 `?connection_limit=1`（每进程 1 条数据库连接，业主 2026-09-12 拍板；原委见 `archive/superpowers/specs/2026-09-11-tx-leak-fix-design.md`）
 - 实测（2026-10-25，2 核 4 GB）：常规部署 92 秒 ｜ 重铺 63 秒 ｜ 开机 53 秒 ｜ 内存峰值 used 2508 MB（swap 0，最低可用 1210 MB；`free -m` 的 used 列，三次采样一致）。账本进程固定约 1.46 GB（`--development` 下网格缓存仅 32 MiB，无可调余地），1.1 GB 账本数据文件落云硬盘（4 GB 机放不下内存盘）；SQLite 仍在内存盘 `/run/exchange-demo`
 - 换机 / 重装要点：轻量防火墙必须放行 TCP 22 / 80 / 443（2026-10-25 新机默认无 443——证书走 80 照样签得下，但 HTTPS 全球不通）；两个 DuckDNS 域名都改指新 IP 后再跑 `cloud:bootstrap`；新机先手工把 `~/.ssh/exchange_demo_ed25519.pub` 加进 ubuntu 的 `authorized_keys`
