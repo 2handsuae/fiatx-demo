@@ -1307,7 +1307,7 @@ export const LP_ADDRESS_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  * EXECUTION_STARTED 由审批裁决驱动，requiresCausation 真、必填 approvalNo；
  * PAY_LEG_POSTED/DELIVERED 是腿事件驱动的直接操作，必填 amount；ACCEPTED 是验收
  * 动作，必填 amount+effectiveDate（同 INTERNAL_TRANSFER_SETTLED 先例）；FAILED
- * 必填 reasonCode（INSUFFICIENT_FIRM_BALANCE|LEG_FAILED|POSTING_FAILED）；
+ * 必填 reasonCode（INSUFFICIENT_FIRM_BALANCE|LEG_FAILED|POSTING_FAILED|PAYOUT_ADDRESS_INACTIVE）；
  * CANCELLED 必填 reason。审计实际写入点在 Task 5 workflow，本任务只登记词表。 */
 export const CAMPAIGN_B_LP_EXCHANGE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   LP_EXCHANGE_REQUESTED:         { domain: 'TREASURY', correlationMode: N, requiredFields: ['amount', 'reason'], requiresCausation: false },

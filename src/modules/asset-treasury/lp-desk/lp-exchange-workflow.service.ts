@@ -5,7 +5,7 @@
 // 外穿+两侧回单——修复轮 1 评审 R13：原「内转不外穿」违反逐钱包对账模型，验收后 F_LIQ/F_OPS
 // 两条钱包行各留一个破口）。三腿回单一律先于落账（修复轮 1 评审 R12：后置会使 bumpClosing
 // 「当日无余额行」兜底基准已含本笔落账流水，非重铺当日外部余额双计）。铁律③各管各的：
-// 本文件只调 LpExchangeService/LpProfileService
+// 本文件只调 LpExchangeService/LpProfileService/LpPayoutAddressService
 // 的公开方法、AccountingService/FundsOrderService/SystemWalletResolver/
 // SimulatedCustodianStatementService，不直写域外表——唯一例外是按事件带的内部 id 读
 // LpExchange 行（事件只带 id，主体服务只暴露按业务号查，照 InternalTransferWorkflowService
@@ -35,7 +35,9 @@ import { SimulatedCustodianStatementService } from '../../clearing-settle/reconc
 import { PrudentialService } from '../prudential/prudential.service';
 import { LpExchangeService } from './lp-exchange.service';
 import { LpProfileService } from './lp-profile.service';
+import { LpPayoutAddressService } from './lp-payout-address.service';
 import { LpExchangeStatus } from './dto/lp-exchange.dto';
+import { LpPayoutAddressStatus } from './constants/lp-payout-address-transitions.constant';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string; fundsOrderNo: string;
@@ -51,6 +53,7 @@ export interface InitiateLpExchangeInput {
   sellAmount: string; // 元
   buyAssetId: string;
   buyAmount: string; // 元
+  payoutAddressNo: string; // LP 收款地址簿单号（LPA…）
   prudentialPurpose: string;
   reason: string;
   traceId?: string | null;
@@ -74,6 +77,7 @@ export class LpExchangeWorkflowService {
     private readonly systemWallets: SystemWalletResolver,
     private readonly custodianStatement: SimulatedCustodianStatementService,
     private readonly prudential: PrudentialService,
+    private readonly payoutAddresses: LpPayoutAddressService,
   ) {}
 
   // ── 发起（金库，CFO 单步批）──────────────────────────────────────────
@@ -87,6 +91,22 @@ export class LpExchangeWorkflowService {
     ]);
     if (!sellAsset) throw new NotFoundException(`Asset not found: ${dto.sellAssetId}`);
     if (!buyAsset) throw new NotFoundException(`Asset not found: ${dto.buyAssetId}`);
+
+    // LP 两步准入 Task 5：收款地址必须是该 LP、该卖出资产下 ACTIVE 的地址簿条目——腿 1 的钱只许付给过了
+    // 筛查与 CFO 批的坐标。四道守卫各自一个错误码；通过后三列抄进单据（单据即快照，此后不回读地址簿）。
+    const payout = await this.payoutAddresses.findByNo(dto.payoutAddressNo);
+    if (!payout) {
+      throw new BadRequestException({ code: 'PAYOUT_ADDRESS_NOT_FOUND', message: `LP payout address ${dto.payoutAddressNo} not found` });
+    }
+    if (payout.lpId !== profile.id) {
+      throw new BadRequestException({ code: 'PAYOUT_ADDRESS_WRONG_LP', message: `Payout address ${payout.addressNo} belongs to ${payout.lpNo}, not to ${dto.lpNo}` });
+    }
+    if (payout.assetId !== dto.sellAssetId) {
+      throw new BadRequestException({ code: 'PAYOUT_ADDRESS_ASSET_MISMATCH', message: `Payout address ${payout.addressNo} is registered for a different asset than the one being sold (${sellAsset.code})` });
+    }
+    if (payout.status !== LpPayoutAddressStatus.ACTIVE) {
+      throw new BadRequestException({ code: 'PAYOUT_ADDRESS_INACTIVE', message: `Payout address ${payout.addressNo} is ${payout.status} — only an ACTIVE address can receive the sell leg` });
+    }
 
     const sellAmountMinor = majorToMinor(dto.sellAmount, sellAsset.decimals);
     await this.exchanges.assertFirmOpsBalance(sellAsset.currency, sellAmountMinor);
@@ -105,6 +125,7 @@ export class LpExchangeWorkflowService {
     const row = await this.exchanges.create({
       lpNo: dto.lpNo, sellAssetId: dto.sellAssetId, sellAmount: dto.sellAmount,
       buyAssetId: dto.buyAssetId, buyAmount: dto.buyAmount,
+      payoutAddressNo: payout.addressNo, payoutAddress: payout.address, payoutIban: payout.iban,
       prudentialPurpose: dto.prudentialPurpose, reason: dto.reason,
       sellFromWalletId: sellFrom.id as string, buyViaWalletId: buyVia.id as string, buyToWalletId: buyTo.id as string,
       traceId: dto.traceId ?? undefined, createdByUserId: actor.userNo ?? actor.userId,
@@ -125,6 +146,7 @@ export class LpExchangeWorkflowService {
         objectSnapshot: {
           exchangeNo: row.exchangeNo, lpNo: row.lpNo, lpName: profile.name,
           sell: `${sellFormatted} ${sellAsset.currency}`, buy: `${buyFormatted} ${buyAsset.currency}`,
+          payoutAddressNo: payout.addressNo, coordinate: payout.address ?? payout.iban,
           prudentialPurpose: dto.prudentialPurpose, impact,
         },
       },
@@ -168,6 +190,16 @@ export class LpExchangeWorkflowService {
       return;
     }
 
+    // LP 两步准入 Task 5：批准时先复查开单所选的收款地址仍 ACTIVE——开单到批准之间它可能被停用/退役。
+    // 不再 ACTIVE → 落 FAILED（承迁移表 PENDING_APPROVAL→FAILED 既有边，不加新边），零资金单；同余额闸形状。
+    const payout = await this.payoutAddresses.findByNo(row.payoutAddressNo);
+    if (payout?.status !== LpPayoutAddressStatus.ACTIVE) {
+      const note = `Payout address ${row.payoutAddressNo} is ${payout?.status ?? 'missing'} — it was chosen when the order was opened but can no longer receive funds; nothing was paid out, open a new order with an ACTIVE address`;
+      const updated = await this.exchanges.transition(row.exchangeNo, LpExchangeStatus.FAILED, { failureReasonCode: 'PAYOUT_ADDRESS_INACTIVE', failureNote: note });
+      await this.exchangeAudit(row, { action: AuditActions.LP_EXCHANGE_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'PAYOUT_ADDRESS_INACTIVE', reason: note, approvalNo: event.approvalNo, causationId: event.approvalId, fromStatus: row.status, toStatus: updated.status });
+      return;
+    }
+
     // 批准时再查一次运营户（卖出币）余额——同 InternalTransferWorkflowService.onDecided 纪律。
     const sellAmountMinor = majorToMinor(row.sellAmount, row.sellAsset.decimals);
     try {
@@ -183,20 +215,19 @@ export class LpExchangeWorkflowService {
     await this.exchangeAudit(row, { action: AuditActions.LP_EXCHANGE_EXECUTION_STARTED, reason: 'Approved by CFO, sell leg funds order created', approvalNo: event.approvalNo, causationId: event.approvalId, fundsOrderNo: leg.fundsOrderNo, fromStatus: row.status, toStatus: updated.status });
   }
 
-  /** 腿 1（卖出）：F_OPS → 外部（LP 坐标，卖出币 CRYPTO→cryptoAddress｜FIAT→fiatIban）。
+  /** 腿 1（卖出）：F_OPS → 外部（LP 收款坐标——读**单据**开单时抄下的 payoutAddress/payoutIban 快照，
+   *  链上卖出币只有 payoutAddress、法币只有 payoutIban；不读档案、不回读地址簿）。
    *  CREATED 出生，走正常 OUT 推进（SUBMIT/CONFIRM 由 admin ⚡模拟推进驱动，本 workflow
    *  只接 handleFundsOrderChanged 的 SUBMITTED/CONFIRMED/FAILED/TIMEOUT）。 */
   private async createSellLeg(row: any) {
-    const profile = await this.lpProfiles.findByNo(row.lpNo);
     const sellFrom = await this.prisma.wallet.findUnique({ where: { id: row.sellFromWalletId } });
-    const isCrypto = row.sellAsset.type === 'CRYPTO';
     return this.fundsOrders.create({
       lpExchangeId: row.id, legSeq: 1, initialStatus: FundsOrderStatus.CREATED,
       assetId: row.sellAssetId, amount: String(row.sellAmount), netAmount: String(row.sellAmount),
       fromWalletId: sellFrom?.id ?? null, fromAddress: sellFrom?.address ?? null, fromIban: sellFrom?.iban ?? null,
       toWalletId: null,
-      toAddress: isCrypto ? profile.cryptoAddress : null,
-      toIban: isCrypto ? null : profile.fiatIban,
+      toAddress: row.payoutAddress ?? null,
+      toIban: row.payoutIban ?? null,
       traceId: row.traceId ?? undefined,
     });
   }

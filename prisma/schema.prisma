@@ -1005,7 +1005,7 @@ model LpExchange {
   buyViaWalletId    String   // F_LIQ（买入币网络行，前厅）
   buyToWalletId     String   // F_OPS（买入币网络行）
   approvalNo        String?
-  failureReasonCode String?  // INSUFFICIENT_FIRM_BALANCE | LEG_FAILED | POSTING_FAILED
+  failureReasonCode String?  // INSUFFICIENT_FIRM_BALANCE | LEG_FAILED | POSTING_FAILED | PAYOUT_ADDRESS_INACTIVE
   failureNote       String?
   executedAt        DateTime?
   deliveredAt       DateTime?

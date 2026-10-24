@@ -1,6 +1,6 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { LpExchangeWorkflowService } from './lp-exchange-workflow.service';
-import { LpExchangeStatus as S } from './dto/lp-exchange.dto';
+import { InitiateLpExchangeDto, LpExchangeStatus as S } from './dto/lp-exchange.dto';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
@@ -8,15 +8,20 @@ import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.co
 const USDT = { id: 'a-usdt', assetNo: 'ASUSDT0001', code: 'USDT-TRON', currency: 'USDT', decimals: 6, type: 'CRYPTO' };
 const AED = { id: 'a-aed', code: 'AED', currency: 'AED', decimals: 2, type: 'FIAT' };
 const treasury = { actorType: 'ADMIN' as const, userId: 'uuid-tre', userNo: 'ADM-TRE', roleCodes: ['TREASURY_OFFICER'] };
-const profile = { lpNo: 'LPP1', name: 'Acme LP', fiatBankName: 'Bank', fiatIban: 'AE-LP-IBAN', cryptoNetwork: 'TRON', cryptoAddress: 'TLP-ADDR', agreementRef: 'AGR1', status: 'ACTIVE' };
+const profile = { id: 'uuid-lp', lpNo: 'LPP1', name: 'Acme LP', fiatBankName: 'Bank', fiatIban: 'AE-LP-IBAN', cryptoNetwork: 'TRON', cryptoAddress: 'TLP-ADDR', agreementRef: 'AGR1', status: 'ACTIVE' };
 
 // 修复轮 1 随轮小项 #2：resolveTbAccountId 的 mock 按 (code, ledger) 编码出不同的账户 id——
 // 若实现把 ledger 传错（例如买入腿误用卖出币 ledger），断言里期望的账户 id 会对不上，能
 // 真的抓到跨 ledger 错误，不只是抓「有没有传某个 ledger 参数」。
 const acct = (code: number, ledger: number): bigint => BigInt(code) * 100n + BigInt(ledger);
 
+// LP 两步准入 Task 5：收款地址簿条目 fixture（链上 USDT / 法币 AED 各一）。
+const usdtAddress = { addressNo: 'LPA1', lpId: 'uuid-lp', lpNo: 'LPP1', assetId: USDT.id, status: 'ACTIVE', network: 'TRON', address: 'TLP-PAYOUT-1', iban: null };
+const aedAddress = { addressNo: 'LPA2', lpId: 'uuid-lp', lpNo: 'LPP1', assetId: AED.id, status: 'ACTIVE', network: null, address: null, iban: 'AE-LP-PAYOUT' };
+
 const exchangeRowBase = {
   id: 'uuid-lpx', exchangeNo: 'LPX1', lpId: 'uuid-lp', lpNo: 'LPP1',
+  payoutAddressNo: 'LPA1', payoutAddress: 'TLP-PAYOUT-1', payoutIban: null,
   sellAssetId: USDT.id, sellAmount: '20000', sellAsset: USDT,
   buyAssetId: AED.id, buyAmount: '73280', buyAsset: AED,
   prudentialPurpose: 'Liquidity management', status: S.PENDING_APPROVAL, reason: 'r',
@@ -24,8 +29,11 @@ const exchangeRowBase = {
   approvalNo: 'APR1', traceId: 'trace-1', createdByUserId: 'ADM-TRE',
 };
 
-function makeWorkflow(o: Partial<Record<'exchangeRow' | 'buyLegs', any>> = {}) {
+function makeWorkflow(o: Partial<Record<'exchangeRow' | 'buyLegs' | 'payoutAddress', any>> = {}) {
   const exchangeRow = o.exchangeRow ?? exchangeRowBase;
+  // 地址簿主体服务桩：findByNo 不存在返回 null（Task 3 契约），默认命中 usdtAddress；o.payoutAddress 显式传 null 表示「查不到」。
+  const payoutAddress = 'payoutAddress' in o ? o.payoutAddress : usdtAddress;
+  const payoutAddresses: any = { findByNo: jest.fn(async () => payoutAddress) };
   const walletsById: Record<string, any> = {
     'w-ops-usdt': { id: 'w-ops-usdt', address: 'Tops-usdt', iban: null },
     'w-liq-aed': { id: 'w-liq-aed', address: null, iban: 'AE-LIQ' },
@@ -75,13 +83,13 @@ function makeWorkflow(o: Partial<Record<'exchangeRow' | 'buyLegs', any>> = {}) {
   const custodianStatement: any = { recordLegMovement: jest.fn(async () => ({ outLineId: 'l1', inLineId: 'l2', cutoffDate: '2026-09-29' })) };
   // 乙波三 T2：NLA 门桩——默认放行，跌破场景用 mockRejectedValueOnce 单次拒绝（同余额闸先例）。
   const prudential: any = { assertPostOutflowCompliant: jest.fn(async () => undefined) };
-  const wf = new LpExchangeWorkflowService(prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, prudential);
-  return { wf, prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, exchangeRow, prudential };
+  const wf = new LpExchangeWorkflowService(prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, prudential, payoutAddresses);
+  return { wf, prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, exchangeRow, prudential, payoutAddresses };
 }
 
 describe('LpExchangeWorkflowService (Task 5)', () => {
   describe('initiate — birth guards + happy path', () => {
-    const dto = { lpNo: 'LPP1', sellAssetId: USDT.id, sellAmount: '20000', buyAssetId: AED.id, buyAmount: '73280', prudentialPurpose: 'Liquidity management', reason: 'Rebalance USDT into AED' };
+    const dto = { lpNo: 'LPP1', sellAssetId: USDT.id, sellAmount: '20000', buyAssetId: AED.id, buyAmount: '73280', payoutAddressNo: 'LPA1', prudentialPurpose: 'Liquidity management', reason: 'Rebalance USDT into AED' };
 
     it('operating account balance is not enough → 400 (guard comes from the entity); NLA gate never reached — 余额闸独立运行', async () => {
       const { wf, exchanges, prudential } = makeWorkflow();
@@ -140,6 +148,69 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
     });
   });
 
+  describe('initiate — 收款地址守卫链 + 抄单（LP 两步准入 Task 5）', () => {
+    const dto = { lpNo: 'LPP1', sellAssetId: USDT.id, sellAmount: '20000', buyAssetId: AED.id, buyAmount: '73280', payoutAddressNo: 'LPA1', prudentialPurpose: 'Liquidity management', reason: 'Rebalance USDT into AED' };
+    const codeOf = async (p: Promise<unknown>) => {
+      const err: any = await p.catch((e) => e);
+      expect(err).toBeInstanceOf(BadRequestException);
+      return err.getResponse().code;
+    };
+    const expectNothingCreated = (h: ReturnType<typeof makeWorkflow>) => {
+      expect(h.exchanges.create).not.toHaveBeenCalled();
+      expect(h.approvals.createAndSubmit).not.toHaveBeenCalled();
+    };
+
+    it('address not in the book → 400 PAYOUT_ADDRESS_NOT_FOUND, no row, no approval', async () => {
+      const h = makeWorkflow({ payoutAddress: null });
+      expect(await codeOf(h.wf.initiate(dto, treasury))).toBe('PAYOUT_ADDRESS_NOT_FOUND');
+      expect(h.payoutAddresses.findByNo).toHaveBeenCalledWith('LPA1');
+      expectNothingCreated(h);
+    });
+
+    it('address belongs to another LP → 400 PAYOUT_ADDRESS_WRONG_LP', async () => {
+      const h = makeWorkflow({ payoutAddress: { ...usdtAddress, lpId: 'uuid-other-lp', lpNo: 'LPP9' } });
+      expect(await codeOf(h.wf.initiate(dto, treasury))).toBe('PAYOUT_ADDRESS_WRONG_LP');
+      expectNothingCreated(h);
+    });
+
+    it('address is registered for another asset than the sell asset → 400 PAYOUT_ADDRESS_ASSET_MISMATCH', async () => {
+      const h = makeWorkflow({ payoutAddress: { ...usdtAddress, assetId: AED.id } });
+      expect(await codeOf(h.wf.initiate(dto, treasury))).toBe('PAYOUT_ADDRESS_ASSET_MISMATCH');
+      expectNothingCreated(h);
+    });
+
+    it.each(['PENDING_APPROVAL', 'SUSPENDED', 'REJECTED', 'CANCELLED', 'DEACTIVATED'])('address is %s (not ACTIVE) → 400 PAYOUT_ADDRESS_INACTIVE', async (status) => {
+      const h = makeWorkflow({ payoutAddress: { ...usdtAddress, status } });
+      expect(await codeOf(h.wf.initiate(dto, treasury))).toBe('PAYOUT_ADDRESS_INACTIVE');
+      expectNothingCreated(h);
+    });
+
+    it('happy path (crypto sell): the order copies addressNo + on-chain address from the entry (iban null) and the approval snapshot carries addressNo + coordinate, zero UUIDs', async () => {
+      const { wf, exchanges, approvals } = makeWorkflow();
+      await wf.initiate(dto, treasury);
+      expect(exchanges.create).toHaveBeenCalledWith(expect.objectContaining({ payoutAddressNo: 'LPA1', payoutAddress: 'TLP-PAYOUT-1', payoutIban: null }));
+      const snap = approvals.createAndSubmit.mock.calls[0][0].objectSnapshot;
+      expect(snap).toMatchObject({ payoutAddressNo: 'LPA1', coordinate: 'TLP-PAYOUT-1' });
+      expect(JSON.stringify(snap)).not.toMatch(/uuid-/);
+    });
+
+    it('happy path (fiat sell): the order copies addressNo + IBAN from the entry (on-chain address null) and the snapshot coordinate is the IBAN', async () => {
+      const { wf, exchanges, approvals } = makeWorkflow({ payoutAddress: aedAddress });
+      await wf.initiate({ ...dto, sellAssetId: AED.id, sellAmount: '73280', buyAssetId: USDT.id, buyAmount: '20000', payoutAddressNo: 'LPA2' }, treasury);
+      expect(exchanges.create).toHaveBeenCalledWith(expect.objectContaining({ payoutAddressNo: 'LPA2', payoutAddress: null, payoutIban: 'AE-LP-PAYOUT' }));
+      expect(approvals.createAndSubmit.mock.calls[0][0].objectSnapshot).toMatchObject({ payoutAddressNo: 'LPA2', coordinate: 'AE-LP-PAYOUT' });
+    });
+
+    it('DTO: payoutAddressNo is required (real ValidationPipe)', async () => {
+      const pipe = new ValidationPipe({ transform: true, whitelist: true });
+      const meta = { type: 'body' as const, metatype: InitiateLpExchangeDto };
+      const { payoutAddressNo: _drop, ...without } = dto;
+      await expect(pipe.transform(without, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform({ ...dto, payoutAddressNo: '' }, meta)).rejects.toThrow(BadRequestException);
+      await expect(pipe.transform(dto, meta)).resolves.toMatchObject({ payoutAddressNo: 'LPA1' });
+    });
+  });
+
   describe('onDecided', () => {
     const decided = (decision: any) => ({ decision, actionType: 'LP_EXCHANGE_APPROVAL', entityRef: 'LPX1', approvalId: 'uuid-apr', approvalNo: 'APR1', traceId: 'trace-1', workflowType: 'LP_EXCHANGE', metadata: {} });
 
@@ -174,12 +245,38 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       await wf.onDecided(decided('APPROVED') as any);
       expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({
         lpExchangeId: 'uuid-lpx', legSeq: 1, initialStatus: 'CREATED', assetId: USDT.id, amount: '20000',
-        fromWalletId: 'w-ops-usdt', fromAddress: 'Tops-usdt', toWalletId: null, toAddress: 'TLP-ADDR', toIban: null,
+        // LP 两步准入 Task 5：腿 1 的 to 坐标读单据抄下的收款地址（'TLP-PAYOUT-1'），不再读档案 cryptoAddress（'TLP-ADDR'）。
+        fromWalletId: 'w-ops-usdt', fromAddress: 'Tops-usdt', toWalletId: null, toAddress: 'TLP-PAYOUT-1', toIban: null,
       }));
       expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'EXECUTING', expect.objectContaining({ executedAt: expect.any(Date) }));
       const audit = auditLogs.recordSystem.mock.calls[0][0];
       expect(audit).toMatchObject({ action: 'LP_EXCHANGE_EXECUTION_STARTED', approvalNo: 'APR1', causationId: 'uuid-apr', fromStatus: 'PENDING_APPROVAL', toStatus: 'EXECUTING' });
       expect(audit.requestId).toMatch(/^LP_EXCHANGE_EXECUTION_STARTED_LPX1_/);
+    });
+
+    it('leg 1 to-coordinate comes from the ORDER snapshot, not the live address book: the entry was edited after opening (still ACTIVE) → leg still pays the snapshotted address', async () => {
+      const { wf, fundsOrders } = makeWorkflow({ payoutAddress: { ...usdtAddress, address: 'TLP-EDITED-LATER' } });
+      await wf.onDecided(decided('APPROVED') as any);
+      expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 1, toAddress: 'TLP-PAYOUT-1', toIban: null }));
+    });
+
+    it('fiat sell: leg 1 pays the snapshotted IBAN (toIban), toAddress null — never the profile fiatIban', async () => {
+      const fiatRow = { ...exchangeRowBase, sellAssetId: AED.id, sellAsset: AED, sellFromWalletId: 'w-ops-aed', payoutAddressNo: 'LPA2', payoutAddress: null, payoutIban: 'AE-LP-PAYOUT' };
+      const { wf, fundsOrders } = makeWorkflow({ exchangeRow: fiatRow, payoutAddress: aedAddress });
+      await wf.onDecided(decided('APPROVED') as any);
+      expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 1, assetId: AED.id, toAddress: null, toIban: 'AE-LP-PAYOUT' }));
+    });
+
+    it.each(['SUSPENDED', 'DEACTIVATED'])('approved but the chosen address went %s since opening → FAILED(PAYOUT_ADDRESS_INACTIVE), zero funds orders, audit carries reasonCode + approval causation + explicit requestId', async (status) => {
+      const { wf, exchanges, fundsOrders, auditLogs, payoutAddresses } = makeWorkflow({ payoutAddress: { ...usdtAddress, status } });
+      await wf.onDecided(decided('APPROVED') as any);
+      expect(payoutAddresses.findByNo).toHaveBeenCalledWith('LPA1'); // 复查的是单据抄下的地址号
+      expect(exchanges.transition).toHaveBeenCalledTimes(1);
+      expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'FAILED', expect.objectContaining({ failureReasonCode: 'PAYOUT_ADDRESS_INACTIVE', failureNote: expect.stringContaining('LPA1') }));
+      expect(fundsOrders.create).not.toHaveBeenCalled();
+      const audit = auditLogs.recordSystem.mock.calls[0][0];
+      expect(audit).toMatchObject({ action: 'LP_EXCHANGE_FAILED', outcome: 'FAILED', reasonCode: 'PAYOUT_ADDRESS_INACTIVE', approvalNo: 'APR1', causationId: 'uuid-apr', fromStatus: 'PENDING_APPROVAL', toStatus: 'FAILED' });
+      expect(audit.requestId).toMatch(/^LP_EXCHANGE_FAILED_LPX1_/);
     });
   });
 

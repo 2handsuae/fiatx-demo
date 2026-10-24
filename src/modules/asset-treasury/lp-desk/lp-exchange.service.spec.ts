@@ -62,6 +62,8 @@ const baseInput = {
   lpNo: 'LPP1', sellAssetId: 'asset-aed', sellAmount: '50000', buyAssetId: 'asset-usdt', buyAmount: '13600',
   prudentialPurpose: 'Rebalance AED liquidity into USDT corridor ahead of settlement', reason: 'Quarterly rebalance',
   sellFromWalletId: 'w-ops-aed', buyViaWalletId: 'w-liq-usdt', buyToWalletId: 'w-ops-usdt', createdByUserId: 'ADM1',
+  // LP 两步准入 Task 5：开单时由 workflow 从地址簿抄下的收款坐标快照（法币腿：只有 IBAN）。
+  payoutAddressNo: 'LPA1', payoutAddress: null, payoutIban: 'AE-LP-PAYOUT',
 };
 
 describe('LpExchangeService (乙波一 T4)', () => {
@@ -105,6 +107,14 @@ describe('LpExchangeService (乙波一 T4)', () => {
       expect(row.lpId).toBe(activeProfile.id);
       expect(row.lpNo).toBe('LPP1');
       expect(lpProfiles.assertActiveByNo).toHaveBeenCalledWith('LPP1');
+    });
+
+    it('persists the payout snapshot passed by the workflow (addressNo / on-chain address / IBAN) onto the order row', async () => {
+      const service = svc();
+      const fiat = await service.create(baseInput);
+      expect(fiat).toMatchObject({ payoutAddressNo: 'LPA1', payoutAddress: null, payoutIban: 'AE-LP-PAYOUT' });
+      const chain = await service.create({ ...baseInput, payoutAddressNo: 'LPA7', payoutAddress: 'TLP-PAYOUT-7', payoutIban: null });
+      expect(chain).toMatchObject({ payoutAddressNo: 'LPA7', payoutAddress: 'TLP-PAYOUT-7', payoutIban: null });
     });
   });
 
@@ -211,6 +221,7 @@ describe('LpExchangeService (乙波一 T4)', () => {
         exchangeNo: created.exchangeNo, lpNo: 'LPP1', status: S.PENDING_APPROVAL,
         sellAssetCode: 'AED', sellAmount: '50000.00',
         buyAssetCode: 'USDT-TRON', buyAmount: '13600.000000',
+        payoutAddressNo: 'LPA1', payoutAddress: null, payoutIban: 'AE-LP-PAYOUT',
         legs: [],
       });
     });
@@ -225,6 +236,13 @@ describe('LpExchangeService (乙波一 T4)', () => {
       const { items, total } = await service.list();
       expect(total).toBe(2);
       expect(items[0].createdAt >= items[1].createdAt).toBe(true);
+    });
+
+    it('list rows carry the payout snapshot too (the admin list shows where the money goes)', async () => {
+      const service = svc();
+      await service.create(baseInput);
+      const { items } = await service.list();
+      expect(items[0]).toMatchObject({ payoutAddressNo: 'LPA1', payoutAddress: null, payoutIban: 'AE-LP-PAYOUT' });
     });
   });
 });

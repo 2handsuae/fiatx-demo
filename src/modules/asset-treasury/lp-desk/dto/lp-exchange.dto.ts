@@ -31,6 +31,11 @@ export interface CreateLpExchangeInput {
   sellFromWalletId: string; // F_OPS（卖出币网络行）
   buyViaWalletId: string; // F_LIQ（买入币网络行，前厅）
   buyToWalletId: string; // F_OPS（买入币网络行）
+  /** LP 两步准入 Task 5：开单时由 workflow 从收款地址簿抄下的坐标快照（单据即快照，此后不回读地址簿）。
+   *  地址簿条目是链上组或法币组二选一，故 payoutAddress / payoutIban 恰有一个非空。 */
+  payoutAddressNo: string;
+  payoutAddress?: string | null;
+  payoutIban?: string | null;
   traceId?: string | null;
   createdByUserId: string;
 }
@@ -43,6 +48,8 @@ export class InitiateLpExchangeDto {
   @ApiProperty() @IsString() @IsNotEmpty() sellAmount!: string;
   @ApiProperty() @IsString() @IsNotEmpty() buyAssetId!: string;
   @ApiProperty() @IsString() @IsNotEmpty() buyAmount!: string;
+  /** LP 两步准入 Task 5：必选一条该 LP、该卖出资产下 ACTIVE 的收款地址（LPA 单号）。 */
+  @ApiProperty() @IsString() @IsNotEmpty() payoutAddressNo!: string;
   @ApiProperty() @IsString() @IsNotEmpty() prudentialPurpose!: string;
   @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
   @ApiPropertyOptional() @IsOptional() @IsString() traceId?: string;
@@ -69,6 +76,8 @@ export interface LpExchangeView {
   sellAssetCode: string; sellCurrency: string; sellAmount: string;
   buyAssetCode: string; buyCurrency: string; buyAmount: string;
   prudentialPurpose: string; reason: string;
+  /** LP 两步准入 Task 5：开单时抄下的收款坐标快照（老单据无 → null）。 */
+  payoutAddressNo: string | null; payoutAddress: string | null; payoutIban: string | null;
   approvalNo: string | null; failureReasonCode: string | null; failureNote: string | null;
   createdBy: string; createdAt: string;
   executedAt: string | null; deliveredAt: string | null; settledAt: string | null;
