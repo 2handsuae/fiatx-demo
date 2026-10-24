@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { LpProfileService } from './lp-profile.service';
+import { LpEntityScreening, LpProfileService } from './lp-profile.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
@@ -16,8 +16,12 @@ const baseCreateDto: CreateLpProfileDto = {
   cryptoNetwork: 'TRON',
   cryptoAddress: 'TXfake00000000000000000000000001',
   agreementRef: 'AGR-2026-LP-001',
+  dueDiligenceRef: 'DD-2026-LP-001',
   reason: 'Onboarding a new AED/USDT liquidity corridor',
 };
+
+/** 建档时刻的实体背调结论（本文件的 create 用例默认 GREEN；RED 落点与审计序列在 workflow spec 的「实体背调」组）。 */
+const greenScreening: LpEntityScreening = { answer: 'GREEN', screenedAt: new Date('2026-09-29T00:00:00.000Z') };
 
 /** 行为化内存行 mock（照 responsible-individuals.service.spec.ts 的 makePrisma 先例）。
  *  clock 用递增计数器而非 `new Date()`——同一 tick 内连续两次 create 可能落在同一毫秒，
@@ -79,7 +83,7 @@ describe('LpProfileService (乙波一 T2)', () => {
   }
 
   async function createProfile(overrides: Partial<CreateLpProfileDto> = {}): Promise<string> {
-    const row = await service.create(treasury, { ...baseCreateDto, ...overrides });
+    const row = await service.create(treasury, { ...baseCreateDto, ...overrides }, greenScreening);
     return row.lpNo;
   }
 
@@ -99,9 +103,19 @@ describe('LpProfileService (乙波一 T2)', () => {
       expect(row.name).toBe('Falcon Liquidity FZE');
       expect(row.createdByUserId).toBe('ADM-TREASURY');
       expect(row.approvalNo).toBeNull();
+      expect(row).toMatchObject({ screeningAnswer: 'GREEN', screenedAt: greenScreening.screenedAt, dueDiligenceRef: 'DD-2026-LP-001' });
 
-      expect(actionsOf()).toEqual(['LP_PROFILE_CREATED']);
-      expect(auditLogs.recordSystem).not.toHaveBeenCalled();
+      // 建档即筛：CREATED（操作员）+ SCREENED（系统，afterData 携结论，INHERIT 读 lpNo）
+      expect(actionsOf()).toEqual(['LP_PROFILE_CREATED', 'LP_PROFILE_SCREENED']);
+      expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
+      const screened = auditLogs.recordSystem.mock.calls[0][0];
+      expect(screened).toMatchObject({
+        actionDomain: 'TREASURY',
+        primarySubjectNo: lpNo,
+        correlationId: lpNo,
+        afterData: { screeningAnswer: 'GREEN', screenedAt: greenScreening.screenedAt.toISOString() },
+      });
+      expect(screened.requestId).toEqual(expect.stringContaining(`LP_PROFILE_SCREENED_${lpNo}_`));
       const call = auditLogs.recordByActor.mock.calls[0][0];
       expect(call).toMatchObject({
         actionDomain: 'TREASURY',
@@ -178,7 +192,7 @@ describe('LpProfileService (乙波一 T2)', () => {
       await service.transition(lpNo, LpProfileStatus.REJECTED, {}, { approvalNo: 'APR260101000001', causationId: randomUUID() });
       const row = await service.findByNo(lpNo);
       expect(row.status).toBe(LpProfileStatus.REJECTED);
-      expect(actionsOf()).toEqual(['LP_PROFILE_CREATED', 'LP_PROFILE_REJECTED']);
+      expect(actionsOf()).toEqual(['LP_PROFILE_CREATED', 'LP_PROFILE_SCREENED', 'LP_PROFILE_REJECTED']);
     });
 
     it('ACTIVE → SUSPENDED → ACTIVE round-trips via actor (SUSPENDED then REACTIVATED, both recordByActor)', async () => {
@@ -207,7 +221,7 @@ describe('LpProfileService (乙波一 T2)', () => {
       const lpNo = await createProfile();
       await service.stampApprovalNo(lpNo, 'APR260101000001');
       expect((await service.findByNo(lpNo)).approvalNo).toBe('APR260101000001');
-      expect(actionsOf()).toEqual(['LP_PROFILE_CREATED']); // 未多写一条审计
+      expect(actionsOf()).toEqual(['LP_PROFILE_CREATED', 'LP_PROFILE_SCREENED']); // 回填不多写审计（仅建档时的两条）
     });
   });
 
@@ -260,7 +274,9 @@ describe('LpProfileService (乙波一 T2)', () => {
         fiatBankName: 'Emirates NBD', fiatIban: 'AE070331234567890123456',
         cryptoNetwork: 'TRON', cryptoAddress: 'TXfake00000000000000000000000001',
         agreementRef: 'AGR-2026-LP-001', status: LpProfileStatus.PENDING_APPROVAL,
-        approvalNo: null, createdBy: 'ADM-TREASURY', createdAt: row.createdAt.toISOString(),
+        approvalNo: null,
+        screeningAnswer: 'GREEN', screenedAt: greenScreening.screenedAt.toISOString(), dueDiligenceRef: 'DD-2026-LP-001',
+        createdBy: 'ADM-TREASURY', createdAt: row.createdAt.toISOString(),
       });
       expect('id' in view).toBe(false);
     });

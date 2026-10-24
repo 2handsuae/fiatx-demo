@@ -9,6 +9,7 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditBusinessWorkflowTypes, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+import type { ScreeningAnswer } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
 import { LP_PROFILE_TRANSITIONS } from './constants/lp-profile-transitions.constant';
 import { CreateLpProfileDto, LpProfileStatus, LpProfileView } from './dto/lp-profile.dto';
 
@@ -19,6 +20,15 @@ export interface LpProfileTransitionAudit {
   actor?: ApprovalActorContext;
   reason?: string;
 }
+
+/** 建档时刻的实体背调结论（workflow 调 lp-entity-screening.mock 算好传入；RED → 建档即 REJECTED）。 */
+export interface LpEntityScreening {
+  answer: ScreeningAnswer;
+  screenedAt: Date;
+}
+
+/** RED 登记即拒的固定拒因（落点计算写 LP_PROFILE_REJECTED 的 reason）。 */
+export const LP_ENTITY_SCREENING_RED_REASON = 'Entity screening returned RED at registration';
 
 /** applySettlementChange 的 patch——四坐标字段各自可选（哪几项变了传哪几项）。approvalNo/
  *  causationId 只喂审计（LP_PROFILE_CHANGE_APPLIED 专列 + INSTRUMENT 子主体），不回写主体
@@ -82,6 +92,9 @@ export class LpProfileService {
       agreementRef: row.agreementRef,
       status: row.status,
       approvalNo: row.approvalNo ?? null,
+      screeningAnswer: row.screeningAnswer ?? null,
+      screenedAt: row.screenedAt ? row.screenedAt.toISOString() : null,
+      dueDiligenceRef: row.dueDiligenceRef ?? null,
       createdBy: row.createdByUserId,
       createdAt: row.createdAt.toISOString(),
     };
@@ -89,7 +102,12 @@ export class LpProfileService {
 
   // ── 建档 ────────────────────────────────────────────────────────────
 
-  async create(actor: ApprovalActorContext, dto: CreateLpProfileDto): Promise<LiquidityProvider> {
+  /** 建档 + 实体背调落点：背调结论随行落库；RED 一票否决 → 插入即终态 REJECTED（落点计算，
+   *  不是迁移表的边——LP_PROFILE_TRANSITIONS 不加边，同客户地址 3333 登记即拒先例），连 CFO
+   *  审批队列都进不去。留痕随写：CREATED（操作员）→ SCREENED（系统，筛查是 Sumsub 侧 mock 能力）
+   *  → RED 时再加 REJECTED（系统，固定拒因，无 fromStatus）。 */
+  async create(actor: ApprovalActorContext, dto: CreateLpProfileDto, screening: LpEntityScreening): Promise<LiquidityProvider> {
+    const rejected = screening.answer === 'RED';
     const row = await this.prisma.liquidityProvider.create({
       data: {
         lpNo: generateReferenceNo('LPP'),
@@ -99,15 +117,28 @@ export class LpProfileService {
         cryptoNetwork: dto.cryptoNetwork,
         cryptoAddress: dto.cryptoAddress,
         agreementRef: dto.agreementRef,
-        status: LpProfileStatus.PENDING_APPROVAL,
+        dueDiligenceRef: dto.dueDiligenceRef,
+        screeningAnswer: screening.answer,
+        screenedAt: screening.screenedAt,
+        status: rejected ? LpProfileStatus.REJECTED : LpProfileStatus.PENDING_APPROVAL,
         createdByUserId: actor.userNo ?? actor.userId,
       },
     });
     await this.writeAudit(AuditActions.LP_PROFILE_CREATED, row, {
       reason: dto.reason,
       actor,
-      metadata: { name: row.name, agreementRef: row.agreementRef },
+      metadata: { name: row.name, agreementRef: row.agreementRef, dueDiligenceRef: row.dueDiligenceRef },
     });
+    await this.writeAudit(AuditActions.LP_PROFILE_SCREENED, row, {
+      afterData: { screeningAnswer: screening.answer, screenedAt: screening.screenedAt.toISOString() },
+      metadata: { screeningAnswer: screening.answer },
+    });
+    if (rejected) {
+      await this.writeAudit(AuditActions.LP_PROFILE_REJECTED, row, {
+        toStatus: LpProfileStatus.REJECTED,
+        reason: LP_ENTITY_SCREENING_RED_REASON,
+      });
+    }
     return row;
   }
 
@@ -202,7 +233,7 @@ export class LpProfileService {
 
   private async writeAudit(action: string, row: LiquidityProvider, patch: {
     fromStatus?: string; toStatus?: string; approvalNo?: string; causationId?: string;
-    reason?: string; metadata?: Record<string, unknown>; actor?: ApprovalActorContext;
+    reason?: string; metadata?: Record<string, unknown>; afterData?: Record<string, unknown>; actor?: ApprovalActorContext;
   }): Promise<void> {
     const subjects: AuditSubjectInput[] = [
       { subjectType: AuditEntityTypes.LIQUIDITY_PROVIDER, subjectNo: row.lpNo, subjectRole: AuditSubjectRole.PRIMARY },
@@ -215,6 +246,7 @@ export class LpProfileService {
       subjects,
       fromStatus: patch.fromStatus, toStatus: patch.toStatus,
       approvalNo: patch.approvalNo, causationId: patch.causationId, reason: patch.reason,
+      afterData: patch.afterData,
       // CREATED 起档案自己的旅程（NONE——LiquidityProvider 没有 traceId 列）；其余继承
       // （INHERIT，读 lpNo：稳定业务键，够当锚，不必另开一列）。
       ...(action === AuditActions.LP_PROFILE_CREATED ? {} : { correlationId: row.lpNo }),

@@ -9,6 +9,7 @@ import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handle
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext, ApprovalStatuses } from '../../governance/approvals/constants/approval.constants';
 import { LpProfileService } from './lp-profile.service';
+import { screenLpEntityName } from './lp-entity-screening.mock';
 import {
   CreateLpProfileDto,
   LpProfileStatus,
@@ -34,13 +35,22 @@ export class LpProfileWorkflowService {
   // ── 建档（金库提，CFO 单步批）─────────────────────────────────────────
 
   async initiateCreate(dto: CreateLpProfileDto, actor: ApprovalActorContext) {
-    const row = await this.profiles.create(actor, dto);
+    // 建档提交瞬间同步跑实体背调（mock）；RED 一票否决——档案服务按落点计算直接落 REJECTED
+    // （含 CREATED/SCREENED/REJECTED 三条留痕），连 CFO 审批队列都不进。
+    const row = await this.profiles.create(actor, dto, { answer: screenLpEntityName(dto.name), screenedAt: new Date() });
+    if (row.status === LpProfileStatus.REJECTED) {
+      return { lpNo: row.lpNo, approvalNo: null, status: LpProfileStatus.REJECTED };
+    }
+    // GREEN / YELLOW 照常走 CFO 审批正门；快照带背调结论与尽调引用（CFO 批的不是盲盒）
     const approval = await this.approvals.createAndSubmit(
       {
         actionType: ApprovalActionTypes.LP_PROFILE_APPROVAL,
         entityRef: row.lpNo,
         // 铁律⑥：快照零 UUID——审批页把 objectSnapshot 原样渲染
-        objectSnapshot: { lpNo: row.lpNo, name: row.name, fiatIban: row.fiatIban, cryptoAddress: row.cryptoAddress, agreementRef: row.agreementRef },
+        objectSnapshot: {
+          lpNo: row.lpNo, name: row.name, fiatIban: row.fiatIban, cryptoAddress: row.cryptoAddress, agreementRef: row.agreementRef,
+          screeningAnswer: row.screeningAnswer, dueDiligenceRef: row.dueDiligenceRef,
+        },
       },
       { reason: dto.reason },
       actor,

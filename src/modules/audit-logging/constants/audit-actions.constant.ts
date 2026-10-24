@@ -492,6 +492,8 @@ export const AuditActions = {
   COMPLAINT_DEADLINE_FASTFORWARDED: 'COMPLAINT_DEADLINE_FASTFORWARDED',
   // ── 战役乙波一 T2（2026-09-29）：LP 档案八码（财资件，域 TREASURY）──────────
   LP_PROFILE_CREATED: 'LP_PROFILE_CREATED',
+  // LP 两步准入 Task 2（2026-10-24）：建档即筛，实体背调结论留痕
+  LP_PROFILE_SCREENED: 'LP_PROFILE_SCREENED',
   LP_PROFILE_APPROVED: 'LP_PROFILE_APPROVED',
   LP_PROFILE_REJECTED: 'LP_PROFILE_REJECTED',
   LP_PROFILE_CHANGE_PROPOSED: 'LP_PROFILE_CHANGE_PROPOSED',
@@ -1238,12 +1240,19 @@ export const COMPLAINT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
 /** 战役乙波一 T2（spec §2）：LP 档案八码，域 TREASURY（财资件，同 V7_TREASURY 挂法但独立
  * 成表——LiquidityProvider 没有 traceId 列，CREATED 老实标 NONE，其余 INHERIT 时读
  * row.lpNo 当 correlationId（lpNo 本身就是稳定业务键，够当锚，不必另开一列）。
- * APPROVED/REJECTED/CHANGE_APPLIED/CHANGE_REJECTED 由审批裁决驱动，requiresCausation
- * 真、必填 approvalNo；CHANGE_PROPOSED/SUSPENDED/REACTIVATED 是直接操作，必填 reason。 */
+ * APPROVED/CHANGE_APPLIED/CHANGE_REJECTED 由审批裁决驱动，requiresCausation
+ * 真、必填 approvalNo；CHANGE_PROPOSED/SUSPENDED/REACTIVATED 是直接操作，必填 reason。
+ * LP 两步准入 Task 2（2026-10-24）：
+ *   · LP_PROFILE_SCREENED（新）= 建档时刻实体背调出了三档结论（系统主体；afterData 携
+ *     screeningAnswer/screenedAt，必填；INHERIT 读 lpNo；非异步驱动故无 causation）。
+ *   · LP_PROFILE_REJECTED 现有两个出处——CFO 裁决驱动（有 approvalNo/causationId）与建档
+ *     RED 登记即拒（落点计算，无审批单）；故契约放宽为必填 reason（两条路径都恒带拒因）、
+ *     不再强制 approvalNo / causation（同 WITHDRAWAL_ADDRESS_REJECTED 先例）。 */
 export const CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   LP_PROFILE_CREATED:         { domain: 'TREASURY', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+  LP_PROFILE_SCREENED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
   LP_PROFILE_APPROVED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
-  LP_PROFILE_REJECTED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  LP_PROFILE_REJECTED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   LP_PROFILE_CHANGE_PROPOSED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   LP_PROFILE_CHANGE_APPLIED:  { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   LP_PROFILE_CHANGE_REJECTED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },

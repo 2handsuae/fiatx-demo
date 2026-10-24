@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-10-22 ｜ 基线 main `3d7ec694` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
-> 现役 **352 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
+> 生成于 2026-10-24 ｜ 基线 main `b1074d50` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
+> 现役 **353 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 117 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 65 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 50 ｜ WITHDRAW 34 ｜ SWAP 27 ｜ TREASURY 37 ｜ RECON 9 ｜ GOVERNANCE 54 ｜ 合计 352
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 65 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 50 ｜ WITHDRAW 34 ｜ SWAP 27 ｜ TREASURY 38 ｜ RECON 9 ｜ GOVERNANCE 54 ｜ 合计 353
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -570,7 +570,7 @@
 |---|---|---|---|---|---|
 | `CONFIRMATION_ISSUED` | 兑换成交（SUCCESS）后系统出具成交确认单（一单一张，先于通知落库） | N 单步 | confirmationNo |  |  |
 
-## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（37 码）
+## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（38 码）
 
 公司的钱给客户：认损补款 / 退汇垫款。第四类订单，法币两腿经结算户、加密币一腿；金库提、CFO 批。
 
@@ -586,13 +586,14 @@
 | `INTERNAL_TRANSFER_SETTLED` | 整单结清、客户余额复位 | I 继承 | amount, effectiveDate |  |  |
 | `INTERNAL_TRANSFER_FAILED` | 执行失败（腿 2 失败款停结算户，人工处理） | I 继承 | reasonCode |  |  |
 
-### LP 档案生命周期（8） — 战役乙波一 T2/T3 新增，金库建档 / 改结算坐标 / 启停，CFO 单步批
+### LP 档案生命周期（9） — 战役乙波一 T2/T3 新增，金库建档 / 改结算坐标 / 启停，CFO 单步批；LP 两步准入 T2 加建档即筛
 
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
 |---|---|---|---|---|---|
 | `LP_PROFILE_CREATED` | 登记新增流动性提供商（金库提交，待 CFO 批） | N 单步 | reason |  |  |
+| `LP_PROFILE_SCREENED` | 建档提交瞬间实体背调出结论（system 记账，afterData 带三档结论 GREEN / YELLOW / RED 与筛查时刻；名称含 sanction → RED、含 offshore → YELLOW，mock 约定）（LP 两步准入） | I 继承 | afterData |  |  |
 | `LP_PROFILE_APPROVED` | CFO 批准建档，档案转 ACTIVE | I 继承 | approvalNo | ✓ |  |
-| `LP_PROFILE_REJECTED` | CFO 驳回或超时，档案转 REJECTED（终态） | I 继承 | approvalNo | ✓ |  |
+| `LP_PROFILE_REJECTED` | 档案转 REJECTED（终态）：CFO 驳回或超时；或建档实体背调 RED 登记即拒（落点计算，system 记账，无审批单，固定拒因 Entity screening returned RED at registration）（LP 两步准入） | I 继承 | reason |  |  |
 | `LP_PROFILE_CHANGE_PROPOSED` | 提结算坐标变更（金库提，新坐标快照进审批单，待 CFO 批） | I 继承 | reason |  |  |
 | `LP_PROFILE_CHANGE_APPLIED` | CFO 批准变更，新结算坐标落地（档案仍 ACTIVE） | I 继承 | approvalNo | ✓ |  |
 | `LP_PROFILE_CHANGE_REJECTED` | CFO 驳回或超时变更，坐标原样不动 | I 继承 | approvalNo | ✓ |  |
