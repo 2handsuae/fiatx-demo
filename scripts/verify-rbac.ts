@@ -277,6 +277,8 @@ function runStaticChecks(): void {
     // 战役乙波一 T3：LP 档案建档 / 结算坐标变更——maker（金库，LP_WRITE）≠ checker（CFO）。
     LP_PROFILE_APPROVAL: 'LP_WRITE',
     LP_PROFILE_CHANGE: 'LP_WRITE',
+    // LP 两步准入 Task 4：LP 打款地址登记——同上 maker（金库，LP_WRITE）≠ checker（CFO）。
+    LP_ADDRESS_APPROVAL: 'LP_WRITE',
     // 战役乙波一 T5：LP 兑换单发起——同上 maker（金库，LP_WRITE）≠ checker（CFO）。
     LP_EXCHANGE_APPROVAL: 'LP_WRITE',
     // 战役乙波二 T3：注资单发起——maker（金库，FUNDING_WRITE）≠ checker（CFO）。

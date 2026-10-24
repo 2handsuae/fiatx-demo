@@ -511,6 +511,18 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/lp-profiles/:lpNo/reactivate', 'Reactivate a suspended liquidity provider', ['LP_WRITE']),
   route('GET', '/admin/lp-profiles', 'List liquidity providers', ['LP_READ']),
   route('GET', '/admin/lp-profiles/:lpNo', 'Get liquidity provider detail', ['LP_READ']),
+  // ─── LP 两步准入 Task 4 · LP 打款地址簿（LpPayoutAddress）：登记即筛、CFO 单步批；写动作归 LP_WRITE ───
+  // simulate-screening 是 ⚡演示件，站在 Sumsub 一侧改判筛查结论，与喂裁决同义 → DEMO_VERDICT_WRITE
+  // （零新权限组，同上方客户地址簿同名端点）。静态段先于 :addressNo 段，GET List 先于 GET Detail。
+  route('POST', '/admin/lp-profiles/:lpNo/payout-addresses', 'Register an LP payout address — screened on entry, CFO signs it off', ['LP_WRITE']),
+  route('GET', '/admin/lp-profiles/:lpNo/payout-addresses', 'List the payout addresses of a liquidity provider', ['LP_READ']),
+  route('GET', '/admin/lp-payout-addresses/:addressNo', 'Get LP payout address detail', ['LP_READ']),
+  route('POST', '/admin/lp-payout-addresses/:addressNo/cancel', 'Withdraw a pending-approval LP payout address', ['LP_WRITE']),
+  route('POST', '/admin/lp-payout-addresses/:addressNo/suspend', 'Suspend an active LP payout address', ['LP_WRITE']),
+  route('POST', '/admin/lp-payout-addresses/:addressNo/reactivate', 'Reactivate a suspended LP payout address', ['LP_WRITE']),
+  route('POST', '/admin/lp-payout-addresses/:addressNo/deactivate', 'Permanently retire an active LP payout address', ['LP_WRITE']),
+  route('PATCH', '/admin/lp-payout-addresses/:addressNo/label', 'Rename the label of an LP payout address', ['LP_WRITE']),
+  route('POST', '/admin/lp-payout-addresses/:addressNo/simulate-screening', 'Feed a simulated screening verdict into a pending LP payout address (demo only)', ['DEMO_VERDICT_WRITE']),
   // ─── 战役乙波一 T6 · LP 兑换（LpExchange）：先款后货三腿，写动作全归 LP_WRITE ───
   // simulate-delivery 是 ⚡演示件，但推的是单据不是时间——归 LP_WRITE，不挂 DEMO_CLOCK_WRITE
   // （同 funds-orders push/sync·push/manual 先例：FUNDS_ORDER_ACT 而非拨钟组，见下方

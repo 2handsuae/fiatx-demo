@@ -143,6 +143,8 @@ describe('AuditLogsService', () => {
       LP_PROFILE: 'LP_PROFILE',
       // 战役乙波一 T4（2026-09-29）：LP 兑换单主体
       LP_EXCHANGE: 'LP_EXCHANGE',
+      // LP 两步准入 Task 4（2026-10-24）：LP 打款地址主体（同时是 LP_ADDRESS_APPROVAL 的审批 workflowType）
+      LP_ADDRESS: 'LP_ADDRESS',
       // 战役乙波二 T2（2026-09-29）：注资单主体
       CAPITAL_INJECTION: 'CAPITAL_INJECTION',
       // 战役乙波二 T4（2026-09-29）：付款单主体

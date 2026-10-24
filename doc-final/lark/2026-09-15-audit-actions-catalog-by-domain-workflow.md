@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流
 
 > 生成于 2026-09-15 ｜ 基线 main `8a6390fa` ｜ 来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（8 份名册程序化导出，分组清单与名册双向校验通过）
-> 现役 **353 码**，另有退役 113 码进拒写闸（附录仅列名）。
+> 现役 **362 码**，另有退役 113 码进拒写闸（附录仅列名）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 65 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 50 ｜ WITHDRAW 34 ｜ SWAP 27 ｜ TREASURY 38 ｜ RECON 9 ｜ GOVERNANCE 54 ｜ 合计 353
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 65 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 50 ｜ WITHDRAW 34 ｜ SWAP 27 ｜ TREASURY 47 ｜ RECON 9 ｜ GOVERNANCE 54 ｜ 合计 362
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -572,7 +572,7 @@
 |---|---|---|---|---|
 | `CONFIRMATION_ISSUED` | 兑换成交（SUCCESS）后系统出具成交确认单（一单一张，先于通知落库） | N 单步 | confirmationNo |  |
 
-## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（38 码）
+## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（47 码）
 
 公司的钱给客户：认损补款 / 退汇垫款。第四类订单，法币两腿经结算户、加密币一腿；金库提、CFO 批。
 
@@ -601,6 +601,20 @@
 | `LP_PROFILE_CHANGE_REJECTED` | CFO 驳回或超时变更，坐标原样不动 | I 继承 | approvalNo | ✓ |
 | `LP_PROFILE_SUSPENDED` | 金库暂停 LP（直接迁移，留痕不批） | I 继承 | reason |  |
 | `LP_PROFILE_REACTIVATED` | 金库恢复 LP（直接迁移，留痕不批） | I 继承 | reason |  |
+
+### LP 打款地址生命周期（9） — LP 两步准入 T4 新增，金库按资产登记打款地址（登记即筛，先筛后批），CFO 单步批；启停退留痕不批
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
+|---|---|---|---|---|
+| `LP_ADDRESS_REGISTERED` | 金库登记 LP 打款地址（afterData 带坐标 / 托管自报 / 归因结论 / 红旗 / 协议锚快照；起地址自己的旅程） | S 起点 | afterData |  |
+| `LP_ADDRESS_SCREENED` | 登记时刻筛查出三档结论（system 记账，GREEN / YELLOW / RED，尾号约定 mock）；或待批期间 ⚡合规官覆写 GREEN / YELLOW（actor 记账，带 reason 与前后结论）⚡ | I 继承 | afterData |  |
+| `LP_ADDRESS_APPROVED` | CFO 批准登记，地址转 ACTIVE（此后才能被开单选用） | I 继承 | approvalNo | ✓ |
+| `LP_ADDRESS_REJECTED` | 地址转 REJECTED（终态，要换坐标只能重新登记）：CFO 驳回或超时；或登记筛查 RED 登记即拒（落点计算，system 记账，无审批单，固定拒因 Screening returned RED at registration）；或待批时 ⚡喂 RED（actor 记账）⚡ | I 继承 | reason |  |
+| `LP_ADDRESS_CANCELLED` | 金库在待批时撤回登记（先撤审批单后翻状态，终态） | I 继承 | reason |  |
+| `LP_ADDRESS_SUSPENDED` | 金库停用地址（直接迁移，留痕不批；停用期间不可被开单选用） | I 继承 | reason |  |
+| `LP_ADDRESS_REACTIVATED` | 金库恢复停用的地址（直接迁移，留痕不批） | I 继承 | reason |  |
+| `LP_ADDRESS_DEACTIVATED` | 金库永久退役地址（直接迁移，留痕不批，终态；换地址 = 登新生效后停旧） | I 继承 | reason |  |
+| `LP_ADDRESS_LABEL_UPDATED` | 金库改地址标签（坐标与申报登记后冻结，改只改 label；前后值留痕） | I 继承 | beforeData, afterData |  |
 
 ### LP 兑换单生命周期（8） — 战役乙波一 T4/T5 新增，先款后货三腿，金库提 / CFO 单步批 / 验收
 

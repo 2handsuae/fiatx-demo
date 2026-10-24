@@ -19,6 +19,7 @@ import {
   CAMPAIGN_B_VENDOR_PAYMENT_AUDIT_ACTIONS,
   CAMPAIGN_B_PRUDENTIAL_AUDIT_ACTIONS,
   CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS,
+  LP_ADDRESS_AUDIT_ACTIONS,
   DEPRECATED_AUDIT_ACTIONS,
 } from './audit-actions.constant';
 
@@ -26,8 +27,8 @@ import {
  * 站7 封册守则（2026-08-27，Phase 4 末站之锚）——词表从此永不再散。
  *
  * 两层闭合：
- *   ① 平面表归籍：AuditActions 每个串键要么在十七本名册、要么在退役闸——无籍即红；
- *   ② 写点闭合（源扫描）：全仓生产代码引用的每个动作词 ∈ 十七册，且绝不引用退役词。
+ *   ① 平面表归籍：AuditActions 每个串键要么在十八本名册、要么在退役闸——无籍即红；
+ *   ② 写点闭合（源扫描）：全仓生产代码引用的每个动作词 ∈ 十八册，且绝不引用退役词。
  *      扫描是本守则的执法手段，不是功能绿灯——功能对错由各域行为测试负责
  *      （review-rubric 的"文本扫描自证"禁令针对后者）。
  *
@@ -46,6 +47,7 @@ import {
  * 2026-09-29（战役乙波二 T4）：第十五本入册——CAMPAIGN_B_VENDOR_PAYMENT_AUDIT_ACTIONS（付款单六码）。
  * 2026-09-30（战役乙波三 T1）：第十六本入册——CAMPAIGN_B_PRUDENTIAL_AUDIT_ACTIONS（审慎 NLA 两码）。
  * 2026-09-30（战役丙波一 T2）：第十七本入册——CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS（客户通知一码）。
+ * 2026-10-24（LP 两步准入 T4）：第十八本入册——LP_ADDRESS_AUDIT_ACTIONS（LP 打款地址九码）。
  */
 const REGISTRIES: Record<string, Record<string, unknown>> = {
   V1_AUDIT_ACTIONS,
@@ -65,6 +67,7 @@ const REGISTRIES: Record<string, Record<string, unknown>> = {
   CAMPAIGN_B_VENDOR_PAYMENT_AUDIT_ACTIONS,
   CAMPAIGN_B_PRUDENTIAL_AUDIT_ACTIONS,
   CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS,
+  LP_ADDRESS_AUDIT_ACTIONS,
 };
 
 const registered = new Set<string>(
@@ -73,7 +76,7 @@ const registered = new Set<string>(
 const deprecated = new Set<string>(DEPRECATED_AUDIT_ACTIONS);
 
 describe('站7 · 词表封册守则', () => {
-  it('① 平面表归籍：每个串键 ∈ 十七册 ∪ 退役闸，无籍即红', () => {
+  it('① 平面表归籍：每个串键 ∈ 十八册 ∪ 退役闸，无籍即红', () => {
     const flatKeys = Object.entries(AuditActions)
       .filter(([, v]) => typeof v === 'string')
       .map(([k]) => k);
@@ -81,7 +84,7 @@ describe('站7 · 词表封册守则', () => {
     expect(stateless).toEqual([]);
   });
 
-  it('② 十七册两两互斥，且与退役闸零交集', () => {
+  it('② 十八册两两互斥，且与退役闸零交集', () => {
     const names = Object.keys(REGISTRIES);
     for (let i = 0; i < names.length; i += 1) {
       for (let j = i + 1; j < names.length; j += 1) {
@@ -96,7 +99,7 @@ describe('站7 · 词表封册守则', () => {
     expect([...registered].filter((k) => deprecated.has(k))).toEqual([]);
   });
 
-  it('③ 写点闭合：生产代码引用的动作词 ∈ 十七册，退役词零引用', () => {
+  it('③ 写点闭合：生产代码引用的动作词 ∈ 十八册，退役词零引用', () => {
     const srcRoot = path.resolve(__dirname, '../../..');
     const files: string[] = [];
     const walk = (dir: string) => {

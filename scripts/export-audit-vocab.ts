@@ -15,6 +15,7 @@ import {
   CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS, CAMPAIGN_B_LP_EXCHANGE_AUDIT_ACTIONS,
   CAMPAIGN_B_CAPITAL_INJECTION_AUDIT_ACTIONS, CAMPAIGN_B_VENDOR_PAYMENT_AUDIT_ACTIONS,
   CAMPAIGN_B_PRUDENTIAL_AUDIT_ACTIONS, CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS,
+  LP_ADDRESS_AUDIT_ACTIONS,
   DEPRECATED_AUDIT_ACTIONS, SUBJECTS_COVERED_ACTIONS, AuditActionSpec,
 } from '../src/modules/audit-logging/constants/audit-actions.constant';
 import { AuditCorrelationMode } from '../src/modules/audit-logging/dto/audit-log.dto';
@@ -40,6 +41,7 @@ const ALL: Record<string, AuditActionSpec> = {
   ...CAMPAIGN_B_VENDOR_PAYMENT_AUDIT_ACTIONS,
   ...CAMPAIGN_B_PRUDENTIAL_AUDIT_ACTIONS,
   ...CAMPAIGN_C_NOTIFICATION_AUDIT_ACTIONS,
+  ...LP_ADDRESS_AUDIT_ACTIONS,
 };
 
 // ── 种子解析：域节头 / 分组头 / 表行 ──────────────────────────────

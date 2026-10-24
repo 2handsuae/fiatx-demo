@@ -16,6 +16,9 @@ import { LpExchangeWorkflowService } from './lp-exchange-workflow.service';
 import { LpExchangeApprovalService } from './lp-exchange-approval.service';
 import { LpExchangeController } from './lp-exchange.controller';
 import { LpPayoutAddressService } from './lp-payout-address.service';
+import { LpPayoutAddressWorkflowService } from './lp-payout-address-workflow.service';
+import { LpPayoutAddressApprovalService } from './lp-payout-address-approval.service';
+import { LpPayoutAddressController } from './lp-payout-address.controller';
 import { TRAVEL_RULE_ADAPTER } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
 import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
 
@@ -30,12 +33,13 @@ import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-trav
  */
 @Module({
   imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, FundsLayerModule, ApprovalsModule, ReconciliationModule, PrudentialModule],
-  controllers: [LpProfileController, LpExchangeController],
+  controllers: [LpProfileController, LpExchangeController, LpPayoutAddressController],
   providers: [
     LpProfileService, LpProfileWorkflowService, LpProfileApprovalService, LpProfileChangeApprovalService,
     LpExchangeService, LpExchangeWorkflowService, LpExchangeApprovalService,
     // LP 两步准入 Task 3：地址簿登记即筛——复用对手方套件，同一 DI token 自行 provide（第四个 provide 点）
-    LpPayoutAddressService,
+    // Task 4：地址登记审批（CFO 单步）+ workflow（审批裁决 / 撤回 / 启停退 / ⚡筛查覆写）+ 端点
+    LpPayoutAddressService, LpPayoutAddressWorkflowService, LpPayoutAddressApprovalService,
     { provide: TRAVEL_RULE_ADAPTER, useClass: MockTravelRuleAdapter },
   ],
   exports: [LpProfileService, LpExchangeService],

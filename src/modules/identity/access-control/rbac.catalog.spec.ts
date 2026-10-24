@@ -158,6 +158,40 @@ describe('rbac.catalog', () => {
     expect(map.TREASURY_OFFICER).not.toContain(code);
   });
 
+  // LP 两步准入 Task 4：LP 打款地址簿端点逐条登记（未登记 = AdminPermissionGuard 全员 403）。读挂 LP_READ、写挂
+  // LP_WRITE、⚡筛查覆写挂 DEMO_VERDICT_WRITE（零新权限组）；金库（maker）能写不能点 ⚡，CFO（checker）只读。
+  it('LP payout address routes are all registered with the right groups (read LP_READ / write LP_WRITE / ⚡ DEMO_VERDICT_WRITE)', () => {
+    const expected: Array<[string, string, string]> = [
+      ['POST', '/admin/lp-profiles/:lpNo/payout-addresses', 'LP_WRITE'],
+      ['GET', '/admin/lp-profiles/:lpNo/payout-addresses', 'LP_READ'],
+      ['GET', '/admin/lp-payout-addresses/:addressNo', 'LP_READ'],
+      ['POST', '/admin/lp-payout-addresses/:addressNo/cancel', 'LP_WRITE'],
+      ['POST', '/admin/lp-payout-addresses/:addressNo/suspend', 'LP_WRITE'],
+      ['POST', '/admin/lp-payout-addresses/:addressNo/reactivate', 'LP_WRITE'],
+      ['POST', '/admin/lp-payout-addresses/:addressNo/deactivate', 'LP_WRITE'],
+      ['PATCH', '/admin/lp-payout-addresses/:addressNo/label', 'LP_WRITE'],
+      ['POST', '/admin/lp-payout-addresses/:addressNo/simulate-screening', 'DEMO_VERDICT_WRITE'],
+    ];
+    const map = buildRolePermissionCodeMap();
+    for (const [method, path, group] of expected) {
+      const code = buildPermissionCode(method, path);
+      const def = RBAC_PERMISSION_DEFINITIONS.find((item) => item.code === code);
+      expect({ code, groups: def?.groups }).toEqual({ code, groups: [group] });
+      if (group === 'LP_WRITE') {
+        expect(map.TREASURY_OFFICER).toContain(code);
+        expect(map.CFO).not.toContain(code); // maker ≠ checker
+      }
+      if (group === 'LP_READ') {
+        expect(map.TREASURY_OFFICER).toContain(code);
+        expect(map.CFO).toContain(code); // 裁决人要看得见要批的对象
+      }
+      if (group === 'DEMO_VERDICT_WRITE') {
+        expect(map.COMPLIANCE_OFFICER).toContain(code);
+        expect(map.TREASURY_OFFICER).not.toContain(code);
+      }
+    }
+  });
+
   // 甲波一 T5 修2（复审新 Important：族区分性质零红测，点 3 纯函数测试）：C1 修复的
   // 前提是这五个标记码各自只挂一个组、且互不相同——如果哪个码不小心挂了两个组，或两个码
   // 挂了同一个组，"族独占"的假设就塌了，assertOperator 的精确判定也就名不副实。

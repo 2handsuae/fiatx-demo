@@ -41,6 +41,8 @@ export const AuditEntityTypes = {
   LIQUIDITY_PROVIDER: 'LIQUIDITY_PROVIDER',
   // 战役乙波一 T4（2026-09-29）：LP 兑换单主体
   LP_EXCHANGE: 'LP_EXCHANGE',
+  // LP 两步准入 Task 4（2026-10-24）：LP 打款地址主体——业务键 = addressNo（LPA…）
+  LP_ADDRESS: 'LP_ADDRESS',
   // 战役乙波二 T2（2026-09-29）：注资单主体
   CAPITAL_INJECTION: 'CAPITAL_INJECTION',
   // 战役乙波二 T4（2026-09-29）：付款单主体
@@ -156,6 +158,9 @@ export const AuditBusinessWorkflowTypes = {
   LP_PROFILE: 'LP_PROFILE',
   // 战役乙波一 T4（2026-09-29）：LP 兑换单主体（财资件，独立主体 LpExchange）
   LP_EXCHANGE: 'LP_EXCHANGE',
+  // LP 两步准入 Task 4（2026-10-24）：LP 打款地址主体（财资件，独立主体 LpPayoutAddress；
+  // 同时是 LP_ADDRESS_APPROVAL 的审批 workflowType，派生 workflow.lp-address.decided）
+  LP_ADDRESS: 'LP_ADDRESS',
   // 战役乙波二 T2（2026-09-29）：注资单主体（财资件，独立主体 CapitalInjection）
   CAPITAL_INJECTION: 'CAPITAL_INJECTION',
   // 战役乙波二 T4（2026-09-29）：付款单主体（财资件，独立主体 VendorPayment）
@@ -501,6 +506,16 @@ export const AuditActions = {
   LP_PROFILE_CHANGE_REJECTED: 'LP_PROFILE_CHANGE_REJECTED',
   LP_PROFILE_SUSPENDED: 'LP_PROFILE_SUSPENDED',
   LP_PROFILE_REACTIVATED: 'LP_PROFILE_REACTIVATED',
+  // LP 两步准入 Task 4（2026-10-24）：LP 打款地址九码（财资件，域 TREASURY）
+  LP_ADDRESS_REGISTERED: 'LP_ADDRESS_REGISTERED',
+  LP_ADDRESS_SCREENED: 'LP_ADDRESS_SCREENED',
+  LP_ADDRESS_APPROVED: 'LP_ADDRESS_APPROVED',
+  LP_ADDRESS_REJECTED: 'LP_ADDRESS_REJECTED',
+  LP_ADDRESS_CANCELLED: 'LP_ADDRESS_CANCELLED',
+  LP_ADDRESS_SUSPENDED: 'LP_ADDRESS_SUSPENDED',
+  LP_ADDRESS_REACTIVATED: 'LP_ADDRESS_REACTIVATED',
+  LP_ADDRESS_DEACTIVATED: 'LP_ADDRESS_DEACTIVATED',
+  LP_ADDRESS_LABEL_UPDATED: 'LP_ADDRESS_LABEL_UPDATED',
   // ── 战役乙波一 T4（2026-09-29）：LP 兑换单八码（财资件，域 TREASURY）──────────
   LP_EXCHANGE_REQUESTED: 'LP_EXCHANGE_REQUESTED',
   LP_EXCHANGE_CANCELLED: 'LP_EXCHANGE_CANCELLED',
@@ -1258,6 +1273,30 @@ export const CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS: Record<string, AuditActionSpec
   LP_PROFILE_CHANGE_REJECTED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   LP_PROFILE_SUSPENDED:       { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   LP_PROFILE_REACTIVATED:     { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+};
+
+/** LP 两步准入 Task 4（2026-10-24）：LP 打款地址九码，域 TREASURY——同 CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS
+ * 先例，本战役新主体各自一表。LpPayoutAddress 有 traceId 列：REGISTERED 起地址自己的旅程（START，
+ * correlationId=row.traceId，同客户地址簿 WITHDRAWAL_ADDRESS_REGISTERED），其余 INHERIT 读同一 traceId。
+ *   · REGISTERED：金库操作员登记，afterData 带坐标 / 申报 / 归因 / 协议锚快照。
+ *   · SCREENED：登记时刻筛查结论（系统主体）与待批期间 ⚡覆写 GREEN / YELLOW（⚡操作员，带 reason + 前后结论）；
+ *     afterData 必填，非异步驱动故无 causation。
+ *   · APPROVED：CFO 批准驱动，requiresCausation 真、必填 approvalNo。
+ *   · REJECTED 有三个出处——CFO 驳回 / 超时（有 approvalNo、causationId）、登记 RED 落点计算（系统、无审批单）、
+ *     待批时 ⚡喂 RED（⚡操作员）；故同 LP_PROFILE_REJECTED 先例放宽为必填 reason、不强制 approvalNo / causation。
+ *   · CANCELLED / SUSPENDED / REACTIVATED / DEACTIVATED：金库直接操作，留痕不批，必填 reason。
+ *   · LABEL_UPDATED：改标签是操作员的持久化动作（铁律①），必填 beforeData / afterData（同 WITHDRAWAL_ADDRESS_UPDATED）；
+ *     坐标与申报登记后冻结，改只改 label，所以这是地址行上唯一的「就地修改」留痕码。 */
+export const LP_ADDRESS_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  LP_ADDRESS_REGISTERED:    { domain: 'TREASURY', correlationMode: S, requiredFields: ['afterData'], requiresCausation: false },
+  LP_ADDRESS_SCREENED:      { domain: 'TREASURY', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
+  LP_ADDRESS_APPROVED:      { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  LP_ADDRESS_REJECTED:      { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  LP_ADDRESS_CANCELLED:     { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  LP_ADDRESS_SUSPENDED:     { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  LP_ADDRESS_REACTIVATED:   { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  LP_ADDRESS_DEACTIVATED:   { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  LP_ADDRESS_LABEL_UPDATED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['beforeData', 'afterData'], requiresCausation: false },
 };
 
 /** 战役乙波一 T4（spec §3/§4/plan Task4 Step4）：LP 兑换单八码，域 TREASURY——同
