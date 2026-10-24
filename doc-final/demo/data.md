@@ -99,6 +99,18 @@ mock 的归因 / 筛查**按地址（IBAN）尾号给确定性结论**——演�
 - **上限先于落点**：每网络 3 条的名额检查在「登记即拒」的落点计算**之前**，名额已满时登记 3333 得到 `ADDRESS_LIMIT_REACHED` 而不是 Not approved——演 3333 前先确认该客户该网络没满（`REJECTED` / `CANCELLED` / `DEACTIVATED` 不占名额）。
 - 种子 #9 / #10 的 `1111` 串与 #11 的 `3333` 串由种子派生，与上表不是同一串；它们的结局与上表同源。
 
+**LP 侧（2026-10-24 LP 两步准入）**：LP 打款地址簿登记（管理台 LP 详情页 → Payout Addresses → Register address）沿用上面**同一张表**——链上尾号 `1111` / `4444` 归因出 VASP、`2222` YELLOW、`3333` RED 当场 `REJECTED`，IBAN 只筛不归因，串整串复制即可，不依赖客户。与客户簿的差异：无名额上限、无冷却无验签（先筛后批，CFO 批了就 ACTIVE）、占坑只算**非终态**（同 LP × 资产 × 坐标已有非终态条目 → 409 `ADDRESS_ALREADY_REGISTERED`；REJECTED / CANCELLED / DEACTIVATED 之后同坐标可重登，与上条客户簿「`REJECTED` 占着唯一键不放」不同）。场景 36 另要两枚"普通"链上地址（无魔法尾号，GREEN、未归因）：`TaFGEagtJpZ6uzaSaH1gMhWKRmBqr4KuCa`（= `fakeTronAddress("demo-lp-register-1")`）与 `T4noF9Q4C2oPCb9jzojh9C7gAQZFS3b9e4`（= `fakeTronAddress("demo-lp-register-2")`），均经 `MockTravelRuleAdapter` 实调（`screenAddress` → GREEN、`attributeAddress` → `attributed:false`）并过 `^T[1-9A-HJ-NP-Za-km-z]{33}$`。
+
+| 用途 | 输入（整串复制） | 结局（确定） |
+|---|---|---|
+| LP 实体背调 · RED | LP 名称含 `sanction`（大小写不敏感），如 `Sanction Bridge Capital FZE` | 建档当场 `REJECTED`，**不开审批单**；LP 详情页红条「Entity screening returned RED at registration — rejected on the spot, no approval was opened.」；审计 `LP_PROFILE_CREATED` + `LP_PROFILE_SCREENED` + `LP_PROFILE_REJECTED`（后者系统主体，reason 固定 `Entity screening returned RED at registration`） |
+| LP 实体背调 · YELLOW | 名称含 `offshore`，如 `Offshore Meridian OTC Ltd` | 放行：开 `LP_PROFILE_APPROVAL`，审批载荷 `screeningAnswer=YELLOW`；详情页 Entity Screening 区徽章 YELLOW |
+| LP 实体背调 · GREEN | 其余，如 `Northbridge Liquidity Ltd` | 开审批，载荷 `screeningAnswer=GREEN` |
+| 两词并存 | 如 `Offshore Sanction Co` | RED 压过 YELLOW → 当场拒 |
+| 到货来源 · 干净占位 | ⚡Simulate LP delivery 的来源栏**留空**：买入链上币（USDT-TRON）落 `TDeliverySourcePlaceholder00000000`，买入法币（AED）落 `AE000000000000000000000`（常量 `DEFAULT_DELIVERY_SOURCE`，`lp-exchange-workflow.service.ts`） | 筛查 GREEN；尾号 `0000` 与 `1111` / `2222` / `3333` / `4444` 都不撞 |
+| 到货来源 · YELLOW | 买 AED 填 IBAN `AE960860000000000002222`；买 USDT 填地址 `TD2Cm1x6HwVV78amHf8prJn5zkiwCK2222` | 单据 Delivery Screening 区琥珀横幅「…screened YELLOW — flagged for review. Acceptance is not blocked.」 |
+| 到货来源 · RED | 买 AED 填 IBAN `AE720860000000000003333`；买 USDT 填地址 `TSf8p11LABtkukQGWVnkUjR6LMrvH13333` | 红色横幅「…screened RED — flagged for review. Acceptance is not blocked.」；**验收仍可点、可走到 `SUCCESS`**（拦人不拦状态）；审计 `LP_EXCHANGE_DELIVERY_SCREENED`（系统主体，afterData 带来源与结论）。到货**不做归因** |
+
 ## 事故种子（business seed，五条非初始态样例，2026-09-25 战役甲波一，终审补第五条）
 
 `seedIncidents()`（`prisma/seed.business.ts`）直接铺终态数据（不走 `IncidentService`，没有 operator、没有审批案、不写审计——与限制账 / 材料请求两组 fixture 同一性质），`incidentNo` 用 `buildDeterministicNo` 派生、reset 重铺后逐字不变。十类终盘里五个族各挑一个非初始态样例，覆盖 IMPACT/MONETARY/SHORTFALL 三档口径与 REGISTERED/INVESTIGATING/ASSESSED/RESOLVING 四个状态；**`CYBER_BCDR`（TECH_SECURITY 族）故意不进种子**，留给演示脚本现场走一遍完整登记流程，演"登记会留痕"这件事（见 `demo/script.md` 第八幕场景 25，2026-09-28 战役甲收官补齐）。
@@ -186,20 +198,35 @@ Mona 的 EMIRATES_ID 补料请求（`requestNo=MRQ2601019867`，PENDING_SUBMISSI
 
 ⚠️ 三行 `submittedAt`/`ackDeadlineAt`/`resolveDeadlineAt`/`acknowledgedAt`/`extendedAt`/`resolvedAt` 都相对**铺场时刻**回拨，不是固定日期——每次 `stack.sh reset` 重铺，②的"还剩 2 天"效果会重新从铺场当下起算，但 `complaintNo` 逐字不变（`buildDeterministicNo` 只吃 seedKey，不吃时间）。entries 的 `actorNo`：ACK/EXTENSION_NOTICE/INTERNAL_NOTE 落 `ops_officer@fiatx.com` 的固定 `userNo`（`ADM2501010008`，rbac.catalog.ts `COMPLAINT_WRITE` 唯一持有职务）；FINAL_RESPONSE 落 `'SYSTEM'` 字面量，同 `applyResolution()` 真实行为（裁决生效是系统动作，无 actor）。
 
-## LP 兑换台种子（business seed，两档案 + 一张历史单，2026-09-29 战役乙波一 Task 9）
+## LP 兑换台种子（business seed，两档案 + Falcon 三条打款地址 + 一张历史单，2026-09-29 战役乙波一 Task 9；2026-10-24 LP 两步准入改为终态）
 
 `seedLpDesk()`（`prisma/seed.business.ts`，紧随 `seedCapitalInjection()` 之后——历史单卖出腿要扣公司 AED 起始余额，注资必须先落地）照该函数的直写形态铺快照数据：不走 `LpProfileService`/`LpExchangeWorkflowService`（链路长、依赖 Nest DI/事件总线/审批服务，seed 脚本走裸 `PrismaClient`+`tigerbeetle-node`，服务直调铺数走不通），手写镜像并逐行对齐 `lp-exchange-workflow.service.ts` 的真实记账/回单形态。`lpNo`/`exchangeNo`/`approvalNo`/资金单号均用 `buildDeterministicNo` 派生，reset 重铺后逐字不变。
 
 ### 两档案
 
-| LP | lpNo | 状态 | 结算坐标 | approvalNo |
-|---|---|---|---|---|
-| Falcon Liquidity FZE | `LPP2601010183` | ACTIVE | Mashreq Bank PJSC（AED IBAN）+ TRON 地址 | `APR2601015507`（真实 `ApprovalCase`+`ApprovalStep` 背书，CFO 单步 APPROVED——评审 R15 补种，见下方「审批背书」段） |
-| Dune OTC DMCC | `LPP2601017193` | SUSPENDED | RAKBANK（AED IBAN）+ TRON 地址 | 无（种子直落 SUSPENDED，不经历"先批准再停用"的迁移路径） |
+LP 两步准入（2026-10-24）起，档案**不再持有结算坐标**（四列已退役）——收款坐标只在下面的打款地址簿里。两家都回填尽调引用号 + 实体背调 GREEN（reset 世界里每家 LP 都有背调结论，详情页 Entity Screening 区不出空洞）。种子直铺终态、不重放流程。
+
+| LP | lpNo | 状态 | 背调 / 尽调引用 | 协议锚 `agreementRef` | approvalNo |
+|---|---|---|---|---|---|
+| Falcon Liquidity FZE | `LPP2601010183` | ACTIVE | GREEN（`screenedAt` 铺场时刻 −10 天）／ `DD-2026-FALCON-001` | `LPA-2026-FALCON-001` | `APR2601015507`（真实 `ApprovalCase`+`ApprovalStep` 背书，CFO 单步 APPROVED——评审 R15 补种，见下方「审批背书」段；载荷快照键集 = `lpNo / name / agreementRef / screeningAnswer / dueDiligenceRef`） |
+| Dune OTC DMCC | `LPP2601017193` | SUSPENDED | GREEN（−14 天）／ `DD-2026-DUNE-002` | `LPA-2026-DUNE-002` | 无（种子直落 SUSPENDED，不经历"先批准再停用"的迁移路径）；**零打款地址** |
+
 
 Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`reason` 非空——契约 `requiredFields=['reason']`，`writeSeedAudit` 2026-09-29 起支持覆盖默认 CONFIG 域 + 传 `reason`，见 `prisma/seed-audit.helper.ts`）；Dune 不写审计（同其余种子表"没有 operator、不写审计"先例）。
 
 **审批背书（评审 R15 甲案，2026-09-29 修复轮）**：Falcon 建档（`APR2601015507`，`LP_PROFILE_APPROVAL`）与历史单（`APR2601015999`，`LP_EXCHANGE_APPROVAL`）各配一条真实 `ApprovalCase`+`ApprovalStep`（CFO 单步，status=APPROVED），`objectSnapshot` 逐字对齐 `lp-profile-workflow.service.ts#initiateCreate`/`lp-exchange-workflow.service.ts#initiate` 的真实快照形状（零 UUID）。补种原因：详情页 `approvalNo` 非空即渲染链接，占位号此前点进去是 `Approval not found` 死链——演示者最可能点开的两个页面（Falcon 档案 / LPX 历史单）都会撞上，故补真实背书替换占位值。
+
+### Falcon 打款地址簿三条（LP 两步准入，2026-10-24；终态 ACTIVE）
+
+AED IBAN ×1 + USDT-TRON ×2（两条是为演开单时**多选**），登记即筛均 GREEN；各配一张真实 `LP_ADDRESS_APPROVAL`（`ApprovalCase`+`ApprovalStep`，CFO 单步 APPROVED，载荷快照键集 = `addressNo / lpNo / lpName / assetCode / coordinate / declaredHosting / addressType / screeningAnswer / evidenceRef / impact`，零 UUID）与两条种子审计（`LP_ADDRESS_REGISTERED` + `LP_ADDRESS_APPROVED`，actor `DEMO_SEED`，同落地址自己的 `traceId` 一段旅程；种子不写 `LP_ADDRESS_SCREENED`）。单号 / 坐标由 `buildDeterministicNo` / 固定种子派生，reset 重铺逐字不变。
+
+| addressNo | 资产 | 坐标 | 类型 / 自报 | label | 协议锚 `evidenceRef` | approvalNo |
+|---|---|---|---|---|---|---|
+| `LPA2601014044` | AED | IBAN `AE470865518855649193687`（Mashreq Bank PJSC） | `BANK` ／ 无自报 | Mashreq AED settlement account | `LPA-2026-FALCON-001 Annex B` | `APR2601017133` |
+| `LPA2601014090` | USDT-TRON | `TP8CA9uffHQmsP9HNXa9KpQ6TomURrr3eP` | `SELF_CUSTODY` ／ 自报 `SELF_CUSTODY`（一致，无红旗） | Primary USDT payout | `LPA-2026-FALCON-001 Annex C-1` | `APR2601015524` |
+| `LPA2601018028` | USDT-TRON | `TT7y4FMXAN3FAwM8DLki9Du8ShJMqvXJZT` | 同上 | Reserve USDT payout | `LPA-2026-FALCON-001 Annex C-2` | `APR2601016020` |
+
+IBAN 复用平台池 IBAN 生成器（`buildSystemPoolIban('LP_FALCON','AED')`）；两枚 TRON 地址 = `fakeTronAddress('LP|Falcon Liquidity FZE')` 与 `…|reserve`，尾号 `r3eP` / `XJZT`，不撞 `1111` / `2222` / `3333` / `4444` 魔法尾号。Dune 零地址。场景 26 卖 AED → 候选只有第一行（弹窗自动选中）；场景 27 卖 USDT → 候选是后两行（须点选）。
 
 ### 一张 SUCCESS 历史单
 
@@ -210,6 +237,8 @@ Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`
 | 1 卖出 | `FDO2601017173` | AED | 50,000 | 84 `LP_EXCHANGE_PAY` | DR `E.FIRM_OPS` / CR `A.FIRM_ASSET` | `referenceNo`（FIAT，`fakeBankRef`） |
 | 2 买入落前厅 | `FDO2601017269` | USDT | 13,600 | 85 `LP_EXCHANGE_RECEIVE` | DR `A.FIRM_ASSET` / CR `E.FIRM_LIQ` | `txHash`（CRYPTO，`fakeChainTxHash`） |
 | 3 验收转 | `FDO2601015607` | USDT | 13,600 | 86 `LP_EXCHANGE_ACCEPT` | DR `E.FIRM_LIQ` / CR `E.FIRM_OPS` | `txHash`（CRYPTO） |
+
+**LP 两步准入后的单据列**（单据即快照，之后不回读地址簿）：`payoutAddressNo=LPA2601014044`、`payoutIban=AE470865518855649193687`（`payoutAddress` 空——卖出 AED 是法币，坐标抄 IBAN 不抄地址）；到货三件套 `deliveryFromAddress=TDeliverySourcePlaceholder00000000`（买入 USDT 是 crypto，来源落地址列、`deliveryFromIban` 空；即「干净占位」，常量 `DEFAULT_DELIVERY_SOURCE.CRYPTO`）、`deliveryScreeningAnswer=GREEN`、`deliveryScreenedAt`=到货时刻（回拨 2 天，与 `deliveredAt` 同值）——reset 世界里每笔到货都有筛查结论，详情区块不出空洞，也不造「功能前旧单」这种兼容层叙事。腿 1 `toIban` = 该 IBAN，腿 2 `fromAddress` = 该占位串；审批快照多 `payoutAddressNo` + `coordinate` 两键（对齐 `initiate` 的真实快照）。账本三笔分录零改动。
 
 三腿各配 1 条 `tbTransferEvidence` + 2 条 `accountFlow` 镜像（`AccountFlowProjectorService` 的真实行为：debit→OUT / credit→IN）——**3 条 evidence + 6 行 account_flows**（这是三腿的真实记账镜像；真实 workflow 的托管回单本身是 4 行非 6 行，见下一句）。托管回单（`external_statement_lines`/`external_balances`）不铺：`seedCapitalInjection` 模板本身也不写它，且 `recon:demo` 铺场脚本每次都会把外部账单从 `account_flows` 重铸一遍（`simulated-custodian-statement.service.ts` 头注释），本笔的 `account_flows` 镜像已经在库里，无需预先复制——**重铺后对账活证据见 `baseline.md`「F_LIQ 对账直比判据」节**：`recon:demo:pass` 实测 F_LIQ(USDT) 钱包在检且 `bucket=MATCHED matchedCount=2`（腿2 IN + 腿3 OUT 两行配对），`recon:demo:break` 18/18 场景不受干扰。
 
