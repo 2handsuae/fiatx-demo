@@ -8,10 +8,15 @@
 // legSeq/status/wallet/externalRef），不新开后端字段：验收弹层打开时按需另拉一次腿 2 自己的
 // 资金单详情（/admin/funds-orders/:fundsOrderNo，本页「资金单腿区」本就链到它），读它的
 // amount 字段——纯前端组合已有端点，不碰已冻结的 T4/T6 后端投影。
+//
+// LP 两步准入 Task 8：LP 区块加「Payout Address」（开单时抄下的收款地址快照，业务键回链地址详情页）；
+// 到货后出「Delivery Screening」区（来源坐标 + 三档徽章 + 筛查时刻）；⚡到货改弹层，可填来源坐标。
+// 筛查是监控标记、不是门——RED 也只醒目地亮出来，「Accept delivery」的可用性不读它（业主拍板：拦人不拦状态）。
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ArrowRight, RefreshCw } from 'lucide-react';
-import { DetailCard, DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
+import { AlertTriangle, ArrowRight, ExternalLink, RefreshCw } from 'lucide-react';
+import { DetailCard, DetailPageHeader, InfoField, InfoSlot } from '../components/compliance/DetailPageComponents';
+import { ScreeningBadge } from '../components/ui/AddressBadges';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
 import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
@@ -43,6 +48,15 @@ interface Detail {
   buyAmount: string;
   prudentialPurpose: string;
   reason: string;
+  /** 开单时从 LP 地址簿抄下的收款坐标快照（老单据无 → null）；链上卖出币只有 payoutAddress、法币只有 payoutIban。 */
+  payoutAddressNo: string | null;
+  payoutAddress: string | null;
+  payoutIban: string | null;
+  /** ⚡到货时落的来源坐标 + 来源筛查结论（GREEN / YELLOW / RED）；未到货全为 null。 */
+  deliveryFromAddress: string | null;
+  deliveryFromIban: string | null;
+  deliveryScreeningAnswer: string | null;
+  deliveryScreenedAt: string | null;
   approvalNo: string | null;
   failureReasonCode: string | null;
   failureNote: string | null;
@@ -235,6 +249,61 @@ const AcceptDeliveryModal = ({
   );
 };
 
+/* ── ⚡到货弹层：可选来源坐标（留空 = 干净来源，后端落占位并筛 GREEN） ── */
+const SimulateDeliveryModal = ({
+  open,
+  detail,
+  busy,
+  error,
+  onClose,
+  onConfirm,
+}: {
+  open: boolean;
+  detail: Detail | null;
+  busy: boolean;
+  error: string;
+  onClose: () => void;
+  onConfirm: (fromSource: string) => void;
+}) => {
+  const [fromSource, setFromSource] = useState('');
+
+  useEffect(() => {
+    if (open) setFromSource('');
+  }, [open]);
+
+  if (!open || !detail) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div className="w-[480px] rounded-lg border border-adm-border bg-adm-panel p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-1 text-sm font-semibold text-adm-t1">⚡ Simulate LP Delivery</h3>
+        <p className="mb-3 font-mono text-[10px] text-adm-t3">{detail.exchangeNo} · {detail.lpNo}</p>
+
+        <label className="mb-1 block text-xs">Source Address / IBAN (optional)
+          <input
+            value={fromSource}
+            onChange={(e) => setFromSource(e.target.value)}
+            className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 font-mono text-xs"
+            placeholder="Leave blank for a clean source"
+          />
+        </label>
+        <p className="mb-3 font-mono text-[10px] text-adm-t3">
+          The source is screened as the buy leg lands: blank = clean (GREEN); an address ending 2222 = YELLOW, 3333 = RED.
+          The result is flagged on the order — it never blocks the delivery or its acceptance.
+        </p>
+
+        {error && <p className="mb-2 text-xs text-adm-red">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={onClose} className={adminButtonClass('modalCancel')}>Cancel</button>
+          <button type="button" disabled={busy} onClick={() => onConfirm(fromSource.trim())} className={adminButtonClass('modalConfirm')}>
+            {busy ? 'Delivering…' : 'Simulate delivery'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const LpExchangeDetail = () => {
   const { exchangeNo } = useParams<{ exchangeNo: string }>();
   const navigate = useNavigate();
@@ -249,6 +318,8 @@ const LpExchangeDetail = () => {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [showAcceptModal, setShowAcceptModal] = useState(false);
+  const [showDeliveryModal, setShowDeliveryModal] = useState(false);
+  const [deliveryError, setDeliveryError] = useState('');
   const [notice, setNotice] = useState<{ text: string; approvalNo?: string } | null>(null);
 
   const fetchDetail = async () => {
@@ -304,19 +375,21 @@ const LpExchangeDetail = () => {
     }
   };
 
-  const simulateDelivery = async () => {
+  const simulateDelivery = async (fromSource: string) => {
     if (!detail) return;
     setWorking(true);
+    setDeliveryError('');
     try {
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/lp-exchanges/${encodeURIComponent(detail.exchangeNo)}/simulate-delivery`,
-        { method: 'POST' },
+        { method: 'POST', body: JSON.stringify({ fromSource }) },
       );
-      if (!res.ok) { alert(await getApiErrorMessage(res, 'Failed to simulate the LP delivery')); return; }
+      if (!res.ok) { setDeliveryError(await getApiErrorMessage(res, 'Failed to simulate the LP delivery')); return; }
+      setShowDeliveryModal(false);
       await fetchDetail();
     } catch (e) {
       if (e instanceof AdminSessionError) return;
-      console.error(e);
+      setDeliveryError(e instanceof Error ? e.message : 'Failed to simulate the LP delivery');
     } finally {
       setWorking(false);
     }
@@ -349,8 +422,8 @@ const LpExchangeDetail = () => {
           </button>
         )}
         {detail.status === 'AWAITING_DELIVERY' && canSimulateDelivery && simEnabled && (
-          <button type="button" disabled={working} onClick={() => void simulateDelivery()} className={adminButtonClass('simulationAction')}>
-            {working ? 'Working…' : '⚡ Simulate LP delivery'}
+          <button type="button" disabled={working} onClick={() => { setDeliveryError(''); setShowDeliveryModal(true); }} className={adminButtonClass('simulationAction')}>
+            ⚡ Simulate LP delivery
           </button>
         )}
         {detail.status === 'DELIVERED' && canAccept && (
@@ -405,6 +478,20 @@ const LpExchangeDetail = () => {
               mono
               link={`/admin/lp-profiles/${encodeURIComponent(detail.lpNo)}`}
             />
+            {detail.payoutAddressNo ? (
+              <InfoSlot label="Payout Address">
+                <Link
+                  to={`/admin/lp-payout-addresses/${encodeURIComponent(detail.payoutAddressNo)}`}
+                  className="inline-flex items-center gap-1 font-mono text-[11px] text-adm-amber hover:opacity-75"
+                >
+                  {detail.payoutAddressNo}
+                  <ExternalLink size={11} />
+                </Link>
+                <span className="break-all font-mono text-[11px] text-adm-t2">{detail.payoutAddress ?? detail.payoutIban}</span>
+              </InfoSlot>
+            ) : (
+              <InfoField label="Payout Address" value={null} />
+            )}
             <InfoField label="Prudential Purpose" value={detail.prudentialPurpose} />
             <InfoField label="Reason" value={detail.reason} />
             <InfoField
@@ -417,6 +504,32 @@ const LpExchangeDetail = () => {
               <InfoField label="Failure" value={`${detail.failureReasonCode ?? ''} ${detail.failureNote}`} highlight />
             )}
           </DetailCard>
+
+          {detail.deliveryScreeningAnswer && (
+            <DetailCard title="Delivery Screening" columns={2}>
+              {detail.deliveryScreeningAnswer !== 'GREEN' && (
+                <div
+                  className={`flex items-start gap-2.5 rounded border px-4 py-3 md:col-span-2 ${
+                    detail.deliveryScreeningAnswer === 'RED'
+                      ? 'border-adm-red/40 bg-adm-red/10 text-adm-red'
+                      : 'border-adm-amber/40 bg-adm-amber/10 text-adm-amber'
+                  }`}
+                >
+                  <AlertTriangle size={16} className="mt-px shrink-0" />
+                  <div className="font-mono text-[11px]">
+                    {detail.deliveryScreeningAnswer === 'RED'
+                      ? 'The source of this delivery screened RED — flagged for review. Acceptance is not blocked.'
+                      : 'The source of this delivery screened YELLOW — flagged for review. Acceptance is not blocked.'}
+                  </div>
+                </div>
+              )}
+              <InfoField label="Source Address / IBAN" value={detail.deliveryFromAddress ?? detail.deliveryFromIban} mono />
+              <InfoSlot label="Verdict">
+                <ScreeningBadge answer={detail.deliveryScreeningAnswer} />
+              </InfoSlot>
+              <InfoField label="Screened At" value={detail.deliveryScreenedAt ? new Date(detail.deliveryScreenedAt).toLocaleString() : null} mono />
+            </DetailCard>
+          )}
 
           <DetailCard title="Status Timeline" columns={1}>
             <LpExchangeTimeline detail={detail} />
@@ -475,6 +588,15 @@ const LpExchangeDetail = () => {
           </SidebarGroup>
         </aside>
       </div>
+
+      <SimulateDeliveryModal
+        open={showDeliveryModal}
+        detail={detail}
+        busy={working}
+        error={deliveryError}
+        onClose={() => setShowDeliveryModal(false)}
+        onConfirm={(fromSource) => void simulateDelivery(fromSource)}
+      />
 
       <AcceptDeliveryModal
         open={showAcceptModal}

@@ -5,6 +5,9 @@
 // 列表投影（LpExchangeView）没有 LP 名字段（只有 lpNo）——同页并行拉一次
 // `/admin/lp-profiles`（全量，同 LpProfileList.tsx 自己的写法）在前端拼 lpNo→name，
 // 不新开后端字段（T8 只改前端文件，不碰已冻结的 T4/T6 后端投影）。
+//
+// LP 两步准入 Task 8：开单必选一条该 LP、该卖出资产下 ACTIVE 的收款地址（后端 T5 四守卫兜底，
+// 前端先把候选收窄到合法集合——地址簿投影无 assetId，按 assetCode 与所选卖出资产的 code 对）。
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
@@ -40,6 +43,19 @@ interface AssetOption {
   type: string;
 }
 
+/** `GET /admin/lp-profiles/:lpNo/payout-addresses` 的行（只取开单用得到的列；投影无 assetId，按 assetCode 对）。 */
+interface PayoutAddressOption {
+  addressNo: string;
+  assetCode: string | null;
+  address: string | null;
+  iban: string | null;
+  label: string | null;
+  status: string;
+}
+
+/** 坐标摘要：法币 = IBAN，链上 = 地址（所选卖出资产已带出网络，下拉里不再重复）。 */
+const coordinateSummary = (a: PayoutAddressOption): string => a.iban ?? a.address ?? '';
+
 const fi =
   'mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs';
 
@@ -55,20 +71,37 @@ const InitiateExchangeModal = ({
   const [lpNo, setLpNo] = useState('');
   const [sellAssetId, setSellAssetId] = useState('');
   const [sellAmount, setSellAmount] = useState('');
+  const [payoutAddressNo, setPayoutAddressNo] = useState('');
   const [buyAssetId, setBuyAssetId] = useState('');
   const [buyAmount, setBuyAmount] = useState('');
   const [prudentialPurpose, setPrudentialPurpose] = useState('');
   const [reason, setReason] = useState('');
   const [profiles, setProfiles] = useState<LpProfileOption[]>([]);
   const [assets, setAssets] = useState<AssetOption[]>([]);
+  const [payoutAddresses, setPayoutAddresses] = useState<PayoutAddressOption[]>([]);
+  const [loadedLpNo, setLoadedLpNo] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  // 候选 = 所选 LP 的地址簿里、资产 code 等于所选卖出资产、状态 ACTIVE 的那几条。
+  const sellAsset = assets.find((a) => a.id === sellAssetId);
+  const candidates = sellAsset
+    ? payoutAddresses.filter((a) => a.status === 'ACTIVE' && a.assetCode === sellAsset.code)
+    : [];
+  // 「读完了」按 LP 记账而不是布尔：换 LP 的那一帧立刻判为加载中，不会闪一下「无候选」。
+  const loadingAddresses = Boolean(lpNo) && loadedLpNo !== lpNo;
+  const candidateKey = candidates.map((c) => c.addressNo).join(',');
+  const lpName = profiles.find((p) => p.lpNo === lpNo)?.name ?? lpNo;
+  // 选定 LP + 卖出资产、地址簿也读完了，却一条候选都没有：此时禁用提交并提示先去登记地址。
+  const noCandidates = Boolean(lpNo && sellAsset) && !loadingAddresses && candidates.length === 0;
 
   useEffect(() => {
     if (!open) return;
     setLpNo('');
     setSellAssetId('');
     setSellAmount('');
+    setPayoutAddressNo('');
+    setPayoutAddresses([]);
     setBuyAssetId('');
     setBuyAmount('');
     setPrudentialPurpose('');
@@ -97,6 +130,36 @@ const InitiateExchangeModal = ({
     })();
   }, [open]);
 
+  // 换 LP → 重拉该 LP 的地址簿（全量，ACTIVE × 资产的过滤在前端做，同上面 lp-profiles 的写法）。
+  useEffect(() => {
+    setPayoutAddresses([]);
+    setLoadedLpNo('');
+    if (!open || !lpNo) return undefined;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/lp-profiles/${encodeURIComponent(lpNo)}/payout-addresses`);
+        if (cancelled) return;
+        if (res.ok) {
+          const data = await res.json();
+          setPayoutAddresses(Array.isArray(data) ? data : []);
+        }
+      } catch (e) {
+        if (e instanceof AdminSessionError) return;
+        console.error(e);
+      } finally {
+        if (!cancelled) setLoadedLpNo(lpNo);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, lpNo]);
+
+  // 候选集一变（换 LP / 换卖出资产 / 地址簿读完）就重定默认：唯一一条自动选中，多条留空逼着演示者点选。
+  useEffect(() => {
+    setPayoutAddressNo(candidates.length === 1 ? candidates[0].addressNo : '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [candidateKey]);
+
   if (!open) return null;
 
   const submit = async () => {
@@ -104,6 +167,7 @@ const InitiateExchangeModal = ({
     if (!lpNo) { setError('Select a liquidity provider'); return; }
     if (!sellAssetId) { setError('Select the sell asset'); return; }
     if (!sellAmount.trim() || Number(sellAmount) <= 0) { setError('Sell amount must be greater than zero'); return; }
+    if (!payoutAddressNo) { setError('Select the payout address the LP receives the sell leg at'); return; }
     if (!buyAssetId) { setError('Select the buy asset'); return; }
     if (!buyAmount.trim() || Number(buyAmount) <= 0) { setError('Buy amount must be greater than zero'); return; }
     if (sellAssetId === buyAssetId) { setError('The sell asset and buy asset must be different'); return; }
@@ -117,6 +181,7 @@ const InitiateExchangeModal = ({
           lpNo,
           sellAssetId,
           sellAmount: sellAmount.trim(),
+          payoutAddressNo,
           buyAssetId,
           buyAmount: buyAmount.trim(),
           prudentialPurpose: prudentialPurpose.trim(),
@@ -168,6 +233,41 @@ const InitiateExchangeModal = ({
           </label>
         </div>
 
+        <div className="mb-3">
+          <label className="block text-xs">Payout Address
+            <select
+              value={payoutAddressNo}
+              onChange={(e) => setPayoutAddressNo(e.target.value)}
+              disabled={!lpNo || !sellAsset || loadingAddresses || candidates.length === 0}
+              className={`${fi} disabled:opacity-60`}
+            >
+              <option value="">
+                {!lpNo || !sellAsset
+                  ? 'Select the LP and the sell asset first…'
+                  : loadingAddresses
+                    ? 'Loading addresses…'
+                    : candidates.length === 0
+                      ? 'No active address'
+                      : 'Select a payout address…'}
+              </option>
+              {candidates.map((c) => (
+                <option key={c.addressNo} value={c.addressNo}>
+                  {c.addressNo} · {coordinateSummary(c)}{c.label ? ` · ${c.label}` : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+          {noCandidates ? (
+            <p className="mt-1 text-[11px] text-adm-red">
+              {lpName} has no active {sellAsset?.code} payout address — register and get one approved on the{' '}
+              <Link to={`/admin/lp-profiles/${encodeURIComponent(lpNo)}`} className="underline hover:opacity-75">LP page</Link>{' '}
+              first.
+            </p>
+          ) : (
+            <p className="mt-1 font-mono text-[10px] text-adm-t3">The sell leg pays out to this address; the coordinate is copied onto the order.</p>
+          )}
+        </div>
+
         <div className="mb-3 grid grid-cols-2 gap-2">
           <label className="block text-xs">Buy Asset
             <select value={buyAssetId} onChange={(e) => setBuyAssetId(e.target.value)} className={fi}>
@@ -210,7 +310,7 @@ const InitiateExchangeModal = ({
         {error && <p className="mb-2 text-xs text-adm-red">{error}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" onClick={onClose} className={adminButtonClass('modalCancel')}>Cancel</button>
-          <button type="button" disabled={submitting} onClick={() => void submit()} className={adminButtonClass('modalConfirm')}>
+          <button type="button" disabled={submitting || noCandidates} onClick={() => void submit()} className={adminButtonClass('modalConfirm')}>
             {submitting ? 'Submitting…' : 'Initiate'}
           </button>
         </div>
