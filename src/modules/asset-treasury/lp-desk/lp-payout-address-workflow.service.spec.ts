@@ -571,11 +571,34 @@ describe('DTO（ValidationPipe whitelist）', () => {
     expect(ok.address).toBe('TXfake0000000000000000000000000000');
   });
 
-  it('启停撤 DTO：reason 必填且 trim；改标签 DTO：label 必填', async () => {
+  it('坐标二选一组必填：既无 iban 也无 network / address → 400；链上组缺 network 或 address 或给空串 → 400；带 iban 则 network / address 让位', async () => {
+    const meta = { type: 'body' as const, metatype: RegisterLpPayoutAddressDto };
+    const base = { assetId: USDT.id, evidenceRef: 'AGR-2026-LP-001 §4.2' };
+    // 无坐标载荷（走真 ValidationPipe）
+    await expect(pipe.transform({ ...base }, meta)).rejects.toThrow(BadRequestException);
+    await expect(pipe.transform({ ...base, declaredHosting: 'SELF_CUSTODY' }, meta)).rejects.toThrow(BadRequestException);
+    // 链上组缺一半 / 空串
+    await expect(pipe.transform({ ...base, network: 'TRON', declaredHosting: 'SELF_CUSTODY' }, meta)).rejects.toThrow(BadRequestException);
+    await expect(pipe.transform({ ...base, address: 'TXabc', declaredHosting: 'SELF_CUSTODY' }, meta)).rejects.toThrow(BadRequestException);
+    await expect(pipe.transform({ ...base, network: '', address: 'TXabc', declaredHosting: 'SELF_CUSTODY' }, meta)).rejects.toThrow(BadRequestException);
+    // 空串 iban 等于没给 iban，同样要链上组
+    await expect(pipe.transform({ ...base, iban: '' }, meta)).rejects.toThrow(BadRequestException);
+    // 链上组齐 / 法币组（只给 iban）→ 过
+    await expect(pipe.transform({ ...base, network: 'TRON', address: 'TXabc', declaredHosting: 'SELF_CUSTODY' }, meta)).resolves.toBeDefined();
+    const fiat = await pipe.transform({ ...base, assetId: AED.id, iban: 'AE070331234567890123456', bankName: 'Emirates NBD' }, meta);
+    expect(fiat.iban).toBe('AE070331234567890123456');
+    expect(fiat.network).toBeUndefined();
+    expect(fiat.address).toBeUndefined();
+  });
+
+  it('启停撤 DTO：reason 必填且 trim；改标签 DTO：label 必填且 trim（与 reason 同口径）', async () => {
     const reasonMeta = { type: 'body' as const, metatype: LpPayoutAddressReasonDto };
     await expect(pipe.transform({}, reasonMeta)).rejects.toThrow(BadRequestException);
     await expect(pipe.transform({ reason: '   ' }, reasonMeta)).rejects.toThrow(BadRequestException);
     expect((await pipe.transform({ reason: '  Replaced  ' }, reasonMeta)).reason).toBe('Replaced');
-    await expect(pipe.transform({}, { type: 'body' as const, metatype: UpdateLpPayoutAddressLabelDto })).rejects.toThrow(BadRequestException);
+    const labelMeta = { type: 'body' as const, metatype: UpdateLpPayoutAddressLabelDto };
+    await expect(pipe.transform({}, labelMeta)).rejects.toThrow(BadRequestException);
+    await expect(pipe.transform({ label: '   ' }, labelMeta)).rejects.toThrow(BadRequestException);
+    expect((await pipe.transform({ label: '  Treasury main  ' }, labelMeta)).label).toBe('Treasury main');
   });
 });

@@ -751,8 +751,9 @@ function runStaticChecks(): void {
   // 头注释）；两桶挂既有 Treasury 域（treasury.view_lp/treasury.act_lp，T3 域注释），域数
   // 不变仍 15。再加两条精确持有断言——LP_WRITE 金库独持（开档案/改结算坐标/启停/开兑换单/
   // 验收全在金库手上，CFO 单步裁决不占本组，同 INTERNAL_TRANSFER_WRITE「maker≠checker」
-  // 反向先例）；LP_READ 恰为 {TREASURY_OFFICER,CFO,INTERNAL_AUDITOR}（金库=经办人、CFO=
-  // 裁决人要看得见列表/详情、内审=全域只读人设，同 INTERNAL_TRANSFER_READ 三持先例）。
+  // 反向先例）；LP_READ 恰为 {TREASURY_OFFICER,CFO,INTERNAL_AUDITOR,COMPLIANCE_OFFICER}（金库=经办人、
+  // CFO=裁决人要看得见列表/详情、内审=全域只读人设，同 INTERNAL_TRANSFER_READ 三持先例；LP 两步准入 T4
+  // 评审裁定加第四者合规官——⚡筛查覆写的持有者要可达 LP 页面，同客户地址簿合规官持 WITHDRAWAL_ADDRESS_READ）。
   // 三条新审批策略（LP_PROFILE_APPROVAL/LP_PROFILE_CHANGE/LP_EXCHANGE_APPROVAL）在
   // MAKER_GROUP_BY_POLICY 里已由 T3/T5 登记（见上方 S5/S8 消费的那张表本体）——策略全集
   // 覆盖由已有的 S8「MAKER 表与策略一一对应」自动兜住，不必在这里重复一条判据。
@@ -785,11 +786,11 @@ function runStaticChecks(): void {
   );
 
   const lpReadHolders = new Set(lpHoldersOf('LP_READ'));
-  const expectedLpReadHolders = new Set(['TREASURY_OFFICER', 'CFO', 'INTERNAL_AUDITOR']);
+  const expectedLpReadHolders = new Set(['TREASURY_OFFICER', 'CFO', 'INTERNAL_AUDITOR', 'COMPLIANCE_OFFICER']);
   const lpReadSetsEqual = lpReadHolders.size === expectedLpReadHolders.size &&
     [...expectedLpReadHolders].every((r) => lpReadHolders.has(r));
   check(
-    'S13c LP_READ 恰为 {金库,CFO,内审}',
+    'S13c LP_READ 恰为 {金库,CFO,内审,合规官}',
     lpReadSetsEqual,
     lpReadSetsEqual
       ? `持有职务集合恰为 {${[...lpReadHolders].join(',')}}`

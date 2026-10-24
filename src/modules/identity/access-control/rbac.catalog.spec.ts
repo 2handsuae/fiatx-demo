@@ -180,10 +180,12 @@ describe('rbac.catalog', () => {
       if (group === 'LP_WRITE') {
         expect(map.TREASURY_OFFICER).toContain(code);
         expect(map.CFO).not.toContain(code); // maker ≠ checker
+        expect(map.COMPLIANCE_OFFICER).not.toContain(code); // 合规官只读不写
       }
       if (group === 'LP_READ') {
         expect(map.TREASURY_OFFICER).toContain(code);
         expect(map.CFO).toContain(code); // 裁决人要看得见要批的对象
+        expect(map.COMPLIANCE_OFFICER).toContain(code); // ⚡持有者要进得了页面才点得到按钮
       }
       if (group === 'DEMO_VERDICT_WRITE') {
         expect(map.COMPLIANCE_OFFICER).toContain(code);

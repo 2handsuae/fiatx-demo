@@ -218,6 +218,27 @@ describe('LpPayoutAddressService (LP 两步准入 Task 3)', () => {
       await expect(register(chainInput())).resolves.toMatchObject({ status: S.PENDING_APPROVAL }); // CANCELLED 释放
     });
 
+    it('坐标组必填（服务对直调方也判）：无 iban 又缺 network / address → 400 COORDINATE_REQUIRED，不查重、不落行；即便 declaredHosting 齐', async () => {
+      for (const over of [{ network: undefined, address: undefined }, { address: undefined }, { network: undefined }, { network: '', address: '' }]) {
+        await expect(register(chainInput(over))).rejects.toMatchObject({ response: { code: 'COORDINATE_REQUIRED' } });
+        await expect(register(chainInput(over))).rejects.toBeInstanceOf(BadRequestException);
+      }
+      expect(prisma.lpPayoutAddress.findFirst).not.toHaveBeenCalled();
+      expect(prisma.lpPayoutAddress.create).not.toHaveBeenCalled();
+    });
+
+    it('占坑查重 where 只用判定过非空的坐标值构造：链上 = {lpId, assetId, network, address, status}，法币 = {lpId, assetId, iban(清洗后), status}，无任何 undefined 键', async () => {
+      await register(chainInput());
+      await register(fiatInput({ iban: 'ae07 0331 2345 6789 0123 456' }));
+      const [chainWhere, fiatWhere] = prisma.lpPayoutAddress.findFirst.mock.calls.map((c: any[]) => c[0].where);
+      expect(Object.keys(chainWhere).sort()).toEqual(['address', 'assetId', 'lpId', 'network', 'status']);
+      expect(Object.keys(fiatWhere).sort()).toEqual(['assetId', 'iban', 'lpId', 'status']);
+      expect(fiatWhere.iban).toBe('AE070331234567890123456');
+      for (const where of [chainWhere, fiatWhere]) {
+        for (const [k, v] of Object.entries(where)) expect({ k, defined: v !== undefined }).toEqual({ k, defined: true });
+      }
+    });
+
     it('⑤ 补：坐标键边界——同地址换资产 / 换 LP / 另一条 IBAN 都不撞；同 IBAN（含清洗后同值）撞', async () => {
       await register(chainInput());
       await expect(register(chainInput({ assetId: USDC.id }))).resolves.toBeDefined(); // 另一资产

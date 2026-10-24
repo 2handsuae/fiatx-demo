@@ -1433,6 +1433,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役丙波四 T5（spec §5）：DSR_READ 恰绑 DPO/合规官/内审三职务——合规官督办视角只读，
     // 不持 DSR_WRITE（办理是 DPO 独占，合规官不是经办人）。
     'DSR_READ',
+    // LP 两步准入 T4 评审裁定：合规官要可达 LP 档案 / 打款地址页面才能使用 ⚡筛查覆写
+    // （DEMO_VERDICT_WRITE），同客户地址簿合规官同时持 WITHDRAWAL_ADDRESS_READ 的先例；只读，不持 LP_WRITE。
+    'LP_READ',
   ],
 
   // 定价的主人：费率两族的写权限全仓仅此一处（提由他提，运营复核）。

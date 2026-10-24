@@ -117,7 +117,7 @@ export class LpPayoutAddressService {
    *  - 链上：adapter 归因（VASP / 自托管）→ 比对金库自报，不一致 = hostingMismatch 红旗（留痕不拦截）；再筛查
    *  - 法币：IBAN 清洗后只筛查（传 BANK_RAIL_NETWORK），不归因、无托管自报
    *  - 筛查 RED 一票否决 → 直落 REJECTED（连 CFO 审批队列都进不去）；GREEN / YELLOW → PENDING_APPROVAL
-   * 守卫：档案必须 ACTIVE ｜ evidenceRef trim 非空 ｜ 链上必填 declaredHosting ｜
+   * 守卫：档案必须 ACTIVE ｜ evidenceRef trim 非空 ｜ 坐标二选一且组内必填（COORDINATE_REQUIRED）｜ 链上必填 declaredHosting ｜
    * 同 (lpId, 资产, 坐标) 非终态已存在 → 409 ADDRESS_ALREADY_REGISTERED（终态 REJECTED / CANCELLED / DEACTIVATED 后可重登）。
    * 留痕随写：REGISTERED（操作员 actor）→ SCREENED（系统，筛查是 Sumsub 侧 mock 能力）→ RED 时再加 REJECTED
    * （系统、固定拒因、无 fromStatus——插入即终态，落点不是边；同 LpProfileService.create 先例）。
@@ -131,14 +131,24 @@ export class LpPayoutAddressService {
     if (!evidenceRef) {
       throw new BadRequestException({ code: 'EVIDENCE_REF_REQUIRED', message: 'evidenceRef (agreement clause / contract attachment reference) is required' });
     }
-    const isFiat = Boolean(input.iban);
-    if (!isFiat && !input.declaredHosting) {
+
+    // 坐标二选一且组内必填（表单业务语义，同 evidenceRef 必填；只判有无，不做格式校验）：
+    // 法币 = 清洗后的 IBAN；链上 = (network, address)。下面所有读写都只用这里判定过非空的局部量构造——
+    // 查重 where 里不可能出现 undefined 键（Prisma 会静默忽略 undefined，占坑查重就退化成「同 LP 同资产任一行」）。
+    let coordinate: { iban: string } | { network: string; address: string };
+    if (input.iban) {
+      coordinate = { iban: input.iban.replace(/\s/g, '').toUpperCase() };
+    } else {
+      const { network, address } = input;
+      if (!network || !address) {
+        throw new BadRequestException({ code: 'COORDINATE_REQUIRED', message: 'a payout coordinate is required: an IBAN, or an on-chain network + address' });
+      }
+      coordinate = { network, address };
+    }
+    if (!('iban' in coordinate) && !input.declaredHosting) {
       throw new BadRequestException({ code: 'DECLARED_HOSTING_REQUIRED', message: 'declaredHosting (SELF_CUSTODY / VASP) is required for an on-chain address' });
     }
 
-    // 坐标：法币 = 清洗后的 IBAN；链上 = (network, address)
-    const iban = isFiat ? input.iban!.replace(/\s/g, '').toUpperCase() : undefined;
-    const coordinate = isFiat ? { iban } : { network: input.network, address: input.address };
     const occupied = await this.prisma.lpPayoutAddress.findFirst({
       where: { lpId: profile.id, assetId: input.assetId, ...coordinate, status: { notIn: [...LP_PAYOUT_ADDRESS_TERMINAL_STATUSES] } },
     });
@@ -150,14 +160,14 @@ export class LpPayoutAddressService {
     let addressType: string;
     let hostingMismatch = false;
     let screeningAnswer: ScreeningAnswer;
-    if (isFiat) {
+    if ('iban' in coordinate) {
       addressType = 'BANK';
-      screeningAnswer = await this.travelRule.screenAddress(iban!, BANK_RAIL_NETWORK);
+      screeningAnswer = await this.travelRule.screenAddress(coordinate.iban, BANK_RAIL_NETWORK);
     } else {
-      attribution = await this.travelRule.attributeAddress(input.address!, input.network!);
+      attribution = await this.travelRule.attributeAddress(coordinate.address, coordinate.network);
       addressType = attribution.attributed ? 'VASP' : 'SELF_CUSTODY';
       hostingMismatch = input.declaredHosting !== addressType;
-      screeningAnswer = await this.travelRule.screenAddress(input.address!, input.network!);
+      screeningAnswer = await this.travelRule.screenAddress(coordinate.address, coordinate.network);
     }
 
     const rejected = screeningAnswer === 'RED';
@@ -167,9 +177,9 @@ export class LpPayoutAddressService {
         lpId: profile.id,
         lpNo: profile.lpNo,
         assetId: input.assetId,
-        ...(isFiat
-          ? { iban, bankName: input.bankName, swiftBic: input.swiftBic }
-          : { network: input.network, address: input.address, declaredHosting: input.declaredHosting }),
+        ...('iban' in coordinate
+          ? { iban: coordinate.iban, bankName: input.bankName, swiftBic: input.swiftBic }
+          : { network: coordinate.network, address: coordinate.address, declaredHosting: input.declaredHosting }),
         addressType,
         hostingMismatch,
         counterpartyVaspName: attribution?.vaspName,
