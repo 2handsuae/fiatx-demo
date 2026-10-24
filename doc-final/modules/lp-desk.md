@@ -17,7 +17,7 @@
 
 **登记即筛，先筛后批；无冷却、无验签。** 登记瞬间归因 + 筛查（尾号约定同客户簿：`1111` 归因 Mock VASP Exchange、`4444` 归因 Grey Harbor Exchange、`2222` YELLOW、`3333` RED，其余自托管 GREEN；IBAN 只筛不归因）。RED 当场 `REJECTED`（落点计算，无审批单，审计 `LP_ADDRESS_REGISTERED` + `LP_ADDRESS_SCREENED` + `LP_ADDRESS_REJECTED`〔系统，固定拒因 `Screening returned RED at registration`〕）；GREEN / YELLOW 才提 `LP_ADDRESS_APPROVAL`（载荷快照带坐标 + 归因 + 筛查结论 + 协议锚），CFO 单步批了才 `ACTIVE`。归因出 VASP 时，条目详情读**现拼**名录资质三行（VASP EEC Status / Risk Score / Licence，不落库，同充值 / 提现两域先例；名录只有两条：Mock VASP Exchange = COMPLETED / 3 / LICENSED，Grey Harbor Exchange = PENDING / 42 / UNLICENSED；政策口径只是展示文案，代码不据此判）。**坐标与自报登记后冻结，改只改 `label`**；改坐标 = 新登记，换地址 = 登新、生效后把旧的 Retire（永久退役；Suspend 是可恢复的暂停）。同一 (LP, 资产, 坐标) 已有**非终态**条目 → 409 `ADDRESS_ALREADY_REGISTERED`（占坑）；条目落入终态（REJECTED / CANCELLED / DEACTIVATED）后同坐标可重登。
 
-**⚡筛查覆写**（合规官 `DEMO_VERDICT_WRITE`，金库喂不了）**只对 `PENDING_APPROVAL` 条目有效**：喂 GREEN / YELLOW 只改筛查结论、不迁移；喂 RED 走 REJECT 边进 `REJECTED`。已批准（ACTIVE）及以后的地址再喂一律 409、不写审计——⚡不是绕迁移表的直写通道。⚡喂红后那张 `LP_ADDRESS_APPROVAL` **仍留在 CFO 队列**（不自动撤：审批引擎只许提单人或超管撤单，合规官不是提单人；审计 metadata 记下被晾下的 `openApprovalNo`），此后到达的裁决由守卫吞掉、地址不会复活；演示口径是 CFO 以 Reject 把它清出队列（债登 `PRODUCTION-NOTES.md`）。
+**⚡筛查覆写**（合规官 `DEMO_VERDICT_WRITE`，金库喂不了）**只对 `PENDING_APPROVAL` 条目有效**：喂 GREEN / YELLOW 只改筛查结论、不迁移；喂 RED 走 REJECT 边进 `REJECTED`。已批准（ACTIVE）及以后的地址再喂一律 409、不写审计——⚡不是绕迁移表的直写通道。⚡喂红后那张 `LP_ADDRESS_APPROVAL` **仍留在 CFO 队列**（不自动撤：审批引擎只许提单人或超管撤单，合规官不是提单人；审计 metadata 记下被晾下的 `openApprovalNo`），此后到达的裁决由守卫吞掉、地址不会复活；演示口径是 CFO 以 Reject 把它清出队列（这是业务缺口，已登 `BACKLOG.md`：规则草案「地址被筛查拒掉时在途审批单同步作废」）。
 
 **一张兑换单，两个方向共用同一套状态机同一套码——没有 IN/OUT 枚举。** 每张单只是"卖出一种资产的金额 + 买入另一种资产的金额"，两边手填（成交价不接真实价源，业主拍板）。同一状态机既能演"库存见底找 LP 补货"（卖 AED 买 USDT），也能演"USDT 积压向 LP 回吐"（卖 USDT 买 AED）——方向由哪边是 sell、哪边是 buy 决定，不是两种订单类型。
 
@@ -51,7 +51,8 @@ PENDING_APPROVAL ──REJECT(CFO 驳回 / 48h 超时 / ⚡喂 RED)──▶ REJ
 ACTIVE ──DEACTIVATE(金库退役)──▶ DEACTIVATED（永久）
 ```
 
-六态：`PENDING_APPROVAL / ACTIVE / SUSPENDED / DEACTIVATED / REJECTED / CANCELLED`；六动作 = 六条边（`PENDING_APPROVAL` 出 APPROVE / REJECT / CANCEL，`ACTIVE` 出 SUSPEND / DEACTIVATE，`SUSPENDED` 出 REACTIVATE），迁移表在 `constants/lp-payout-address-transitions.constant.ts`，穷举 6×6 = 36 个 (态, 动作) 组合恰好 6 个合法（`…transitions.constant.spec.ts`）。三个终态（REJECTED / CANCELLED / DEACTIVATED）零出边；`SUSPENDED` 不能直接退役，须先恢复。启停退与撤回都是金库直接操作、留痕不批；审批驱动的边（APPROVE / 审批侧 REJECT）带 `approvalNo` + `causationId`。
+六态：`PENDING_APPROVAL / ACTIVE / SUSPENDED / DEACTIVATED / REJECTED / CANCELLED`；六动作 = 六条边（`PENDING_APPROVAL` 出 APPROVE / REJECT / CANCEL，`ACTIVE` 出 SUSPEND / DEACTIVATE，`SUSPENDED` 出 REACTIVATE），迁移表在 `constants/lp-payout-address-transitions.constant.ts`，穷举 6×6 = 36 个 (态, 动作) 组合恰好 6 个合法（`…transitions.constant.spec.ts`）。三个终态（REJECTED / CANCELLED / DEACTIVATED）零出边；`SUSPENDED` 不能直接退役，须先恢复。启停退与撤回都是金库直接操作、留痕不批；审批驱动的边（APPROVE / 审批侧 REJECT）带 `approvalNo` + `causationId`。**审批载荷是送审那一刻的快照**：送审后合规官 ⚡喂 GREEN / YELLOW 只改地址行上的筛查结论，CFO 审批页看到的载荷仍是旧结论（剧本只喂 RED，不触发这个差异；喂 RED 走 REJECT 边，不再有后续）。
+**SLA 答复：地址各态不计时。** 没有冷却期、没有扫描任务、不接 SLA 计时器；`PENDING_APPROVAL` 的超时只靠审批单自身的 48h 兜底（到点审批侧 REJECT → `REJECTED`），其余五态停多久都不会被系统自动动。
 
 ### 2.3 LP 兑换单（LpExchange）—— 八态八边
 
@@ -105,7 +106,7 @@ DELIVERED ──accept(金库,验收=核数，RED 来源照样可点)──▶ S
 
 - 验收弹层 Received 现取（腿 2 资金单详情）失败时静默呈 `—`，不拦确认——演示 RBAC 下不触发，登 `PRODUCTION-NOTES.md`
 - 账本科目页 USDT-TRON 类资产（code≠currency）小数位显示错位，LP 兑换台相关数字（前厅/运营户 USDT 余额）在这类账本视图里显示成十倍数——既有 admin 前端 bug（非 LP 专属），已挂业主任务 `task_475851be`，登 `BACKLOG.md`
-- ⚡喂 RED 后，被晾下的 `LP_ADDRESS_APPROVAL` 滞留 CFO 审批队列直到被裁决或 48h 超时（迟到裁决有守卫吃掉，地址不复活）——演示口径是 CFO 以 Reject 清队；真集成需「审批单随主体失效」机制，登 `PRODUCTION-NOTES.md`
+- ⚡喂 RED 后，被晾下的 `LP_ADDRESS_APPROVAL` 滞留 CFO 审批队列直到被裁决或 48h 超时（迟到裁决有守卫吃掉，地址不复活）——演示口径是 CFO 以 Reject 清队；若 CFO 不清而直接点 Approve，会出现「审批单 APPROVED 而地址 REJECTED」——规则草案「地址被筛查拒掉时在途审批单同步作废」，单人正常路径可触发，属业务缺口，登 `BACKLOG.md`（终审 I1 自 `PRODUCTION-NOTES.md` 移出）
 - 到货来源筛查红旗后无「拒收 / 退回」正式分支（演示讲到「红旗拦住验收的人」为止）；LP 来源（收款）地址的登记与到货**归因**（「真是 Falcon 打来的吗」，依赖的独立归因接口租户 403 未开通）；LP 腿的 KYT / Travel Rule 报文提交——均登 `BACKLOG.md`
 - 地址簿与档案的 DB 级约束 / 格式校验（坐标唯一键、IBAN / 链地址格式与归一化、筛查列正断言门）按根纲禁做，登 `PRODUCTION-NOTES.md`
 - LP 簿的条目详情有名录资质三行，客户提现地址详情页没有——两簿口径差异，登 `BACKLOG.md` 待业主斟酌

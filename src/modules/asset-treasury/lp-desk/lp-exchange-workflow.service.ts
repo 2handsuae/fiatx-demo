@@ -39,6 +39,7 @@ import { LpProfileService } from './lp-profile.service';
 import { LpPayoutAddressService } from './lp-payout-address.service';
 import { LpExchangeStatus, SimulateLpDeliveryDto } from './dto/lp-exchange.dto';
 import { LpPayoutAddressStatus } from './constants/lp-payout-address-transitions.constant';
+import { DEFAULT_DELIVERY_SOURCE } from './constants/lp-delivery-source.constant';
 import { TRAVEL_RULE_ADAPTER, TravelRuleAdapter } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
 import { BANK_RAIL_NETWORK } from '../withdrawal-addresses/withdrawal-address.service';
 
@@ -61,14 +62,6 @@ export interface InitiateLpExchangeInput {
   reason: string;
   traceId?: string | null;
 }
-
-/** LP 两步准入 Task 6 · ⚡到货缺省来源（干净占位）：⚡不带来源坐标时用它——腿 2 的 from 与单据快照都落它，筛查必 GREEN。
- *  形状像真坐标（TRON：T 开头 34 位；法币：AE + 21 位数字的阿联酋 IBAN），内容肉眼可见是占位（Placeholder / 全零），
- *  尾号 0000 与 mock 约定的 VASP(1111) / 黄(2222) / 红(3333) / 灰港(4444) 都不撞。导出给 demo/data.md 抄写与测试断言用。 */
-export const DEFAULT_DELIVERY_SOURCE = {
-  CRYPTO: 'TDeliverySourcePlaceholder00000000',
-  FIAT: 'AE000000000000000000000',
-} as const;
 
 const majorToMinor = (amount: Prisma.Decimal | string, decimals: number): bigint =>
   BigInt(new Prisma.Decimal(amount).mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0));
@@ -168,7 +161,7 @@ export class LpExchangeWorkflowService {
     await this.exchanges.stampApprovalNo(row.exchangeNo, approval.approvalNo);
     await this.exchangeAudit({ ...row, sellAsset, buyAsset }, {
       action: AuditActions.LP_EXCHANGE_REQUESTED, reason: dto.reason, approvalNo: approval.approvalNo,
-      metadata: { impact }, actor,
+      metadata: { impact, payoutAddressNo: payout.addressNo }, actor,
     });
     return { exchangeNo: row.exchangeNo as string, approvalNo: approval.approvalNo as string, status: LpExchangeStatus.PENDING_APPROVAL };
   }

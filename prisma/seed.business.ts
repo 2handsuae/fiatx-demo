@@ -28,7 +28,7 @@ import { getFilingTypeConfig } from '../src/modules/governance/regulatory-filing
 import { addBusinessDays } from '../src/modules/governance/regulatory-filings/business-days';
 import { DUBAI_UTC_OFFSET_MS, businessMonthOf, toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { fakeChainTxHash, fakeBankRef } from '../src/common/utils/fake-external-refs.util';
-import { DEFAULT_DELIVERY_SOURCE } from '../src/modules/asset-treasury/lp-desk/lp-exchange-workflow.service';
+import { DEFAULT_DELIVERY_SOURCE } from '../src/modules/asset-treasury/lp-desk/constants/lp-delivery-source.constant';
 import { INCIDENT_REPORT_BASES } from '../src/modules/governance/incidents/incident.constants';
 import { ObligationFrequencies, ObligationStatus, VendorStatus } from '../src/modules/governance/compliance-office/compliance-office.constants';
 import { ComplaintCategories, ComplaintClientMessageTypes, ComplaintEntryKinds, ComplaintResolutionOutcomes, ComplaintStatus } from '../src/modules/governance/complaints/complaint.constants';

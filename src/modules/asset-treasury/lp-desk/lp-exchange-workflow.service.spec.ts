@@ -1,5 +1,6 @@
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
-import { DEFAULT_DELIVERY_SOURCE, LpExchangeWorkflowService } from './lp-exchange-workflow.service';
+import { LpExchangeWorkflowService } from './lp-exchange-workflow.service';
+import { DEFAULT_DELIVERY_SOURCE } from './constants/lp-delivery-source.constant';
 import { InitiateLpExchangeDto, LpExchangeStatus as S, SimulateLpDeliveryDto } from './dto/lp-exchange.dto';
 import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
@@ -154,6 +155,7 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       const audit = auditLogs.recordByActor.mock.calls[0][0];
       expect(audit).toMatchObject({ action: 'LP_EXCHANGE_REQUESTED', actionDomain: 'TREASURY', primarySubjectNo: 'LPX1', amount: '20000.000000', approvalNo: 'APR1' });
       expect(audit.requestId).toMatch(/^LP_EXCHANGE_REQUESTED_LPX1_/);
+      expect(audit.metadata.payoutAddressNo).toBe('LPA1'); // 终审 M9：审计信封带开单所选收款地址号（业务键，非 UUID）
       expect(audit.correlationId).toBeUndefined(); // REQUESTED 起旅程，不显式传 correlationId
       expect(audit.subjects).toEqual(expect.arrayContaining([
         expect.objectContaining({ subjectType: 'LP_EXCHANGE', subjectNo: 'LPX1', subjectRole: 'PRIMARY' }),

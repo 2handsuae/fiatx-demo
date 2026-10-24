@@ -246,7 +246,7 @@ describe('LpExchangeService (乙波一 T4)', () => {
       expect(await service.getView(created.exchangeNo)).toMatchObject(expectedDelivery);
     });
 
-    it('the list rows carry the same four fields (the admin list shows the flag without opening the detail)', async () => {
+    it('the list rows carry the same four fields (the list projection includes the delivery screening fields)', async () => {
       const prisma = makePrisma();
       const service = svc(prisma);
       const created = await service.create(baseInput);
