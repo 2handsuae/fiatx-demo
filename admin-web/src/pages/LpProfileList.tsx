@@ -26,7 +26,7 @@ const RegisterLpModal = ({
 }: {
   open: boolean;
   onClose: () => void;
-  onSaved: (result: { lpNo: string; approvalNo: string }) => void;
+  onSaved: (result: { lpNo: string; approvalNo: string | null; status: string }) => void;
 }) => {
   const [name, setName] = useState('');
   const [fiatBankName, setFiatBankName] = useState('');
@@ -34,6 +34,7 @@ const RegisterLpModal = ({
   const [cryptoNetwork, setCryptoNetwork] = useState('');
   const [cryptoAddress, setCryptoAddress] = useState('');
   const [agreementRef, setAgreementRef] = useState('');
+  const [dueDiligenceRef, setDueDiligenceRef] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -46,6 +47,7 @@ const RegisterLpModal = ({
     setCryptoNetwork('');
     setCryptoAddress('');
     setAgreementRef('');
+    setDueDiligenceRef('');
     setReason('');
     setError('');
   }, [open]);
@@ -60,6 +62,7 @@ const RegisterLpModal = ({
     if (!cryptoNetwork.trim()) { setError('Crypto network is required'); return; }
     if (!cryptoAddress.trim()) { setError('Crypto address is required'); return; }
     if (!agreementRef.trim()) { setError('Agreement ref is required'); return; }
+    if (!dueDiligenceRef.trim()) { setError('Due diligence ref is required'); return; }
     if (!reason.trim()) { setError('Reason is required'); return; }
     setSubmitting(true);
     try {
@@ -72,12 +75,13 @@ const RegisterLpModal = ({
           cryptoNetwork: cryptoNetwork.trim(),
           cryptoAddress: cryptoAddress.trim(),
           agreementRef: agreementRef.trim(),
+          dueDiligenceRef: dueDiligenceRef.trim(),
           reason: reason.trim(),
         }),
       });
       if (!res.ok) { setError(await getApiErrorMessage(res, 'Failed to register the liquidity provider')); return; }
       const data = await res.json();
-      onSaved({ lpNo: data.lpNo, approvalNo: data.approvalNo });
+      onSaved({ lpNo: data.lpNo, approvalNo: data.approvalNo ?? null, status: data.status });
     } catch (e) {
       if (e instanceof AdminSessionError) return;
       setError(e instanceof Error ? e.message : 'Failed to register the liquidity provider');
@@ -90,7 +94,9 @@ const RegisterLpModal = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div className="w-[560px] max-h-[85vh] overflow-y-auto rounded-lg border border-adm-border bg-adm-panel p-5" onClick={(e) => e.stopPropagation()}>
         <h3 className="mb-1 text-sm font-semibold text-adm-t1">Register LP</h3>
-        <p className="mb-3 font-mono text-[10px] text-adm-t3">Submitting opens an approval — CFO signs it off.</p>
+        <p className="mb-3 font-mono text-[10px] text-adm-t3">
+          The entity is screened on submit — a RED result rejects it on the spot; otherwise an approval opens and the CFO signs it off.
+        </p>
 
         <label className="mb-3 block text-xs">Name
           <input value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="e.g. Northbridge Liquidity Ltd" />
@@ -114,9 +120,14 @@ const RegisterLpModal = ({
           </label>
         </div>
 
-        <label className="mb-3 block text-xs">Agreement Ref
-          <input value={agreementRef} onChange={(e) => setAgreementRef(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" placeholder="e.g. LPA-2026-014" />
-        </label>
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <label className="block text-xs">Agreement Ref
+            <input value={agreementRef} onChange={(e) => setAgreementRef(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" placeholder="e.g. LPA-2026-014" />
+          </label>
+          <label className="block text-xs">Due Diligence Ref
+            <input value={dueDiligenceRef} onChange={(e) => setDueDiligenceRef(e.target.value)} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs font-mono" placeholder="e.g. DD-2026-021" />
+          </label>
+        </div>
 
         <label className="mb-3 block text-xs">Reason
           <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="Why is this LP being onboarded?" />
@@ -237,7 +248,11 @@ const LpProfileList = () => {
         onClose={() => setShowCreate(false)}
         onSaved={(result) => {
           setShowCreate(false);
-          setNotice(`Registered ${result.lpNo} — approval ${result.approvalNo} opened, awaiting CFO.`);
+          setNotice(
+            result.approvalNo
+              ? `Registered ${result.lpNo} — approval ${result.approvalNo} opened, awaiting CFO.`
+              : `Registered ${result.lpNo} — entity screening came back RED, rejected on the spot (no approval opened).`,
+          );
           void fetchItems();
         }}
       />

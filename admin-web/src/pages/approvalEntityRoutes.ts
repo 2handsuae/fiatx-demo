@@ -71,6 +71,9 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   // （lp-profile-workflow.service.ts initiateCreate/proposeSettlementChange 逐字确认）。
   LP_PROFILE_APPROVAL: (r) => `/admin/lp-profiles/${r}`,
   LP_PROFILE_CHANGE: (r) => `/admin/lp-profiles/${r}`,
+  // LP 两步准入 Task 7：LP 打款地址登记——entityRef 是 addressNo
+  // （lp-payout-address-workflow.service.ts registerAddress 逐字确认：entityRef: row.addressNo）。
+  LP_ADDRESS_APPROVAL: (r) => `/admin/lp-payout-addresses/${r}`,
   // 战役乙波一（Task 8）：LP 兑换单——entityRef 是 exchangeNo
   // （lp-exchange-workflow.service.ts initiate() 逐字确认）。
   LP_EXCHANGE_APPROVAL: (r) => `/admin/lp-exchanges/${r}`,

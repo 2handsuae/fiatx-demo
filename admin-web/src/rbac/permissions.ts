@@ -99,6 +99,18 @@ export const PERMISSIONS = {
   LP_PROFILE_SUSPEND: 'api.post.admin_lp_profiles_lpno_suspend',
   LP_PROFILE_REACTIVATE: 'api.post.admin_lp_profiles_lpno_reactivate',
 
+  // LP 两步准入 Task 7：LP 打款地址簿——九个码精确镜像 rbac.catalog.ts 里 Task 4 已登记的
+  // buildPermissionCode(method, path) 派生值（同上方 LP_PROFILE_* 先例）。
+  LP_PAYOUT_ADDRESSES_READ: 'api.get.admin_lp_profiles_lpno_payout_addresses',
+  LP_PAYOUT_ADDRESS_CREATE: 'api.post.admin_lp_profiles_lpno_payout_addresses',
+  LP_PAYOUT_ADDRESS_DETAIL_READ: 'api.get.admin_lp_payout_addresses_addressno',
+  LP_PAYOUT_ADDRESS_CANCEL: 'api.post.admin_lp_payout_addresses_addressno_cancel',
+  LP_PAYOUT_ADDRESS_SUSPEND: 'api.post.admin_lp_payout_addresses_addressno_suspend',
+  LP_PAYOUT_ADDRESS_REACTIVATE: 'api.post.admin_lp_payout_addresses_addressno_reactivate',
+  LP_PAYOUT_ADDRESS_DEACTIVATE: 'api.post.admin_lp_payout_addresses_addressno_deactivate',
+  LP_PAYOUT_ADDRESS_LABEL_WRITE: 'api.patch.admin_lp_payout_addresses_addressno_label',
+  LP_PAYOUT_ADDRESS_SIMULATE_SCREENING: 'api.post.admin_lp_payout_addresses_addressno_simulate_screening',
+
   // 战役乙波一（Task 8）：LP 兑换单——六个码精确镜像 rbac.catalog.ts 里 T6 已登记的
   // buildPermissionCode(method, path) 派生值（同上方 89-96 行 Task 7 先例）。
   LP_EXCHANGES_READ: 'api.get.admin_lp_exchanges',

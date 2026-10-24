@@ -81,6 +81,8 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   // 战役乙波一 Task 8：LP 兑换单——金库提、CFO 单步批。
   LP_EXCHANGE_APPROVAL: 'LP exchange',
   LP_PROFILE_CHANGE: 'LP settlement change',
+  // LP 两步准入 Task 7：LP 打款地址登记——金库提、CFO 单步批。
+  LP_ADDRESS_APPROVAL: 'LP payout address',
   // 战役乙波二 Task 6：注资单——金库提、CFO 单步批。
   CAPITAL_INJECTION_APPROVAL: 'Capital injection',
   // 战役乙波二 Task 7：付款单——金库提、CFO 单步批。

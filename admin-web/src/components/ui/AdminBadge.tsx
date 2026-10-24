@@ -25,6 +25,7 @@ const STATUS_MAP: Record<string, BadgeVariant> = {
   USED:                 'info',
   EXPIRED:              'deleted',
   RETIRED:              'retired',
+  DEACTIVATED:          'retired', // LP 打款地址永久退役（LP 两步准入 Task 7）
   CUSTOMER_FROZEN:      'failed',
   // 战役丙波三 T10：客户协议版本生命周期（DRAFT / PENDING_APPROVAL 已在上表）。
   PUBLISHED:            'pending',

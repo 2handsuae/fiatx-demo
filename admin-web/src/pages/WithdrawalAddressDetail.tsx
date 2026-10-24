@@ -5,6 +5,7 @@ import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/admi
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { DetailPageHeader, InfoField } from '../components/compliance/DetailPageComponents';
 import { AdminBadge } from '../components/ui/AdminBadge';
+import { ADDRESS_TYPE_LABEL, AddressTypeBadge, ScreeningBadge } from '../components/ui/AddressBadges';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 
@@ -96,53 +97,7 @@ const SidebarKV = ({
   );
 };
 
-/* ── Address Type badge ── */
-
-const TYPE_CLS: Record<string, string> = {
-  VASP:         'bg-adm-blue/10  text-adm-blue  border-adm-blue/25',
-  SELF_CUSTODY: 'bg-adm-amber/10 text-adm-amber border-adm-amber/25',
-  BANK:         'bg-adm-green/10 text-adm-green border-adm-green/25',
-};
-
-const TYPE_LABEL: Record<string, string> = {
-  VASP: 'VASP',
-  SELF_CUSTODY: 'Self-Custody',
-  BANK: 'Bank Account',
-};
-
-const AddressTypeBadge = ({ type }: { type: string }) => {
-  const cls = TYPE_CLS[type] ?? 'bg-adm-t3/10 text-adm-t2 border-adm-t3/25';
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${cls}`}
-    >
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
-      {TYPE_LABEL[type] || type}
-    </span>
-  );
-};
-
-/* ── Screening verdict badge ── */
-
 type ScreeningAnswer = 'GREEN' | 'YELLOW' | 'RED';
-
-const SCREENING_CLS: Record<string, string> = {
-  GREEN:  'bg-adm-green/10 text-adm-green border-adm-green/25',
-  YELLOW: 'bg-adm-amber/10 text-adm-amber border-adm-amber/25',
-  RED:    'bg-adm-red/10   text-adm-red   border-adm-red/25',
-};
-
-const ScreeningBadge = ({ answer }: { answer: string }) => {
-  const cls = SCREENING_CLS[answer] ?? 'bg-adm-t3/10 text-adm-t2 border-adm-t3/25';
-  return (
-    <span
-      className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 font-mono text-[10px] font-semibold ${cls}`}
-    >
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
-      {answer}
-    </span>
-  );
-};
 
 const OWNER_LABEL: Record<string, string> = {
   SELF: 'Self',
@@ -490,7 +445,7 @@ export default function WithdrawalAddressDetail() {
                   <div>
                     <div className="font-mono text-[12px] font-bold">Declared hosting does not match attribution</div>
                     <div className="mt-0.5 font-mono text-[10px]">
-                      Customer declared {TYPE_LABEL[data.declaredHosting ?? ''] ?? data.declaredHosting ?? '—'}; system attributed {TYPE_LABEL[data.addressType] ?? data.addressType}.
+                      Customer declared {ADDRESS_TYPE_LABEL[data.declaredHosting ?? ''] ?? data.declaredHosting ?? '—'}; system attributed {ADDRESS_TYPE_LABEL[data.addressType] ?? data.addressType}.
                       Flag only — registration was not blocked.
                     </div>
                   </div>
@@ -499,7 +454,7 @@ export default function WithdrawalAddressDetail() {
               <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4">
                 <InfoField
                   label="Declared Hosting (customer-declared)"
-                  value={data.declaredHosting ? (TYPE_LABEL[data.declaredHosting] ?? data.declaredHosting) : null}
+                  value={data.declaredHosting ? (ADDRESS_TYPE_LABEL[data.declaredHosting] ?? data.declaredHosting) : null}
                 />
                 <InfoField label="Hosting Match" value={data.hostingMismatch ? 'Mismatch' : 'Consistent'} />
               </div>

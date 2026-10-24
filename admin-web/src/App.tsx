@@ -59,6 +59,7 @@ const InternalTransferList = lazy(() => import('./pages/InternalTransferList'));
 const InternalTransferDetail = lazy(() => import('./pages/InternalTransferDetail'));
 const LpProfileList = lazy(() => import('./pages/LpProfileList'));
 const LpProfileDetail = lazy(() => import('./pages/LpProfileDetail'));
+const LpPayoutAddressDetail = lazy(() => import('./pages/LpPayoutAddressDetail'));
 const LpExchangeList = lazy(() => import('./pages/LpExchangeList'));
 const LpExchangeDetail = lazy(() => import('./pages/LpExchangeDetail'));
 const CapitalInjectionList = lazy(() => import('./pages/CapitalInjectionList'));
@@ -249,6 +250,8 @@ function App() {
             {/* 战役乙波一（Task 7）：LP 档案——金库注册 / CFO 批 */}
             <Route path="lp-profiles" element={withPermission(<LpProfileList />, [PERMISSIONS.LP_PROFILES_READ])} />
             <Route path="lp-profiles/:lpNo" element={withPermission(<LpProfileDetail />, [PERMISSIONS.LP_PROFILE_DETAIL_READ])} />
+            {/* LP 两步准入 Task 7：打款地址详情——route-only（入口在档案详情的 Payout addresses 区块与审批回链），不进侧栏 */}
+            <Route path="lp-payout-addresses/:addressNo" element={withPermission(<LpPayoutAddressDetail />, [PERMISSIONS.LP_PAYOUT_ADDRESS_DETAIL_READ])} />
 
             {/* 战役乙波一（Task 8）：LP 兑换单——先款后货三腿，金库开单 / CFO 批 */}
             <Route path="lp-exchanges" element={withPermission(<LpExchangeList />, [PERMISSIONS.LP_EXCHANGES_READ])} />

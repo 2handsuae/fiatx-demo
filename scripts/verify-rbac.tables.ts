@@ -66,6 +66,8 @@ export const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
   LP_PROFILE_APPROVAL: 'LP_READ', // → /admin/lp-profiles/:lpNo（CFO 持 LP_READ）
   LP_PROFILE_CHANGE: 'LP_READ', // → /admin/lp-profiles/:lpNo（CFO 持 LP_READ）
   LP_EXCHANGE_APPROVAL: 'LP_READ', // → /admin/lp-exchanges/:exchangeNo（CFO 持 LP_READ）
+  // LP 两步准入 Task 7（approvalEntityRoutes.ts 同批加行）：LP 打款地址登记，唯一裁决人 CFO 持 LP_READ。
+  LP_ADDRESS_APPROVAL: 'LP_READ', // → /admin/lp-payout-addresses/:addressNo（CFO 持 LP_READ）
   // 战役乙波二 Task 6：注资单，唯一裁决人 CFO 持 FUNDING_READ（rbac.catalog.ts CFO 绑定区）。
   CAPITAL_INJECTION_APPROVAL: 'FUNDING_READ', // → /admin/capital-injections/:cinNo（CFO 持 FUNDING_READ）
   // 战役乙波二 Task 7：付款单，唯一裁决人 CFO 同样持 FUNDING_READ（同上行先例）。
