@@ -523,6 +523,8 @@ export const AuditActions = {
   LP_EXCHANGE_EXECUTION_STARTED: 'LP_EXCHANGE_EXECUTION_STARTED',
   LP_EXCHANGE_PAY_LEG_POSTED: 'LP_EXCHANGE_PAY_LEG_POSTED',
   LP_EXCHANGE_DELIVERED: 'LP_EXCHANGE_DELIVERED',
+  // LP 两步准入 Task 6（2026-10-24）：⚡到货时对来源坐标的筛查结论（监控标记，不是门）
+  LP_EXCHANGE_DELIVERY_SCREENED: 'LP_EXCHANGE_DELIVERY_SCREENED',
   LP_EXCHANGE_ACCEPTED: 'LP_EXCHANGE_ACCEPTED',
   LP_EXCHANGE_FAILED: 'LP_EXCHANGE_FAILED',
   // ── 战役乙波二 T2（2026-09-29）：注资单六码（财资件，域 TREASURY）──────────
@@ -1308,7 +1310,10 @@ export const LP_ADDRESS_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  * PAY_LEG_POSTED/DELIVERED 是腿事件驱动的直接操作，必填 amount；ACCEPTED 是验收
  * 动作，必填 amount+effectiveDate（同 INTERNAL_TRANSFER_SETTLED 先例）；FAILED
  * 必填 reasonCode（INSUFFICIENT_FIRM_BALANCE|LEG_FAILED|POSTING_FAILED|PAYOUT_ADDRESS_INACTIVE）；
- * CANCELLED 必填 reason。审计实际写入点在 Task 5 workflow，本任务只登记词表。 */
+ * CANCELLED 必填 reason。审计实际写入点在 Task 5 workflow，本任务只登记词表。
+ * LP 两步准入 Task 6（2026-10-24）加第九码 DELIVERY_SCREENED：⚡到货时对来源坐标的筛查结论（系统主体，
+ * 同 LP_ADDRESS_SCREENED 的形状：必填 afterData 带来源与结论）；非状态变更（拦人不拦状态——不加边、不挡验收），
+ * 在到货动作内同步写，不是审批/事件异步驱动，故无 causation。 */
 export const CAMPAIGN_B_LP_EXCHANGE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   LP_EXCHANGE_REQUESTED:         { domain: 'TREASURY', correlationMode: N, requiredFields: ['amount', 'reason'], requiresCausation: false },
   LP_EXCHANGE_CANCELLED:         { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
@@ -1316,7 +1321,8 @@ export const CAMPAIGN_B_LP_EXCHANGE_AUDIT_ACTIONS: Record<string, AuditActionSpe
   LP_EXCHANGE_EXECUTION_STARTED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   LP_EXCHANGE_PAY_LEG_POSTED:    { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount'], requiresCausation: false },
   LP_EXCHANGE_DELIVERED:         { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount'], requiresCausation: false },
-  LP_EXCHANGE_ACCEPTED:          { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount', 'effectiveDate'], requiresCausation: false },
+  LP_EXCHANGE_DELIVERY_SCREENED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
+  LP_EXCHANGE_ACCEPTED:         { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount', 'effectiveDate'], requiresCausation: false },
   LP_EXCHANGE_FAILED:            { domain: 'TREASURY', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
 };
 

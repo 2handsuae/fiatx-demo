@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流
 
 > 生成于 2026-09-15 ｜ 基线 main `8a6390fa` ｜ 来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（8 份名册程序化导出，分组清单与名册双向校验通过）
-> 现役 **362 码**，另有退役 113 码进拒写闸（附录仅列名）。
+> 现役 **363 码**，另有退役 113 码进拒写闸（附录仅列名）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 65 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 50 ｜ WITHDRAW 34 ｜ SWAP 27 ｜ TREASURY 47 ｜ RECON 9 ｜ GOVERNANCE 54 ｜ 合计 362
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 65 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 50 ｜ WITHDRAW 34 ｜ SWAP 27 ｜ TREASURY 48 ｜ RECON 9 ｜ GOVERNANCE 54 ｜ 合计 363
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -572,7 +572,7 @@
 |---|---|---|---|---|
 | `CONFIRMATION_ISSUED` | 兑换成交（SUCCESS）后系统出具成交确认单（一单一张，先于通知落库） | N 单步 | confirmationNo |  |
 
-## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（47 码）
+## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（48 码）
 
 公司的钱给客户：认损补款 / 退汇垫款。第四类订单，法币两腿经结算户、加密币一腿；金库提、CFO 批。
 
@@ -616,7 +616,7 @@
 | `LP_ADDRESS_DEACTIVATED` | 金库永久退役地址（直接迁移，留痕不批，终态；换地址 = 登新生效后停旧） | I 继承 | reason |  |
 | `LP_ADDRESS_LABEL_UPDATED` | 金库改地址标签（坐标与申报登记后冻结，改只改 label；前后值留痕） | I 继承 | beforeData, afterData |  |
 
-### LP 兑换单生命周期（8） — 战役乙波一 T4/T5 新增，先款后货三腿，金库提 / CFO 单步批 / 验收
+### LP 兑换单生命周期（9） — 战役乙波一 T4/T5 新增（LP 两步准入 T6 加第九码 DELIVERY_SCREENED），先款后货三腿，金库提 / CFO 单步批 / 验收
 
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 |
 |---|---|---|---|---|
@@ -626,6 +626,7 @@
 | `LP_EXCHANGE_EXECUTION_STARTED` | CFO 批准（复核运营户余额），卖出腿建单执行开始 | I 继承 | approvalNo | ✓ |
 | `LP_EXCHANGE_PAY_LEG_POSTED` | 卖出腿清算落账，转入悬空期（等 LP 发货） | I 继承 | amount |  |
 | `LP_EXCHANGE_DELIVERED` | ⚡ LP 打款落前厅（模拟到货，买入腿建单落账） | I 继承 | amount |  |
+| `LP_EXCHANGE_DELIVERY_SCREENED` | ⚡ 到货时对来源坐标的筛查结论（system 记账，afterData 带来源与 GREEN / YELLOW / RED；只标记不拦截——RED 单照常到货、可验收，不加状态边）⚡ | I 继承 | afterData |  |
 | `LP_EXCHANGE_ACCEPTED` | 金库验收（核数），买入腿转入运营户，整单结清（终态） | I 继承 | amount, effectiveDate |  |
 | `LP_EXCHANGE_FAILED` | 批准后运营户余额不足，或落腿失败，整单转 FAILED（终态） | I 继承 | reasonCode |  |
 

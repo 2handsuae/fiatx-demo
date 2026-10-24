@@ -227,6 +227,43 @@ describe('LpExchangeService (乙波一 T4)', () => {
     });
   });
 
+  describe('getView / list — 到货来源快照投影（LP 两步准入 Task 6）', () => {
+    const delivered = {
+      status: S.DELIVERED, deliveryFromIban: 'AE000000000000000003333', deliveryFromAddress: null,
+      deliveryScreeningAnswer: 'RED', deliveryScreenedAt: new Date('2026-10-24T10:00:00.000Z'),
+    };
+    const expectedDelivery = {
+      deliveryFromIban: 'AE000000000000000003333', deliveryFromAddress: null,
+      deliveryScreeningAnswer: 'RED', deliveryScreenedAt: '2026-10-24T10:00:00.000Z',
+    };
+
+    it('an order not yet delivered projects the four delivery fields as null; after delivery they carry source + conclusion + time (detail)', async () => {
+      const prisma = makePrisma();
+      const service = svc(prisma);
+      const created = await service.create(baseInput);
+      expect(await service.getView(created.exchangeNo)).toMatchObject({ deliveryFromAddress: null, deliveryFromIban: null, deliveryScreeningAnswer: null, deliveryScreenedAt: null });
+      await prisma.lpExchange.update({ where: { exchangeNo: created.exchangeNo }, data: delivered });
+      expect(await service.getView(created.exchangeNo)).toMatchObject(expectedDelivery);
+    });
+
+    it('the list rows carry the same four fields (the admin list shows the flag without opening the detail)', async () => {
+      const prisma = makePrisma();
+      const service = svc(prisma);
+      const created = await service.create(baseInput);
+      await prisma.lpExchange.update({ where: { exchangeNo: created.exchangeNo }, data: delivered });
+      const { items } = await service.list();
+      expect(items[0]).toMatchObject(expectedDelivery);
+    });
+
+    it('a crypto-buy order shows the source in the address field (iban null)', async () => {
+      const prisma = makePrisma();
+      const service = svc(prisma);
+      const created = await service.create(baseInput);
+      await prisma.lpExchange.update({ where: { exchangeNo: created.exchangeNo }, data: { status: S.DELIVERED, deliveryFromAddress: 'TSomeSource', deliveryFromIban: null, deliveryScreeningAnswer: 'GREEN', deliveryScreenedAt: new Date('2026-10-24T10:00:00.000Z') } });
+      expect(await service.getView(created.exchangeNo)).toMatchObject({ deliveryFromAddress: 'TSomeSource', deliveryFromIban: null, deliveryScreeningAnswer: 'GREEN' });
+    });
+  });
+
   describe('list', () => {
     it('returns projected views ordered by createdAt desc', async () => {
       const prisma = makePrisma();

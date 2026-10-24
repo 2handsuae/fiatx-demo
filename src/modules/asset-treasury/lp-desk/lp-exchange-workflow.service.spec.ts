@@ -1,11 +1,14 @@
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
-import { LpExchangeWorkflowService } from './lp-exchange-workflow.service';
-import { InitiateLpExchangeDto, LpExchangeStatus as S } from './dto/lp-exchange.dto';
+import { DEFAULT_DELIVERY_SOURCE, LpExchangeWorkflowService } from './lp-exchange-workflow.service';
+import { InitiateLpExchangeDto, LpExchangeStatus as S, SimulateLpDeliveryDto } from './dto/lp-exchange.dto';
+import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-travel-rule.adapter';
+import { AuditLogsService } from '../../audit-logging/audit-logs.service';
+import { NETWORKS } from '../../../config/manifests/networks.manifest';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 
-const USDT = { id: 'a-usdt', assetNo: 'ASUSDT0001', code: 'USDT-TRON', currency: 'USDT', decimals: 6, type: 'CRYPTO' };
+const USDT = { id: 'a-usdt', assetNo: 'ASUSDT0001', code: 'USDT-TRON', currency: 'USDT', decimals: 6, type: 'CRYPTO', network: 'TRON' };
 const AED = { id: 'a-aed', code: 'AED', currency: 'AED', decimals: 2, type: 'FIAT' };
 const treasury = { actorType: 'ADMIN' as const, userId: 'uuid-tre', userNo: 'ADM-TRE', roleCodes: ['TREASURY_OFFICER'] };
 const profile = { id: 'uuid-lp', lpNo: 'LPP1', name: 'Acme LP', fiatBankName: 'Bank', fiatIban: 'AE-LP-IBAN', cryptoNetwork: 'TRON', cryptoAddress: 'TLP-ADDR', agreementRef: 'AGR1', status: 'ACTIVE' };
@@ -38,6 +41,7 @@ function makeWorkflow(o: Partial<Record<'exchangeRow' | 'buyLegs' | 'payoutAddre
     'w-ops-usdt': { id: 'w-ops-usdt', address: 'Tops-usdt', iban: null },
     'w-liq-aed': { id: 'w-liq-aed', address: null, iban: 'AE-LIQ' },
     'w-ops-aed': { id: 'w-ops-aed', address: null, iban: 'AE-OPS-AED' },
+    'w-liq-usdt': { id: 'w-liq-usdt', address: 'Tliq-usdt', iban: null },
   };
   const assetsById: Record<string, any> = { [USDT.id]: USDT, [AED.id]: AED };
   const prisma: any = {
@@ -58,7 +62,17 @@ function makeWorkflow(o: Partial<Record<'exchangeRow' | 'buyLegs' | 'payoutAddre
     resolveTbAccountId: jest.fn(async ({ code, ledger }: any) => acct(code, ledger)),
     executeTransfer: jest.fn(async () => ({ tbTransferId: 1n })),
   };
-  const auditLogs: any = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn(async () => ({})) };
+  // 生产那道词表校验亲自跑每条信封（缺必填 / 缺 causation / 域不符 / INHERIT 无 correlationId 当场抛）。
+  // 注意：未登记的码它静默放行（`if (!spec) return`），所以「码是否登记」另由 lp-exchange-audit-codes.spec.ts 冻结。
+  const realSpec: any = new AuditLogsService(null as any);
+  const auditLogs: any = {
+    recordByActor: jest.fn(async (input: any) => { realSpec.assertActionSpec(input); return {}; }),
+    recordSystem: jest.fn(async (input: any) => { realSpec.assertActionSpec(input); return {}; }),
+  };
+  // LP 两步准入 Task 6：到货来源筛查走同一个 TRAVEL_RULE_ADAPTER——用真 mock（尾号 2222 黄 / 3333 红 / 其余绿），不手写桩，
+  // 以免「红黄尾号约定」在测试里被另写一遍；spy 只为断言调用实参。
+  const travelRule = new MockTravelRuleAdapter();
+  const screenSpy = jest.spyOn(travelRule, 'screenAddress');
   const buyLegs = o.buyLegs ?? [{ id: 'fo-2', fundsOrderNo: 'FDO2', legSeq: 2, amount: '73280' }];
   const legsById: Record<string, any> = {
     'fo-1': { id: 'fo-1', fundsOrderNo: 'FDO1', legSeq: 1, amount: '20000', txHash: null, referenceNo: null, createdAt: new Date(), fromWalletId: 'w-ops-usdt', toWalletId: null },
@@ -83,8 +97,8 @@ function makeWorkflow(o: Partial<Record<'exchangeRow' | 'buyLegs' | 'payoutAddre
   const custodianStatement: any = { recordLegMovement: jest.fn(async () => ({ outLineId: 'l1', inLineId: 'l2', cutoffDate: '2026-09-29' })) };
   // 乙波三 T2：NLA 门桩——默认放行，跌破场景用 mockRejectedValueOnce 单次拒绝（同余额闸先例）。
   const prudential: any = { assertPostOutflowCompliant: jest.fn(async () => undefined) };
-  const wf = new LpExchangeWorkflowService(prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, prudential, payoutAddresses);
-  return { wf, prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, exchangeRow, prudential, payoutAddresses };
+  const wf = new LpExchangeWorkflowService(prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, prudential, payoutAddresses, travelRule);
+  return { wf, prisma, exchanges, lpProfiles, approvals, accounting, auditLogs, fundsOrders, systemWallets, custodianStatement, exchangeRow, prudential, payoutAddresses, travelRule, screenSpy };
 }
 
 describe('LpExchangeWorkflowService (Task 5)', () => {
@@ -347,12 +361,13 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       await expect(wf.simulateDelivery('LPX1', treasury)).rejects.toThrow(/not awaiting delivery/);
     });
 
-    it('creates leg 2 born CONFIRMED (buy asset FIAT → fromIban = LP iban, toIban/toWalletId = our F_LIQ wallet), records the F_LIQ custodian line BEFORE posting 85 (评审 R12：回单先于落账，否则 bumpClosing 兜底基准双计), then CLEARs, DELIVERED + audit DELIVERED with explicit requestId', async () => {
+    it('creates leg 2 born CONFIRMED (buy asset FIAT, no source given → fromIban = the clean placeholder, never the profile fiatIban; toIban/toWalletId = our F_LIQ wallet), records the F_LIQ custodian line BEFORE posting 85 (评审 R12：回单先于落账，否则 bumpClosing 兜底基准双计), then CLEARs, DELIVERED + audit DELIVERED with explicit requestId', async () => {
       const { wf, fundsOrders, accounting, custodianStatement, exchanges, auditLogs } = makeWorkflow({ exchangeRow: awaitingDelivery });
       const r = await wf.simulateDelivery('LPX1', treasury);
       expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({
         lpExchangeId: 'uuid-lpx', legSeq: 2, initialStatus: 'CONFIRMED', assetId: AED.id, amount: '73280',
-        fromWalletId: null, fromIban: 'AE-LP-IBAN', fromAddress: null,
+        // LP 两步准入 Task 6：腿 2 的 from 不再抄档案坐标（旧写法「假装 LP 永远从注册地址打款」已废除），无入参 → 占位。
+        fromWalletId: null, fromIban: DEFAULT_DELIVERY_SOURCE.FIAT, fromAddress: null,
         toWalletId: 'w-liq-aed', toIban: 'AE-LIQ', toAddress: null,
       }));
       expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
@@ -372,6 +387,173 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       expect(audit.metadata).toMatchObject({ buyLegAmount: '73280.00' });
       expect(audit.requestId).toMatch(/^LP_EXCHANGE_DELIVERED_LPX1_/);
       expect(r.status).toBe('DELIVERED');
+    });
+  });
+
+  describe('simulateDelivery — 来源筛查（LP 两步准入 Task 6：拦人不拦状态）', () => {
+    const awaitingDelivery = { ...exchangeRowBase, status: S.AWAITING_DELIVERY };
+    // 买入币是链上 USDT 的一单（卖 AED 买 USDT）：腿 2 的 from 落 fromAddress、筛查传买入资产的链网络。
+    const awaitingCrypto = {
+      ...exchangeRowBase, status: S.AWAITING_DELIVERY,
+      sellAssetId: AED.id, sellAsset: AED, sellAmount: '73280', sellFromWalletId: 'w-ops-aed',
+      buyAssetId: USDT.id, buyAsset: USDT, buyAmount: '20000', buyViaWalletId: 'w-liq-usdt', buyToWalletId: 'w-ops-usdt',
+      payoutAddressNo: 'LPA2', payoutAddress: null, payoutIban: 'AE-LP-PAYOUT',
+    };
+    const RED_IBAN = 'AE000000000000000003333';
+    const YELLOW_IBAN = 'AE000000000000000002222';
+    const RED_ADDR = 'TSuspiciousDeliverySource0000003333';
+    /** simulateDelivery 里唯一一次 DELIVERED 迁移的 patch（单据快照四列随它一次落）。 */
+    const deliveredPatch = (exchanges: any) => {
+      const call = exchanges.transition.mock.calls.find((c: any[]) => c[1] === 'DELIVERED');
+      return call?.[2];
+    };
+    const screenedAudit = (auditLogs: any) => auditLogs.recordSystem.mock.calls.map((c: any[]) => c[0]).filter((a: any) => a.action === 'LP_EXCHANGE_DELIVERY_SCREENED');
+
+    it('⚡ with a 3333 source → the order is flagged RED, the audit says so, and the order is STILL delivered (screening is a flag, not a gate)', async () => {
+      const { wf, exchanges, fundsOrders, accounting, auditLogs, screenSpy } = makeWorkflow({ exchangeRow: awaitingDelivery });
+      const r = await wf.simulateDelivery('LPX1', treasury, { fromSource: RED_IBAN });
+      // 拦人不拦状态：照常落腿 2、落账 85、CLEAR、翻 DELIVERED——一步不少
+      expect(r.status).toBe('DELIVERED');
+      expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 2 }));
+      expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
+      expect(fundsOrders.advance).toHaveBeenCalledWith('fo-2', 'CLEAR', 'LP_EXCHANGE_WORKFLOW');
+      // 单据快照：来源（法币 → IBAN 列、地址列空）+ 结论 + 筛查时刻
+      expect(deliveredPatch(exchanges)).toMatchObject({
+        deliveryFromIban: RED_IBAN, deliveryFromAddress: null, deliveryScreeningAnswer: 'RED', deliveryScreenedAt: expect.any(Date),
+      });
+      // 法币来源传 BANK_RAIL_NETWORK（AED fixture 无 network 字段——实现若误传 asset.network 会是 undefined）
+      expect(screenSpy).toHaveBeenCalledWith(RED_IBAN, NETWORKS.AED_ZAND.code);
+      // 留痕：系统主体、带来源与结论
+      const audits = screenedAudit(auditLogs);
+      expect(audits).toHaveLength(1);
+      expect(auditLogs.recordByActor.mock.calls.map((c: any[]) => c[0].action)).not.toContain('LP_EXCHANGE_DELIVERY_SCREENED');
+      expect(audits[0]).toMatchObject({
+        action: 'LP_EXCHANGE_DELIVERY_SCREENED', actionDomain: 'TREASURY', primarySubjectNo: 'LPX1',
+        correlationId: 'trace-1', sourcePlatform: 'SYSTEM',
+        afterData: { fromSource: RED_IBAN, screeningAnswer: 'RED' },
+      });
+      expect(audits[0].requestId).toMatch(/^LP_EXCHANGE_DELIVERY_SCREENED_LPX1_/);
+      expect(audits[0].metadata).toMatchObject({ screeningAnswer: 'RED', lpName: 'Acme LP' });
+    });
+
+    it('the RED order is acceptable: feed simulateDelivery\'s own output row into accept() → SUCCESS, leg 3 posted — acceptance never reads the screening answer', async () => {
+      const first = makeWorkflow({ exchangeRow: awaitingDelivery });
+      await first.wf.simulateDelivery('LPX1', treasury, { fromSource: RED_IBAN });
+      const idx = first.exchanges.transition.mock.calls.findIndex((c: any[]) => c[1] === 'DELIVERED');
+      const deliveredRow = await first.exchanges.transition.mock.results[idx].value;
+      expect(deliveredRow).toMatchObject({ status: 'DELIVERED', deliveryScreeningAnswer: 'RED' });
+
+      const second = makeWorkflow({ exchangeRow: deliveredRow });
+      const r = await second.wf.accept('LPX1', treasury);
+      expect(r.status).toBe('SUCCESS');
+      expect(second.fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 3 }));
+      expect(second.accounting.executeTransfer).toHaveBeenCalledTimes(1);
+      expect(second.exchanges.transition).toHaveBeenCalledWith('LPX1', 'SUCCESS', expect.objectContaining({ settledAt: expect.any(Date) }));
+      // 没有任何「因筛查结论而拒绝验收」的审计/错误（迁移表零改动由 lp-exchange.service.spec 的独立 8×8 真值表冻结）
+      expect(second.auditLogs.recordSystem.mock.calls.map((c: any[]) => c[0].action)).not.toContain('LP_EXCHANGE_FAILED');
+    });
+
+    it('YELLOW (2222) is recorded the same way and the order is delivered', async () => {
+      const { wf, exchanges, auditLogs } = makeWorkflow({ exchangeRow: awaitingDelivery });
+      const r = await wf.simulateDelivery('LPX1', treasury, { fromSource: YELLOW_IBAN });
+      expect(r.status).toBe('DELIVERED');
+      expect(deliveredPatch(exchanges)).toMatchObject({ deliveryFromIban: YELLOW_IBAN, deliveryScreeningAnswer: 'YELLOW' });
+      expect(screenedAudit(auditLogs)[0]).toMatchObject({ afterData: { fromSource: YELLOW_IBAN, screeningAnswer: 'YELLOW' } });
+    });
+
+    it('no source given → the clean placeholder is screened (GREEN), snapshotted and audited — GREEN is recorded too, every ⚡delivery leaves a conclusion', async () => {
+      const { wf, exchanges, auditLogs, screenSpy } = makeWorkflow({ exchangeRow: awaitingDelivery });
+      const r = await wf.simulateDelivery('LPX1', treasury);
+      expect(r.status).toBe('DELIVERED');
+      expect(screenSpy).toHaveBeenCalledWith(DEFAULT_DELIVERY_SOURCE.FIAT, 'AED_ZAND');
+      expect(deliveredPatch(exchanges)).toMatchObject({
+        deliveryFromIban: DEFAULT_DELIVERY_SOURCE.FIAT, deliveryFromAddress: null, deliveryScreeningAnswer: 'GREEN', deliveryScreenedAt: expect.any(Date),
+      });
+      expect(screenedAudit(auditLogs)[0]).toMatchObject({ afterData: { fromSource: DEFAULT_DELIVERY_SOURCE.FIAT, screeningAnswer: 'GREEN' } });
+    });
+
+    it.each([['empty body {}', {}], ['fromSource undefined', { fromSource: undefined }], ['empty string', { fromSource: '' }], ['whitespace only', { fromSource: '   ' }], ['tabs/newlines only', { fromSource: ' \t\n ' }]])(
+      'a blank source (%s) counts as not given → same as no parameter: placeholder + GREEN', async (_label, dto) => {
+        const { wf, fundsOrders, exchanges, screenSpy } = makeWorkflow({ exchangeRow: awaitingDelivery });
+        await wf.simulateDelivery('LPX1', treasury, dto as any);
+        expect(screenSpy).toHaveBeenCalledWith(DEFAULT_DELIVERY_SOURCE.FIAT, 'AED_ZAND');
+        expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 2, fromIban: DEFAULT_DELIVERY_SOURCE.FIAT }));
+        expect(deliveredPatch(exchanges)).toMatchObject({ deliveryFromIban: DEFAULT_DELIVERY_SOURCE.FIAT, deliveryScreeningAnswer: 'GREEN' });
+      },
+    );
+
+    it('a padded source is trimmed before it is used: screened, stored on leg 2 and on the order trimmed', async () => {
+      const { wf, fundsOrders, exchanges, screenSpy } = makeWorkflow({ exchangeRow: awaitingDelivery });
+      await wf.simulateDelivery('LPX1', treasury, { fromSource: `  ${RED_IBAN}  ` });
+      expect(screenSpy).toHaveBeenCalledWith(RED_IBAN, 'AED_ZAND');
+      expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 2, fromIban: RED_IBAN }));
+      expect(deliveredPatch(exchanges)).toMatchObject({ deliveryFromIban: RED_IBAN, deliveryScreeningAnswer: 'RED' });
+    });
+
+    it('leg 2 from-coordinate = the ⚡ input, NOT the profile coordinate (fiat buy: fromIban; profile fiatIban "AE-LP-IBAN" is not used any more)', async () => {
+      const { wf, fundsOrders } = makeWorkflow({ exchangeRow: awaitingDelivery });
+      await wf.simulateDelivery('LPX1', treasury, { fromSource: 'AE123400000000000009999' });
+      const leg = fundsOrders.create.mock.calls.find((c: any[]) => c[0].legSeq === 2)![0];
+      expect(leg).toMatchObject({ fromIban: 'AE123400000000000009999', fromAddress: null, fromWalletId: null, toWalletId: 'w-liq-aed', toIban: 'AE-LIQ' });
+      expect(JSON.stringify(leg)).not.toContain('AE-LP-IBAN');
+    });
+
+    it('crypto buy: the source goes to leg 2 fromAddress (fromIban null), screening gets the buy asset\'s chain network, snapshot lands in the ADDRESS column', async () => {
+      const { wf, fundsOrders, exchanges, screenSpy, auditLogs } = makeWorkflow({ exchangeRow: awaitingCrypto });
+      await wf.simulateDelivery('LPX1', treasury, { fromSource: RED_ADDR });
+      const leg = fundsOrders.create.mock.calls.find((c: any[]) => c[0].legSeq === 2)![0];
+      expect(leg).toMatchObject({ assetId: USDT.id, fromAddress: RED_ADDR, fromIban: null, fromWalletId: null, toWalletId: 'w-liq-usdt', toAddress: 'Tliq-usdt' });
+      expect(JSON.stringify(leg)).not.toContain('TLP-ADDR'); // 档案 cryptoAddress
+      expect(screenSpy).toHaveBeenCalledWith(RED_ADDR, 'TRON');
+      expect(deliveredPatch(exchanges)).toMatchObject({ deliveryFromAddress: RED_ADDR, deliveryFromIban: null, deliveryScreeningAnswer: 'RED' });
+      expect(screenedAudit(auditLogs)[0]).toMatchObject({ afterData: { fromSource: RED_ADDR, screeningAnswer: 'RED' } });
+    });
+
+    it('crypto buy, no source → the TRON placeholder (GREEN) lands in fromAddress', async () => {
+      const { wf, fundsOrders, exchanges, screenSpy } = makeWorkflow({ exchangeRow: awaitingCrypto });
+      await wf.simulateDelivery('LPX1', treasury, { fromSource: '  ' });
+      expect(screenSpy).toHaveBeenCalledWith(DEFAULT_DELIVERY_SOURCE.CRYPTO, 'TRON');
+      expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 2, fromAddress: DEFAULT_DELIVERY_SOURCE.CRYPTO, fromIban: null }));
+      expect(deliveredPatch(exchanges)).toMatchObject({ deliveryFromAddress: DEFAULT_DELIVERY_SOURCE.CRYPTO, deliveryFromIban: null, deliveryScreeningAnswer: 'GREEN' });
+    });
+
+    it('the DELIVERED audit is unchanged (actor-recorded, with its transition); the screening audit is a separate system-recorded entry', async () => {
+      const { wf, auditLogs } = makeWorkflow({ exchangeRow: awaitingDelivery });
+      await wf.simulateDelivery('LPX1', treasury, { fromSource: RED_IBAN });
+      expect(auditLogs.recordByActor).toHaveBeenCalledTimes(1);
+      expect(auditLogs.recordByActor.mock.calls[0][0]).toMatchObject({ action: 'LP_EXCHANGE_DELIVERED', fromStatus: 'AWAITING_DELIVERY', toStatus: 'DELIVERED' });
+      expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
+    });
+
+    it('the status guard still wins: not awaiting delivery → 400, nothing screened, nothing written', async () => {
+      const { wf, screenSpy, fundsOrders, auditLogs } = makeWorkflow({ exchangeRow: { ...exchangeRowBase, status: S.EXECUTING } });
+      await expect(wf.simulateDelivery('LPX1', treasury, { fromSource: RED_IBAN })).rejects.toThrow(/not awaiting delivery/);
+      expect(screenSpy).not.toHaveBeenCalled();
+      expect(fundsOrders.create).not.toHaveBeenCalled();
+      expect(auditLogs.recordSystem).not.toHaveBeenCalled();
+    });
+
+    it('DEFAULT_DELIVERY_SOURCE: shaped like the real coordinates (TRON: T + 33 chars; UAE IBAN: AE + 21 digits), clean under the mock\'s tail convention, and visibly a placeholder', async () => {
+      const { CRYPTO, FIAT } = DEFAULT_DELIVERY_SOURCE;
+      expect(CRYPTO).toHaveLength(34);
+      expect(CRYPTO.startsWith('T')).toBe(true);
+      expect(FIAT).toMatch(/^AE\d{21}$/);
+      const adapter = new MockTravelRuleAdapter();
+      for (const [coord, network] of [[CRYPTO, 'TRON'], [FIAT, 'AED_ZAND']] as const) {
+        expect(await adapter.screenAddress(coord, network)).toBe('GREEN');
+        expect(coord.endsWith('0000')).toBe(true); // 与 mock 红(3333)/黄(2222)/VASP(1111)/灰港(4444)尾号都不撞，且肉眼可见是占位
+      }
+      expect(/placeholder/i.test(CRYPTO)).toBe(true);
+    });
+
+    it('DTO: fromSource is optional (real ValidationPipe): absent / string pass, non-string rejected, unknown keys stripped', async () => {
+      const pipe = new ValidationPipe({ transform: true, whitelist: true });
+      const meta = { type: 'body' as const, metatype: SimulateLpDeliveryDto };
+      await expect(pipe.transform({}, meta)).resolves.toMatchObject({});
+      await expect(pipe.transform({ fromSource: RED_IBAN }, meta)).resolves.toMatchObject({ fromSource: RED_IBAN });
+      await expect(pipe.transform({ fromSource: 123 }, meta)).rejects.toThrow(BadRequestException);
+      const stripped: any = await pipe.transform({ fromSource: RED_IBAN, screeningAnswer: 'GREEN' }, meta);
+      expect(stripped.screeningAnswer).toBeUndefined(); // 结论不是入参，调用方不能自报
     });
   });
 

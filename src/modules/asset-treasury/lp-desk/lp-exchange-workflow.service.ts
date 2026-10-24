@@ -1,7 +1,8 @@
 // 战役乙波一 T5 · LP 兑换 workflow（本波心脏）：审批裁决 / 三腿落账(84/85/86) / 验收 / ⚡到货。
 // 先款后货：批准即建卖出腿（腿 1，付给 LP，外穿）；腿 1 清算后进悬空期（等 LP 发货）；
 // LP 打款落前厅为腿 2（⚡simulateDelivery，同一动作内建单+落账+advance+审计，直达
-// CONFIRMED——照充值域 fiat-at-birth 模拟推腿先例）；验收（accept）建腿 3（F_LIQ → F_OPS，
+// CONFIRMED——照充值域 fiat-at-birth 模拟推腿先例；LP 两步准入 Task 6：⚡可带来源坐标，
+// 来源落腿 2 from 与单据快照并过一遍来源筛查，结论只标记、不拦状态）；验收（accept）建腿 3（F_LIQ → F_OPS，
 // 外穿+两侧回单——修复轮 1 评审 R13：原「内转不外穿」违反逐钱包对账模型，验收后 F_LIQ/F_OPS
 // 两条钱包行各留一个破口）。三腿回单一律先于落账（修复轮 1 评审 R12：后置会使 bumpClosing
 // 「当日无余额行」兜底基准已含本笔落账流水，非重铺当日外部余额双计）。铁律③各管各的：
@@ -12,7 +13,7 @@
 // .handleFundsOrderChanged 先例，横向读放行）。全部落账动作先账后状态，落账失败停在
 // 原地不重试（照划转单 onLegConfirmed 纪律）。
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -36,8 +37,10 @@ import { PrudentialService } from '../prudential/prudential.service';
 import { LpExchangeService } from './lp-exchange.service';
 import { LpProfileService } from './lp-profile.service';
 import { LpPayoutAddressService } from './lp-payout-address.service';
-import { LpExchangeStatus } from './dto/lp-exchange.dto';
+import { LpExchangeStatus, SimulateLpDeliveryDto } from './dto/lp-exchange.dto';
 import { LpPayoutAddressStatus } from './constants/lp-payout-address-transitions.constant';
+import { TRAVEL_RULE_ADAPTER, TravelRuleAdapter } from '../../sumsub-shared/travel-rule/travel-rule-adapter.interface';
+import { BANK_RAIL_NETWORK } from '../withdrawal-addresses/withdrawal-address.service';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string; fundsOrderNo: string;
@@ -59,6 +62,14 @@ export interface InitiateLpExchangeInput {
   traceId?: string | null;
 }
 
+/** LP 两步准入 Task 6 · ⚡到货缺省来源（干净占位）：⚡不带来源坐标时用它——腿 2 的 from 与单据快照都落它，筛查必 GREEN。
+ *  形状像真坐标（TRON：T 开头 34 位；法币：AE + 21 位数字的阿联酋 IBAN），内容肉眼可见是占位（Placeholder / 全零），
+ *  尾号 0000 与 mock 约定的 VASP(1111) / 黄(2222) / 红(3333) / 灰港(4444) 都不撞。导出给 demo/data.md 抄写与测试断言用。 */
+export const DEFAULT_DELIVERY_SOURCE = {
+  CRYPTO: 'TDeliverySourcePlaceholder00000000',
+  FIAT: 'AE000000000000000000000',
+} as const;
+
 const majorToMinor = (amount: Prisma.Decimal | string, decimals: number): bigint =>
   BigInt(new Prisma.Decimal(amount).mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0));
 
@@ -78,6 +89,7 @@ export class LpExchangeWorkflowService {
     private readonly custodianStatement: SimulatedCustodianStatementService,
     private readonly prudential: PrudentialService,
     private readonly payoutAddresses: LpPayoutAddressService,
+    @Inject(TRAVEL_RULE_ADAPTER) private readonly travelRule: TravelRuleAdapter,
   ) {}
 
   // ── 发起（金库，CFO 单步批）──────────────────────────────────────────
@@ -291,14 +303,22 @@ export class LpExchangeWorkflowService {
 
   // ── ⚡到货（腿 2）：LP 打款落前厅——同一动作内建单+落账+advance+审计 ───────────
 
-  async simulateDelivery(exchangeNo: string, actor: ApprovalActorContext) {
+  /** LP 两步准入 Task 6：⚡带可选来源坐标（`dto.fromSource`，trim 后为空 = 未填 → 干净占位 `DEFAULT_DELIVERY_SOURCE`）。
+   *  来源落腿 2 资金单的 from（链上买入币落 fromAddress、法币落 fromIban）与单据 `delivery*` 快照，并同步过一遍
+   *  `TRAVEL_RULE_ADAPTER.screenAddress`，结论（GREEN / YELLOW / RED）落单据 + 记 `LP_EXCHANGE_DELIVERY_SCREENED`。
+   *  **拦人不拦状态**：筛查是监控标记，不是门——RED 单照常 DELIVERED，`accept` 不读结论、迁移表零改动（铁律④）。
+   *  旧写法把档案结算坐标抄进腿 2 的 from（假装 LP 永远从注册地址打款）已废除。 */
+  async simulateDelivery(exchangeNo: string, actor: ApprovalActorContext, dto: SimulateLpDeliveryDto = {}) {
     const row = await this.exchanges.findByNo(exchangeNo);
     if (row.status !== LpExchangeStatus.AWAITING_DELIVERY) {
       throw new BadRequestException(`LP exchange ${exchangeNo} is not awaiting delivery (status=${row.status})`);
     }
-    const profile = await this.lpProfiles.findByNo(row.lpNo);
     const buyVia = await this.prisma.wallet.findUnique({ where: { id: row.buyViaWalletId } });
     const isCrypto = row.buyAsset.type === 'CRYPTO';
+    const source = dto.fromSource?.trim() || DEFAULT_DELIVERY_SOURCE[isCrypto ? 'CRYPTO' : 'FIAT'];
+    // 筛查先于建腿：它不依赖腿，且只读不写——先出结论，快照随 DELIVERED 迁移一次落（crypto 传买入资产的链网络，法币传银行通道）。
+    const screeningAnswer = await this.travelRule.screenAddress(source, isCrypto ? row.buyAsset.network : BANK_RAIL_NETWORK);
+    const screenedAt = new Date();
     // 照 deposit 域 fiat-at-birth 模拟推腿先例：initialStatus 直接落 CONFIRMED（⚡模拟动作，
     // 不走 SUBMIT/CONFIRM 两跳）；FundsOrderService.create 在 CONFIRMED 出生时自动铸 externalRef。
     // 我方钱包侧（F_LIQ）也补 address/iban（照腿 1 与划转单惯例——两侧都填，不止外部坐标那侧）。
@@ -306,8 +326,8 @@ export class LpExchangeWorkflowService {
       lpExchangeId: row.id, legSeq: 2, initialStatus: FundsOrderStatus.CONFIRMED,
       assetId: row.buyAssetId, amount: String(row.buyAmount), netAmount: String(row.buyAmount),
       fromWalletId: null,
-      fromAddress: isCrypto ? profile.cryptoAddress : null,
-      fromIban: isCrypto ? null : profile.fiatIban,
+      fromAddress: isCrypto ? source : null,
+      fromIban: isCrypto ? null : source,
       toWalletId: buyVia?.id ?? null, toAddress: buyVia?.address ?? null, toIban: buyVia?.iban ?? null,
       traceId: row.traceId ?? undefined,
     });
@@ -323,11 +343,23 @@ export class LpExchangeWorkflowService {
     });
     await this.postBuyLeg(row, leg);
     await this.fundsOrders.advance(leg.id, FundsOrderAction.CLEAR, 'LP_EXCHANGE_WORKFLOW');
-    const updated = await this.exchanges.transition(exchangeNo, LpExchangeStatus.DELIVERED, { deliveredAt: new Date() });
+    const updated = await this.exchanges.transition(exchangeNo, LpExchangeStatus.DELIVERED, {
+      deliveredAt: new Date(),
+      deliveryFromAddress: isCrypto ? source : null, deliveryFromIban: isCrypto ? null : source,
+      deliveryScreeningAnswer: screeningAnswer, deliveryScreenedAt: screenedAt,
+    });
     await this.exchangeAudit(row, {
       action: AuditActions.LP_EXCHANGE_DELIVERED, reason: 'LP delivery simulated, buy leg posted to the front desk',
       fundsOrderNo: leg.fundsOrderNo, fromStatus: row.status, toStatus: updated.status, actor,
       metadata: { buyLegAmount: new Prisma.Decimal(row.buyAmount).toFixed(row.buyAsset.decimals) },
+    });
+    // 系统主体留痕（筛查是 Sumsub 侧 mock 能力，同 LP_ADDRESS_SCREENED）：非状态变更，故无 from/toStatus。
+    await this.exchangeAudit(row, {
+      action: AuditActions.LP_EXCHANGE_DELIVERY_SCREENED,
+      reason: `LP delivery source screened ${screeningAnswer} — recorded on the order; delivery and acceptance are not blocked`,
+      fundsOrderNo: leg.fundsOrderNo,
+      afterData: { fromSource: source, screeningAnswer, screenedAt: screenedAt.toISOString() },
+      metadata: { fromSource: source, screeningAnswer },
     });
     return { exchangeNo, status: updated.status as string };
   }
@@ -460,7 +492,7 @@ export class LpExchangeWorkflowService {
   private async exchangeAudit(row: any, patch: {
     action: string; reason?: string; outcome?: AuditOutcome; reasonCode?: string;
     fromStatus?: string; toStatus?: string; approvalNo?: string; causationId?: string; fundsOrderNo?: string;
-    metadata?: Record<string, unknown>; actor?: ApprovalActorContext;
+    metadata?: Record<string, unknown>; afterData?: Record<string, unknown>; actor?: ApprovalActorContext;
   }): Promise<void> {
     const subjects: AuditSubjectInput[] = [
       { subjectType: AuditEntityTypes.LP_EXCHANGE, subjectNo: row.exchangeNo, subjectRole: AuditSubjectRole.PRIMARY },
@@ -482,6 +514,7 @@ export class LpExchangeWorkflowService {
       fromStatus: patch.fromStatus, toStatus: patch.toStatus,
       approvalNo: patch.approvalNo, causationId: patch.causationId,
       amount: sellFormatted,
+      ...(patch.afterData ? { afterData: patch.afterData } : {}),
       effectiveDate: toBusinessDate(new Date()),
       // REQUESTED 起兑换单自己的旅程（NONE，不传 correlationId）；其余继承（INHERIT）。
       ...(patch.action === AuditActions.LP_EXCHANGE_REQUESTED ? {} : { correlationId: row.traceId }),

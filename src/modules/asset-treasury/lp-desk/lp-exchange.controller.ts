@@ -7,7 +7,7 @@ import { buildPermissionCode } from '../../identity/access-control/permission-co
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { LpExchangeService } from './lp-exchange.service';
 import { LpExchangeWorkflowService } from './lp-exchange-workflow.service';
-import { CancelLpExchangeDto, InitiateLpExchangeDto, LpExchangeListQueryDto } from './dto/lp-exchange.dto';
+import { CancelLpExchangeDto, InitiateLpExchangeDto, LpExchangeListQueryDto, SimulateLpDeliveryDto } from './dto/lp-exchange.dto';
 
 /** 战役乙波一 T6 · LP 兑换端点。开单 / 撤回 / 验收归金库（LP_WRITE），列表 / 详情归
  *  LP_READ；写动作全在 workflow（同 internal-transfer.controller.ts / lp-profile.controller.ts
@@ -52,10 +52,10 @@ export class LpExchangeController {
   }
 
   @Post(':exchangeNo/simulate-delivery')
-  @ApiOperation({ summary: 'Simulate the LP delivering the buy leg to the front desk (demo only)' })
+  @ApiOperation({ summary: 'Simulate the LP delivering the buy leg to the front desk (demo only) — optional fromSource picks where the money comes from, and the source is screened (flag only, acceptance is never blocked)' })
   @RequirePermissions(buildPermissionCode('POST', '/admin/lp-exchanges/:exchangeNo/simulate-delivery'))
-  simulateDelivery(@Param('exchangeNo') exchangeNo: string, @Req() req: any) {
-    return this.workflow.simulateDelivery(exchangeNo, this.buildActor(req));
+  simulateDelivery(@Param('exchangeNo') exchangeNo: string, @Body() dto: SimulateLpDeliveryDto, @Req() req: any) {
+    return this.workflow.simulateDelivery(exchangeNo, this.buildActor(req), dto);
   }
 
   @Get()

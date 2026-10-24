@@ -59,6 +59,14 @@ export class CancelLpExchangeDto {
   @ApiProperty() @IsString() @IsNotEmpty() reason!: string;
 }
 
+/** LP 两步准入 Task 6：⚡到货的可选入参——演示者决定「这笔钱从哪个坐标打来」，从而演示来源筛查三档结局。
+ *  trim 后为空视同未填（业务语义：表单里留空 = 用系统占位），所以这里只认字符串、不判非空；
+ *  trim 与占位替换在 workflow（服务也被直调，不依赖 DTO 层的 Transform）。结论不是入参——调用方不能自报。 */
+export class SimulateLpDeliveryDto {
+  @ApiPropertyOptional({ description: 'Where the LP money comes from — an on-chain address (crypto buy) or an IBAN (fiat buy). Blank = the clean placeholder.' })
+  @IsOptional() @IsString() fromSource?: string;
+}
+
 export class LpExchangeListQueryDto {
   @ApiPropertyOptional() @IsOptional() @IsIn(Object.values(LpExchangeStatus)) status?: LpExchangeStatus;
   @ApiPropertyOptional() @IsOptional() @IsString() lpNo?: string;
@@ -78,6 +86,10 @@ export interface LpExchangeView {
   prudentialPurpose: string; reason: string;
   /** LP 两步准入 Task 5：开单时抄下的收款坐标快照（老单据无 → null）。 */
   payoutAddressNo: string | null; payoutAddress: string | null; payoutIban: string | null;
+  /** LP 两步准入 Task 6：⚡到货时落的来源坐标快照 + 来源筛查结论（GREEN / YELLOW / RED）与筛查时刻——
+   *  链上买入币来源落 deliveryFromAddress、法币落 deliveryFromIban；未到货的单据全为 null。结论是监控标记，不是门。 */
+  deliveryFromAddress: string | null; deliveryFromIban: string | null;
+  deliveryScreeningAnswer: string | null; deliveryScreenedAt: string | null;
   approvalNo: string | null; failureReasonCode: string | null; failureNote: string | null;
   createdBy: string; createdAt: string;
   executedAt: string | null; deliveredAt: string | null; settledAt: string | null;
