@@ -194,6 +194,40 @@ describe('rbac.catalog', () => {
     }
   });
 
+  // 甲波六 T4：LP 申请 / 文件 / 评估六条新路由逐条登记（未登记 = AdminPermissionGuard 全员 403）。
+  // 申请侧（重提 / 传文件）是金库（LP_WRITE）的手，评估侧（筛查 / 证据 / 定档 / 结论）是合规官独占（DUE_DILIGENCE_WRITE），
+  // maker（合规官）≠ checker（CFO / 高管）：两位审批人只读不写，金库不碰评估。
+  it('LP application / document / assessment routes: treasury applies, only the compliance officer assesses, approvers read', () => {
+    const expected: Array<[string, string, string]> = [
+      ['POST', '/admin/lp-profiles/:lpNo/resubmit', 'LP_WRITE'],
+      ['POST', '/admin/lp-profiles/:lpNo/documents', 'LP_WRITE'],
+      ['GET', '/admin/lp-profiles/:lpNo/documents', 'LP_READ'],
+      ['GET', '/admin/lp-profiles/:lpNo/assessment', 'LP_READ'],
+      ['POST', '/admin/lp-profiles/:lpNo/assessment/screening-records', 'DUE_DILIGENCE_WRITE'],
+      ['POST', '/admin/lp-profiles/:lpNo/assessment/screening-records/:recordNo/evidence', 'DUE_DILIGENCE_WRITE'],
+      ['PATCH', '/admin/lp-profiles/:lpNo/assessment', 'DUE_DILIGENCE_WRITE'],
+      ['POST', '/admin/lp-profiles/:lpNo/assessment/conclude', 'DUE_DILIGENCE_WRITE'],
+    ];
+    const map = buildRolePermissionCodeMap();
+    for (const [method, path, group] of expected) {
+      const code = buildPermissionCode(method, path);
+      const def = RBAC_PERMISSION_DEFINITIONS.find((item) => item.code === code);
+      expect({ code, groups: def?.groups }).toEqual({ code, groups: [group] });
+      if (group === 'LP_WRITE') {
+        expect(map.TREASURY_OFFICER).toContain(code);
+        expect(map.COMPLIANCE_OFFICER).not.toContain(code);
+        expect(map.CFO).not.toContain(code);
+      }
+      if (group === 'LP_READ') {
+        for (const role of ['TREASURY_OFFICER', 'COMPLIANCE_OFFICER', 'CFO', 'SENIOR_MANAGEMENT_OFFICER']) expect(map[role]).toContain(code);
+      }
+      if (group === 'DUE_DILIGENCE_WRITE') {
+        expect(map.COMPLIANCE_OFFICER).toContain(code);
+        for (const role of ['TREASURY_OFFICER', 'CFO', 'SENIOR_MANAGEMENT_OFFICER', 'CISO']) expect(map[role]).not.toContain(code);
+      }
+    }
+  });
+
   // 甲波一 T5 修2（复审新 Important：族区分性质零红测，点 3 纯函数测试）：C1 修复的
   // 前提是这五个标记码各自只挂一个组、且互不相同——如果哪个码不小心挂了两个组，或两个码
   // 挂了同一个组，"族独占"的假设就塌了，assertOperator 的精确判定也就名不副实。

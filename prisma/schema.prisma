@@ -920,19 +920,29 @@ model InternalTransfer {
   @@map("internal_transfers")
 }
 
-// 战役乙波一（2026-09-29）：LP 档案——流动性提供方名册，建档走 CFO 审批。
+// 战役乙波一（2026-09-29）：LP 档案——流动性提供方名册。
 // 2026-10-24 LP 两步准入：档案不再持有结算坐标（四列已退役），卖出腿的钱打到哪由 LpPayoutAddress 打款地址簿承载。
+// 2026-10-29 甲波六：档案即「LP 申请表」——金库填全字段 + 传六份文件，合规官在尽调评估（DueDiligenceAssessment）里
+// 逐名筛查 / 定档 / 下结论，再按风险档分流审批；旧的实体背调 mock 三列（结论 / 时间 / 尽调引用号）物理删除。
 model LiquidityProvider {
   id            String   @id @default(uuid())
   lpNo          String   @unique
-  name          String
+  name          String   // 法定名称
+  registeredIn          String   // 注册地（国家 / 辖区）
+  registrationNo        String   // 注册号
+  licensingAuthority    String   // 发牌机构
+  licenceNo             String   // 牌照号
+  beneficialOwners      String   @default("[]") // JSON [{seq:number,name:string,nationality?:string}]；筛查记录按 seq + 姓名指认
+  tradingTypes          String   // CSV：与我们做哪几类交易（多选）
+  expectedMonthlyVolume Decimal  // 预计月交易量（元）
+  volumeCurrency        String
+  applicationReason     String
   agreementRef  String
-  status        String   @default("PENDING_APPROVAL") // PENDING_APPROVAL | ACTIVE | SUSPENDED | REJECTED
+  agreementStart        DateTime?
+  contactName           String
+  contactEmail          String
+  status        String   @default("PENDING_ASSESSMENT") // PENDING_ASSESSMENT | RETURNED | PENDING_APPROVAL | ACTIVE | SUSPENDED | REJECTED
   approvalNo    String?
-  // 2026-10-24 LP 两步准入：建档证据（DTO 层必填，schema 可空——加法迁移不碰既有种子）
-  screeningAnswer String?   // GREEN / YELLOW / RED（mock 筛查结论）
-  screenedAt      DateTime?
-  dueDiligenceRef String?   // 尽调材料引用
   createdByUserId String
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

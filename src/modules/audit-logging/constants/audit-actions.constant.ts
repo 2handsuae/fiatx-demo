@@ -525,14 +525,12 @@ export const AuditActions = {
   COMPLAINT_DEADLINE_FASTFORWARDED: 'COMPLAINT_DEADLINE_FASTFORWARDED',
   // ── 战役乙波一 T2（2026-09-29）：LP 档案八码（财资件，域 TREASURY）──────────
   LP_PROFILE_CREATED: 'LP_PROFILE_CREATED',
-  // LP 两步准入 Task 2（2026-10-24）：建档即筛，实体背调结论留痕
-  LP_PROFILE_SCREENED: 'LP_PROFILE_SCREENED',
   LP_PROFILE_APPROVED: 'LP_PROFILE_APPROVED',
   LP_PROFILE_REJECTED: 'LP_PROFILE_REJECTED',
   LP_PROFILE_SUSPENDED: 'LP_PROFILE_SUSPENDED',
   LP_PROFILE_REACTIVATED: 'LP_PROFILE_REACTIVATED',
   // 甲波六 T1（2026-10-29）：LP 背调与审批——退回 / 重新提交 / 送审 / 审批撤单四条新状态边
-  // （LP_PROFILE_SCREENED 在 T4 随旧建档即筛退役，本任务不动）
+  // （LP_PROFILE_SCREENED 已在 T4 随旧建档即筛退役，写点全删、码值摘出本表，登 DEPRECATED_AUDIT_ACTIONS）
   LP_PROFILE_RETURNED: 'LP_PROFILE_RETURNED',
   LP_PROFILE_RESUBMITTED: 'LP_PROFILE_RESUBMITTED',
   LP_PROFILE_SENT_FOR_APPROVAL: 'LP_PROFILE_SENT_FOR_APPROVAL',
@@ -1322,16 +1320,13 @@ export const COMPLAINT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  * LP 两步准入 Task 9（2026-10-24）：改结算坐标流程整体退役（档案不再持有结算坐标，收款坐标改由
  * 打款地址簿承载），其提案 / 落地 / 驳回三个审计码从本表与 AuditActions 摘除，登
  * DEPRECATED_AUDIT_ACTIONS 拒写。现 6 码；甲波六 T1（2026-10-29）加 4 码（RETURNED / RESUBMITTED /
- * SENT_FOR_APPROVAL / APPROVAL_CANCELLED），现 10 码。
- * LP 两步准入 Task 2（2026-10-24）：
- *   · LP_PROFILE_SCREENED（新）= 建档时刻实体背调出了三档结论（系统主体；afterData 携
- *     screeningAnswer/screenedAt，必填；INHERIT 读 lpNo；非异步驱动故无 causation）。
- *   · LP_PROFILE_REJECTED 现有两个出处——CFO 裁决驱动（有 approvalNo/causationId）与建档
- *     RED 登记即拒（落点计算，无审批单）；故契约放宽为必填 reason（两条路径都恒带拒因）、
- *     不再强制 approvalNo / causation（同 WITHDRAWAL_ADDRESS_REJECTED 先例）。 */
+ * SENT_FOR_APPROVAL / APPROVAL_CANCELLED），现 10 码；甲波六 T4（2026-10-29）退役 LP_PROFILE_SCREENED
+ * （实体背调 mock 随建档即筛整体退役，筛查改由尽调评估的合规官逐名登记，审计走 DD_SCREENING_RECORDED），现 9 码。
+ * LP_PROFILE_CREATED 必填 reason（= 申请理由）+ registeredIn（甲波六 T4，申请表的注册地，顶层展开）。
+ * LP_PROFILE_REJECTED 有多个出处——合规官「不通过」、CFO / 高管裁决驱动（有 approvalNo/causationId）、审批超时；
+ * 契约为必填 reason（各路径都恒带拒因）、不强制 approvalNo / causation（同 WITHDRAWAL_ADDRESS_REJECTED 先例）。 */
 export const CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
-  LP_PROFILE_CREATED:         { domain: 'TREASURY', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
-  LP_PROFILE_SCREENED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['afterData'], requiresCausation: false },
+  LP_PROFILE_CREATED:         { domain: 'TREASURY', correlationMode: N, requiredFields: ['reason', 'registeredIn'], requiresCausation: false },
   LP_PROFILE_APPROVED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   LP_PROFILE_REJECTED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   LP_PROFILE_SUSPENDED:       { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
@@ -1605,6 +1600,9 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   // LpPayoutAddress 承载——登新停旧一拍代替改坐标），提案 / 落地 / 驳回三码的写点（档案服务与 workflow 的
   // 改坐标方法、变更审批裁决收口）随之删除，三码登退役闸
   'LP_PROFILE_CHANGE_PROPOSED', 'LP_PROFILE_CHANGE_APPLIED', 'LP_PROFILE_CHANGE_REJECTED',
+  // 甲波六 T4（2026-10-29）：LP 实体背调 mock 整体退役（建档即筛 + 登记即拒；筛查改为合规官在尽调评估里逐名人工登记），
+  // 唯一写点随 lp-profile.service 的 create 改写而删，码值登退役闸
+  'LP_PROFILE_SCREENED',
 ] as const;
 
 /** 第七幕波二（2026-09-16）：承诺写 audit_log_subjects 子表的码族名册。

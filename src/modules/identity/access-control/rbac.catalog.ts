@@ -514,8 +514,18 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/internal-transfers/:transferNo/cancel', 'Cancel a pending internal transfer (maker only)', ['INTERNAL_TRANSFER_WRITE']),
   route('GET', '/admin/internal-transfers', 'List internal transfers', ['INTERNAL_TRANSFER_READ']),
   route('GET', '/admin/internal-transfers/:transferNo', 'Get internal transfer detail', ['INTERNAL_TRANSFER_READ']),
-  // ─── 战役乙波一 T3 · LP 档案（LiquidityProvider）：建档走 CFO 单步批 ───
-  route('POST', '/admin/lp-profiles', 'Register a new liquidity provider', ['LP_WRITE']),
+  // ─── 战役乙波一 T3 · LP 档案（LiquidityProvider）；甲波六 T4：准入改成先评估后审批 ───
+  // 金库（LP_WRITE）提申请 / 重提 / 传文件 / 启停；合规评估的四个写动作（登记筛查 / 传证据 / 定档 / 下结论）归合规官
+  // 独占的 DUE_DILIGENCE_WRITE；评估视图与文件列表归 LP_READ（两位审批人要看得见批的是什么）。
+  route('POST', '/admin/lp-profiles', 'Submit a liquidity provider application', ['LP_WRITE']),
+  route('POST', '/admin/lp-profiles/:lpNo/resubmit', 'Resubmit a returned liquidity provider application', ['LP_WRITE']),
+  route('POST', '/admin/lp-profiles/:lpNo/documents', 'Upload an application document of a liquidity provider', ['LP_WRITE']),
+  route('GET', '/admin/lp-profiles/:lpNo/documents', 'List the application documents of a liquidity provider', ['LP_READ']),
+  route('GET', '/admin/lp-profiles/:lpNo/assessment', 'Get the due diligence assessment of a liquidity provider', ['LP_READ']),
+  route('POST', '/admin/lp-profiles/:lpNo/assessment/screening-records', 'Record a screening result in the due diligence of a liquidity provider', ['DUE_DILIGENCE_WRITE']),
+  route('POST', '/admin/lp-profiles/:lpNo/assessment/screening-records/:recordNo/evidence', 'Attach the evidence screenshot of a screening record', ['DUE_DILIGENCE_WRITE']),
+  route('PATCH', '/admin/lp-profiles/:lpNo/assessment', 'Save the risk tier and opinion of a liquidity provider assessment', ['DUE_DILIGENCE_WRITE']),
+  route('POST', '/admin/lp-profiles/:lpNo/assessment/conclude', 'Conclude a liquidity provider assessment: return / reject / send for approval', ['DUE_DILIGENCE_WRITE']),
   route('POST', '/admin/lp-profiles/:lpNo/suspend', 'Suspend a liquidity provider', ['LP_WRITE']),
   route('POST', '/admin/lp-profiles/:lpNo/reactivate', 'Reactivate a suspended liquidity provider', ['LP_WRITE']),
   route('GET', '/admin/lp-profiles', 'List liquidity providers', ['LP_READ']),

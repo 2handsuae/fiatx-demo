@@ -180,9 +180,11 @@ describe('第一批 · V1 词表守则', () => {
     + ' + 2 甲波二(2026-09-26)T6：INCIDENT_REGULATOR_REPORT_DRAFTED/INCIDENT_REGULATOR_REPORTED'
     + ' 随通报单槽收编（事故通报改统一走报送单主体）退役新入闸，得 117'
     + ' + 3 LP 两步准入(2026-10-24)T9：LP_PROFILE_CHANGE_PROPOSED/APPLIED/REJECTED 随改结算坐标流程整体退役'
-    + '新入闸，得 120），'
+    + '新入闸，得 120'
+    + ' + 1 甲波六(2026-10-29)T4：LP_PROFILE_SCREENED 随实体背调 mock（建档即筛）整体退役新入闸，得 121），'
     + '且与五本在用名册零交集', () => {
-    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(120);
+    expect(DEPRECATED_AUDIT_ACTIONS).toHaveLength(121);
+    expect(DEPRECATED_AUDIT_ACTIONS).toContain('LP_PROFILE_SCREENED');
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => codes.includes(d))).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V4_DEPOSIT_AUDIT_ACTIONS)).toEqual([]);
     expect(DEPRECATED_AUDIT_ACTIONS.filter((d) => d in V5_WITHDRAW_AUDIT_ACTIONS)).toEqual([]);

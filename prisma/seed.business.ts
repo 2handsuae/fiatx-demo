@@ -2173,15 +2173,16 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
   }
 
   // ── 两档案（终态直铺，不走流程重放）────────────────────────────────────
-  // LP 两步准入（2026-10-24）：档案不再持有结算坐标，收款坐标只在下方「打款地址簿」里；
-  // 两家都回填尽调引用号 + 实体背调 GREEN（reset 世界里每家 LP 都有背调结论，详情页不出空洞）。
+  // LP 两步准入（2026-10-24）：档案不再持有结算坐标，收款坐标只在下方「打款地址簿」里。
+  // 甲波六 T4（2026-10-29）：档案即 LP 申请表——实体背调 mock 三列退役，两家补齐申请表必填列（最小改动让种子能跑；
+  // 尽调评估壳 / 筛查记录 / 申请文件 / 审批快照随 T9 整体重铺）。
   const falconLpNo = buildDeterministicNo('LPP', 'falcon-liquidity-fze');
   const duneLpNo = buildDeterministicNo('LPP', 'dune-otc-dmcc');
   const falconApprovalNo = buildDeterministicNo('APR', 'lp-falcon-liquidity-registration');
 
   const DAY_MS = 24 * 60 * 60 * 1000;
   const nowMs = Date.now();
-  // Falcon 建档审批：铺场时刻−10天提交（实体背调同刻出结论）、+1h CFO 批
+  // Falcon 准入审批：铺场时刻−10天提交、+1h CFO 批
   const falconApprovalSubmittedAt = new Date(nowMs - 10 * DAY_MS);
   const falconApprovalDecidedAt = new Date(falconApprovalSubmittedAt.getTime() + 60 * 60 * 1000);
 
@@ -2191,10 +2192,19 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     create: {
       lpNo: falconLpNo,
       name: 'Falcon Liquidity FZE',
+      registeredIn: 'United Arab Emirates (DMCC)',
+      registrationNo: 'DMCC-202614',
+      licensingAuthority: 'Dubai Multi Commodities Centre',
+      licenceNo: 'DMCC-LIC-48213',
+      beneficialOwners: JSON.stringify([{ seq: 1, name: 'Khalid Al Mansoori', nationality: 'AE' }]),
+      tradingTypes: 'SPOT_EXCHANGE,OTC_BLOCK',
+      expectedMonthlyVolume: '5000000',
+      volumeCurrency: 'USD',
+      applicationReason: 'AED/USDT spot and OTC liquidity for the exchange desk',
       agreementRef: 'LPA-2026-FALCON-001',
-      dueDiligenceRef: 'DD-2026-FALCON-001',
-      screeningAnswer: 'GREEN',
-      screenedAt: falconApprovalSubmittedAt,
+      agreementStart: new Date(nowMs - 30 * DAY_MS),
+      contactName: 'Layla Hassan',
+      contactEmail: 'layla.hassan@falcon-liquidity.example',
       status: 'ACTIVE',
       approvalNo: falconApprovalNo,
       createdByUserId: TREASURY_USER_NO,
@@ -2206,10 +2216,19 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     create: {
       lpNo: duneLpNo,
       name: 'Dune OTC DMCC',
+      registeredIn: 'United Arab Emirates (DMCC)',
+      registrationNo: 'DMCC-203377',
+      licensingAuthority: 'Dubai Multi Commodities Centre',
+      licenceNo: 'DMCC-LIC-51970',
+      beneficialOwners: JSON.stringify([{ seq: 1, name: 'Omar Farouk', nationality: 'EG' }]),
+      tradingTypes: 'OTC_BLOCK',
+      expectedMonthlyVolume: '2000000',
+      volumeCurrency: 'USD',
+      applicationReason: 'OTC block liquidity for large USDT/AED tickets',
       agreementRef: 'LPA-2026-DUNE-002',
-      dueDiligenceRef: 'DD-2026-DUNE-002',
-      screeningAnswer: 'GREEN',
-      screenedAt: new Date(nowMs - 14 * DAY_MS),
+      agreementStart: new Date(nowMs - 45 * DAY_MS),
+      contactName: 'Hassan Ali',
+      contactEmail: 'hassan.ali@dune-otc.example',
       status: 'SUSPENDED',
       createdByUserId: TREASURY_USER_NO,
     },
@@ -2225,13 +2244,13 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     // 起支持 reason 通道，见 prisma/seed-audit.helper.ts）。
     reason: 'LP registered — new liquidity provider onboarded for AED/USDT exchange desk.',
     afterData: {
-      name: falcon.name, agreementRef: falcon.agreementRef, dueDiligenceRef: falcon.dueDiligenceRef,
-      status: falcon.status, approvalNo: falcon.approvalNo,
+      name: falcon.name, agreementRef: falcon.agreementRef, registeredIn: falcon.registeredIn,
+      licensingAuthority: falcon.licensingAuthority, status: falcon.status, approvalNo: falcon.approvalNo,
     },
   });
 
-  // 评审 R15 甲案：Falcon 建档审批——单步 CFO 已批，objectSnapshot 逐字对齐
-  // lp-profile-workflow.service.ts#initiateCreate 的真实快照形状（零 UUID；含背调结论与尽调引用）。
+  // 评审 R15 甲案：Falcon 准入审批——单步 CFO 已批。objectSnapshot 先取档案身份四键（零 UUID）；真实送审快照
+  // （lp-profile-workflow.service.ts#sendForApproval：另带风险档 / 附加条件 / 评估号）随 T9 种子整体重铺补齐。
   await prisma.approvalCase.upsert({
     where: { approvalNo: falconApprovalNo },
     update: {},
@@ -2242,8 +2261,7 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
       createdByUserId: treasuryUser.id, createdByUserNo: TREASURY_USER_NO,
       status: 'APPROVED', allowCancel: true,
       objectSnapshot: JSON.stringify({
-        lpNo: falcon.lpNo, name: falcon.name, agreementRef: falcon.agreementRef,
-        screeningAnswer: falcon.screeningAnswer, dueDiligenceRef: falcon.dueDiligenceRef,
+        lpNo: falcon.lpNo, name: falcon.name, registeredIn: falcon.registeredIn, licensingAuthority: falcon.licensingAuthority,
       }),
       traceId: `SEED_LP_PROFILE_${falcon.lpNo}`,
       createdAt: falconApprovalSubmittedAt, submittedAt: falconApprovalSubmittedAt,
@@ -2259,7 +2277,7 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     },
   });
 
-  console.log(`Seeded 2 LP profile rows (${falcon.name} ACTIVE / ${dune.name} SUSPENDED, both entity-screened GREEN) + 1 APPROVED profile-registration approval case.`);
+  console.log(`Seeded 2 LP profile rows (${falcon.name} ACTIVE / ${dune.name} SUSPENDED) + 1 APPROVED profile-registration approval case.`);
 
   // ── Falcon 打款地址簿三条（终态 ACTIVE，各配一张已批 LP_ADDRESS_APPROVAL）────────────
   // AED IBAN ×1（复用平台池 IBAN 生成器）+ USDT TRON ×2（演开单时多选；两个不同种子串），
