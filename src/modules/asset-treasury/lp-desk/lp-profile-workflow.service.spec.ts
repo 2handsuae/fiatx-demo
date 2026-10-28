@@ -564,10 +564,35 @@ describe('LpProfileWorkflowService.suspend / reactivate', () => {
     expect(deps.audits.map((a) => a.input.action)).toEqual(['LP_PROFILE_REACTIVATED']);
   });
 
-  it('评估中的档案不能被「启用」绕过评估（PENDING_ASSESSMENT → ACTIVE 没有边）', async () => {
+  // 启停各自钉死出发态：迁移表是共享的，`PENDING_APPROVAL → ACTIVE` 是审批批准那条边（LP_PROFILE_APPROVED 要 approvalNo + causation），
+  // 没钉出发态的 reactivate 会借这条边把待批档案直接写成 ACTIVE（绕过审批门），而随后的审计写入又因缺 approvalNo 抛错——
+  // 状态已变、无审计行。以下用例断言：被拒的调用既不改状态，也一条审计都不写。
+  it.each([
+    LpProfileStatus.PENDING_ASSESSMENT, LpProfileStatus.RETURNED, LpProfileStatus.PENDING_APPROVAL, LpProfileStatus.ACTIVE, LpProfileStatus.REJECTED,
+  ])('reactivate 只收 SUSPENDED：%s 态 → 400，状态不变，零审计行（待批 / 评估中的档案不能借「启用」绕过审批门或评估）', async (status) => {
     const deps = buildDeps();
-    const lpNo = await seedLp(deps);
-    await expect(deps.svc.reactivate(lpNo, { reason: 'skip the line' }, treasury)).rejects.toThrow(/Illegal LP profile status transition/);
-    expect(deps.rows.get(lpNo).status).toBe(LpProfileStatus.PENDING_ASSESSMENT);
+    const lpNo = await seedLp(deps, status);
+
+    await expect(deps.svc.reactivate(lpNo, { reason: 'skip the line' }, treasury)).rejects.toThrow(BadRequestException);
+
+    expect(deps.rows.get(lpNo).status).toBe(status);
+    expect(deps.audits).toEqual([]);
+  });
+
+  it('reactivate 未知 lpNo → 404', async () => {
+    const deps = buildDeps();
+    await expect(deps.svc.reactivate('LPP000000000000', { reason: 'x' }, treasury)).rejects.toThrow(NotFoundException);
+  });
+
+  it.each([
+    LpProfileStatus.PENDING_ASSESSMENT, LpProfileStatus.RETURNED, LpProfileStatus.PENDING_APPROVAL, LpProfileStatus.SUSPENDED, LpProfileStatus.REJECTED,
+  ])('suspend 只有 ACTIVE 一个合法出发态（表里通向 SUSPENDED 的边只有 ACTIVE→SUSPENDED，无边可借）：%s 态 → 400，状态不变，零审计行', async (status) => {
+    const deps = buildDeps();
+    const lpNo = await seedLp(deps, status);
+
+    await expect(deps.svc.suspend(lpNo, { reason: 'x' }, treasury)).rejects.toThrow(BadRequestException);
+
+    expect(deps.rows.get(lpNo).status).toBe(status);
+    expect(deps.audits).toEqual([]);
   });
 });

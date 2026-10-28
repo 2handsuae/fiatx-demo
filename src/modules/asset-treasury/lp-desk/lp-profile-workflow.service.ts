@@ -156,7 +156,14 @@ export class LpProfileWorkflowService {
     return { lpNo, status: updated.status as string };
   }
 
+  /** 只收 SUSPENDED。迁移表是共享的：`PENDING_APPROVAL → ACTIVE` 是审批批准那条边（审计码 LP_PROFILE_APPROVED，要 approvalNo + causation），
+   *  不钉出发态的话，待批档案会借这条边被直接写成 ACTIVE（绕过审批门），随后审计又因缺 approvalNo 抛错——状态已变而无痕。
+   *  （suspend 不需要同样的钉：表里通向 SUSPENDED 的边只有 ACTIVE → SUSPENDED，无边可借。） */
   async reactivate(lpNo: string, dto: ReactivateLpProfileDto, actor: ApprovalActorContext) {
+    const row = await this.profiles.findByNo(lpNo);
+    if (row.status !== LpProfileStatus.SUSPENDED) {
+      throw new BadRequestException(`Only a SUSPENDED liquidity provider can be reactivated (status=${row.status}).`);
+    }
     const updated = await this.profiles.transition(lpNo, LpProfileStatus.ACTIVE, {}, { actor, reason: dto.reason });
     return { lpNo, status: updated.status as string };
   }
