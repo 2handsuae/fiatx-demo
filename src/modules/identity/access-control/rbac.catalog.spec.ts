@@ -228,6 +228,48 @@ describe('rbac.catalog', () => {
     }
   });
 
+  // 甲波六 T6：服务商路由重写——运营申请（VENDOR_APPLY）、合规官独占背调（DUE_DILIGENCE_WRITE）与终止（VENDOR_REGISTER_WRITE）、
+  // CISO 独占信息安全评估（INFOSEC_ASSESSMENT_WRITE）、七职务读（VENDOR_READ）。合规官不再能直接登记 / 改服务商：
+  // POST /admin/outsourcing-vendors 现在是运营的「申请」，PATCH 路由整条退役。
+  it('service-provider routes: operations applies, only the compliance officer runs due diligence and terminates, only the CISO records infosec, seven roles read', () => {
+    const expected: Array<[string, string, string]> = [
+      ['GET', '/admin/outsourcing-vendors', 'VENDOR_READ'],
+      ['GET', '/admin/outsourcing-vendors/:vendorNo', 'VENDOR_READ'],
+      ['GET', '/admin/outsourcing-vendors/:vendorNo/documents', 'VENDOR_READ'],
+      ['GET', '/admin/outsourcing-vendors/:vendorNo/assessment', 'VENDOR_READ'],
+      ['POST', '/admin/outsourcing-vendors', 'VENDOR_APPLY'],
+      ['POST', '/admin/outsourcing-vendors/:vendorNo/resubmit', 'VENDOR_APPLY'],
+      ['POST', '/admin/outsourcing-vendors/:vendorNo/documents', 'VENDOR_APPLY'],
+      ['POST', '/admin/outsourcing-vendors/:vendorNo/assessment/screening-records', 'DUE_DILIGENCE_WRITE'],
+      ['POST', '/admin/outsourcing-vendors/:vendorNo/assessment/screening-records/:recordNo/evidence', 'DUE_DILIGENCE_WRITE'],
+      ['PATCH', '/admin/outsourcing-vendors/:vendorNo/assessment', 'DUE_DILIGENCE_WRITE'],
+      ['POST', '/admin/outsourcing-vendors/:vendorNo/assessment/conclude', 'DUE_DILIGENCE_WRITE'],
+      ['POST', '/admin/outsourcing-vendors/:vendorNo/assessment/upgrade-materiality', 'DUE_DILIGENCE_WRITE'],
+      ['POST', '/admin/outsourcing-vendors/:vendorNo/assessment/infosec', 'INFOSEC_ASSESSMENT_WRITE'],
+      ['POST', '/admin/outsourcing-vendors/:vendorNo/terminate', 'VENDOR_REGISTER_WRITE'],
+    ];
+    const map = buildRolePermissionCodeMap();
+    const READERS = ['COMPLIANCE_OFFICER', 'CISO', 'CFO', 'SENIOR_MANAGEMENT_OFFICER', 'INTERNAL_AUDITOR', 'TREASURY_OFFICER', 'OPS_OFFICER'];
+    for (const [method, path, group] of expected) {
+      const code = buildPermissionCode(method, path);
+      const def = RBAC_PERMISSION_DEFINITIONS.find((item) => item.code === code);
+      expect({ code, groups: def?.groups }).toEqual({ code, groups: [group] });
+      const holders = Object.keys(map).filter((role) => role !== 'SUPER_ADMIN' && map[role].includes(code)).sort();
+      if (group === 'VENDOR_READ') expect(holders).toEqual([...READERS].sort());
+      if (group === 'VENDOR_APPLY') expect(holders).toEqual(['OPS_OFFICER']);
+      if (group === 'DUE_DILIGENCE_WRITE') expect(holders).toEqual(['COMPLIANCE_OFFICER']);
+      if (group === 'INFOSEC_ASSESSMENT_WRITE') expect(holders).toEqual(['CISO']);
+      if (group === 'VENDOR_REGISTER_WRITE') expect(holders).toEqual(['COMPLIANCE_OFFICER']);
+    }
+  });
+
+  it('the retired PATCH /admin/outsourcing-vendors/:vendorNo is no longer a permission code anyone holds', () => {
+    const code = buildPermissionCode('PATCH', '/admin/outsourcing-vendors/:vendorNo');
+    expect(RBAC_PERMISSION_DEFINITIONS.find((item) => item.code === code)).toBeUndefined();
+    const map = buildRolePermissionCodeMap();
+    for (const role of Object.keys(map)) expect({ role, held: map[role].includes(code) }).toEqual({ role, held: false });
+  });
+
   // 甲波一 T5 修2（复审新 Important：族区分性质零红测，点 3 纯函数测试）：C1 修复的
   // 前提是这五个标记码各自只挂一个组、且互不相同——如果哪个码不小心挂了两个组，或两个码
   // 挂了同一个组，"族独占"的假设就塌了，assertOperator 的精确判定也就名不副实。

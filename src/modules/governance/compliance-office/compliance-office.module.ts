@@ -1,3 +1,5 @@
+// 甲波六 T6：服务商准入 workflow（OutsourcingVendorWorkflowService）+ 两个审批 handler（一般 CFO 单步 / 重大 CFO→高管）接进来；
+// 尽调评估（DueDiligenceService）与文件存储（DocumentsModule）T3 起已在本模块。
 // 战役甲波四 · 合规办公室骨架（Task 3/4/5）模块接线：T2 义务主体服务 + T3 到期开单 sweep +
 // T4 两本登记册（vendor/RI）主体服务 + T5 RI 换人审批链/闹钟墙聚合/控制器。导入
 // RegulatoryFilingsModule 拿 RegulatoryFilingService（sweep 命中序最后一步
@@ -14,6 +16,8 @@ import { RegulatoryFilingsModule } from '../regulatory-filings/regulatory-filing
 import { ComplianceObligationsService } from './compliance-obligations.service';
 import { ComplianceObligationSweepService } from './compliance-obligation-sweep.service';
 import { OutsourcingVendorsService } from './outsourcing-vendors.service';
+import { OutsourcingVendorWorkflowService } from './outsourcing-vendor-workflow.service';
+import { OutsourcingVendorApprovalService, OutsourcingVendorMaterialApprovalService } from './outsourcing-vendor-approval.service';
 import { DueDiligenceService } from './due-diligence.service';
 import { ResponsibleIndividualsService } from './responsible-individuals.service';
 import { ComplianceClockWallService } from './compliance-clock-wall.service';
@@ -28,6 +32,9 @@ import { ComplianceOfficeController } from './compliance-office.controller';
     ComplianceObligationsService,
     ComplianceObligationSweepService,
     OutsourcingVendorsService,
+    OutsourcingVendorWorkflowService,
+    OutsourcingVendorApprovalService,
+    OutsourcingVendorMaterialApprovalService,
     DueDiligenceService,
     ResponsibleIndividualsService,
     ComplianceClockWallService,

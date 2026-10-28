@@ -1974,21 +1974,50 @@ model ComplianceObligation {
   @@map("compliance_obligations")
 }
 
+// 战役甲波四 T4：外包供应商登记册。
+// 2026-10-29 甲波六：登记册改为服务商准入——运营填申请表（VARA IV.C.2.b 四项：交付地 / 数据地、涉个人数据、涉机密信息、联系人
+// + 重大性自判四问），系统判 criticality，合规官在尽调评估（DueDiligenceAssessment）里评估，再按重大性分流审批；
+// MATERIAL 批后落 PENDING_NOTIFICATION 等 VARA 事前报备告知单报送后才 ACTIVE。合规官不再直接登记 / 改行。
 model OutsourcingVendor {
-  id                 String    @id @default(uuid())
-  vendorNo           String    @unique
-  name               String
-  serviceDescription String
-  criticality        String    // MATERIAL | NON_MATERIAL
-  contractStart      DateTime
-  contractEnd        DateTime?
-  status             String    @default("ACTIVE") // ACTIVE | TERMINATED
-  notes              String?
-  createdByUserId    String
-  traceId            String
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  vendorPayments     VendorPayment[] @relation("VendorPayments")
+  id                       String    @id @default(uuid())
+  vendorNo                 String    @unique
+  name                     String    // 法定名称
+  registeredIn             String    // 注册地（国家 / 辖区）
+  registrationNo           String
+  deliveryLocations        String    // CSV：服务交付地 / 数据存放地（国家，可多个）
+  contactName              String
+  contactEmail             String
+  beneficialOwners         String    @default("[]") // JSON [{seq:number,name:string,nationality?:string}]；筛查记录按 seq + 姓名指认
+  licensingAuthority       String?   // 「受监管职能」答是时必填（服务层校验）
+  licenceNo                String?
+  serviceDescription       String
+  regulatedFunction        Boolean   // 是否受监管职能（MLRO / CISO / DPO 等 VARA IV.A.3 允许外包的职能）
+  contractStart            DateTime
+  contractEnd              DateTime?
+  involvesPersonalData     Boolean
+  involvesConfidentialInfo Boolean
+  annualFee                Decimal?
+  feeCurrency              String?
+  subcontracts             Boolean   @default(false)
+  subcontractorNames       String?
+  applicationReason        String
+  // 重大性自判四问（VARA Schedule 1「关键或重要职能」定义 (a)–(d)）：任一「会」→ 系统判 MATERIAL
+  impactLicence            Boolean   // 断了会不会影响牌照合规
+  impactLegal              Boolean   // 其他法律义务
+  impactFinancial          Boolean   // 财务表现
+  impactContinuity         Boolean   // 核心业务连续性
+  replaceability           String    // EASY | HARD（只供合规参考，不参与判定）
+  criticality              String    // MATERIAL | NON_MATERIAL（系统判；合规官可升不可降）
+  criticalityReason        String?   // 合规官升档理由
+  status                   String    @default("PENDING_ASSESSMENT") // PENDING_ASSESSMENT | RETURNED | PENDING_APPROVAL | PENDING_NOTIFICATION | ACTIVE | REJECTED | TERMINATED
+  approvalNo               String?
+  notificationFilingNo     String?   // MATERIAL 批后自动开出的「重大变更告知」报送单号
+  notes                    String?
+  createdByUserId          String
+  traceId                  String
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  vendorPayments           VendorPayment[] @relation("VendorPayments")
   @@index([status])
   @@map("outsourcing_vendors")
 }

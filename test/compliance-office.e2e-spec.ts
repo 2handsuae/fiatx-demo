@@ -26,6 +26,8 @@ import { ComplianceObligationsService } from '../src/modules/governance/complian
 import { ComplianceObligationSweepService } from '../src/modules/governance/compliance-office/compliance-obligation-sweep.service';
 import { ComplianceClockWallService } from '../src/modules/governance/compliance-office/compliance-clock-wall.service';
 import { OutsourcingVendorsService } from '../src/modules/governance/compliance-office/outsourcing-vendors.service';
+import { OutsourcingVendorWorkflowService } from '../src/modules/governance/compliance-office/outsourcing-vendor-workflow.service';
+import { ApplyVendorBodyDto } from '../src/modules/governance/compliance-office/dto/compliance-office.dto';
 import { ResponsibleIndividualsService } from '../src/modules/governance/compliance-office/responsible-individuals.service';
 import { RiReplacementWorkflowService } from '../src/modules/governance/compliance-office/ri-replacement-workflow.service';
 import { advanceDueDate } from '../src/modules/governance/compliance-office/compliance-office.constants';
@@ -41,7 +43,7 @@ import { AuditActions } from '../src/modules/audit-logging/constants/audit-actio
  *
  * 四段对应 task-8-brief.md：① 义务全弧（simulateDue→sweep 开单→翻期→报送单六态全弧办结）
  * ② 报送单 ⚡ 超时（simulateDeadlineTimeout→filing sweep→overdueMarkedAt+审计+墙上 overdue）
- * ③ 登记册（vendor 终态零出边；RI 换人批准/驳回/在途重复提 400）
+ * ③ 登记册（服务商准入全弧〔甲波六 T6：申请→评估→分流审批→一般 ACTIVE / 重大待报备〕+ 终态零出边；RI 换人批准/驳回/在途重复提 400）
  * ④ clock-wall 行集（按时提交下墙；DISABLED 义务下墙）。
  *
  * actor 工厂照 regulatory-filing.e2e-spec.ts 先例：
@@ -62,6 +64,7 @@ describe('Compliance office e2e (战役甲波四 · 合规办公室骨架, Task 
   let obligations: ComplianceObligationsService; let obligationSweep: ComplianceObligationSweepService;
   let clockWall: ComplianceClockWallService;
   let vendors: OutsourcingVendorsService;
+  let vendorWorkflow: OutsourcingVendorWorkflowService;
   let responsibleIndividuals: ResponsibleIndividualsService;
   let riReplacementWorkflow: RiReplacementWorkflowService;
 
@@ -71,6 +74,12 @@ describe('Compliance office e2e (战役甲波四 · 合规办公室骨架, Task 
   // regulatory-filing.e2e-spec.ts 的 smo() 先例，随机造 id 即可。
   const smoUserId = randomUUID();
   const smo = () => makeActor(smoUserId, 'E2E_CO_SMO', 'SENIOR_MANAGEMENT_OFFICER');
+  // 服务商准入（甲波六 T6）：运营申请、CISO 评估、CFO 第一步批——这三个角色都只经 workflow / ApprovalsService 的候选角色比对，
+  // 不查真实 DB 行绑定，随机造 id 即可。
+  const opsUserId = randomUUID(); const cisoUserId = randomUUID(); const cfoUserId = randomUUID();
+  const ops = () => makeActor(opsUserId, 'E2E_CO_OPS', 'OPS_OFFICER');
+  const ciso = () => makeActor(cisoUserId, 'E2E_CO_CISO', 'CISO');
+  const cfo = () => makeActor(cfoUserId, 'E2E_CO_CFO', 'CFO');
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -87,6 +96,7 @@ describe('Compliance office e2e (战役甲波四 · 合规办公室骨架, Task 
     obligationSweep = app.get(ComplianceObligationSweepService);
     clockWall = app.get(ComplianceClockWallService);
     vendors = app.get(OutsourcingVendorsService);
+    vendorWorkflow = app.get(OutsourcingVendorWorkflowService);
     responsibleIndividuals = app.get(ResponsibleIndividualsService);
     riReplacementWorkflow = app.get(RiReplacementWorkflowService);
 
@@ -229,28 +239,90 @@ describe('Compliance office e2e (战役甲波四 · 合规办公室骨架, Task 
     expect(wallRow!.overdue).toBe(true);
   });
 
-  it('③a 外包供应商登记册：建/改/终止；终态零出边（TERMINATED 上再打 terminate 显式拒——没有任何路径能回 ACTIVE）', async () => {
-    const { vendorNo } = await vendors.register(compliance(), {
-      name: 'e2e KYC Outsourcing Ltd', serviceDescription: 'Outsourced KYC document review',
-      criticality: 'MATERIAL', contractStart: '2026-01-01T00:00:00.000Z',
-    });
-    expect(vendorNo).toMatch(/^VEN/);
-    expect((await vendors.findByNo(vendorNo)).status).toBe('ACTIVE');
+  /** 服务商申请表：默认四问全「不会」（NON_MATERIAL）；给 impactContinuity: true 即判 MATERIAL。 */
+  const vendorForm = (overrides: Partial<ApplyVendorBodyDto> = {}): ApplyVendorBodyDto => ({
+    name: 'e2e Office Printing Ltd', registeredIn: 'United Arab Emirates (Dubai)', registrationNo: 'DED-E2E-0001',
+    deliveryLocations: ['AE'], contactName: 'E2E Contact', contactEmail: 'contact@e2e-vendor.example',
+    beneficialOwners: [{ seq: 1, name: 'E2E Owner One' }],
+    serviceDescription: 'Outsourced printing and mailing', regulatedFunction: false, contractStart: '2026-11-01',
+    involvesPersonalData: false, involvesConfidentialInfo: false, applicationReason: 'e2e vendor onboarding',
+    impactLicence: false, impactLegal: false, impactFinancial: false, impactContinuity: false, replaceability: 'EASY',
+    ...overrides,
+  });
 
-    await vendors.update(vendorNo, compliance(), { notes: 'e2e note: annual due-diligence review completed' });
-    expect((await vendors.findByNo(vendorNo)).notes).toBe('e2e note: annual due-diligence review completed');
+  /** 合规官把名单上的人逐名筛一遍（全绿）并定档——送审前提。 */
+  async function screenAndRate(vendorNo: string, form: ApplyVendorBodyDto) {
+    await vendorWorkflow.recordScreening(vendorNo, { subjectKind: 'COMPANY', subjectName: form.name, listsChecked: ['UN', 'OFAC'], result: 'GREEN' }, compliance());
+    for (const o of form.beneficialOwners ?? []) {
+      await vendorWorkflow.recordScreening(vendorNo, { subjectKind: 'BENEFICIAL_OWNER', subjectName: o.name, uboSeq: o.seq, listsChecked: ['UN', 'OFAC', 'PEP'], result: 'GREEN' }, compliance());
+    }
+    await vendorWorkflow.saveAssessment(vendorNo, { riskTier: 'LOW', opinion: 'e2e: clean file' }, compliance());
+  }
 
-    await vendors.terminate(vendorNo, compliance(), { notes: 'e2e: contract ended' });
-    expect((await vendors.findByNo(vendorNo)).status).toBe('TERMINATED');
+  it('③a 服务商准入：运营申请(系统判重大性)→合规评估→按重大性分流审批→一般 ACTIVE、重大 PENDING_NOTIFICATION(付款门拦)；合规官只剩终止，终态零出边', async () => {
+    // —— 一般路：四问全「不会」→ NON_MATERIAL → CFO 单步 → ACTIVE ——
+    const normalForm = vendorForm();
+    const normal = await vendorWorkflow.apply(normalForm, ops());
+    expect(normal.vendorNo).toMatch(/^VEN/);
+    expect(normal).toMatchObject({ status: 'PENDING_ASSESSMENT', criticality: 'NON_MATERIAL' });
+    await expect(vendors.assertActiveByNo(normal.vendorNo)).rejects.toThrow(/not ACTIVE/); // 申请中付不了款
 
-    // TERMINATED→ACTIVE 显式拒：本服务唯一的写路径是 terminate()，VENDOR_TRANSITIONS[TERMINATED]
-    // 是空数组——零出边，没有任何调用能把它带回 ACTIVE（同 outsourcing-vendors.service.spec.ts
-    // 判例：终态第二次 terminate 必 400）。
-    await expect(vendors.terminate(vendorNo, compliance())).rejects.toThrow(/Invalid vendor transition/);
+    // 缺名单筛查就送审 → 拒（门不可绕）
+    await expect(vendorWorkflow.conclude(normal.vendorNo, { conclusion: 'SENT_FOR_APPROVAL' }, compliance())).rejects.toThrow(/Screening missing/);
+    expect((await vendors.findByNo(normal.vendorNo)).status).toBe('PENDING_ASSESSMENT');
 
-    expect(await auditActionsFor('OUTSOURCING_VENDOR', vendorNo)).toEqual([
-      AuditActions.VENDOR_REGISTERED, AuditActions.VENDOR_UPDATED, AuditActions.VENDOR_TERMINATED,
+    await screenAndRate(normal.vendorNo, normalForm);
+    const sent = await vendorWorkflow.conclude(normal.vendorNo, { conclusion: 'SENT_FOR_APPROVAL' }, compliance());
+    expect(sent.status).toBe('PENDING_APPROVAL');
+    const normalApproval = await (prisma as any).approvalCase.findFirst({ where: { approvalNo: sent.approvalNo } });
+    expect(normalApproval.actionType).toBe(ApprovalActionTypes.VENDOR_APPROVAL);
+    // 送审后评估锁定
+    await expect(vendorWorkflow.saveAssessment(normal.vendorNo, { riskTier: 'LOW', opinion: 'late edit' }, compliance())).rejects.toThrow('Assessment is locked');
+
+    await approvalsService.approve(sent.approvalNo!, { reason: 'e2e CFO approve' }, cfo());
+    await waitUntil(async () => (await vendors.findByNo(normal.vendorNo)).status === 'ACTIVE');
+    await expect(vendors.assertActiveByNo(normal.vendorNo)).resolves.toBeUndefined();
+
+    // 终止（合规官）：ACTIVE → TERMINATED；终态零出边——再 terminate 显式拒
+    await vendorWorkflow.terminate(normal.vendorNo, { notes: 'e2e: contract ended' }, compliance());
+    expect((await vendors.findByNo(normal.vendorNo)).status).toBe('TERMINATED');
+    await expect(vendorWorkflow.terminate(normal.vendorNo, {}, compliance())).rejects.toThrow(/Illegal vendor status transition/);
+
+    expect(await auditActionsFor('OUTSOURCING_VENDOR', normal.vendorNo)).toEqual([
+      AuditActions.VENDOR_APPLIED, AuditActions.VENDOR_SENT_FOR_APPROVAL, AuditActions.VENDOR_APPROVED, AuditActions.VENDOR_TERMINATED,
     ]);
+
+    // —— 重大路：一个「会」→ MATERIAL → 要 CISO 评估 → CFO→高管两步 → PENDING_NOTIFICATION（批了也不能付款）——
+    const majorForm = vendorForm({ name: 'e2e Core Ledger Hosting LLC', impactContinuity: true, deliveryLocations: ['AE', 'IE'] });
+    const major = await vendorWorkflow.apply(majorForm, ops());
+    expect(major.criticality).toBe('MATERIAL');
+    await screenAndRate(major.vendorNo, majorForm);
+    // 重大服务商缺 CISO 评估 → 不能送审（等 CISO）
+    await expect(vendorWorkflow.conclude(major.vendorNo, { conclusion: 'SENT_FOR_APPROVAL' }, compliance())).rejects.toThrow(/CISO/);
+    await vendorWorkflow.recordInfosec(major.vendorNo, {
+      soc2: 'HAS', iso27001: 'HAS', dataLocationAcceptable: true, drPlanAcceptable: true, opinion: 'e2e: acceptable', verdict: 'ACCEPTABLE',
+    }, ciso());
+    const majorSent = await vendorWorkflow.conclude(major.vendorNo, { conclusion: 'SENT_FOR_APPROVAL' }, compliance());
+    const majorApproval = await (prisma as any).approvalCase.findFirst({ where: { approvalNo: majorSent.approvalNo } });
+    expect(majorApproval.actionType).toBe(ApprovalActionTypes.VENDOR_MATERIAL_APPROVAL);
+
+    await approvalsService.approve(majorSent.approvalNo!, { reason: 'e2e CFO step' }, cfo());
+    expect((await vendors.findByNo(major.vendorNo)).status).toBe('PENDING_APPROVAL'); // 两步单：第一步批完还没落地
+    await approvalsService.approve(majorSent.approvalNo!, { reason: 'e2e SMO step' }, smo());
+    await waitUntil(async () => (await vendors.findByNo(major.vendorNo)).status === 'PENDING_NOTIFICATION');
+    await expect(vendors.assertActiveByNo(major.vendorNo)).rejects.toThrow(/not ACTIVE/); // 报备门：待报备付不了款
+    // 合规官也不能借「终止」绕开报备门
+    await expect(vendorWorkflow.terminate(major.vendorNo, {}, compliance())).rejects.toThrow(/Illegal vendor status transition/);
+    expect((await vendors.findByNo(major.vendorNo)).status).toBe('PENDING_NOTIFICATION');
+
+    expect(await auditActionsFor('OUTSOURCING_VENDOR', major.vendorNo)).toEqual([
+      AuditActions.VENDOR_APPLIED, AuditActions.VENDOR_SENT_FOR_APPROVAL, AuditActions.VENDOR_APPROVED,
+    ]);
+    const approvedEvent = await (prisma as any).auditLogEvent.findFirst({
+      where: { primarySubjectType: 'OUTSOURCING_VENDOR', primarySubjectNo: major.vendorNo, action: AuditActions.VENDOR_APPROVED },
+    });
+    expect(JSON.parse(approvedEvent.metadata)).toMatchObject({ vendorNo: major.vendorNo });
+    expect(approvedEvent).toMatchObject({ fromStatus: 'PENDING_APPROVAL', toStatus: 'PENDING_NOTIFICATION', approvalNo: majorSent.approvalNo });
   });
 
   it('③b RI 登记册：建席位→提换人→高管批(incumbent 已换、pending 清空、RI_REPLACEMENT_APPLIED 携 approvalNo)→驳回分支(pending 清空不换人)→在途重复提 400', async () => {

@@ -655,13 +655,24 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   // ⚡ 演示装置——挂 Demo Instruments 组（金库），非 OBLIGATION_WRITE（合规官不是自己的裁决人，
   // 快进是演示者操作，同报送单⚡先例）。
   route('POST', '/admin/compliance-obligations/:obligationNo/simulate-due', 'Fast-forward obligation nextDueAt to now (demo only)', ['DEMO_CLOCK_WRITE']),
-  // OR 粗门（战役乙波二 T5，照 regulatory-filings 两族先例）：金库开付款单要选在册外包商
-  // （裁定 5），零权限扩张——只读名册两条 GET 加 FUNDING_WRITE，写路由三条不动。
-  route('GET', '/admin/outsourcing-vendors', 'List outsourcing vendors', ['COMPLIANCE_OFFICE_VIEW', 'FUNDING_WRITE']),
-  route('GET', '/admin/outsourcing-vendors/:vendorNo', 'Outsourcing vendor detail', ['COMPLIANCE_OFFICE_VIEW', 'FUNDING_WRITE']),
-  route('POST', '/admin/outsourcing-vendors', 'Register an outsourcing vendor', ['VENDOR_REGISTER_WRITE']),
-  route('PATCH', '/admin/outsourcing-vendors/:vendorNo', 'Update an outsourcing vendor', ['VENDOR_REGISTER_WRITE']),
-  route('POST', '/admin/outsourcing-vendors/:vendorNo/terminate', 'Terminate an outsourcing vendor', ['VENDOR_REGISTER_WRITE']),
+  // 甲波六 T6（spec §8）：外包商册改成服务商准入。读归 VENDOR_READ（替换原 COMPLIANCE_OFFICE_VIEW | FUNDING_WRITE 的 OR 粗门——
+  // CFO 两者皆无，而两步审批的每个批准人都要读得到详情）；POST 本体是运营的「申请」（VENDOR_APPLY），合规官不再能直接登记 / 修改
+  // （PATCH 路由整条退役）；合规评估四个写动作 + 升档归合规官独占（DUE_DILIGENCE_WRITE），信息安全评估归 CISO 独占
+  // （INFOSEC_ASSESSMENT_WRITE），终止仍归 VENDOR_REGISTER_WRITE。
+  route('GET', '/admin/outsourcing-vendors', 'List service providers', ['VENDOR_READ']),
+  route('GET', '/admin/outsourcing-vendors/:vendorNo', 'Get service provider detail', ['VENDOR_READ']),
+  route('GET', '/admin/outsourcing-vendors/:vendorNo/documents', 'List the application documents of a service provider', ['VENDOR_READ']),
+  route('GET', '/admin/outsourcing-vendors/:vendorNo/assessment', 'Get the due diligence assessment of a service provider', ['VENDOR_READ']),
+  route('POST', '/admin/outsourcing-vendors', 'Apply for a service provider', ['VENDOR_APPLY']),
+  route('POST', '/admin/outsourcing-vendors/:vendorNo/resubmit', 'Resubmit a returned service provider application', ['VENDOR_APPLY']),
+  route('POST', '/admin/outsourcing-vendors/:vendorNo/documents', 'Upload an application document of a service provider', ['VENDOR_APPLY']),
+  route('POST', '/admin/outsourcing-vendors/:vendorNo/assessment/screening-records', 'Record a screening result in the due diligence of a service provider', ['DUE_DILIGENCE_WRITE']),
+  route('POST', '/admin/outsourcing-vendors/:vendorNo/assessment/screening-records/:recordNo/evidence', 'Attach the evidence screenshot of a screening record', ['DUE_DILIGENCE_WRITE']),
+  route('PATCH', '/admin/outsourcing-vendors/:vendorNo/assessment', 'Save the risk tier and opinion of a service provider assessment', ['DUE_DILIGENCE_WRITE']),
+  route('POST', '/admin/outsourcing-vendors/:vendorNo/assessment/conclude', 'Conclude a service provider assessment: return / reject / send for approval', ['DUE_DILIGENCE_WRITE']),
+  route('POST', '/admin/outsourcing-vendors/:vendorNo/assessment/upgrade-materiality', 'Upgrade a service provider from NON_MATERIAL to MATERIAL', ['DUE_DILIGENCE_WRITE']),
+  route('POST', '/admin/outsourcing-vendors/:vendorNo/assessment/infosec', 'Record the CISO information-security assessment of a service provider', ['INFOSEC_ASSESSMENT_WRITE']),
+  route('POST', '/admin/outsourcing-vendors/:vendorNo/terminate', 'Terminate a service provider', ['VENDOR_REGISTER_WRITE']),
   route('GET', '/admin/responsible-individuals', 'List responsible individual seats', ['COMPLIANCE_OFFICE_VIEW']),
   route('GET', '/admin/responsible-individuals/:riNo', 'Responsible individual seat detail', ['COMPLIANCE_OFFICE_VIEW']),
   route('POST', '/admin/responsible-individuals', 'Register a responsible individual seat', ['RI_REGISTER_WRITE']),

@@ -1711,9 +1711,17 @@ async function seedComplianceObligations(prisma: PrismaClient): Promise<void> {
 // 保幂等。
 // ─────────────────────────────────────────────────────────────
 
+// 甲波六 T6（2026-10-29）：服务商册改成服务商准入（申请表字段全部必填列）——三家种子补齐新必填列（最小改动让种子能跑），
+// 状态仍直铺 ACTIVE、不走流程重放；尽调评估 / CISO 评估 / 审批单 / 历史告知单随 T9 整体重铺。四问答案与 criticality 一致
+// （任一「会」→ MATERIAL，同 judgeCriticality）。
 const OUTSOURCING_VENDOR_SEEDS: Array<{
   seedKey: string; name: string; serviceDescription: string;
   criticality: 'MATERIAL' | 'NON_MATERIAL'; contractStart: string; notes: string;
+  registeredIn: string; registrationNo: string; deliveryLocations: string;
+  contactName: string; contactEmail: string; applicationReason: string;
+  involvesPersonalData: boolean; involvesConfidentialInfo: boolean;
+  impactLicence: boolean; impactLegal: boolean; impactFinancial: boolean; impactContinuity: boolean;
+  replaceability: 'EASY' | 'HARD';
 }> = [
   {
     seedKey: 'vendor-sumsub',
@@ -1722,6 +1730,15 @@ const OUTSOURCING_VENDOR_SEEDS: Array<{
     criticality: 'MATERIAL',
     contractStart: '2025-01-01',
     notes: 'Material Outsourcing assessment: core AML/KYC screening function — loss of service directly impairs onboarding and sanctions screening.',
+    registeredIn: 'United Kingdom',
+    registrationNo: 'UK-SEED-100231',
+    deliveryLocations: 'GB,DE',
+    contactName: 'Account Team',
+    contactEmail: 'accounts@sumsub.example',
+    applicationReason: 'Outsourced identity verification and sanctions screening for customer onboarding',
+    involvesPersonalData: true, involvesConfidentialInfo: true,
+    impactLicence: true, impactLegal: true, impactFinancial: false, impactContinuity: true,
+    replaceability: 'HARD',
   },
   {
     seedKey: 'vendor-hextrust',
@@ -1730,6 +1747,15 @@ const OUTSOURCING_VENDOR_SEEDS: Array<{
     criticality: 'MATERIAL',
     contractStart: '2025-01-01',
     notes: 'Material Outsourcing assessment: custodial control of client digital assets — loss of service directly impairs deposit/withdrawal availability.',
+    registeredIn: 'Singapore',
+    registrationNo: 'SG-SEED-200774',
+    deliveryLocations: 'SG,AE',
+    contactName: 'Institutional Desk',
+    contactEmail: 'institutional@hextrust.example',
+    applicationReason: 'Third-party custody of client digital assets and wallet infrastructure',
+    involvesPersonalData: false, involvesConfidentialInfo: true,
+    impactLicence: true, impactLegal: false, impactFinancial: true, impactContinuity: true,
+    replaceability: 'HARD',
   },
   {
     seedKey: 'vendor-office-it',
@@ -1738,6 +1764,15 @@ const OUTSOURCING_VENDOR_SEEDS: Array<{
     criticality: 'NON_MATERIAL',
     contractStart: '2025-06-01',
     notes: 'Material Outsourcing assessment: non-critical corporate IT support, no client-facing or regulatory-critical function.',
+    registeredIn: 'United Arab Emirates (Dubai)',
+    registrationNo: 'DED-SEED-310552',
+    deliveryLocations: 'AE',
+    contactName: 'Service Desk',
+    contactEmail: 'servicedesk@gulf-office-systems.example',
+    applicationReason: 'Day-to-day office IT support for the Dubai team',
+    involvesPersonalData: false, involvesConfidentialInfo: false,
+    impactLicence: false, impactLegal: false, impactFinancial: false, impactContinuity: false,
+    replaceability: 'EASY',
   },
 ];
 
@@ -1745,23 +1780,20 @@ async function seedOutsourcingVendors(prisma: PrismaClient): Promise<void> {
   let seeded = 0;
   for (const sample of OUTSOURCING_VENDOR_SEEDS) {
     const vendorNo = buildDeterministicNo('VEN', sample.seedKey);
+    const { seedKey: _seedKey, contractStart, ...fields } = sample;
     await prisma.outsourcingVendor.upsert({
       where: { vendorNo },
       update: {
-        name: sample.name,
-        serviceDescription: sample.serviceDescription,
-        criticality: sample.criticality,
-        contractStart: new Date(sample.contractStart),
-        notes: sample.notes,
+        ...fields,
+        contractStart: new Date(contractStart),
+        regulatedFunction: false,
         status: VendorStatus.ACTIVE,
       },
       create: {
         vendorNo,
-        name: sample.name,
-        serviceDescription: sample.serviceDescription,
-        criticality: sample.criticality,
-        contractStart: new Date(sample.contractStart),
-        notes: sample.notes,
+        ...fields,
+        contractStart: new Date(contractStart),
+        regulatedFunction: false,
         status: VendorStatus.ACTIVE,
         createdByUserId: 'SEED',
         traceId: `seed-${vendorNo}`,

@@ -483,12 +483,10 @@ export const AuditActions = {
   OBLIGATION_FILING_GENERATED: 'OBLIGATION_FILING_GENERATED',
   OBLIGATION_DUE_FASTFORWARDED: 'OBLIGATION_DUE_FASTFORWARDED',
   // ── 战役甲波四 T4（2026-09-27）：合规办公室两本登记册 ──────────────
-  VENDOR_REGISTERED: 'VENDOR_REGISTERED',
-  VENDOR_UPDATED: 'VENDOR_UPDATED',
+  // （VENDOR_REGISTERED / VENDOR_UPDATED 已在甲波六 T6 随合规官直接登记 / 直接修改整体退役：写点全删、码值摘出本表，
+  //   登 DEPRECATED_AUDIT_ACTIONS；服务商的「登记」现在是运营的申请 VENDOR_APPLIED。）
   VENDOR_TERMINATED: 'VENDOR_TERMINATED',
   // ── 甲波六 T1（2026-10-29）：服务商准入流程（申请→背调→审批→报备→在册）与尽调评估 ──────
-  // VENDOR_REGISTERED / VENDOR_UPDATED 在 T6 随旧 register / update 路由退役（届时登 DEPRECATED_AUDIT_ACTIONS），
-  // 本任务不动（closure ③ 要求退役码的写点先删）。
   VENDOR_APPLIED: 'VENDOR_APPLIED',
   VENDOR_RETURNED: 'VENDOR_RETURNED',
   VENDOR_RESUBMITTED: 'VENDOR_RESUBMITTED',
@@ -1232,19 +1230,17 @@ export const COMPLIANCE_OFFICE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = 
   // ⚡ 演示装置（挂路由在 T5）：把 nextDueAt 拨到 now，供演示者立刻触发生成。
   OBLIGATION_DUE_FASTFORWARDED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['nextDueAt'], requiresCausation: false },
 
-  // ── 战役甲波四 T4（2026-09-27）：两本登记册七码，同组共用（域 GOVERNANCE）。
-  // vendor：REGISTERED 铸旅程（S），UPDATED/TERMINATED 是对已存在行的直接一次性操作，
-  // 同 OBLIGATION_UPDATED/STATUS_CHANGED 先例标 N。
-  VENDOR_REGISTERED:  { domain: 'GOVERNANCE', correlationMode: S, requiredFields: ['criticality'], requiresCausation: false },
-  VENDOR_UPDATED:     { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
+  // ── 战役甲波四 T4（2026-09-27）：两本登记册，同组共用（域 GOVERNANCE）。
+  // vendor：TERMINATED 是对已存在行的直接一次性操作，同 OBLIGATION_UPDATED/STATUS_CHANGED 先例标 N。
+  // （原 REGISTERED / UPDATED 两码甲波六 T6 退役，见 DEPRECATED_AUDIT_ACTIONS。）
   VENDOR_TERMINATED:  { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
 
   // ── 甲波六 T1（2026-10-29，spec §9）：服务商准入流程十一码 + 尽调评估五码 + 文件上传一码，
   // 同组共用（域 GOVERNANCE；不新建注册表对象——新建要连改 audit-logs.service `??` 链、闭合 spec
   // 「十八册」文案、export-audit-vocab，见 spec §9 决定）。写点在 T6（服务商）/ T3 / T4 / T6（评估）/ T2（文件）。
-  //  · VENDOR_APPLIED 铸旅程（S，必填 criticality，同旧 VENDOR_REGISTERED 先例）；其余服务商状态边
+  //  · VENDOR_APPLIED 铸旅程（S，必填 criticality，沿用旧 VENDOR_REGISTERED 的契约）；其余服务商状态边
   //    都是对已存在行的单步操作，标 N 并必填 fromStatus/toStatus（铁律 ④：每条状态边 metadata 带 from/to）。
-  //    旧 VENDOR_REGISTERED / VENDOR_UPDATED 暂留，T6 退役。
+  //    旧 VENDOR_REGISTERED / VENDOR_UPDATED 已在 T6 退役。
   //  · VENDOR_MATERIALITY_UPGRADED（重大性升档，必填 reason）、VENDOR_NOTIFICATION_OPENED（MATERIAL 的
   //    VARA 事前报备告知单自动开出，必填 filingNo）。
   //  · DD_*：评估壳 OPENED 铸旅程（S，targetType = LP | VENDOR）；其余四码标 I 继承评估壳旅程。
@@ -1603,6 +1599,9 @@ export const DEPRECATED_AUDIT_ACTIONS: readonly string[] = [
   // 甲波六 T4（2026-10-29）：LP 实体背调 mock 整体退役（建档即筛 + 登记即拒；筛查改为合规官在尽调评估里逐名人工登记），
   // 唯一写点随 lp-profile.service 的 create 改写而删，码值登退役闸
   'LP_PROFILE_SCREENED',
+  // 甲波六 T6（2026-10-29）：合规官直接登记 / 直接修改外包商整体退役（服务商改走运营申请 → 背调 → 审批；合规官只剩终止），
+  // 两个写点随 OutsourcingVendorsService 的 register / update 一并删除，码值登退役闸
+  'VENDOR_REGISTERED', 'VENDOR_UPDATED',
 ] as const;
 
 /** 第七幕波二（2026-09-16）：承诺写 audit_log_subjects 子表的码族名册。
