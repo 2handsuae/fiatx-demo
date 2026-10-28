@@ -2,34 +2,48 @@
 // 战役乙波一 Task 7：LP 档案详情——基本信息 + 动作区（状态×持码双维，禁加第三维）
 // + 审计区。模板：InternalTransferDetail.tsx（结构/fetch/权限门控写法）。
 // 铁律⑥：后端投影已无 UUID，本页类型里也不出现。
-// LP 两步准入 Task 7：加「Entity Screening」背调结论区与「Payout Addresses」打款地址簿区块
+// LP 两步准入 Task 7：加「Payout Addresses」打款地址簿区块
 // （列表行 + Register modal；条目详情在 LpPayoutAddressDetail.tsx，route-only）。
 // LP 两步准入 Task 9：档案不再持有结算坐标——「Settlement Coordinates」区块与「Propose settlement
 // change」入口随四坐标列一并退役，收款坐标只在打款地址簿里。
+// 甲波六 T5：档案即「尽调申请」——原背调结论卡退役，换成三块：Documents（尽调文件）、Due Diligence
+// （合规评估，面板与文件卡两条线共用）、Approval（审批链接）；「已退回」态头部给「Edit & resubmit」。
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
 import { DetailCard, DetailPageHeader, InfoField, InfoSlot } from '../components/compliance/DetailPageComponents';
+import { DocumentsCard, type StoredDocumentView } from '../components/compliance/DocumentsCard';
+import { DueDiligencePanel, type DueDiligenceView } from '../components/compliance/DueDiligencePanel';
 import { AdminBadge } from '../components/ui/AdminBadge';
 import { ScreeningBadge } from '../components/ui/AddressBadges';
+import { PartnerStatusPill } from '../components/ui/PartnerStatusPill';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
-import { StatusPill } from '../components/ui/StatusPill';
 import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { LP_DOC_TYPE_LABELS, LP_TRADING_TYPE_LABELS, docTypeOptions, labelOf, RISK_TIER_LABELS } from '../utils/partnerStatusMap';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 
+/** 后端 LpProfileView（零 id、零 UUID）。 */
 interface Detail {
   lpNo: string;
   name: string;
+  registeredIn: string;
+  registrationNo: string;
+  licensingAuthority: string;
+  licenceNo: string;
+  beneficialOwners: { seq: number; name: string; nationality?: string }[];
+  tradingTypes: string[];
+  expectedMonthlyVolume: string;
+  volumeCurrency: string;
+  applicationReason: string;
   agreementRef: string;
+  agreementStart: string | null;
+  contactName: string;
+  contactEmail: string;
   status: string;
   approvalNo: string | null;
-  /** 建档时刻的实体背调结论与尽调档案引用号 */
-  screeningAnswer: string | null;
-  screenedAt: string | null;
-  dueDiligenceRef: string | null;
   createdBy: string;
   createdAt: string;
 }
@@ -236,7 +250,13 @@ const LpProfileDetail = () => {
   const canReactivate = hasPermission(PERMISSIONS.LP_PROFILE_REACTIVATE);
   const canReadAddresses = hasPermission(PERMISSIONS.LP_PAYOUT_ADDRESSES_READ);
   const canRegisterAddress = hasPermission(PERMISSIONS.LP_PAYOUT_ADDRESS_CREATE);
+  const canResubmit = hasPermission(PERMISSIONS.LP_PROFILE_RESUBMIT);
+  const canUploadDocs = hasPermission(PERMISSIONS.LP_DOCUMENT_UPLOAD);
+  const canWriteAssessment = hasPermission(PERMISSIONS.DUE_DILIGENCE_WRITE);
+  const canWriteInfosec = hasPermission(PERMISSIONS.INFOSEC_ASSESSMENT_WRITE);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [assessment, setAssessment] = useState<DueDiligenceView | null>(null);
+  const [documents, setDocuments] = useState<StoredDocumentView[]>([]);
   const [addresses, setAddresses] = useState<PayoutAddress[]>([]);
   const [showRegisterAddress, setShowRegisterAddress] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -275,8 +295,34 @@ const LpProfileDetail = () => {
     }
   };
 
+  // 评估壳：存量老档案（尚未按新流程重铺）没有 → 后端 404，面板显示「无评估」而不是报错。
+  const fetchAssessment = async () => {
+    if (!lpNo) return;
+    try {
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/lp-profiles/${encodeURIComponent(lpNo)}/assessment`);
+      setAssessment(res.ok ? ((await res.json()) as DueDiligenceView) : null);
+    } catch (e) {
+      if (e instanceof AdminSessionError) return;
+      console.error(e);
+    }
+  };
+
+  const fetchDocuments = async () => {
+    if (!lpNo) return;
+    try {
+      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/lp-profiles/${encodeURIComponent(lpNo)}/documents`);
+      if (res.ok) {
+        const data = await res.json();
+        setDocuments(Array.isArray(data) ? data : []);
+      }
+    } catch (e) {
+      if (e instanceof AdminSessionError) return;
+      console.error(e);
+    }
+  };
+
   const refreshAll = async () => {
-    await Promise.all([fetchDetail(), fetchAddresses()]);
+    await Promise.all([fetchDetail(), fetchAssessment(), fetchDocuments(), fetchAddresses()]);
   };
 
   useEffect(() => {
@@ -349,8 +395,17 @@ const LpProfileDetail = () => {
         refreshing={loading}
         backLabel="LP Register"
       >
-        <StatusPill value={detail.status} size="md" />
+        <PartnerStatusPill status={detail.status} size="md" />
         <ViewAuditTrailButton params={{ subjectNo: detail.lpNo }} />
+        {detail.status === 'RETURNED' && canResubmit && (
+          <button
+            type="button"
+            onClick={() => navigate(`/admin/lp-profiles/${encodeURIComponent(detail.lpNo)}/resubmit`)}
+            className={adminButtonClass('workflowPrimary')}
+          >
+            Edit &amp; resubmit
+          </button>
+        )}
         {detail.status === 'ACTIVE' && canSuspend && (
           <button type="button" disabled={working} onClick={() => void suspend()} className={adminButtonClass('workflowNegative')}>
             Suspend
@@ -377,15 +432,26 @@ const LpProfileDetail = () => {
         </div>
       )}
 
-      {detail.status === 'PENDING_APPROVAL' && (
+      {detail.status === 'RETURNED' && (
         <div className="border-b border-adm-border bg-adm-amber/10 px-5 py-2 font-mono text-[11px] text-adm-amber">
-          Pending CFO review — read-only until decided.
+          Returned for documents.
+          {assessment?.conclusion === 'RETURNED' && assessment.conclusionReason ? ` Reason: ${assessment.conclusionReason}` : ''}
+          {' '}Treasury can edit the application, add the missing documents and resubmit it.
         </div>
       )}
 
-      {detail.status === 'REJECTED' && detail.screeningAnswer === 'RED' && (
+      {detail.status === 'PENDING_APPROVAL' && (
+        <div className="border-b border-adm-border bg-adm-amber/10 px-5 py-2 font-mono text-[11px] text-adm-amber">
+          Pending approval ({assessment?.riskTier === 'HIGH' ? 'CFO, then senior management' : 'CFO'}) — the application, documents and
+          assessment are read-only until it is decided.
+        </div>
+      )}
+
+      {detail.status === 'REJECTED' && (
         <div className="border-b border-adm-border bg-adm-red/10 px-5 py-2 font-mono text-[11px] text-adm-red">
-          Entity screening returned RED at registration — rejected on the spot, no approval was opened.
+          {assessment?.conclusion === 'REJECTED' && assessment.conclusionReason
+            ? `Rejected by compliance: ${assessment.conclusionReason}`
+            : 'Rejected in the approval step.'}
         </div>
       )}
 
@@ -393,22 +459,92 @@ const LpProfileDetail = () => {
         <div className="flex-1 space-y-4 overflow-y-auto p-6">
           <DetailCard title="Liquidity Provider" columns={3}>
             <InfoField label="Name" value={detail.name} />
+            <InfoField label="Registered In" value={detail.registeredIn} />
+            <InfoField label="Registration No." value={detail.registrationNo} mono />
+            <InfoField label="Licensing Authority" value={detail.licensingAuthority} />
+            <InfoField label="Licence No." value={detail.licenceNo} mono />
             <InfoField label="Agreement Ref" value={detail.agreementRef} mono />
-            <InfoField
-              label="Approval"
-              value={detail.approvalNo}
-              mono
-              link={detail.approvalNo ? `/admin/governance/approvals/${encodeURIComponent(detail.approvalNo)}` : undefined}
-            />
           </DetailCard>
 
-          <DetailCard title="Entity Screening" columns={3}>
-            <InfoSlot label="Verdict">
-              {detail.screeningAnswer ? <ScreeningBadge answer={detail.screeningAnswer} /> : <span className="text-adm-t3">—</span>}
-            </InfoSlot>
-            <InfoField label="Screened At" value={detail.screenedAt ? new Date(detail.screenedAt).toLocaleString() : null} mono />
-            <InfoField label="Due Diligence Ref" value={detail.dueDiligenceRef} mono />
+          <DetailCard title="Application" columns={3}>
+            <InfoField label="Trading Types" value={detail.tradingTypes.map((t) => labelOf(LP_TRADING_TYPE_LABELS, t)).join(' · ')} />
+            <InfoField
+              label="Expected Monthly Volume"
+              value={`${Number(detail.expectedMonthlyVolume).toLocaleString('en-US', { maximumFractionDigits: 8 })} ${detail.volumeCurrency}`}
+              mono
+            />
+            <InfoField label="Agreement Start" value={detail.agreementStart ? detail.agreementStart.slice(0, 10) : null} mono />
+            <InfoField label="Contact" value={detail.contactName} />
+            <InfoField label="Contact Email" value={detail.contactEmail} mono />
+            <InfoSlot label="Reason for the Application"><span className="whitespace-pre-wrap">{detail.applicationReason}</span></InfoSlot>
           </DetailCard>
+
+          <DetailCard title={`Beneficial Owners · ${detail.beneficialOwners.length}`} columns={1}>
+            <div className="-m-4">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-adm-border text-left text-adm-t3">
+                    {['#', 'Name', 'Nationality'].map((h) => (
+                      <th key={h} className="px-4 py-2 font-mono text-[10px] uppercase tracking-wide">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {detail.beneficialOwners.map((o) => (
+                    <tr key={o.seq} className="border-b border-adm-border/60">
+                      <td className="px-4 py-2 font-mono text-adm-t3">#{o.seq}</td>
+                      <td className="px-4 py-2">{o.name}</td>
+                      <td className="px-4 py-2 text-adm-t2">{o.nationality ?? '—'}</td>
+                    </tr>
+                  ))}
+                  {detail.beneficialOwners.length === 0 && (
+                    <tr>
+                      <td colSpan={3} className="px-4 py-5 text-center text-adm-t3">No beneficial owners listed on the application</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </DetailCard>
+
+          <DocumentsCard
+            ownerKind="LP"
+            ownerNo={detail.lpNo}
+            basePath="/admin/lp-profiles"
+            docTypes={docTypeOptions(LP_DOC_TYPE_LABELS)}
+            documents={documents}
+            canUpload={canUploadDocs && (detail.status === 'PENDING_ASSESSMENT' || detail.status === 'RETURNED')}
+            onChanged={() => void fetchDocuments()}
+          />
+
+          <DueDiligencePanel
+            kind="LP"
+            targetNo={detail.lpNo}
+            basePath="/admin/lp-profiles"
+            assessment={assessment}
+            locked={detail.status !== 'PENDING_ASSESSMENT' && detail.status !== 'RETURNED'}
+            canWrite={canWriteAssessment}
+            canWriteInfosec={canWriteInfosec}
+            requireInfosec={false}
+            onChanged={() => void refreshAll()}
+          />
+
+          {detail.approvalNo && (
+            <DetailCard title="Approval" columns={3}>
+              <InfoField
+                label="Approval"
+                value={detail.approvalNo}
+                mono
+                link={`/admin/governance/approvals/${encodeURIComponent(detail.approvalNo)}`}
+              />
+              <InfoSlot label="Route">
+                {assessment?.riskTier === 'HIGH' ? 'CFO, then senior management' : 'CFO'}
+                {assessment?.riskTier && (
+                  <span className="font-mono text-[10px] text-adm-t3">({labelOf(RISK_TIER_LABELS, assessment.riskTier)} risk)</span>
+                )}
+              </InfoSlot>
+            </DetailCard>
+          )}
 
           {canReadAddresses && (
             <div className="overflow-hidden rounded-lg border border-adm-border bg-adm-panel shadow-sm">

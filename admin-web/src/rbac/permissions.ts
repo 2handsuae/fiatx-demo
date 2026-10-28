@@ -197,6 +197,8 @@ export const PERMISSIONS = {
   DUE_DILIGENCE_WRITE: 'api.post.admin_lp_profiles_lpno_assessment_conclude',
   INFOSEC_ASSESSMENT_WRITE: 'api.post.admin_outsourcing_vendors_vendorno_assessment_infosec',
   LP_PROFILE_RESUBMIT: 'api.post.admin_lp_profiles_lpno_resubmit',
+  // 甲波六 T5：LP 档案上传尽调文件（LP_WRITE 组，route() 在 T4 已落地）——详情页「Documents」卡的上传入口门控。
+  LP_DOCUMENT_UPLOAD: 'api.post.admin_lp_profiles_lpno_documents',
 
   // 战役甲波五（Task 9）：投诉工作流——两个键名精确照 rbac.catalog.ts 的 PermissionGroup
   // 字面量（COMPLAINT_READ/COMPLAINT_WRITE，route() 507-513 行）。列表/详情两个 GET 路由

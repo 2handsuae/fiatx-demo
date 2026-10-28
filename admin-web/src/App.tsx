@@ -59,6 +59,7 @@ const InternalTransferList = lazy(() => import('./pages/InternalTransferList'));
 const InternalTransferDetail = lazy(() => import('./pages/InternalTransferDetail'));
 const LpProfileList = lazy(() => import('./pages/LpProfileList'));
 const LpProfileDetail = lazy(() => import('./pages/LpProfileDetail'));
+const LpProfileApplyPage = lazy(() => import('./pages/LpProfileApplyPage'));
 const LpPayoutAddressDetail = lazy(() => import('./pages/LpPayoutAddressDetail'));
 const LpExchangeList = lazy(() => import('./pages/LpExchangeList'));
 const LpExchangeDetail = lazy(() => import('./pages/LpExchangeDetail'));
@@ -249,7 +250,10 @@ function App() {
 
             {/* 战役乙波一（Task 7）：LP 档案——金库注册 / CFO 批 */}
             <Route path="lp-profiles" element={withPermission(<LpProfileList />, [PERMISSIONS.LP_PROFILES_READ])} />
+            {/* 甲波六 T5：尽调申请页——静态段 new 先于动态段 :lpNo；重提仅「已退回」态可进（页内再判） */}
+            <Route path="lp-profiles/new" element={withPermission(<LpProfileApplyPage />, [PERMISSIONS.LP_PROFILE_CREATE])} />
             <Route path="lp-profiles/:lpNo" element={withPermission(<LpProfileDetail />, [PERMISSIONS.LP_PROFILE_DETAIL_READ])} />
+            <Route path="lp-profiles/:lpNo/resubmit" element={withPermission(<LpProfileApplyPage />, [PERMISSIONS.LP_PROFILE_RESUBMIT])} />
             {/* LP 两步准入 Task 7：打款地址详情——route-only（入口在档案详情的 Payout addresses 区块与审批回链），不进侧栏 */}
             <Route path="lp-payout-addresses/:addressNo" element={withPermission(<LpPayoutAddressDetail />, [PERMISSIONS.LP_PAYOUT_ADDRESS_DETAIL_READ])} />
 
