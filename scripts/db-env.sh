@@ -16,6 +16,13 @@ default_database_url() {
   echo "file:/tmp/exchange_js_${scope}/dev.db"
 }
 
+# 文件存储目录（甲波六 T2）：与 default_database_url 同一套作用域净化，落在该栈数据目录的兄弟位 files/。
+default_file_storage_dir() {
+  local scope
+  scope="$(sanitize_db_scope "${1:-main}")"
+  echo "/tmp/exchange_js_${scope}/files"
+}
+
 read_database_url() {
   local root_dir="$1"
   local scope="${2:-}"

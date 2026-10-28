@@ -42,6 +42,7 @@ clean="$(printf '%s' "${body}" | sed -E 's/^[[:space:]]*([A-Za-z_][A-Za-z0-9_]*=
 echo "[on-stack/${stack}] DATABASE_URL=${db_url}"
 echo "[on-stack/${stack}] TB_ADDRESS=${TB_ADDRESS}"
 echo "[on-stack/${stack}] TB_DATA_FILE=${TB_DATA_FILE}"
+echo "[on-stack/${stack}] FILE_STORAGE_DIR=${FILE_STORAGE_DIR}"
 echo "[on-stack/${stack}] script '${script}' -> ${clean} $*"
 
 cd "${APP_DIR}"
@@ -50,4 +51,4 @@ cd "${APP_DIR}"
 # TB_DATA_FILE (Task 12 fix): scripts/dev-tigerbeetle.sh (invoked by db:reset:business)
 # now reads this to target the right stack's TB instance instead of always main's —
 # see that script's header comment for the incident that made this necessary.
-exec env PATH="${APP_DIR}/node_modules/.bin:${PATH}" DATABASE_URL="${db_url}" TB_ADDRESS="${TB_ADDRESS}" TB_DATA_FILE="${TB_DATA_FILE}" bash -c "${clean} \"\$@\"" _ "$@"
+exec env PATH="${APP_DIR}/node_modules/.bin:${PATH}" DATABASE_URL="${db_url}" TB_ADDRESS="${TB_ADDRESS}" TB_DATA_FILE="${TB_DATA_FILE}" FILE_STORAGE_DIR="${FILE_STORAGE_DIR}" bash -c "${clean} \"\$@\"" _ "$@"

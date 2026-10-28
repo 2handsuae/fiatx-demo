@@ -141,6 +141,10 @@ load_stack_config() {
   ADMIN_URL="http://localhost:${ADMIN_PORT}"
   CLIENT_URL="http://localhost:${CLIENT_PORT}"
   TB_ADDRESS="127.0.0.1:${TB_PORT}"
+  # 文件存储目录（甲波六 T2）：main / self 同源，STACK 已在上面的 case 里定下。export 让 reset 里
+  # 起的 seed 子进程与 on-stack.sh 包装的脚本都拿得到；后端进程另经 ensure_env_files 写进 .env。
+  FILE_STORAGE_DIR="$(default_file_storage_dir "${STACK}")"
+  export FILE_STORAGE_DIR
 
   RUNTIME_DIR="/tmp/exchange_js_runtime_${STACK}"
   BACKEND_LOG="${RUNTIME_DIR}/backend.log"
@@ -272,8 +276,9 @@ ensure_env_files() {
   local backend_env="${APP_DIR}/.env"
   local admin_env="${APP_DIR}/admin-web/.env"
   local client_env="${APP_DIR}/client-web/.env"
-  local default_db_url
+  local default_db_url default_file_dir
   default_db_url="$(default_database_url "${STACK}")"
+  default_file_dir="$(default_file_storage_dir "${STACK}")"
 
   # 权威重写:每次 up 把 stack 管理键改成 load_stack_config 为「本栈」分到的端口/URL。
   # 其它键(密钥、MFA_ISSUER、SUMSUB_MOCK_MODE …)一律保留。自愈脏/陈旧 .env,
@@ -286,6 +291,8 @@ ensure_env_files() {
   upsert_env_key "${backend_env}" "CLIENT_URL"   "${CLIENT_URL}"
   upsert_env_key "${backend_env}" "DATABASE_URL" "\"${default_db_url}\""
   upsert_env_key "${backend_env}" "TB_ADDRESS"   "${TB_ADDRESS}"
+  # 后端进程由 stack-up.sh 直接 node 起，读的是本文件——缺它则首个文件上传当场抛 FILE_STORAGE_DIR is not set。
+  upsert_env_key "${backend_env}" "FILE_STORAGE_DIR" "${default_file_dir}"
   # 演示开关:仅在缺失时补默认,不覆盖操作者已设的值。
   grep -qE "^GOVERNANCE_DEMO_ENABLED=" "${backend_env}" \
     || printf 'GOVERNANCE_DEMO_ENABLED=true\n' >>"${backend_env}"

@@ -8,6 +8,7 @@ import { AuthModule } from './modules/identity/auth/auth.module';
 import { AccessControlModule } from './modules/identity/access-control/access-control.module';
 import { CustomersModule } from './modules/identity/customers/customers.module';
 import { NotificationsModule } from './core/notifications/notifications.module';
+import { DocumentsModule } from './core/documents/documents.module';
 import { AssetsModule } from './modules/asset-treasury/assets/assets.module';
 import { WalletsModule } from './modules/asset-treasury/wallets/wallets.module';
 import { WithdrawalAddressesModule } from './modules/asset-treasury/withdrawal-addresses/withdrawal-addresses.module';
@@ -72,6 +73,7 @@ import { TransactionLimitsModule as TransactionLimitRulesModule } from './module
     AccessControlModule,
     CustomersModule,
     NotificationsModule,
+    DocumentsModule,
     AssetsModule,
     WalletsModule,
     WithdrawalAddressesModule,

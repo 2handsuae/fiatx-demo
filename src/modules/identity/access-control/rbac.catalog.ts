@@ -542,6 +542,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/lp-exchanges/:exchangeNo/simulate-delivery', 'Simulate the LP delivering the buy leg to the front desk (demo only)', ['LP_WRITE']),
   route('GET', '/admin/lp-exchanges', 'List LP exchanges', ['LP_READ']),
   route('GET', '/admin/lp-exchanges/:exchangeNo', 'Get LP exchange detail (with funds-order legs)', ['LP_READ']),
+  // ─── 甲波六 T2 · 文件下载（DocumentsController，横切件）：LP 详情读者或服务商详情读者任一即可（OR 粗门，
+  // 照 outsourcing-vendors GET 先例）；上传端点各归 owner 控制器，不在此处。路由不是桶，不加桶。───
+  route('GET', '/admin/documents/:docNo/content', 'Download a stored due-diligence document', ['LP_READ', 'VENDOR_READ']),
   // ─── 战役乙波二 T3 · 注资单（CapitalInjection）：单腿进项，写动作全归 FUNDING_WRITE ───
   // simulate-contribution 是 ⚡演示件，但推的是单据不是时间——归 FUNDING_WRITE，不挂
   // DEMO_CLOCK_WRITE（同 LP simulate-delivery 归组先例）。静态段先于 :cinNo（同 490 区惯例）。

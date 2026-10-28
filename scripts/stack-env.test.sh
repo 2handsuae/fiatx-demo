@@ -35,6 +35,7 @@ assert "root API_PORT 自愈为 3600"            '^API_PORT=3600$'              
 assert "root TB_ADDRESS 自愈为 3603(补齐)"    '^TB_ADDRESS=127\.0\.0\.1:3603$'        "${TMP}/.env"
 assert "root DATABASE_URL 自愈"                '^DATABASE_URL="file:/tmp/exchange_js_wt_self-test/dev.db"$' "${TMP}/.env"
 assert "自定义键 MFA_ISSUER 被保留"            '^MFA_ISSUER=KeepMe$'                   "${TMP}/.env"
+assert "root FILE_STORAGE_DIR 补齐(按栈作用域净化)" '^FILE_STORAGE_DIR=/tmp/exchange_js_self_test/files$' "${TMP}/.env"
 assert "admin VITE_API_URL 自愈为 3600"        '^VITE_API_URL=http://localhost:3600$'  "${TMP}/admin-web/.env"
 assert "client VITE_API_URL 自愈(新建)"        '^VITE_API_URL=http://localhost:3600$'  "${TMP}/client-web/.env"
 # 幂等:再跑一次不产生重复行
@@ -55,6 +56,7 @@ assert "main:API_PORT 重写为 3000"                    '^API_PORT=3000$'      
 assert "main:TB_ADDRESS 重写为 3003"                  '^TB_ADDRESS=127\.0\.0\.1:3003$' "${TMP2}/.env"
 assert "main:DATABASE_URL 指主库"                     '^DATABASE_URL="file:/tmp/exchange_js_main/dev.db"$' "${TMP2}/.env"
 assert "main:不覆盖操作者的 GOVERNANCE_DEMO_ENABLED=false" '^GOVERNANCE_DEMO_ENABLED=false$' "${TMP2}/.env"
+assert "main:FILE_STORAGE_DIR 指主栈数据目录"        '^FILE_STORAGE_DIR=/tmp/exchange_js_main/files$' "${TMP2}/.env"
 rm -rf "${TMP2}"
 
 [ "${fail}" = "0" ] && { echo "PASS"; exit 0; } || { echo "FAIL"; exit 1; }

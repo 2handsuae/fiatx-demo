@@ -61,6 +61,11 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   // 子先删；否则旧库里 e2e/RBAC 探针建出的 filing 行会在 reset 后原样留存）。
   'regulatoryFilingEntry',
   'regulatoryFiling',
+  // 文件元数据（甲波六 T2 加表）：ownerType/ownerNo 是文本业务键、无 FK，删除顺序不敏感；
+  // 排在 owner 父表（liquidityProvider / outsourcingVendor 等）之前，与「子先删」书写习惯一致。
+  // 磁盘上的文件由 reset-stack.sh 连目录一起清，不在此处理。
+  'storedDocument',
+
   // 公司资金台（战役乙波二 T1 加表——capitalInjection FK → asset(RESTRICT)；vendorPayment
   // 另 FK → outsourcingVendor(RESTRICT)，必须排在下方 outsourcingVendor 之前。funds_orders 的
   // 第六/第七父键 FK → 本两表(ON DELETE CASCADE)，但 fundsOrder 已在上方「Funds layer」段更早

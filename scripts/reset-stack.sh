@@ -84,6 +84,12 @@ echo "[${STACK}] syncing base IAM config"
   DATABASE_URL="${db_url}" npm run db:base:sync
 )
 
+# 文件存储目录连根清掉再建（甲波六 T2）：元数据行由下面的 db:biz:reset 清，二进制只能在这里清——
+# 否则重铺后磁盘上留着上一轮的孤儿文件。种子（下一步）要往里写占位 PDF，所以清完立即重建。
+echo "[${STACK}] resetting file storage: ${FILE_STORAGE_DIR}"
+rm -rf "${FILE_STORAGE_DIR}"
+mkdir -p "${FILE_STORAGE_DIR}"
+
 echo "[${STACK}] clearing business data"
 (
   cd "${APP_DIR}"
@@ -97,7 +103,8 @@ echo "[${STACK}] re-seeding business demo"
   # 子进程平时能拿到全靠 Prisma 导入时自己加载 .env——而 .env 由 `stack.sh up` 生成。
   # 新 worktree 若先 reset 后 up，.env 尚不存在，seed 会静默跳过 TB 建户与资本注入
   # （退出码仍 0），后果是账本空着、verify:coa 负余额在很远的地方才炸。见 TOOLING-DEBT。
-  DATABASE_URL="${db_url}" TB_ADDRESS="${TB_ADDRESS}" npm run db:seed:business
+  # FILE_STORAGE_DIR 同理显式传（seed 要写占位 PDF，缺它即抛）。
+  DATABASE_URL="${db_url}" TB_ADDRESS="${TB_ADDRESS}" FILE_STORAGE_DIR="${FILE_STORAGE_DIR}" npm run db:seed:business
 )
 
 echo ""

@@ -2219,3 +2219,22 @@ model DataSubjectRequest {
   @@index([status])
   @@map("data_subject_requests")
 }
+
+// 甲波六 T2（2026-10-29）：系统首个文件存储的元数据表。二进制只落 FILE_STORAGE_DIR，库里只记「谁的、什么类、
+// 多大、落在哪」。归属是 (ownerType, ownerNo) 两个文本业务键，不挂 FK——LP / 服务商 / 筛查记录三类主体共用一张表
+// （各管各的：各 owner 主体只通过 DocumentsService 写本表）。
+model StoredDocument {
+  id               String   @id @default(uuid())
+  docNo            String   @unique          // DOC…，对外唯一识别
+  ownerType        String                    // LIQUIDITY_PROVIDER | OUTSOURCING_VENDOR | SCREENING_RECORD
+  ownerNo          String                    // 归属对象的业务号（LPP… / VEN… / SCR…）
+  docType          String                    // 文件类别，枚举见 documents.constants.ts
+  originalName     String
+  mimeType         String
+  sizeBytes        Int
+  storagePath      String                    // 落盘绝对路径 ${FILE_STORAGE_DIR}/${ownerType}/${ownerNo}/${docNo}${ext}
+  uploadedByUserId String                    // 上传人 userNo（ADM…），管理台零 UUID
+  uploadedAt       DateTime @default(now())
+  @@index([ownerType, ownerNo])
+  @@map("stored_documents")
+}

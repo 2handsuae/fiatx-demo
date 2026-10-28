@@ -34,7 +34,8 @@ export const adminFetch = async (
 
   const headers = new Headers(init.headers || {});
   headers.set('Authorization', `Bearer ${token}`);
-  if (init.body !== undefined && !headers.has('Content-Type')) {
+  // FormData 的 Content-Type 必须由浏览器带上 multipart boundary 生成；强塞 JSON 会让后端收不到文件。
+  if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json');
   }
 
