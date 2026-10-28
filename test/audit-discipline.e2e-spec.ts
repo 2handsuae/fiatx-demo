@@ -29,7 +29,7 @@ describe('审批裁决审计留痕纪律（铁律① 操作必留痕）', () => 
     // 见 approval-expiry.e2e-spec.ts 同款注释：AppModule 挂了大量共享事件名的
     // @OnEvent handler，超过 EventEmitter2 默认 maxListeners=10 时「possible memory
     // leak」警告会被抛成异常而不是打印警告。app.init() 之前把上限提高。
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
     prisma = app.get(PrismaService);
     approvalsService = app.get(ApprovalsService);
@@ -112,7 +112,7 @@ describe('权限守卫拒绝留痕纪律（法一纪律4 ADMIN_ACCESS_DENIED）'
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
     prisma = app.get(PrismaService);
   });
@@ -162,7 +162,7 @@ describe('审批端点对外识别（铁律⑥ 对外用业务键）', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
     prisma = app.get(PrismaService);
   });
@@ -213,7 +213,7 @@ describe('成员 / 钱包端点对外识别（铁律⑥ 对外用业务键）', 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
     prisma = app.get(PrismaService);
   });
@@ -280,7 +280,7 @@ describe('游离端点收编纪律（业主裁决5：内审零 Act 补全）', (
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
     prisma = app.get(PrismaService);
   });

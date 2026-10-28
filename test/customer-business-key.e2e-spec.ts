@@ -21,7 +21,7 @@ describe('客户域业务键路由（铁律⑥ 对外用业务键）', () => {
     app = moduleRef.createNestApplication();
     // 见 approval-expiry.e2e-spec.ts 同款注释：AppModule 挂了大量共享事件名的
     // @OnEvent handler，app.init() 之前把 EventEmitter2 上限提高。
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
     prisma = app.get(PrismaService);
 

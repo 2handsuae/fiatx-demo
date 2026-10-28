@@ -94,7 +94,7 @@ describe('AML reporting family e2e (战役甲波三 · 报文族联动, Task 8)'
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
 
     prisma = app.get(PrismaService);

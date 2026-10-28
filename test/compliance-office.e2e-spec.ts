@@ -75,7 +75,7 @@ describe('Compliance office e2e (战役甲波四 · 合规办公室骨架, Task 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
     prisma = app.get(PrismaService);
 

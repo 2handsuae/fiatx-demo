@@ -21,7 +21,8 @@ describe('邀请过期清扫（ADMIN_INVITE_EXPIRED 从死码活过来）', () =
     // 同 approval-expiry e2e-spec 的注释：本模块图里挂了不少共享事件名的
     // @OnEvent handler，超过 EventEmitter2 默认 maxListeners=10 会被这套
     // Jest/Node 组合抛成异常而非警告。app.init() 前把上限提高。
-    app.get(EventEmitter2).setMaxListeners(50);
+    // 上限取 0（不限）：审批 handler 数随每波增长，固定上限在 handler 达 52 个时（2026-10-29）已让本 spec 起不来。
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
     prisma = app.get(PrismaService);
     expiry = app.get(InviteExpiryService);

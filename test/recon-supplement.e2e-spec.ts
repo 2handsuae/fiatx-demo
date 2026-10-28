@@ -103,7 +103,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
 
     prisma = app.get(PrismaService);

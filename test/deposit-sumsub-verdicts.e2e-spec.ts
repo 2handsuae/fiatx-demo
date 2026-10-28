@@ -174,7 +174,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     // AppModule wires many @OnEvent handlers onto shared event names, past
     // EventEmitter2's default maxListeners=10 a possible-memory-leak warning would
     // throw under this Jest/Node combo. Raise the cap before app.init().
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
 
     prisma = app.get(PrismaService);

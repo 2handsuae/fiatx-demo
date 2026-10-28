@@ -82,7 +82,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     }).compile();
 
     app = moduleRef.createNestApplication();
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
 
     prisma = app.get(PrismaService);

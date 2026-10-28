@@ -206,7 +206,7 @@ describe('Customer lifecycle restrictions (e2e, Task 14)', () => {
     app = moduleRef.createNestApplication();
     // 全量 AppModule 往同名事件挂了远超 EventEmitter2 默认 maxListeners=10 的
     // handler，不抬高会在 init 时抛 possible-memory-leak（同 Task 10/12 harness）。
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
 
     prisma = app.get(PrismaService);

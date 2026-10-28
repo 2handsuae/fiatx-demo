@@ -97,7 +97,7 @@ describe('Deposit/swap/withdraw roster (e2e, Task C2 + C3)', () => {
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     const app = moduleRef.createNestApplication();
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
 
     const prisma: any = app.get(PrismaService);

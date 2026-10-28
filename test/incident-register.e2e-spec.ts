@@ -114,7 +114,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleRef.createNestApplication();
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
     prisma = app.get(PrismaService);
     dispositions = app.get(DispositionService); adjustments = app.get(AdjustmentService);

@@ -21,7 +21,7 @@ describe('审批超时门（⑥ 门不可绕）', () => {
     // 见 sla.e2e-spec.ts 同款注释：AppModule 挂了大量共享事件名的 @OnEvent handler，
     // 超过 EventEmitter2 默认 maxListeners=10 时，这套 Jest/Node 组合下「possible
     // memory leak」警告会被抛成异常而不是打印警告。app.init() 之前把上限提高。
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
     prisma = app.get(PrismaService);
     expiry = app.get(ApprovalExpiryService);

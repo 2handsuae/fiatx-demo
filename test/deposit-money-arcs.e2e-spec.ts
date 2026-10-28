@@ -96,7 +96,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
 
     app = moduleRef.createNestApplication();
     // See deposit-sumsub-scenarios.e2e-spec.ts for why this cap is raised before app.init().
-    app.get(EventEmitter2).setMaxListeners(50);
+    app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
 
     prisma = app.get(PrismaService);
