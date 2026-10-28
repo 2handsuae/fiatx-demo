@@ -65,6 +65,9 @@ const BUSINESS_DELEGATES_FK_SAFE: string[] = [
   // 排在 owner 父表（liquidityProvider / outsourcingVendor 等）之前，与「子先删」书写习惯一致。
   // 磁盘上的文件由 reset-stack.sh 连目录一起清，不在此处理。
   'storedDocument',
+  // 尽调评估两表（甲波六 T3 加表）：screening_records FK → due_diligence_assessments(RESTRICT)，子先删。
+  'screeningRecord',
+  'dueDiligenceAssessment',
 
   // 公司资金台（战役乙波二 T1 加表——capitalInjection FK → asset(RESTRICT)；vendorPayment
   // 另 FK → outsourcingVendor(RESTRICT)，必须排在下方 outsourcingVendor 之前。funds_orders 的

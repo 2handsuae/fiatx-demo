@@ -2238,3 +2238,55 @@ model StoredDocument {
   @@index([ownerType, ownerNo])
   @@map("stored_documents")
 }
+
+// 甲波六 T3（2026-10-29）：尽调评估壳（合规办公室域，DDA…）。LP 与服务商两条线共用：(targetType, targetNo) 指向
+// 被评估对象（LP 号 LPP… / 服务商号 VEN…，文本业务键、不挂 FK），每个对象至多一份。评估本身不设状态列——
+// 「能不能改」跟着所属 LP / 服务商的状态走（可写窗口由两线 workflow 把关）。结论 / 退回原因覆盖存最新一轮，往轮看审计。
+// 下挂筛查记录（逐名）。CISO 信息安全评估（infosec*）只对重大服务商填写，其余恒空。
+model DueDiligenceAssessment {
+  id                    String    @id @default(uuid())
+  assessmentNo          String    @unique       // DDA…，对外唯一识别
+  targetType            String                  // LIQUIDITY_PROVIDER | OUTSOURCING_VENDOR
+  targetNo              String                  // 被评估对象的业务号
+  riskTier              String?                 // LOW | MEDIUM | HIGH
+  opinion               String?
+  conditions            String?
+  conclusion            String?                 // RETURNED | REJECTED | SENT_FOR_APPROVAL（最新一轮）
+  conclusionReason      String?
+  concludedAt           DateTime?
+  concludedByUserId     String?                 // userNo（ADM…）
+  infosecSoc2           String?                 // HAS | NONE | EXPIRED
+  infosecIso27001       String?                 // HAS | NONE | EXPIRED
+  infosecDataLocationOk Boolean?
+  infosecDrPlanOk       Boolean?
+  infosecOpinion        String?
+  infosecVerdict        String?                 // ACCEPTABLE | UNACCEPTABLE
+  infosecByUserId       String?
+  infosecAt             DateTime?
+  createdByUserId       String
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  screeningRecords      ScreeningRecord[]
+  @@unique([targetType, targetNo])
+  @@map("due_diligence_assessments")
+}
+
+// 逐名筛查记录（SCR…）：公司名 + 每位实际控制人各至少一条才算「已筛」。UBO 记录以 (uboSeq, subjectName)
+// 指认具体某一位；对象删了人，其记录留着、不再计入（判定在尽调服务，不在表）。
+model ScreeningRecord {
+  id               String                 @id @default(uuid())
+  recordNo         String                 @unique   // SCR…
+  assessmentId     String
+  assessment       DueDiligenceAssessment @relation(fields: [assessmentId], references: [id])
+  subjectKind      String                 // COMPANY | BENEFICIAL_OWNER
+  subjectName      String
+  uboSeq           Int?                   // 仅 BENEFICIAL_OWNER
+  listsChecked     String                 // 逗号分隔的名单代码（UN,OFAC,…）
+  result           String                 // GREEN | YELLOW | RED
+  screenedAt       DateTime
+  evidenceDocNo    String?                // DOC…，证据截图（stored_documents.docNo）
+  recordedByUserId String                 // userNo（ADM…）
+  createdAt        DateTime               @default(now())
+  @@index([assessmentId])
+  @@map("screening_records")
+}

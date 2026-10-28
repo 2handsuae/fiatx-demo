@@ -7,12 +7,14 @@
 // customers.module.ts（SanctionDispositionWorkflowService）同款先例。
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
+import { DocumentsModule } from '../../../core/documents/documents.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { ApprovalsModule } from '../approvals/approvals.module';
 import { RegulatoryFilingsModule } from '../regulatory-filings/regulatory-filings.module';
 import { ComplianceObligationsService } from './compliance-obligations.service';
 import { ComplianceObligationSweepService } from './compliance-obligation-sweep.service';
 import { OutsourcingVendorsService } from './outsourcing-vendors.service';
+import { DueDiligenceService } from './due-diligence.service';
 import { ResponsibleIndividualsService } from './responsible-individuals.service';
 import { ComplianceClockWallService } from './compliance-clock-wall.service';
 import { RiReplacementApprovalService } from './ri-replacement-approval.service';
@@ -20,17 +22,18 @@ import { RiReplacementWorkflowService } from './ri-replacement-workflow.service'
 import { ComplianceOfficeController } from './compliance-office.controller';
 
 @Module({
-  imports: [PrismaModule, AuditLogsModule, ApprovalsModule, RegulatoryFilingsModule],
+  imports: [PrismaModule, AuditLogsModule, ApprovalsModule, RegulatoryFilingsModule, DocumentsModule],
   controllers: [ComplianceOfficeController],
   providers: [
     ComplianceObligationsService,
     ComplianceObligationSweepService,
     OutsourcingVendorsService,
+    DueDiligenceService,
     ResponsibleIndividualsService,
     ComplianceClockWallService,
     RiReplacementApprovalService,
     RiReplacementWorkflowService,
   ],
-  exports: [ComplianceObligationsService, OutsourcingVendorsService, ResponsibleIndividualsService],
+  exports: [ComplianceObligationsService, OutsourcingVendorsService, DueDiligenceService, ResponsibleIndividualsService],
 })
 export class ComplianceOfficeModule {}
