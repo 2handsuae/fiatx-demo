@@ -315,8 +315,11 @@ describe('Compliance office e2e (战役甲波四 · 合规办公室骨架, Task 
     await expect(vendorWorkflow.terminate(major.vendorNo, {}, compliance())).rejects.toThrow(/Illegal vendor status transition/);
     expect((await vendors.findByNo(major.vendorNo)).status).toBe('PENDING_NOTIFICATION');
 
+    // 甲波六 T7：批准落地（迁 PENDING_NOTIFICATION）之后紧接着报送台开告知单、单号盖回服务商——开单在迁状态之后，故先等盖章，
+    // 服务商审计里才多出 VENDOR_NOTIFICATION_OPENED（报备门全程另见 vendor-onboarding.e2e-spec.ts）。
+    await waitUntil(async () => !!(await vendors.findByNo(major.vendorNo)).notificationFilingNo);
     expect(await auditActionsFor('OUTSOURCING_VENDOR', major.vendorNo)).toEqual([
-      AuditActions.VENDOR_APPLIED, AuditActions.VENDOR_SENT_FOR_APPROVAL, AuditActions.VENDOR_APPROVED,
+      AuditActions.VENDOR_APPLIED, AuditActions.VENDOR_SENT_FOR_APPROVAL, AuditActions.VENDOR_APPROVED, AuditActions.VENDOR_NOTIFICATION_OPENED,
     ]);
     const approvedEvent = await (prisma as any).auditLogEvent.findFirst({
       where: { primarySubjectType: 'OUTSOURCING_VENDOR', primarySubjectNo: major.vendorNo, action: AuditActions.VENDOR_APPROVED },

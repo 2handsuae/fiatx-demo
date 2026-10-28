@@ -171,8 +171,8 @@ export const DOMAIN_EVENTS = {
 
   // ── Regulatory Filing 标记已提交（甲波六 T1，2026-10-29）──
   // 一手域事件（非审批派生）：报送台把一张报送单标记为已提交（SUBMITTED，带监管回执 externalRef）后，
-  // 由 RegulatoryFilingService 发出；服务商准入流程里 MATERIAL 的「VARA 事前报备」告知单（T6 自动开出）
-  // 靠它回头把服务商 PENDING_FILING 推进到 ACTIVE。跨主体协作只发生在 workflow，故订阅方是
+  // 由 RegulatoryFilingService 发出；服务商准入流程里 MATERIAL 的「VARA 事前报备」告知单（T7 自动开出）
+  // 靠它回头把服务商 PENDING_NOTIFICATION 推进到 ACTIVE。跨主体协作只发生在 workflow，故订阅方是
   // OutsourcingVendorWorkflowService，而不是报送台自己调服务商服务。
   REGULATORY_FILING_SUBMITTED: {
     name: 'regulatory-filing.submitted',

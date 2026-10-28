@@ -14,8 +14,10 @@
 // applySignoffDecision 是审批裁决异步驱动、无 actor 可判，同样不接 assertFamily。
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { RegulatoryFiling } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
+import { DOMAIN_EVENTS } from '../../../common/events/domain-events.constants';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditBusinessWorkflowTypes, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
@@ -49,6 +51,7 @@ export class RegulatoryFilingService {
     private readonly prisma: PrismaService,
     private readonly auditLogs: AuditLogsService,
     private readonly accessControl: AccessControlService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ── 族独占断言（T3，照 incident.service.ts 的 assertOperator 先例）───────────
@@ -393,6 +396,11 @@ export class RegulatoryFilingService {
       extra: { externalRef: dto.externalRef },
       metadata: { chainDeadlineSetFor, externalRef: dto.externalRef },
     });
+    // 甲波六 T7：报送台首个对外事件——状态已落库、审计已写，才广播「已报送」。跨主体协作只发生在 workflow：
+    // 服务商准入 workflow（OutsourcingVendorWorkflowService）订阅它，按自己记的 notificationFilingNo 认领；本服务不知道谁在听。
+    this.eventEmitter.emit(DOMAIN_EVENTS.REGULATORY_FILING_SUBMITTED.name, {
+      filingNo, type: row.type, externalRef: dto.externalRef,
+    });
     return { filingNo, chainDeadlineSetFor };
   }
 
@@ -608,6 +616,48 @@ export class RegulatoryFilingService {
       metadata: {
         source: 'RI_REPLACEMENT', riNo: change.riNo, approvalNo: change.approvalNo,
         authority: row.authority, deadlineAt: deadlineAt ? deadlineAt.toISOString() : null,
+      },
+      extra: { type: 'MATERIAL_CHANGE_NOTIFICATION' },
+    });
+    return { filingNo: row.filingNo };
+  }
+
+  /** 甲波六 T7（spec §5.5，供 OutsourcingVendorWorkflowService 调用）：MATERIAL 服务商的 VARA 事前报备门——
+   * 批准落地（reason='ONBOARDING'）或终止（reason='TERMINATION'）后自动开一张 MATERIAL_CHANGE_NOTIFICATION。
+   * 系统动作，无 actor（调用方是审批裁决 / 终止驱动的 workflow，同 openForRiChange 先例，不走 assertFamily；
+   * 合规官接手后走 GENERAL 族六态全链原样）。DRAFT 态、无钟（该类型无钟配置，deadlineAt 恒为 null）；
+   * body 预填五行（服务商名 / 服务范围 / 交付地与数据地 / 重大性 / 合同起始日），合规官可在草稿里改。
+   * 入参全是调用方直传的服务商快照——本服务不越域读 outsourcing_vendors（铁律③）；报送单表**无 entityRef 列**，
+   * 关联方向是服务商自己记 notificationFilingNo（只有 ONBOARDING 这张会被盖章，TERMINATION 那张不认领）。 */
+  async openForVendorNotification(input: {
+    vendorNo: string; vendorName: string; serviceDescription: string; deliveryLocations: string[];
+    criticality: 'MATERIAL'; contractStart: string; approvalNo?: string; reason: 'ONBOARDING' | 'TERMINATION';
+  }): Promise<{ filingNo: string }> {
+    const cfg = getFilingTypeConfig('MATERIAL_CHANGE_NOTIFICATION');
+    const deadlineAt = this.computeDeadline(cfg, undefined, {});
+    const onboarding = input.reason === 'ONBOARDING';
+    const traceId = randomUUID();
+    const row = await this.prisma.regulatoryFiling.create({
+      data: {
+        filingNo: generateReferenceNo('FIL'), direction: cfg.direction, type: 'MATERIAL_CHANGE_NOTIFICATION',
+        authority: cfg.defaultAuthority as string,
+        title: `Material outsourcing — ${input.vendorName}: ${onboarding ? 'onboarding' : 'termination'}`,
+        body: [
+          `Provider: ${input.vendorName}`,
+          `Scope: ${input.serviceDescription}`,
+          `Delivery & data locations: ${input.deliveryLocations.join(', ')}`,
+          `Materiality: ${input.criticality}`,
+          `Contract start: ${input.contractStart}`,
+        ].join('\n'),
+        deadlineAt, status: FilingStatus.DRAFT,
+        createdByUserId: 'SYSTEM', traceId,
+      },
+    });
+
+    await this.recordAudit(row, AuditActions.FILING_OPENED, null, {
+      approvalNo: input.approvalNo,   // 审计行专列：审计详情页 Authorization 区可见并蓝链跳审批中心（终止联动无审批，恒空）
+      metadata: {
+        source: onboarding ? 'VENDOR_ONBOARDING' : 'VENDOR_TERMINATION', vendorNo: input.vendorNo, approvalNo: input.approvalNo,
       },
       extra: { type: 'MATERIAL_CHANGE_NOTIFICATION' },
     });

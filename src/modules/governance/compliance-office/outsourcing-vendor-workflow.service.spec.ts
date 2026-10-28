@@ -43,6 +43,7 @@ const dto = (overrides: Partial<ApplyVendorBodyDto> = {}): ApplyVendorBodyDto =>
 });
 
 const ASSESSMENT_NO = 'DDA260101000001';
+const FILING_NO = 'FIL260101000001';
 const assessmentView = (overrides: Record<string, unknown> = {}) => ({
   assessmentNo: ASSESSMENT_NO, targetType: 'OUTSOURCING_VENDOR', targetNo: 'x',
   riskTier: 'LOW', opinion: 'Clean file, standard hosting terms', conditions: null,
@@ -87,6 +88,9 @@ function buildDeps() {
         return updated;
       }),
       findUnique: jest.fn(async ({ where }: any) => rows.get(where.vendorNo) ?? null),
+      // 按 where 的每个键值真匹配（不是无视过滤的 mock）——findByNotificationFilingNo 靠它按告知单号反查
+      findFirst: jest.fn(async ({ where }: any) =>
+        [...rows.values()].find((r) => Object.entries(where).every(([k, v]) => r[k] === v)) ?? null),
     },
   };
   // 生产那道词表校验亲自跑一遍每条信封（缺必填 / 缺 causation / 域不符都会当场抛，同生产）
@@ -112,8 +116,9 @@ function buildDeps() {
     store: jest.fn(async () => ({ docNo: 'DOC260101000001' })),
     listByOwner: jest.fn(async () => [{ docNo: 'DOC260101000001', docType: 'CONTRACT' }]),
   };
-  const svc = new OutsourcingVendorWorkflowService(vendors, approvals as any, dueDiligence as any, documents as any);
-  return { svc, vendors, prisma, rows, audits, approvals, dueDiligence, documents };
+  const filings = { openForVendorNotification: jest.fn(async (_input: any) => ({ filingNo: FILING_NO })) };
+  const svc = new OutsourcingVendorWorkflowService(vendors, approvals as any, dueDiligence as any, documents as any, filings as any);
+  return { svc, vendors, prisma, rows, audits, approvals, dueDiligence, documents, filings };
 }
 type Deps = ReturnType<typeof buildDeps>;
 
@@ -566,10 +571,53 @@ describe('OutsourcingVendorWorkflowService.onDecided', () => {
     await deps.svc.onDecided(makeDecidedEvent(vendorNo, { decision: 'APPROVED', actionType: ApprovalActionTypes.VENDOR_MATERIAL_APPROVAL }));
 
     expect(deps.rows.get(vendorNo).status).toBe(VendorStatus.PENDING_NOTIFICATION);
-    expect(deps.audits.map((a) => a.input.action)).toEqual(['VENDOR_APPROVED']);
+    // T7：批准后紧接着开出告知单并盖章，所以多一条 VENDOR_NOTIFICATION_OPENED（状态仍是 PENDING_NOTIFICATION）
+    expect(deps.audits.map((a) => a.input.action)).toEqual(['VENDOR_APPROVED', 'VENDOR_NOTIFICATION_OPENED']);
     expect(deps.audits[0].input).toMatchObject({ fromStatus: 'PENDING_APPROVAL', toStatus: 'PENDING_NOTIFICATION' });
     // 付款门：待报备的服务商付不了款
     await expect(deps.vendors.assertActiveByNo(vendorNo)).rejects.toThrow(/not ACTIVE/);
+  });
+
+  it('APPROVED + MATERIAL（T7）：PENDING_NOTIFICATION → openForVendorNotification(ONBOARDING, approvalNo) → stampNotificationFilingNo(vendorNo, filingNo)，顺序钉死', async () => {
+    const deps = buildDeps();
+    const vendorNo = await seedVendor(deps, VendorStatus.PENDING_APPROVAL, { impactContinuity: true });
+    const transition = jest.spyOn(deps.vendors, 'transition');
+    const stamp = jest.spyOn(deps.vendors, 'stampNotificationFilingNo');
+
+    await deps.svc.onDecided(makeDecidedEvent(vendorNo, { decision: 'APPROVED', actionType: ApprovalActionTypes.VENDOR_MATERIAL_APPROVAL }));
+
+    expect(transition).toHaveBeenCalledWith(vendorNo, VendorStatus.PENDING_NOTIFICATION, {}, expect.objectContaining({ approvalNo: 'APR-VEN-1' }));
+    expect(deps.filings.openForVendorNotification).toHaveBeenCalledTimes(1);
+    expect(deps.filings.openForVendorNotification).toHaveBeenCalledWith({
+      vendorNo, vendorName: 'Nimbus Cloud Hosting LLC', serviceDescription: 'Managed cloud hosting for back-office systems',
+      deliveryLocations: ['AE', 'IE'], criticality: 'MATERIAL', contractStart: '2026-11-01',
+      approvalNo: 'APR-VEN-1', reason: 'ONBOARDING',
+    });
+    expect(stamp).toHaveBeenCalledWith(vendorNo, FILING_NO);
+    const order = [transition, deps.filings.openForVendorNotification, stamp].map((m) => m.mock.invocationCallOrder[0]);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(new Set(order).size).toBe(3);
+
+    expect(deps.rows.get(vendorNo)).toMatchObject({ status: VendorStatus.PENDING_NOTIFICATION, notificationFilingNo: FILING_NO });
+    const opened = deps.audits.find((a) => a.input.action === 'VENDOR_NOTIFICATION_OPENED')!;
+    expect(opened.via).toBe('system');
+    expect(opened.input).toMatchObject({ filingNo: FILING_NO, primarySubjectNo: vendorNo });
+  });
+
+  it('APPROVED + NON_MATERIAL（T7）：直接 ACTIVE，不开告知单、不盖章', async () => {
+    const deps = buildDeps();
+    const vendorNo = await seedVendor(deps, VendorStatus.PENDING_APPROVAL);
+    await deps.svc.onDecided(makeDecidedEvent(vendorNo, { decision: 'APPROVED', actionType: ApprovalActionTypes.VENDOR_APPROVAL }));
+    expect(deps.filings.openForVendorNotification).not.toHaveBeenCalled();
+    expect(deps.rows.get(vendorNo)).toMatchObject({ status: VendorStatus.ACTIVE, notificationFilingNo: null });
+  });
+
+  it.each(['DECLINED', 'CANCELLED', 'EXPIRED'] as const)('%s（T7）：不批就不开告知单', async (decision) => {
+    const deps = buildDeps();
+    const vendorNo = await seedVendor(deps, VendorStatus.PENDING_APPROVAL, { impactContinuity: true });
+    await deps.svc.onDecided(makeDecidedEvent(vendorNo, { decision, actionType: ApprovalActionTypes.VENDOR_MATERIAL_APPROVAL }));
+    expect(deps.filings.openForVendorNotification).not.toHaveBeenCalled();
+    expect(deps.rows.get(vendorNo).notificationFilingNo).toBeNull();
   });
 
   it.each(BOTH)('DECLINED（%s）→ REJECTED，reason 取 decisionReason（VENDOR_APPROVAL_REJECTED）', async (actionType) => {
@@ -675,6 +723,89 @@ describe('审批 handler：两种服务商审批都派生 workflow.outsourcing-v
   });
 });
 
+describe('OutsourcingVendorWorkflowService.onFilingSubmitted（VARA 报备门认领，T7）', () => {
+  const submitted = (filingNo: string, overrides: Record<string, unknown> = {}) =>
+    ({ filingNo, type: 'MATERIAL_CHANGE_NOTIFICATION', externalRef: 'VARA-REF-0001', ...overrides });
+
+  /** 摆一个已盖章的服务商：行上记着告知单号，状态由参数定。 */
+  async function seedStamped(deps: Deps, status: string, filingNo: string = FILING_NO): Promise<string> {
+    const vendorNo = await seedVendor(deps, status, { impactContinuity: true });
+    deps.rows.set(vendorNo, { ...deps.rows.get(vendorNo), notificationFilingNo: filingNo });
+    return vendorNo;
+  }
+
+  it('filingNo 匹配且 PENDING_NOTIFICATION → ACTIVE，写 VENDOR_ACTIVATED（系统写，causationId = 告知单号，原因带回执号）', async () => {
+    const deps = buildDeps();
+    const vendorNo = await seedStamped(deps, VendorStatus.PENDING_NOTIFICATION);
+
+    await deps.svc.onFilingSubmitted(submitted(FILING_NO));
+
+    expect(deps.rows.get(vendorNo).status).toBe(VendorStatus.ACTIVE);
+    expect(deps.audits.map((a) => a.input.action)).toEqual(['VENDOR_ACTIVATED']);
+    expect(deps.audits[0].via).toBe('system');
+    expect(deps.audits[0].input).toMatchObject({
+      primarySubjectNo: vendorNo, fromStatus: 'PENDING_NOTIFICATION', toStatus: 'ACTIVE', causationId: FILING_NO,
+    });
+    expect(deps.audits[0].input.reason).toContain('VARA-REF-0001');
+    // 付款门随之放开
+    await expect(deps.vendors.assertActiveByNo(vendorNo)).resolves.toBeUndefined();
+  });
+
+  it('端到端串起来：批准 → 开单盖章 → 已报送事件 → ACTIVE，服务商审计依次 VENDOR_APPROVED → VENDOR_NOTIFICATION_OPENED → VENDOR_ACTIVATED', async () => {
+    const deps = buildDeps();
+    const vendorNo = await seedVendor(deps, VendorStatus.PENDING_APPROVAL, { impactContinuity: true });
+    await deps.svc.onDecided(makeDecidedEvent(vendorNo, { decision: 'APPROVED', actionType: ApprovalActionTypes.VENDOR_MATERIAL_APPROVAL }));
+    await deps.svc.onFilingSubmitted(submitted(FILING_NO));
+    expect(deps.audits.map((a) => a.input.action)).toEqual(['VENDOR_APPROVED', 'VENDOR_NOTIFICATION_OPENED', 'VENDOR_ACTIVATED']);
+    expect(deps.rows.get(vendorNo).status).toBe(VendorStatus.ACTIVE);
+  });
+
+  it('告知单号对不上任何服务商（别的报送单 / 别的类型）→ 零动作、零审计、不抛', async () => {
+    const deps = buildDeps();
+    const vendorNo = await seedStamped(deps, VendorStatus.PENDING_NOTIFICATION);
+    await expect(deps.svc.onFilingSubmitted(submitted('FIL999999999999', { type: 'PERIODIC_RETURN' }))).resolves.toBeUndefined();
+    expect(deps.rows.get(vendorNo).status).toBe(VendorStatus.PENDING_NOTIFICATION);
+    expect(deps.audits).toEqual([]);
+  });
+
+  // 出发态钉死 PENDING_NOTIFICATION：表里通向 ACTIVE 的边有两条（PENDING_APPROVAL→ACTIVE 是一般服务商的批准边），
+  // 单靠迁移表挡不住「行上带着告知单号却在别的状态」——PENDING_APPROVAL 这一格没有那道钉就会被无痕放行、绕开审批门。
+  it.each([
+    VendorStatus.ACTIVE, VendorStatus.PENDING_APPROVAL, VendorStatus.PENDING_ASSESSMENT, VendorStatus.RETURNED,
+    VendorStatus.REJECTED, VendorStatus.TERMINATED,
+  ])('告知单号匹配但服务商是 %s → 零 transition、零审计、不抛', async (status) => {
+    const deps = buildDeps();
+    const vendorNo = await seedStamped(deps, status);
+    const transition = jest.spyOn(deps.vendors, 'transition');
+
+    await expect(deps.svc.onFilingSubmitted(submitted(FILING_NO))).resolves.toBeUndefined();
+
+    expect(transition).not.toHaveBeenCalled();
+    expect(deps.rows.get(vendorNo).status).toBe(status);
+    expect(deps.audits).toEqual([]);
+  });
+
+  it('终止联动开的那张告知单不认领：它从不盖章，已报送事件来了服务商仍是 TERMINATED', async () => {
+    const deps = buildDeps();
+    const vendorNo = await seedVendor(deps, VendorStatus.ACTIVE, { impactContinuity: true });
+    deps.filings.openForVendorNotification.mockResolvedValueOnce({ filingNo: 'FIL260101000009' });
+    await deps.svc.terminate(vendorNo, {}, compliance);
+    deps.audits.length = 0;
+    const transition = jest.spyOn(deps.vendors, 'transition');
+
+    await deps.svc.onFilingSubmitted(submitted('FIL260101000009'));
+
+    expect(transition).not.toHaveBeenCalled();
+    expect(deps.rows.get(vendorNo).status).toBe(VendorStatus.TERMINATED);
+    expect(deps.audits).toEqual([]);
+  });
+
+  it('监听器登记在 regulatory-filing.submitted（async）', () => {
+    const registered = Reflect.getMetadata(EVENT_LISTENER_METADATA, OutsourcingVendorWorkflowService.prototype.onFilingSubmitted);
+    expect(registered).toEqual([{ event: DOMAIN_EVENTS.REGULATORY_FILING_SUBMITTED.name, options: { async: true } }]);
+  });
+});
+
 describe('OutsourcingVendorWorkflowService.terminate', () => {
   it('ACTIVE → TERMINATED + actor 审计（VENDOR_TERMINATED 带 from/to），备注入库', async () => {
     const deps = buildDeps();
@@ -706,5 +837,43 @@ describe('OutsourcingVendorWorkflowService.terminate', () => {
   it('未知 vendorNo → 404', async () => {
     const deps = buildDeps();
     await expect(deps.svc.terminate('VEN000000000000', {}, compliance)).rejects.toThrow(NotFoundException);
+    expect(deps.filings.openForVendorNotification).not.toHaveBeenCalled();
+  });
+
+  it('MATERIAL（T7）：TERMINATED 之后开 reason=TERMINATION 告知单，不盖 notificationFilingNo；服务商审计里没有 NOTIFICATION_OPENED', async () => {
+    const deps = buildDeps();
+    const vendorNo = await seedVendor(deps, VendorStatus.ACTIVE, { impactContinuity: true });
+    const transition = jest.spyOn(deps.vendors, 'transition');
+    const stamp = jest.spyOn(deps.vendors, 'stampNotificationFilingNo');
+
+    const result = await deps.svc.terminate(vendorNo, { notes: 'Exit the hosting contract' }, compliance);
+
+    expect(result).toEqual({ vendorNo, status: VendorStatus.TERMINATED });
+    expect(deps.filings.openForVendorNotification).toHaveBeenCalledTimes(1);
+    const input = deps.filings.openForVendorNotification.mock.calls[0][0];
+    expect(input).toEqual({
+      vendorNo, vendorName: 'Nimbus Cloud Hosting LLC', serviceDescription: 'Managed cloud hosting for back-office systems',
+      deliveryLocations: ['AE', 'IE'], criticality: 'MATERIAL', contractStart: '2026-11-01', reason: 'TERMINATION',
+    });
+    expect(input.approvalNo).toBeUndefined();
+    // 先终止、后开单：终止本身不依赖告知单
+    expect(transition.mock.invocationCallOrder[0]).toBeLessThan(deps.filings.openForVendorNotification.mock.invocationCallOrder[0]);
+    expect(stamp).not.toHaveBeenCalled();
+    expect(deps.rows.get(vendorNo)).toMatchObject({ status: VendorStatus.TERMINATED, notificationFilingNo: null });
+    expect(deps.audits.map((a) => a.input.action)).toEqual(['VENDOR_TERMINATED']);
+  });
+
+  it('NON_MATERIAL（T7）：终止不开告知单', async () => {
+    const deps = buildDeps();
+    const vendorNo = await seedVendor(deps, VendorStatus.ACTIVE);
+    await deps.svc.terminate(vendorNo, {}, compliance);
+    expect(deps.filings.openForVendorNotification).not.toHaveBeenCalled();
+  });
+
+  it.each([VendorStatus.PENDING_NOTIFICATION, VendorStatus.PENDING_APPROVAL, VendorStatus.TERMINATED])('终止被拒（%s 态 → 400）时不开告知单', async (status) => {
+    const deps = buildDeps();
+    const vendorNo = await seedVendor(deps, status, { impactContinuity: true });
+    await expect(deps.svc.terminate(vendorNo, {}, compliance)).rejects.toThrow(BadRequestException);
+    expect(deps.filings.openForVendorNotification).not.toHaveBeenCalled();
   });
 });

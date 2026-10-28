@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { RegulatoryFilingService } from './regulatory-filing.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
@@ -7,6 +8,7 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AccessControlService } from '../../identity/access-control/access-control.service';
 import { ApprovalActorContext } from '../approvals/constants/approval.constants';
 import { addBusinessDays } from './business-days';
+import { DOMAIN_EVENTS } from '../../../common/events/domain-events.constants';
 
 const ops: ApprovalActorContext = { actorType: 'ADMIN', userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['COMPLIANCE_OFFICER'] };
 // T3：族独占的第二个 actor——MLRO，只持 cap.filing.aml（见下方 makeAccessControl）。
@@ -30,6 +32,7 @@ describe('RegulatoryFilingService (Task 3)', () => {
   let service: RegulatoryFilingService;
   let auditLogs: { recordByActor: jest.Mock; recordSystem: jest.Mock };
   let accessControl: { hasPermission: jest.Mock };
+  let eventEmitter: { emit: jest.Mock };
   const createdFilingNos: string[] = [];
   const createdIncidentNos: string[] = [];
 
@@ -53,12 +56,14 @@ describe('RegulatoryFilingService (Task 3)', () => {
   beforeEach(async () => {
     auditLogs = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn(async () => ({})) };
     accessControl = makeAccessControl();
+    eventEmitter = { emit: jest.fn() };
     const mod = await Test.createTestingModule({
       providers: [
         RegulatoryFilingService,
         { provide: PrismaService, useValue: prisma },
         { provide: AuditLogsService, useValue: auditLogs },
         { provide: AccessControlService, useValue: accessControl },
+        { provide: EventEmitter2, useValue: eventEmitter },
       ],
     }).compile();
     service = mod.get(RegulatoryFilingService);
@@ -270,6 +275,48 @@ describe('RegulatoryFilingService (Task 3)', () => {
       expect(call).toBeDefined();
       expect(call![0].metadata).toMatchObject({ externalRef: `EXT_${filingNo}` });
       expect(call![0].externalRef).toBe(`EXT_${filingNo}`); // extra 顶层形态原样（assertActionSpec 读它）
+    });
+  });
+
+  // ── 甲波六 T7：markSubmitted 成功落地后发「已报送」域事件（服务商准入的 VARA 报备门靠它认领）──
+  // 事件只在状态已落库、审计已写之后发；缺 externalRef / 非法跃迁 / 族门 403 都在 emit 之前抛，零 emit。
+  describe('markSubmitted — emits regulatory-filing.submitted (甲波六 T7)', () => {
+    it('成功后恰发一次 regulatory-filing.submitted，载荷 {filingNo, type, externalRef}', async () => {
+      const filingNo = await toSubmittedFiling();
+      expect(eventEmitter.emit).toHaveBeenCalledTimes(1);
+      expect(eventEmitter.emit).toHaveBeenCalledWith(DOMAIN_EVENTS.REGULATORY_FILING_SUBMITTED.name, {
+        filingNo, type: 'MATERIAL_CHANGE_NOTIFICATION', externalRef: `EXT_${filingNo}`,
+      });
+      expect(DOMAIN_EVENTS.REGULATORY_FILING_SUBMITTED.name).toBe('regulatory-filing.submitted');
+    });
+
+    it('发事件时 FILING_SUBMITTED 审计已写（先审计，后发事件）；事件之后状态为 SUBMITTED', async () => {
+      const filingNo = await openDraftFiling();
+      await service.markSignoffRequested(filingNo, `APR_${filingNo}`, ops);
+      await service.applySignoffDecision(filingNo, 'APPROVED', { approvalNo: `APR_${filingNo}`, approvalId: `apid_${filingNo}` });
+      let auditedAtEmit: boolean | null = null;
+      eventEmitter.emit.mockImplementation((_name: string, payload: { filingNo: string }) => {
+        auditedAtEmit = auditLogs.recordByActor.mock.calls.some((c) => c[0].action === 'FILING_SUBMITTED' && c[0].primarySubjectNo === payload.filingNo);
+        return true;
+      });
+      await service.markSubmitted(filingNo, { externalRef: `EXT_${filingNo}` }, ops);
+      expect(auditedAtEmit).toBe(true);
+      expect((await service.findByNo(filingNo)).status).toBe('SUBMITTED');
+    });
+
+    it('缺 externalRef → 400 且零 emit', async () => {
+      const filingNo = await openDraftFiling();
+      await service.markSignoffRequested(filingNo, `APR_${filingNo}`, ops);
+      await service.applySignoffDecision(filingNo, 'APPROVED', { approvalNo: `APR_${filingNo}`, approvalId: `apid_${filingNo}` });
+      await expect(service.markSubmitted(filingNo, {} as any, ops)).rejects.toThrow(BadRequestException);
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
+      expect((await service.findByNo(filingNo)).status).toBe('SIGNED_OFF');
+    });
+
+    it('非法跃迁（GENERAL 族 DRAFT 直接标已提交）→ 400 且零 emit', async () => {
+      const filingNo = await openDraftFiling();
+      await expect(service.markSubmitted(filingNo, { externalRef: 'EXT_X' }, ops)).rejects.toThrow(BadRequestException);
+      expect(eventEmitter.emit).not.toHaveBeenCalled();
     });
   });
 
@@ -687,6 +734,65 @@ describe('RegulatoryFilingService (Task 3)', () => {
     });
   });
 
+  // ── 甲波六 T7：openForVendorNotification（供 OutsourcingVendorWorkflowService 在 MATERIAL 服务商批准 / 终止后调用，
+  //    SYSTEM 源，照 openForRiChange 同款薄方法；报送单表无 entityRef，关联靠服务商自己记 notificationFilingNo）────
+  describe('openForVendorNotification (甲波六 §5.5; SYSTEM 源 DRAFT 无钟)', () => {
+    const input = {
+      vendorNo: 'VEN261029000001', vendorName: 'Nimbus Cloud Hosting LLC', serviceDescription: 'Managed cloud hosting for back-office systems',
+      deliveryLocations: ['AE', 'IE'], criticality: 'MATERIAL' as const, contractStart: '2026-11-01',
+    };
+
+    it('ONBOARDING：DRAFT、SYSTEM 源、VARA、无钟、标题含服务商名与 onboarding、body 五行', async () => {
+      const { filingNo } = await service.openForVendorNotification({ ...input, approvalNo: 'APR_VEN_T7_1', reason: 'ONBOARDING' });
+      createdFilingNos.push(filingNo);
+      const row = await service.findByNo(filingNo);
+      expect(row).toMatchObject({
+        type: 'MATERIAL_CHANGE_NOTIFICATION', direction: 'OUTBOUND', status: 'DRAFT', authority: 'VARA',
+        createdByUserId: 'SYSTEM', deadlineAt: null,
+        title: 'Material outsourcing — Nimbus Cloud Hosting LLC: onboarding',
+      });
+      expect(row.body).toBe([
+        'Provider: Nimbus Cloud Hosting LLC',
+        'Scope: Managed cloud hosting for back-office systems',
+        'Delivery & data locations: AE, IE',
+        'Materiality: MATERIAL',
+        'Contract start: 2026-11-01',
+      ].join('\n'));
+    });
+
+    it('ONBOARDING：FILING_OPENED 走 recordSystem（无 actor），metadata {source:VENDOR_ONBOARDING, vendorNo, approvalNo}，审计行 approvalNo 专列与 extra.type 齐', async () => {
+      const { filingNo } = await service.openForVendorNotification({ ...input, approvalNo: 'APR_VEN_T7_1', reason: 'ONBOARDING' });
+      createdFilingNos.push(filingNo);
+      expect(auditLogs.recordSystem).toHaveBeenCalledTimes(1);
+      expect(auditLogs.recordByActor).not.toHaveBeenCalled();
+      const call = auditLogs.recordSystem.mock.calls[0][0];
+      expect(call.action).toBe('FILING_OPENED');
+      expect(call.primarySubjectNo).toBe(filingNo);
+      expect(call.metadata).toMatchObject({ source: 'VENDOR_ONBOARDING', vendorNo: input.vendorNo, approvalNo: 'APR_VEN_T7_1' });
+      expect(call.approvalNo).toBe('APR_VEN_T7_1');
+      expect(call.type).toBe('MATERIAL_CHANGE_NOTIFICATION');
+    });
+
+    it('TERMINATION：标题 termination、metadata.source=VENDOR_TERMINATION、无 approvalNo；仍是 DRAFT 系统单', async () => {
+      const { filingNo } = await service.openForVendorNotification({ ...input, reason: 'TERMINATION' });
+      createdFilingNos.push(filingNo);
+      const row = await service.findByNo(filingNo);
+      expect(row).toMatchObject({ status: 'DRAFT', createdByUserId: 'SYSTEM', title: 'Material outsourcing — Nimbus Cloud Hosting LLC: termination' });
+      const call = auditLogs.recordSystem.mock.calls[0][0];
+      expect(call.metadata).toMatchObject({ source: 'VENDOR_TERMINATION', vendorNo: input.vendorNo });
+      expect(call.metadata.approvalNo).toBeUndefined();
+      expect(call.approvalNo).toBeUndefined();
+    });
+
+    it('审计信封过真 assertActionSpec：FILING_OPENED 必填 type，由 extra.type 满足（真 AuditLogsService 校验器，不是 mock）', async () => {
+      const { AuditLogsService: Real } = await import('../../audit-logging/audit-logs.service');
+      const checker = new Real(null as any);
+      const { filingNo } = await service.openForVendorNotification({ ...input, approvalNo: 'APR_VEN_T7_2', reason: 'ONBOARDING' });
+      createdFilingNos.push(filingNo);
+      expect(() => (checker as any).assertActionSpec(auditLogs.recordSystem.mock.calls[0][0])).not.toThrow();
+    });
+  });
+
   // ── T3 ④：computeDeadline EXTERNAL 分支 + 手工开单不传锚留 null（不杜撰）───────
   describe('computeDeadline EXTERNAL branch (manual open vs. workflow-anchored open)', () => {
     it('openManual on an EXTERNAL-anchor type (CNMR) leaves deadlineAt null — no anchorAt to compute from, not fabricated', async () => {
@@ -821,6 +927,7 @@ describe('RegulatoryFilingService (Task 3)', () => {
           { provide: PrismaService, useValue: prisma },
           AuditLogsService,
           { provide: AccessControlService, useValue: makeAccessControl() },
+          { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         ],
       }).compile();
       realService = mod.get(RegulatoryFilingService);

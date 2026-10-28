@@ -2,9 +2,11 @@
 // 先评估后审批——运营提交申请表（出生 PENDING_ASSESSMENT，同时开尽调评估壳，**不开审批单**；系统按四问判 MATERIAL / NON_MATERIAL）→
 // 合规官在尽调评估里逐名筛查 / 定档 / 下结论（退回补料 / 不通过 / 通过并送审；MATERIAL 另需 CISO 信息安全评估，也可由合规官升档）→
 // 送审时才按重大性开审批单（NON_MATERIAL：CFO 单步 VENDOR_APPROVAL；MATERIAL：CFO→高管 VENDOR_MATERIAL_APPROVAL）→
-// 批准：一般 ACTIVE；重大 PENDING_NOTIFICATION（VARA 事前报备门，告知单由 T7 接上）。
+// 批准：一般 ACTIVE；重大 PENDING_NOTIFICATION（VARA 事前报备门）——同时请报送台开一张「重大变更告知」草稿单、把单号盖在服务商上；
+// 合规官把那张单走到 SUBMITTED 时报送台发「已报送」事件，本 workflow 按自己记的 notificationFilingNo 认领，PENDING_NOTIFICATION → ACTIVE。
+// 终止重大服务商也开一张告知单（不盖章、不认领、不卡终止）。
 // 铁律③各管各的：本文件只调 OutsourcingVendorsService / DueDiligenceService / DocumentsService 的公开方法与 ApprovalsService 正门，
-// 不直写任何表；服务商审计全收服务商服务，评估审计全收尽调服务，文件审计全收文件服务，本文件零审计写入。
+// 不直写任何表；服务商审计全收服务商服务，评估审计全收尽调服务，文件审计全收文件服务，报送单审计全收报送台，本文件零审计写入。
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { OutsourcingVendor } from '@prisma/client';
@@ -14,6 +16,7 @@ import { DOCUMENT_OWNER_TYPES, VENDOR_DOC_TYPES } from '../../../core/documents/
 import { ApprovalDecidedEvent } from '../approvals/approval-handler.base';
 import { ApprovalsService } from '../approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../approvals/constants/approval.constants';
+import { RegulatoryFilingService } from '../regulatory-filings/regulatory-filing.service';
 import { VendorCriticality, VendorStatus } from './compliance-office.constants';
 import { DD_TARGET_TYPES } from './due-diligence.constants';
 import { DueDiligenceService, DueDiligenceView, SendableInput } from './due-diligence.service';
@@ -29,13 +32,12 @@ const ASSESSABLE_STATUSES: readonly string[] = [VendorStatus.PENDING_ASSESSMENT,
 
 @Injectable()
 export class OutsourcingVendorWorkflowService {
-  // T7: 报备门要在 onDecided（MATERIAL 批准）与 terminate（MATERIAL 终止）里开「重大变更告知」报送单，届时在这里注入
-  // RegulatoryFilingService（模块已导入 RegulatoryFilingsModule）；T6 没有调用方，不预先注入一个闲置依赖。
   constructor(
     private readonly vendors: OutsourcingVendorsService,
     private readonly approvals: ApprovalsService,
     private readonly dueDiligence: DueDiligenceService,
     private readonly documents: DocumentsService,
+    private readonly filings: RegulatoryFilingService,
   ) {}
 
   // ── 申请（运营提，合规官评估）─────────────────────────────────────────
@@ -166,7 +168,12 @@ export class OutsourcingVendorWorkflowService {
 
   async terminate(vendorNo: string, dto: TerminateVendorBodyDto, actor: ApprovalActorContext): Promise<{ vendorNo: string; status: string }> {
     await this.vendors.terminate(vendorNo, actor, dto);
-    // T7: criticality === 'MATERIAL' 时在这里自动开一张「重大变更告知」单（reason='TERMINATION'，不盖 notificationFilingNo，不卡终止）。
+    // 终止重大服务商同样要告知 VARA：先终止、后开单——终止不依赖告知单；这张单**不盖** notificationFilingNo（终止不等它，
+    // 它的「已报送」事件也认领不到任何服务商）。一般服务商不开单。
+    const row = await this.vendors.findByNo(vendorNo);
+    if (row.criticality === 'MATERIAL') {
+      await this.filings.openForVendorNotification(this.notificationInput(row, 'TERMINATION'));
+    }
     return { vendorNo, status: VendorStatus.TERMINATED };
   }
 
@@ -181,8 +188,10 @@ export class OutsourcingVendorWorkflowService {
       if (row.criticality === 'MATERIAL') {
         // 报备门：重大服务商批了也还不能 ACTIVE，落 PENDING_NOTIFICATION 等 VARA 事前报备。付款门 assertActiveByNo 因此拦住它。
         await this.vendors.transition(event.entityRef, VendorStatus.PENDING_NOTIFICATION, {}, audit);
-        // T7: 在这里开「重大变更告知」报送单（reason='ONBOARDING'）→ vendors.stampNotificationFilingNo；
-        //     报送台标记已报送后由 T7 的 onFilingSubmitted 认领，PENDING_NOTIFICATION → ACTIVE。
+        // 请报送台开告知单 → 单号盖回服务商（报送单表无 entityRef，关联方向是服务商自己记）。盖章时服务商服务写 VENDOR_NOTIFICATION_OPENED。
+        // 非原子（照实，同 RI 换人先例）：状态已落 PENDING_NOTIFICATION 后若开单抛错，不补偿、不重试——见 PRODUCTION-NOTES「onDecided 异常被吞」条。
+        const { filingNo } = await this.filings.openForVendorNotification(this.notificationInput(row, 'ONBOARDING', event.approvalNo));
+        await this.vendors.stampNotificationFilingNo(event.entityRef, filingNo);
         return;
       }
       await this.vendors.transition(event.entityRef, VendorStatus.ACTIVE, {}, audit);
@@ -197,7 +206,38 @@ export class OutsourcingVendorWorkflowService {
     await this.vendors.transition(event.entityRef, VendorStatus.REJECTED, {}, { ...audit, reason: note });
   }
 
+  // ── 报送台「已报送」事件（VARA 报备门认领）────────────────────────────
+
+  /** 报送台把某张单标记为已报送（regulatory-filing.submitted）。只认领**自己开出并盖了章**的那张告知单：
+   *  按 notificationFilingNo 反查服务商，且它此刻必须还是 PENDING_NOTIFICATION → ACTIVE。其余一律静默忽略、不抛——
+   *  别的报送单（周期报送 / 事故通报 / RI 换人告知…）、终止联动那张（从不盖章）、服务商早已不在待报备态，都不归这里管。
+   *  出发态钉死 PENDING_NOTIFICATION（本仓库每个 transition 调用方都钉自己的出发态）：迁移表里通向 ACTIVE 的边有两条，
+   *  不钉的话一条带着告知单号却停在 PENDING_APPROVAL 的行会被这个事件无痕放进 ACTIVE，绕开审批门。 */
+  @OnEvent(DOMAIN_EVENTS.REGULATORY_FILING_SUBMITTED.name, { async: true })
+  async onFilingSubmitted(event: { filingNo: string; type: string; externalRef: string }): Promise<void> {
+    const vendor = await this.vendors.findByNotificationFilingNo(event.filingNo);
+    if (!vendor || vendor.status !== VendorStatus.PENDING_NOTIFICATION) return;
+    await this.vendors.transition(vendor.vendorNo, VendorStatus.ACTIVE, {}, {
+      causationId: event.filingNo,
+      reason: `VARA notification submitted — ref ${event.externalRef}`,
+    });
+  }
+
   // ── 内部 ────────────────────────────────────────────────────────────
+
+  /** 告知单入参：服务商快照原样直传（报送台不越域读服务商表）；合同起始日按 UTC 日历日取（库里存的就是 UTC 零点，不过本地时区）。 */
+  private notificationInput(row: OutsourcingVendor, reason: 'ONBOARDING' | 'TERMINATION', approvalNo?: string) {
+    return {
+      vendorNo: row.vendorNo,
+      vendorName: row.name,
+      serviceDescription: row.serviceDescription,
+      deliveryLocations: row.deliveryLocations ? row.deliveryLocations.split(',') : [],
+      criticality: 'MATERIAL' as const,
+      contractStart: row.contractStart.toISOString().slice(0, 10),
+      ...(approvalNo !== undefined ? { approvalNo } : {}),
+      reason,
+    };
+  }
 
   /** 可写窗口检查：服务商不存在 404；不在 PENDING_ASSESSMENT | RETURNED → 400 Assessment is locked。返回已读到的行。 */
   private async assertAssessable(vendorNo: string): Promise<OutsourcingVendor> {
