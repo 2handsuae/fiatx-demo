@@ -144,6 +144,42 @@ export const DOMAIN_EVENTS = {
       'ApprovalDecidedEvent — { decision, actionType, entityRef(versionKey), approvalNo, ' +
       'decisionByUserId, decisionByUserNo, decisionByRole, decisionReason, decidedAt, traceId }',
   },
+
+  // ── LP Profile / Outsourcing Vendor 准入裁决（甲波六 T1，2026-10-29）──
+  // ApprovalHandlerBase 派生的二级事件——workflowType 复用 AuditBusinessWorkflowTypes.LP_PROFILE /
+  // OUTSOURCING_VENDOR（均早已登记），派生事件名照 buildSecondaryEventName 的 kebab 规则算出
+  // 'workflow.lp-profile.decided' / 'workflow.outsourcing-vendor.decided'。同一 workflowType 下多条
+  // 审批策略各挂一个 handler 类（LP：LP_PROFILE_APPROVAL 单步 + LP_PROFILE_HIGH_RISK_APPROVAL 两步；
+  // 服务商：VENDOR_APPROVAL + VENDOR_MATERIAL_APPROVAL），handler 以 actionType 区分各自的单，
+  // 事件名相同，由 workflow 服务按 payload.actionType 分流。handler 类与 workflow 消费端由 T4 / T6 创建。
+  LP_PROFILE_DECIDED: {
+    name: 'workflow.lp-profile.decided',
+    emitter: 'LpProfileApprovalService / LpProfileHighRiskApprovalService',
+    subscribers: ['LpProfileWorkflowService'],
+    payload:
+      'ApprovalDecidedEvent — { decision, actionType, entityRef(lpNo), approvalNo, ' +
+      'decisionByUserId, decisionByUserNo, decisionByRole, decisionReason, decidedAt, traceId }',
+  },
+  OUTSOURCING_VENDOR_DECIDED: {
+    name: 'workflow.outsourcing-vendor.decided',
+    emitter: 'OutsourcingVendorApprovalService / OutsourcingVendorMaterialApprovalService',
+    subscribers: ['OutsourcingVendorWorkflowService'],
+    payload:
+      'ApprovalDecidedEvent — { decision, actionType, entityRef(vendorNo), approvalNo, ' +
+      'decisionByUserId, decisionByUserNo, decisionByRole, decisionReason, decidedAt, traceId }',
+  },
+
+  // ── Regulatory Filing 标记已提交（甲波六 T1，2026-10-29）──
+  // 一手域事件（非审批派生）：报送台把一张报送单标记为已提交（SUBMITTED，带监管回执 externalRef）后，
+  // 由 RegulatoryFilingService 发出；服务商准入流程里 MATERIAL 的「VARA 事前报备」告知单（T6 自动开出）
+  // 靠它回头把服务商 PENDING_FILING 推进到 ACTIVE。跨主体协作只发生在 workflow，故订阅方是
+  // OutsourcingVendorWorkflowService，而不是报送台自己调服务商服务。
+  REGULATORY_FILING_SUBMITTED: {
+    name: 'regulatory-filing.submitted',
+    emitter: 'RegulatoryFilingService',
+    subscribers: ['OutsourcingVendorWorkflowService'],
+    payload: '{ filingNo: string, type: string, externalRef: string }',
+  },
 } as const;
 
 /** Type-safe event name accessor */
@@ -172,4 +208,8 @@ export const DomainEventNames = {
   COMPLAINT_RESOLUTION_DECIDED: DOMAIN_EVENTS.COMPLAINT_RESOLUTION_DECIDED.name,
   // Agreement Publish
   AGREEMENT_PUBLISH_DECIDED: DOMAIN_EVENTS.AGREEMENT_PUBLISH_DECIDED.name,
+  // LP Profile / Outsourcing Vendor 准入裁决 + 报送单标记已提交
+  LP_PROFILE_DECIDED: DOMAIN_EVENTS.LP_PROFILE_DECIDED.name,
+  OUTSOURCING_VENDOR_DECIDED: DOMAIN_EVENTS.OUTSOURCING_VENDOR_DECIDED.name,
+  REGULATORY_FILING_SUBMITTED: DOMAIN_EVENTS.REGULATORY_FILING_SUBMITTED.name,
 } as const;

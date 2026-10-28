@@ -74,4 +74,10 @@ export const DETAIL_READ_GROUP_BY_POLICY: Record<string, string> = {
   // 战役丙波三 T9（T3 遗留，approvalEntityRoutes.ts 同批加行）：协议发布（entityRef = versionKey），
   // 唯一裁决人高管持 COMPLIANCE_OFFICE_VIEW（rbac.catalog.ts 高管绑定区；协议版本读端点挂该组）。
   AGREEMENT_PUBLISH: 'COMPLIANCE_OFFICE_VIEW', // → /admin/governance/compliance-office/agreements（高管持 COMPLIANCE_OFFICE_VIEW）
+  // 甲波六 T1（2026-10-29，approvalEntityRoutes.ts 同批加行）：LP 高风险准入 / 服务商准入（含重大）。
+  // LP 两条沿用既有 LP_READ（CFO 持，SMO 本任务补 LP_READ——二步裁决人要看得见详情）；服务商两条挂新组
+  // VENDOR_READ（CFO / SMO 均持，rbac.catalog.ts 绑定区）。
+  LP_PROFILE_HIGH_RISK_APPROVAL: 'LP_READ', // → /admin/lp-profiles/:lpNo（CFO、SMO 均持 LP_READ）
+  VENDOR_APPROVAL: 'VENDOR_READ', // → /admin/governance/compliance-office/service-providers/:vendorNo（CFO 持 VENDOR_READ）
+  VENDOR_MATERIAL_APPROVAL: 'VENDOR_READ', // → 同上（CFO、SMO 均持 VENDOR_READ）
 };

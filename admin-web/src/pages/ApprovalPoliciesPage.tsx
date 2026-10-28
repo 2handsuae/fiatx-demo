@@ -88,6 +88,10 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   VENDOR_PAYMENT_APPROVAL: 'Vendor payment',
   // 战役丙波三 T3 登记、T10 补人话标签：客户协议发布——合规官提、高管单步批。
   AGREEMENT_PUBLISH: 'Customer agreement publication',
+  // 甲波六 T1：LP / 服务商背调与审批——合规官提；LP 高风险与重大服务商 CFO→高管两步，普通服务商 CFO 单步。
+  LP_PROFILE_HIGH_RISK_APPROVAL: 'LP profile registration (high risk)',
+  VENDOR_APPROVAL: 'Service provider onboarding',
+  VENDOR_MATERIAL_APPROVAL: 'Material service provider onboarding',
 };
 
 export default function ApprovalPoliciesPage() {

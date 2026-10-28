@@ -275,7 +275,14 @@ function runStaticChecks(): void {
     WITHDRAW_RETURN_CLAIM: 'WITHDRAW_RETURN_CLAIM_WRITE',
     INTERNAL_TRANSFER_APPROVAL: 'INTERNAL_TRANSFER_WRITE',
     // 战役乙波一 T3：LP 档案建档——maker（金库，LP_WRITE）≠ checker（CFO）。
-    LP_PROFILE_APPROVAL: 'LP_WRITE',
+    // 甲波六 T1：改为合规官送审——背调做完由合规官（DUE_DILIGENCE_WRITE，独占）提审批，金库只管
+    // 开档案与 resubmit；maker（合规官）≠ checker（CFO / 高管），不相交。
+    LP_PROFILE_APPROVAL: 'DUE_DILIGENCE_WRITE',
+    // 甲波六 T1：LP 高风险准入（CFO→高管两步）、服务商准入（CFO）、重大服务商准入（CFO→高管两步）——
+    // maker 同为合规官（DUE_DILIGENCE_WRITE），三条的裁决人 CFO / 高管均不持该组。
+    LP_PROFILE_HIGH_RISK_APPROVAL: 'DUE_DILIGENCE_WRITE',
+    VENDOR_APPROVAL: 'DUE_DILIGENCE_WRITE',
+    VENDOR_MATERIAL_APPROVAL: 'DUE_DILIGENCE_WRITE',
     // LP 两步准入 Task 4：LP 打款地址登记——同上 maker（金库，LP_WRITE）≠ checker（CFO）。
     LP_ADDRESS_APPROVAL: 'LP_WRITE',
     // 战役乙波一 T5：LP 兑换单发起——同上 maker（金库，LP_WRITE）≠ checker（CFO）。

@@ -112,6 +112,14 @@ export const ApprovalActionTypes = {
   // 战役丙波三 T3（2026-10-03）：客户协议发布——合规官提（版本 + 生效日）、高管单步批。
   // 挂在 CustomerAgreementVersion 主体（entityRef=versionKey）。
   AGREEMENT_PUBLISH: 'AGREEMENT_PUBLISH',
+  // 甲波六 T1（2026-10-29，spec §8）：LP / 服务商背调与审批三条新策略。合规官做完背调送审，
+  // 审批人按风险分档：LP 低中风险走既有 LP_PROFILE_APPROVAL（CFO 单步，不动），LP 高风险走
+  // LP_PROFILE_HIGH_RISK_APPROVAL（CFO→高管两步）；服务商普通走 VENDOR_APPROVAL（CFO 单步），
+  // 重大（MATERIAL）走 VENDOR_MATERIAL_APPROVAL（CFO→高管两步）。挂在 LiquidityProvider
+  // （entityRef=lpNo）/ OutsourcingVendor（entityRef=vendorNo）主体。
+  LP_PROFILE_HIGH_RISK_APPROVAL: 'LP_PROFILE_HIGH_RISK_APPROVAL',
+  VENDOR_APPROVAL: 'VENDOR_APPROVAL',
+  VENDOR_MATERIAL_APPROVAL: 'VENDOR_MATERIAL_APPROVAL',
 } as const;
 
 export const ApprovalStatuses = {
@@ -483,6 +491,21 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
     timeoutHours: 48,
     allowCancel: true,
   },
+  // 甲波六 T1（2026-10-29，spec §8，task-1-brief 原文）：LP 高风险准入、重大服务商准入——合规官提、
+  // CFO→高管两步批（两步形状照 DEPOSIT_SEIZE / INCIDENT_CLOSE_SECURITY）；普通服务商准入 CFO 单步。
+  [ApprovalActionTypes.LP_PROFILE_HIGH_RISK_APPROVAL]: {
+    steps: [{ stepNo: 1, roles: ['CFO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
+  [ApprovalActionTypes.VENDOR_APPROVAL]: {
+    steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true,
+  },
+  [ApprovalActionTypes.VENDOR_MATERIAL_APPROVAL]: {
+    steps: [{ stepNo: 1, roles: ['CFO'] }, { stepNo: 2, roles: ['SENIOR_MANAGEMENT_OFFICER'] }],
+    timeoutHours: 48,
+    allowCancel: true,
+  },
 };
 
 /**
@@ -545,6 +568,10 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.VENDOR_PAYMENT_APPROVAL,
   // 战役丙波三 T3：协议发布——同上漏白名单教训，一并登记。
   ApprovalActionTypes.AGREEMENT_PUBLISH,
+  // 甲波六 T1：LP 高风险 / 服务商 / 重大服务商三条准入策略——同上漏白名单教训，一并登记。
+  ApprovalActionTypes.LP_PROFILE_HIGH_RISK_APPROVAL,
+  ApprovalActionTypes.VENDOR_APPROVAL,
+  ApprovalActionTypes.VENDOR_MATERIAL_APPROVAL,
 ] as const;
 
 export function isSuperAdminRoleContext(roleCodes: string[]): boolean {

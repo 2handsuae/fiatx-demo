@@ -125,7 +125,17 @@ export type PermissionGroup =
   // （受理/生成摘要/办结）；DSR_READ 恰绑 DPO/合规官/内审三职务（照 COMPLAINT_READ 三读者先例），
   // 合规官/内审只能看、办不了。⚡ simulate-timeout 不挂本两组，挂既有 DEMO_CLOCK_WRITE。
   | 'DSR_READ'
-  | 'DSR_WRITE';
+  | 'DSR_WRITE'
+  // 甲波六 T1（2026-10-29，spec §8）：服务商 / LP 背调与审批的四个新组。VENDOR_READ 是服务商
+  // 列表 / 详情 / 背调页的读门（合规官 / CISO / CFO / 高管 / 内审 / 金库 / 运营七职务）；VENDOR_APPLY
+  // 是业务方（运营）提服务商申请的写门；DUE_DILIGENCE_WRITE 是合规官独占的背调经办门
+  // （LP 与服务商共用——开案 / 筛查 / 评分 / 结论 / 送审 / 退回重提）；INFOSEC_ASSESSMENT_WRITE 是
+  // CISO 独占的信息安全评估门。既有 VENDOR_REGISTER_WRITE 收窄为「终止服务商」（登记 / 修改改走
+  // 申请流程），T8 随其唯一消费者一起删除。
+  | 'VENDOR_APPLY'
+  | 'VENDOR_READ'
+  | 'DUE_DILIGENCE_WRITE'
+  | 'INFOSEC_ASSESSMENT_WRITE';
 
 export interface RbacPermissionDefinition {
   code: string;
@@ -1243,7 +1253,14 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
     buckets: [
       { key: 'compliance-office.view', label: 'View clock wall, calendar & registers', description: 'Browse the compliance clock wall, the periodic-obligation calendar, and both registers (vendors / responsible individuals)', groups: ['COMPLIANCE_OFFICE_VIEW'] },
       { key: 'compliance-office.obligations', label: 'Manage periodic obligations', description: 'Register, update, enable/disable periodic regulatory obligations — the compliance calendar', groups: ['OBLIGATION_WRITE'] },
-      { key: 'compliance-office.vendors', label: 'Manage the outsourcing register', description: 'Register, update and terminate outsourcing vendors', groups: ['VENDOR_REGISTER_WRITE'] },
+      // 甲波六 T1：服务商登记 / 修改退役（改走申请 + 背调 + 审批流程），本桶只剩终止；
+      // groups 保持 VENDOR_REGISTER_WRITE（T8 随唯一消费者删除该组时再收口）。
+      { key: 'compliance-office.vendors', label: 'Terminate outsourcing vendors', description: 'Terminate outsourcing vendors — registering and updating moved to the service provider onboarding flow (apply → due diligence → approval)', groups: ['VENDOR_REGISTER_WRITE'] },
+      // 甲波六 T1（2026-10-29，spec §8）：服务商 / LP 背调与审批四桶，各挂单组（Ruling-13）。
+      { key: 'compliance-office.view_vendors', label: 'View service providers', description: 'Browse service provider applications, due diligence assessments and the active register', groups: ['VENDOR_READ'] },
+      { key: 'compliance-office.apply_vendor', label: 'Apply for a service provider', description: 'Raise a service provider onboarding application (the business owner / operations) and resubmit it after a return', groups: ['VENDOR_APPLY'] },
+      { key: 'compliance-office.due_diligence', label: 'Run due diligence', description: 'Open and run due diligence on service providers and liquidity providers — screening, risk scoring, conclusion, return / reject / send for approval (the compliance officer)', groups: ['DUE_DILIGENCE_WRITE'] },
+      { key: 'compliance-office.infosec_assessment', label: 'Record the information security assessment', description: 'Record the information security verdict on a service provider due diligence (the CISO)', groups: ['INFOSEC_ASSESSMENT_WRITE'] },
       { key: 'compliance-office.ri', label: 'Manage the responsible individual register', description: 'Register seats and propose replacements (senior management approves)', groups: ['RI_REGISTER_WRITE'] },
       { key: 'compliance-office.agreements', label: 'Manage customer agreements', description: 'Submit agreement versions for publication (senior management approves); body is code-registered and read-only', groups: ['AGREEMENT_WRITE'] },
       { key: 'compliance-office.dsr', label: 'Handle data subject requests', description: 'Review, summarise and resolve customer access / rectification / erasure requests within the 30-day clock — the DPO personally handles them; compliance and audit read only', groups: ['DSR_READ', 'DSR_WRITE'] },
@@ -1310,6 +1327,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'COMPLIANCE_OFFICE_VIEW',
     // 战役乙波二 T8：公司资金全景看板——金库/CFO/高管/内审恰四职务（spec §7 裁定 6）。
     'FUNDING_DASHBOARD_VIEW',
+    // 甲波六 T1（spec §8）：LP 高风险准入 / 重大服务商准入的二步裁决人——审批详情回链要点得开
+    // /admin/lp-profiles/:lpNo（LP_READ）与服务商详情（VENDOR_READ）；只读，不持任何经办组。
+    'LP_READ', 'VENDOR_READ',
   ],
 
   CISO: [
@@ -1326,6 +1346,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役甲波四 T5（spec §5）：CISO 是 VARA Responsible Individual 候选人之一，需要看得见
     // 闹钟墙/合规日历/两册（合规官、MLRO、高管、内审、CISO 五职务共持 COMPLIANCE_OFFICE_VIEW）。
     'COMPLIANCE_OFFICE_VIEW',
+    // 甲波六 T1（spec §8）：CISO 独占服务商背调里的信息安全评估（INFOSEC_ASSESSMENT_WRITE），
+    // 并读得到服务商列表 / 详情（VENDOR_READ）；不持 DUE_DILIGENCE_WRITE（评估人≠背调经办人）。
+    'VENDOR_READ', 'INFOSEC_ASSESSMENT_WRITE',
   ],
 
   MLRO: [
@@ -1398,6 +1421,8 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役丙波四 T5（spec §5）：DSR_READ 恰绑 DPO/合规官/内审三职务——内审全域只读人设，
     // 资料请求同样只读，不持 DSR_WRITE。
     'DSR_READ',
+    // 甲波六 T1（spec §8）：服务商登记册 / 背调同内审全域只读人设，只读不建经办组。
+    'VENDOR_READ',
   ],
 
   // 拦的手：开/解限制、贴撕标签、提解冻；管理台里推不动任何交易单据（D-不翻案）
@@ -1435,6 +1460,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // LP 两步准入 T4 评审裁定：合规官要可达 LP 档案 / 打款地址页面才能使用 ⚡筛查覆写
     // （DEMO_VERDICT_WRITE），同客户地址簿合规官同时持 WITHDRAWAL_ADDRESS_READ 的先例；只读，不持 LP_WRITE。
     'LP_READ',
+    // 甲波六 T1（spec §8）：合规官是 LP 与服务商背调的唯一经办人（DUE_DILIGENCE_WRITE 独占），
+    // 并读得到服务商列表 / 详情。maker（合规官）≠ checker（CFO / 高管）。
+    'VENDOR_READ', 'DUE_DILIGENCE_WRITE',
   ],
 
   // 定价的主人：费率两族的写权限全仓仅此一处（提由他提，运营复核）。
@@ -1469,6 +1497,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     'FUNDING_READ',
     // 战役乙波二 T8：公司资金全景看板——金库/CFO/高管/内审恰四职务（spec §7 裁定 6）。
     'FUNDING_DASHBOARD_VIEW',
+    // 甲波六 T1（spec §8）：服务商准入（VENDOR_APPROVAL / VENDOR_MATERIAL_APPROVAL 第一步）的裁决人，
+    // 裁决人要看得见详情（同 LP_READ 先例）；只读。
+    'VENDOR_READ',
   ],
 
   // 提现地址的写权限全仓仅此一处；钱包地址行只从种子来，管理台只读。
@@ -1513,6 +1544,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // 战役乙波三 T3：巡检（NLA 审慎检查）手动触发——唯金库，运营/CFO/合规官等一律不加
     // （T7 判据）。
     'PRUDENTIAL_CHECK_WRITE',
+    // 甲波六 T1（spec §8）：金库开付款单要选在册服务商（乙波二 T5 原借 FUNDING_WRITE 粗门读名册），
+    // 改持明确的读组 VENDOR_READ；只读。
+    'VENDOR_READ',
     'INCIDENT_WRITE',
     // 对账平账两角色定案（2026-09-10）：DEMO_CLOCK_WRITE 随本组整体迁入——案件页 ⚡Fast-forward
     // aging 按钮，以及充值/提现/兑换 SLA 超时与审批超时的演示拨钟，运营不再持有。
@@ -1572,6 +1606,9 @@ export const RBAC_ROLE_GROUP_BINDINGS: Record<string, PermissionGroup[]> = {
     // （maker=运营/checker=合规官，走 ApprovalsService 角色路由），OPS_OFFICER 不是自己的
     // 裁决人，无自批死锁。
     'COMPLAINT_WRITE',
+    // 甲波六 T1（spec §8）：运营是服务商的业务使用方——提服务商准入申请（VENDOR_APPLY 独占）并读得到
+    // 列表 / 详情；背调与审批不归运营（合规官 / CISO / CFO / 高管）。
+    'VENDOR_APPLY', 'VENDOR_READ',
   ],
 };
 

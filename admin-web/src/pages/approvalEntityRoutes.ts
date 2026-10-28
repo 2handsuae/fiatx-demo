@@ -86,4 +86,9 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   // versionKey（agreement-publish-workflow.service.ts submitPublish 逐字确认），Customer
   // Agreements 是单页版本卡 + 选中版详情，没有按版本号寻址的子路由，回链落到该页。
   AGREEMENT_PUBLISH: () => '/admin/governance/compliance-office/agreements',
+  // 甲波六 T1：LP 高风险准入——entityRef 同 LP_PROFILE_APPROVAL 是 lpNo；服务商准入（含重大）——
+  // entityRef 是 vendorNo，回链到服务商详情页（页面本体 T7 落地，同 AGREEMENT_PUBLISH 先落路由表后落页面）。
+  LP_PROFILE_HIGH_RISK_APPROVAL: (r) => `/admin/lp-profiles/${r}`,
+  VENDOR_APPROVAL: (r) => `/admin/governance/compliance-office/service-providers/${r}`,
+  VENDOR_MATERIAL_APPROVAL: (r) => `/admin/governance/compliance-office/service-providers/${r}`,
 };

@@ -153,6 +153,8 @@ describe('AuditLogsService', () => {
       PRUDENTIAL: 'PRUDENTIAL',
       // 战役丙波三 T2（2026-10-03）：客户协议发布（审批 workflowType）
       CUSTOMER_AGREEMENT: 'CUSTOMER_AGREEMENT',
+      // 甲波六 T1（2026-10-29）：服务商 / LP 背调（尽调评估壳 / 筛查 / 评分 / CISO 评估 / 结论 / 文件上传共用）
+      DUE_DILIGENCE: 'DUE_DILIGENCE',
     });
 
     expect(AuditUserActions).toEqual({

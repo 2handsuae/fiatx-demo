@@ -55,6 +55,11 @@ export const AuditEntityTypes = {
   MONTHLY_STATEMENT: 'MONTHLY_STATEMENT',
   // 战役丙波四 T2（2026-10-03）：资料请求单主体——业务键 = requestNo（DSR-…）
   DSR_REQUEST: 'DSR_REQUEST',
+  // 甲波六 T1（2026-10-29）：服务商 / LP 背调与审批——尽调评估壳（业务键 = assessmentNo，DDA…）、
+  // 筛查记录（SCR…）、存储文件（DOC…）三个新主体；服务商主体沿用 OUTSOURCING_VENDOR、LP 沿用 LIQUIDITY_PROVIDER。
+  DUE_DILIGENCE_ASSESSMENT: 'DUE_DILIGENCE_ASSESSMENT',
+  SCREENING_RECORD: 'SCREENING_RECORD',
+  STORED_DOCUMENT: 'STORED_DOCUMENT',
 } as const;
 
 export const AuditWorkflowTypes = {
@@ -169,6 +174,9 @@ export const AuditBusinessWorkflowTypes = {
   PRUDENTIAL: 'PRUDENTIAL',
   // 战役丙波三 T2（2026-10-03）：客户协议发布（治理件，审批 workflowType，T3 handler 消费）
   CUSTOMER_AGREEMENT: 'CUSTOMER_AGREEMENT',
+  // 甲波六 T1（2026-10-29）：服务商 / LP 背调（治理件，两线共用一个业务 workflowType——评估开壳 / 筛查 /
+  // 评分 / CISO 评估 / 结论 / 文件上传的审计都归这条；服务商与 LP 的状态边仍各归 OUTSOURCING_VENDOR / LP_PROFILE）
+  DUE_DILIGENCE: 'DUE_DILIGENCE',
 } as const;
 
 // Task 28：退役清单扫尾——原 15 键仅 2 键（REQUEST_CREATED/SUBMITTED）经
@@ -478,6 +486,26 @@ export const AuditActions = {
   VENDOR_REGISTERED: 'VENDOR_REGISTERED',
   VENDOR_UPDATED: 'VENDOR_UPDATED',
   VENDOR_TERMINATED: 'VENDOR_TERMINATED',
+  // ── 甲波六 T1（2026-10-29）：服务商准入流程（申请→背调→审批→报备→在册）与尽调评估 ──────
+  // VENDOR_REGISTERED / VENDOR_UPDATED 在 T6 随旧 register / update 路由退役（届时登 DEPRECATED_AUDIT_ACTIONS），
+  // 本任务不动（closure ③ 要求退役码的写点先删）。
+  VENDOR_APPLIED: 'VENDOR_APPLIED',
+  VENDOR_RETURNED: 'VENDOR_RETURNED',
+  VENDOR_RESUBMITTED: 'VENDOR_RESUBMITTED',
+  VENDOR_REJECTED: 'VENDOR_REJECTED',
+  VENDOR_SENT_FOR_APPROVAL: 'VENDOR_SENT_FOR_APPROVAL',
+  VENDOR_APPROVED: 'VENDOR_APPROVED',
+  VENDOR_APPROVAL_REJECTED: 'VENDOR_APPROVAL_REJECTED',
+  VENDOR_APPROVAL_CANCELLED: 'VENDOR_APPROVAL_CANCELLED',
+  VENDOR_ACTIVATED: 'VENDOR_ACTIVATED',
+  VENDOR_MATERIALITY_UPGRADED: 'VENDOR_MATERIALITY_UPGRADED',
+  VENDOR_NOTIFICATION_OPENED: 'VENDOR_NOTIFICATION_OPENED',
+  DD_ASSESSMENT_OPENED: 'DD_ASSESSMENT_OPENED',
+  DD_SCREENING_RECORDED: 'DD_SCREENING_RECORDED',
+  DD_ASSESSMENT_SAVED: 'DD_ASSESSMENT_SAVED',
+  DD_INFOSEC_RECORDED: 'DD_INFOSEC_RECORDED',
+  DD_ASSESSMENT_CONCLUDED: 'DD_ASSESSMENT_CONCLUDED',
+  DOCUMENT_UPLOADED: 'DOCUMENT_UPLOADED',
   RI_SEAT_REGISTERED: 'RI_SEAT_REGISTERED',
   RI_REPLACEMENT_PROPOSED: 'RI_REPLACEMENT_PROPOSED',
   RI_REPLACEMENT_APPLIED: 'RI_REPLACEMENT_APPLIED',
@@ -503,6 +531,12 @@ export const AuditActions = {
   LP_PROFILE_REJECTED: 'LP_PROFILE_REJECTED',
   LP_PROFILE_SUSPENDED: 'LP_PROFILE_SUSPENDED',
   LP_PROFILE_REACTIVATED: 'LP_PROFILE_REACTIVATED',
+  // 甲波六 T1（2026-10-29）：LP 背调与审批——退回 / 重新提交 / 送审 / 审批撤单四条新状态边
+  // （LP_PROFILE_SCREENED 在 T4 随旧建档即筛退役，本任务不动）
+  LP_PROFILE_RETURNED: 'LP_PROFILE_RETURNED',
+  LP_PROFILE_RESUBMITTED: 'LP_PROFILE_RESUBMITTED',
+  LP_PROFILE_SENT_FOR_APPROVAL: 'LP_PROFILE_SENT_FOR_APPROVAL',
+  LP_PROFILE_APPROVAL_CANCELLED: 'LP_PROFILE_APPROVAL_CANCELLED',
   // LP 两步准入 Task 4（2026-10-24）：LP 打款地址九码（财资件，域 TREASURY）
   LP_ADDRESS_REGISTERED: 'LP_ADDRESS_REGISTERED',
   LP_ADDRESS_SCREENED: 'LP_ADDRESS_SCREENED',
@@ -1206,6 +1240,35 @@ export const COMPLIANCE_OFFICE_AUDIT_ACTIONS: Record<string, AuditActionSpec> = 
   VENDOR_REGISTERED:  { domain: 'GOVERNANCE', correlationMode: S, requiredFields: ['criticality'], requiresCausation: false },
   VENDOR_UPDATED:     { domain: 'GOVERNANCE', correlationMode: N, requiredFields: [], requiresCausation: false },
   VENDOR_TERMINATED:  { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+
+  // ── 甲波六 T1（2026-10-29，spec §9）：服务商准入流程十一码 + 尽调评估五码 + 文件上传一码，
+  // 同组共用（域 GOVERNANCE；不新建注册表对象——新建要连改 audit-logs.service `??` 链、闭合 spec
+  // 「十八册」文案、export-audit-vocab，见 spec §9 决定）。写点在 T6（服务商）/ T3 / T4 / T6（评估）/ T2（文件）。
+  //  · VENDOR_APPLIED 铸旅程（S，必填 criticality，同旧 VENDOR_REGISTERED 先例）；其余服务商状态边
+  //    都是对已存在行的单步操作，标 N 并必填 fromStatus/toStatus（铁律 ④：每条状态边 metadata 带 from/to）。
+  //    旧 VENDOR_REGISTERED / VENDOR_UPDATED 暂留，T6 退役。
+  //  · VENDOR_MATERIALITY_UPGRADED（重大性升档，必填 reason）、VENDOR_NOTIFICATION_OPENED（MATERIAL 的
+  //    VARA 事前报备告知单自动开出，必填 filingNo）。
+  //  · DD_*：评估壳 OPENED 铸旅程（S，targetType = LP | VENDOR）；其余四码标 I 继承评估壳旅程。
+  //    必填各取其业务落点：筛查 result / 评分 riskTier / CISO verdict / 结论 conclusion。
+  //  · DOCUMENT_UPLOADED：文件上传是单步操作（N，必填 docType），跟着尽调评估进本册（spec §9 判断）。
+  VENDOR_APPLIED:              { domain: 'GOVERNANCE', correlationMode: S, requiredFields: ['criticality'], requiresCausation: false },
+  VENDOR_RETURNED:             { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  VENDOR_RESUBMITTED:          { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  VENDOR_REJECTED:             { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  VENDOR_SENT_FOR_APPROVAL:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  VENDOR_APPROVED:             { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  VENDOR_APPROVAL_REJECTED:    { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  VENDOR_APPROVAL_CANCELLED:   { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  VENDOR_ACTIVATED:            { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  VENDOR_MATERIALITY_UPGRADED: { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['reason'], requiresCausation: false },
+  VENDOR_NOTIFICATION_OPENED:  { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['filingNo'], requiresCausation: false },
+  DD_ASSESSMENT_OPENED:        { domain: 'GOVERNANCE', correlationMode: S, requiredFields: ['targetType'], requiresCausation: false },
+  DD_SCREENING_RECORDED:       { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['result'], requiresCausation: false },
+  DD_ASSESSMENT_SAVED:         { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['riskTier'], requiresCausation: false },
+  DD_INFOSEC_RECORDED:         { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['verdict'], requiresCausation: false },
+  DD_ASSESSMENT_CONCLUDED:     { domain: 'GOVERNANCE', correlationMode: I, requiredFields: ['conclusion'], requiresCausation: false },
+  DOCUMENT_UPLOADED:           { domain: 'GOVERNANCE', correlationMode: N, requiredFields: ['docType'], requiresCausation: false },
   // RI：SEAT_REGISTERED 铸旅程（S）。PROPOSED/APPLIED/REJECTED 是换人流程三步——本 task
   // 只落本表字段与审计、不开审批单（T5 的事），故不强制 requiresCausation/INHERIT；
   // 三码都老实标 N，同 OBLIGATION 中段先例。APPLIED 携 fromIncumbent/toIncumbent（brief
@@ -1258,7 +1321,8 @@ export const COMPLAINT_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
  * 是直接操作，必填 reason。
  * LP 两步准入 Task 9（2026-10-24）：改结算坐标流程整体退役（档案不再持有结算坐标，收款坐标改由
  * 打款地址簿承载），其提案 / 落地 / 驳回三个审计码从本表与 AuditActions 摘除，登
- * DEPRECATED_AUDIT_ACTIONS 拒写。现 6 码。
+ * DEPRECATED_AUDIT_ACTIONS 拒写。现 6 码；甲波六 T1（2026-10-29）加 4 码（RETURNED / RESUBMITTED /
+ * SENT_FOR_APPROVAL / APPROVAL_CANCELLED），现 10 码。
  * LP 两步准入 Task 2（2026-10-24）：
  *   · LP_PROFILE_SCREENED（新）= 建档时刻实体背调出了三档结论（系统主体；afterData 携
  *     screeningAnswer/screenedAt，必填；INHERIT 读 lpNo；非异步驱动故无 causation）。
@@ -1272,6 +1336,13 @@ export const CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS: Record<string, AuditActionSpec
   LP_PROFILE_REJECTED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   LP_PROFILE_SUSPENDED:       { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
   LP_PROFILE_REACTIVATED:     { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  // 甲波六 T1（2026-10-29，spec §4.4/§9）：LP 背调与审批四条新状态边——退回 / 重新提交 / 送审 / 审批撤单。
+  // 全是对已存在档案的单步状态边，INHERIT 读 lpNo（同 SUSPENDED/REACTIVATED 先例），必填 fromStatus/toStatus
+  // （铁律 ④）。LP_PROFILE_REJECTED 保留不动，合规不通过与审批驳回共用同一码（spec §9）。
+  LP_PROFILE_RETURNED:           { domain: 'TREASURY', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  LP_PROFILE_RESUBMITTED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  LP_PROFILE_SENT_FOR_APPROVAL:  { domain: 'TREASURY', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
+  LP_PROFILE_APPROVAL_CANCELLED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['fromStatus', 'toStatus'], requiresCausation: false },
 };
 
 /** LP 两步准入 Task 4（2026-10-24）：LP 打款地址九码，域 TREASURY——同 CAMPAIGN_B_LP_PROFILE_AUDIT_ACTIONS

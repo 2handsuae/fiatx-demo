@@ -186,6 +186,18 @@ export const PERMISSIONS = {
   VENDOR_REGISTER_WRITE: 'api.post.admin_outsourcing_vendors',
   RI_REGISTER_WRITE: 'api.post.admin_responsible_individuals',
 
+  // 甲波六 T1（2026-10-29）：服务商 / LP 背调与审批——键名照 rbac.catalog.ts 新增四组
+  // （VENDOR_APPLY / VENDOR_READ / DUE_DILIGENCE_WRITE / INFOSEC_ASSESSMENT_WRITE），值是各组代表路由码
+  // （同本文件既有「一个码代表整组」惯例）。⚠️ 代表路由的 route() 分别在 T2（resubmit）/ T4（assessment-conclude）/
+  // T6（apply、infosec）落地，在此之前这几个值在后端 catalog 里还不存在，S6（前后端码差集）要到 T10 才跑；
+  // VENDOR_REGISTER_WRITE 键留到 T8 随其唯一消费者（ComplianceRegistersPage.tsx）一起删。
+  VENDOR_READ: 'api.get.admin_outsourcing_vendors',
+  VENDOR_APPLY: 'api.post.admin_outsourcing_vendors',
+  VENDOR_TERMINATE: 'api.post.admin_outsourcing_vendors_vendorno_terminate',
+  DUE_DILIGENCE_WRITE: 'api.post.admin_lp_profiles_lpno_assessment_conclude',
+  INFOSEC_ASSESSMENT_WRITE: 'api.post.admin_outsourcing_vendors_vendorno_assessment_infosec',
+  LP_PROFILE_RESUBMIT: 'api.post.admin_lp_profiles_lpno_resubmit',
+
   // 战役甲波五（Task 9）：投诉工作流——两个键名精确照 rbac.catalog.ts 的 PermissionGroup
   // 字面量（COMPLAINT_READ/COMPLAINT_WRITE，route() 507-513 行）。列表/详情两个 GET 路由
   // 的 allowedGroups 同时含 COMPLAINT_READ/COMPLAINT_WRITE，六个写路由（acknowledge/
