@@ -23,6 +23,7 @@ import { StatusPill } from '../components/ui/StatusPill';
 import { ViewAuditTrailButton } from '../components/common/ViewAuditTrailButton';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { SERVICE_PROVIDERS_PATH } from '../utils/partnerStatusMap';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 
@@ -131,14 +132,10 @@ const VendorPaymentDetail = () => {
   const navigate = useNavigate();
   const { hasPermission } = useAdminSession();
   const canCancel = hasPermission(PERMISSIONS.VENDOR_PAYMENT_CANCEL);
-  // 跨域回链持码门控（同 FundsOrderDetail.tsx parentLinkAllowed 先例）：金库/CFO 看文本，
-  // 内审/合规官（持 COMPLIANCE_OFFICE_VIEW）点得动外包商登记册。评审 Imp#1 逮回：
-  // /admin/outsourcing-vendors/:vendorNo 这条路由在 admin-web 里不存在，App.tsx 的
-  // catch-all 会把持码用户静默弹回首页——业主拍板禁止的「点得到、点了落空」。真实落点是
-  // ComplianceRegistersPage.tsx（挂在 /admin/governance/compliance-office/registers，
-  // 同样由 COMPLIANCE_OFFICE_VIEW 把门，甲波四交付），vendors 是它的默认 tab，不带查询参数
-  // 就落在外包商登记册——该页无按 vendorNo 过滤/深链的查询参数，故不传参（没有的功能不能造）。
-  const canViewVendorProfile = hasPermission(PERMISSIONS.COMPLIANCE_OFFICE_VIEW);
+  // 跨域回链持码门控（同 FundsOrderDetail.tsx parentLinkAllowed 先例）：持 VENDOR_READ 的职务（金库/CFO/合规官等）
+  // 点得到服务商详情页，其余看文本——业主拍板禁止「点得到、点了落空」。甲波六 T8：外包商册 Vendors tab 退役，
+  // 回链改指 Compliance Office → Service Providers 的详情页。
+  const canViewVendorProfile = hasPermission(PERMISSIONS.VENDOR_READ);
 
   const [detail, setDetail] = useState<Detail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -260,7 +257,7 @@ const VendorPaymentDetail = () => {
               label="Vendor"
               value={`${detail.vendorNo} · ${detail.vendorName}`}
               mono
-              link={canViewVendorProfile ? '/admin/governance/compliance-office/registers' : undefined}
+              link={canViewVendorProfile ? `${SERVICE_PROVIDERS_PATH}/${encodeURIComponent(detail.vendorNo)}` : undefined}
             />
             <InfoField label="Payee Account Reference" value={detail.payeeAccountRef} mono />
             <InfoField label="Purpose" value={detail.purposeNote} />

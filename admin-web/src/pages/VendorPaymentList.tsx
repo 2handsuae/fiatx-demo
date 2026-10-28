@@ -4,9 +4,10 @@
 // 铁律⑥：投影零 UUID。
 //
 // 收款方下拉：GET /admin/outsourcing-vendors 返回裸数组（OutsourcingVendorsService.list()
-// 直接 `rows.map(toListItem)`，不像 capital-injections/vendor-payments 列表端点那样包一层
-// {items,total}）——前端按 status==='ACTIVE' 过滤后渲染 `name (vendorNo)`；该端点是金库
-// （FUNDING_WRITE）/内审合规（COMPLIANCE_OFFICE_VIEW）OR 粗门（T5 已开）。
+// 直接 `rows.map(toView)`，不像 capital-injections/vendor-payments 列表端点那样包一层
+// {items,total}）；读门 VENDOR_READ（金库在内，甲波六 T6）。
+// 甲波六 T8：下拉列出所有非 TERMINATED 的服务商，非 ACTIVE 的置灰并标状态（如「Pending VARA notification」）——
+// 「待报备的付不了款」是报备门的演示点：先让同事看见它在、却点不了，再去报送台签发，回来就能选。后端开单守卫不动。
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
@@ -16,6 +17,7 @@ import { StatusPill } from '../components/ui/StatusPill';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
+import { partnerStatusMeta } from '../utils/partnerStatusMap';
 
 interface Item {
   payNo: string;
@@ -84,7 +86,7 @@ const InitiatePaymentModal = ({
         if (vendorsRes.ok) {
           const data = await vendorsRes.json();
           const rows: VendorOption[] = Array.isArray(data) ? data : [];
-          setVendors(rows.filter((v) => v.status === 'ACTIVE'));
+          setVendors(rows.filter((v) => v.status !== 'TERMINATED'));
         }
         if (assetsRes.ok) {
           const data = await assetsRes.json();
@@ -143,7 +145,9 @@ const InitiatePaymentModal = ({
           <select value={vendorNo} onChange={(e) => setVendorNo(e.target.value)} className={fi}>
             <option value="">Select…</option>
             {vendors.map((v) => (
-              <option key={v.vendorNo} value={v.vendorNo}>{v.name} ({v.vendorNo})</option>
+              <option key={v.vendorNo} value={v.vendorNo} disabled={v.status !== 'ACTIVE'}>
+                {v.name} ({v.vendorNo}){v.status === 'ACTIVE' ? '' : ` — ${partnerStatusMeta(v.status).label}`}
+              </option>
             ))}
           </select>
         </label>

@@ -7,7 +7,7 @@ import { DetailCard } from './DetailPageComponents';
 import { UploadButton } from './UploadButton';
 import { adminButtonClass } from '../common/adminButtonStyles';
 import { AdminSessionError } from '../../utils/adminFetch';
-import { humanizeCode } from '../../utils/partnerStatusMap';
+import { LP_DOC_TYPE_LABELS, VENDOR_DOC_TYPE_LABELS, labelOf } from '../../utils/partnerStatusMap';
 import { DOCUMENT_ACCEPT, openStoredDocument } from '../../utils/storedDocument';
 
 /** 后端 StoredDocumentView（零 id、零磁盘路径）。 */
@@ -48,7 +48,10 @@ export const DocumentsCard = ({
   const [uploadType, setUploadType] = useState(docTypes[0]?.code ?? '');
   const [openError, setOpenError] = useState('');
   const noun = ownerKind === 'LP' ? 'liquidity provider' : 'service provider';
-  const labelOfType = (code: string) => docTypes.find((t) => t.code === code)?.label ?? humanizeCode(code);
+  // `docTypes` 只是「眼下应有」的槽位；已上传文件的类别可能不在其中（如重提后不再受监管、或升档前传的），
+  // 此时回落到该线的完整词表，不显示裸码。
+  const fullVocabulary = ownerKind === 'LP' ? LP_DOC_TYPE_LABELS : VENDOR_DOC_TYPE_LABELS;
+  const labelOfType = (code: string) => docTypes.find((t) => t.code === code)?.label ?? labelOf(fullVocabulary, code);
   const provided = new Set(documents.map((d) => d.docType));
   const missing = docTypes.filter((t) => !provided.has(t.code));
 

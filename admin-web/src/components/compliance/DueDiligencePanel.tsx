@@ -77,12 +77,13 @@ const SubHeading = ({ children }: { children: string }) => (
 
 const yesNo = (v: boolean | null | undefined): string => (v === null || v === undefined ? '—' : v ? 'Yes' : 'No');
 
-/** 退回 / 不通过共用的「必填原因」弹层。 */
-const ReasonDialog = ({
+/** 退回 / 不通过共用的「原因」弹层（默认必填；`optional` 时可留空，如终止服务商的备注）。服务商详情页的升档 / 终止复用它。 */
+export const ReasonDialog = ({
   title,
   hint,
   confirmLabel,
   danger = false,
+  optional = false,
   busy,
   error,
   onCancel,
@@ -92,6 +93,7 @@ const ReasonDialog = ({
   hint: string;
   confirmLabel: string;
   danger?: boolean;
+  optional?: boolean;
   busy: boolean;
   error: string;
   onCancel: () => void;
@@ -103,7 +105,7 @@ const ReasonDialog = ({
       <div className="w-[480px] rounded-lg border border-adm-border bg-adm-panel p-5" onClick={(e) => e.stopPropagation()}>
         <h3 className="mb-1 text-sm font-semibold text-adm-t1">{title}</h3>
         <p className="mb-3 font-mono text-[10px] text-adm-t3">{hint}</p>
-        <label className="block text-xs">Reason (required)
+        <label className="block text-xs">{optional ? 'Notes (optional)' : 'Reason (required)'}
           <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} className={fi} autoFocus />
         </label>
         {error && <p className="mt-2 text-xs text-adm-red">{error}</p>}
@@ -111,7 +113,7 @@ const ReasonDialog = ({
           <button type="button" onClick={onCancel} className={adminButtonClass('modalCancel')}>Cancel</button>
           <button
             type="button"
-            disabled={busy || !reason.trim()}
+            disabled={busy || (!optional && !reason.trim())}
             onClick={() => onConfirm(reason.trim())}
             className={adminButtonClass(danger ? 'workflowNegative' : 'modalConfirm')}
           >
@@ -453,12 +455,16 @@ export const DueDiligencePanel = ({
           <div className="space-y-1 font-mono text-[11px]">
             {flags.hasRed && (
               <p className="rounded border border-adm-red/40 bg-adm-red/10 px-3 py-2 text-adm-red">
-                A screening result is Red — this application cannot be sent for approval; it can only be rejected.
+                {returned
+                  ? `A screening result is Red — once ${applicant} resubmits the application, it cannot be sent for approval and can only be rejected.`
+                  : 'A screening result is Red — this application cannot be sent for approval; it can only be rejected.'}
               </p>
             )}
             {flags.infosecBlocked && (
               <p className="rounded border border-adm-red/40 bg-adm-red/10 px-3 py-2 text-adm-red">
-                The CISO judged the information-security assessment not acceptable — it cannot be sent for approval; it can only be rejected.
+                {returned
+                  ? `The CISO judged the information-security assessment not acceptable — once ${applicant} resubmits the application, it cannot be sent for approval and can only be rejected.`
+                  : 'The CISO judged the information-security assessment not acceptable — it cannot be sent for approval; it can only be rejected.'}
               </p>
             )}
             {flags.missingNames.length > 0 && (

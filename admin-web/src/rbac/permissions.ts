@@ -173,9 +173,9 @@ export const PERMISSIONS = {
   REG_FILING_WRITE: 'api.post.admin_regulatory_filings',
 
   // 战役甲波四（Task 9）：合规办公室骨架——闹钟墙 + 合规日历（周期义务）+ 两本登记册
-  // （外包商 / RI）。四个键名精确照 rbac.catalog.ts 的 PermissionGroup 字面量
-  // （COMPLIANCE_OFFICE_VIEW/OBLIGATION_WRITE/VENDOR_REGISTER_WRITE/RI_REGISTER_WRITE，
-  // 见该文件 98-101 行）；值是 buildPermissionCode(method, path) 对该组第一条注册路由的
+  // （外包商 / RI）。键名精确照 rbac.catalog.ts 的 PermissionGroup 字面量
+  // （COMPLIANCE_OFFICE_VIEW/OBLIGATION_WRITE/RI_REGISTER_WRITE，见该文件 98-101 行；
+  // 外包商册的写键已于甲波六 T8 随登记册 Vendors tab 退役，见下方服务商几个键）；值是 buildPermissionCode(method, path) 对该组第一条注册路由的
   // 派生值——同组内其余路由（见 rbac.catalog.ts 515-537 行）绑定的角色完全一致，按本文件
   // 既有代表码惯例（REG_FILING_WRITE 等）只登记一个代表码，三个页面全部写按钮/⚡ 按钮
   // 统一用它判断。⚡ 两枚按钮（obligations simulate-due / regulatory-filings
@@ -183,14 +183,14 @@ export const PERMISSIONS = {
   // 526/511 行），不新增键。
   COMPLIANCE_OFFICE_VIEW: 'api.get.admin_compliance_office_clock_wall',
   OBLIGATION_WRITE: 'api.post.admin_compliance_obligations',
-  VENDOR_REGISTER_WRITE: 'api.post.admin_outsourcing_vendors',
   RI_REGISTER_WRITE: 'api.post.admin_responsible_individuals',
 
   // 甲波六 T1（2026-10-29）：服务商 / LP 背调与审批——键名照 rbac.catalog.ts 新增四组
   // （VENDOR_APPLY / VENDOR_READ / DUE_DILIGENCE_WRITE / INFOSEC_ASSESSMENT_WRITE），值是各组代表路由码
   // （同本文件既有「一个码代表整组」惯例）。⚠️ 代表路由的 route() 分别在 T2（resubmit）/ T4（assessment-conclude）/
   // T6（apply、infosec）落地，在此之前这几个值在后端 catalog 里还不存在，S6（前后端码差集）要到 T10 才跑；
-  // VENDOR_REGISTER_WRITE 键留到 T8 随其唯一消费者（ComplianceRegistersPage.tsx）一起删。
+  // 前端旧的登记册写键已在 T8 随其唯一消费者（登记册 Vendors tab）一起删，终止服务商改用 VENDOR_TERMINATE。
+  // 服务商详情页的「Edit & resubmit」与上传材料同属 VENDOR_APPLY 一组（运营独占），共用 VENDOR_APPLY 这个代表码。
   VENDOR_READ: 'api.get.admin_outsourcing_vendors',
   VENDOR_APPLY: 'api.post.admin_outsourcing_vendors',
   VENDOR_TERMINATE: 'api.post.admin_outsourcing_vendors_vendorno_terminate',

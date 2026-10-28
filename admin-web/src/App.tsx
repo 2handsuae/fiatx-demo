@@ -83,6 +83,9 @@ const RegulatoryFilingDetailPage = lazy(() => import('./pages/RegulatoryFilingDe
 const ComplianceClockWallPage = lazy(() => import('./pages/ComplianceClockWallPage'));
 const ComplianceObligationListPage = lazy(() => import('./pages/ComplianceObligationListPage'));
 const ComplianceRegistersPage = lazy(() => import('./pages/ComplianceRegistersPage'));
+const ServiceProvidersPage = lazy(() => import('./pages/ServiceProvidersPage'));
+const ServiceProviderApplyPage = lazy(() => import('./pages/ServiceProviderApplyPage'));
+const ServiceProviderDetailPage = lazy(() => import('./pages/ServiceProviderDetailPage'));
 const CustomerAgreementsPage = lazy(() => import('./pages/CustomerAgreementsPage'));
 const ComplaintListPage = lazy(() => import('./pages/ComplaintListPage'));
 const ComplaintDetailPage = lazy(() => import('./pages/ComplaintDetailPage'));
@@ -322,6 +325,11 @@ function App() {
                 与事故登记/报送台平级（treasury governance file 三兄弟）。 */}
             <Route path="governance/compliance-office/clock-wall" element={withPermission(<ComplianceClockWallPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
             <Route path="governance/compliance-office/obligations" element={withPermission(<ComplianceObligationListPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
+            {/* 甲波六 T8：服务商准入（原登记册 Vendors tab 抬出来）——读 VENDOR_READ，申请 / 重提 VENDOR_APPLY；静态段在动态段之前。 */}
+            <Route path="governance/compliance-office/service-providers" element={withPermission(<ServiceProvidersPage />, [PERMISSIONS.VENDOR_READ])} />
+            <Route path="governance/compliance-office/service-providers/new" element={withPermission(<ServiceProviderApplyPage />, [PERMISSIONS.VENDOR_APPLY])} />
+            <Route path="governance/compliance-office/service-providers/:vendorNo" element={withPermission(<ServiceProviderDetailPage />, [PERMISSIONS.VENDOR_READ])} />
+            <Route path="governance/compliance-office/service-providers/:vendorNo/resubmit" element={withPermission(<ServiceProviderApplyPage />, [PERMISSIONS.VENDOR_APPLY])} />
             <Route path="governance/compliance-office/registers" element={withPermission(<ComplianceRegistersPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
             <Route path="governance/compliance-office/agreements" element={withPermission(<CustomerAgreementsPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
             {/* 战役丙波四（Task 6）：资料请求（DSR）——DPO 的经办面，归合规办公室组；读权限 DSR_READ

@@ -39,6 +39,7 @@ import {
   MessageSquare,
   ScrollText,
   FileSearch,
+  Handshake,
 } from 'lucide-react';
 import { Link, useLocation, useNavigate, Outlet } from 'react-router-dom';
 import { useAdminSession } from '../contexts/AdminSessionContext';
@@ -445,6 +446,14 @@ const DashboardLayout = () => {
           label: 'Obligations',
           icon: <CalendarClock size={13} />,
           requiredPermissions: [PERMISSIONS.COMPLIANCE_OFFICE_VIEW],
+        },
+        // 甲波六 T8：服务商准入（原登记册 Vendors tab 抬出来）——读 VENDOR_READ（合规官/CISO/CFO/高管/内审/金库/运营）。
+        // 运营不持 COMPLIANCE_OFFICE_VIEW，本组对他按权限过滤后只剩本项，外加他本就持有的末位 Sumsub Events。
+        {
+          path: '/admin/governance/compliance-office/service-providers',
+          label: 'Service Providers',
+          icon: <Handshake size={13} />,
+          requiredPermissions: [PERMISSIONS.VENDOR_READ],
         },
         {
           path: '/admin/governance/compliance-office/registers',

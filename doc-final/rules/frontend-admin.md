@@ -162,6 +162,7 @@ When a new entity detail page is added, its sidebar field selection MUST be reco
 | **ReconciliationExternalStatement** | `statementNo`, `source`, `currency`, `closingBalance` | `businessDate`, `fetchedAt`, `createdAt` |
 | **CustomerRestriction** | `restrictionNo`, `status` badge, `cause`, `scopes`, `visibility`(🔇 for SILENT), `customerNo` | `openedAt`, `releasedAt` |
 | **DataSubjectRequest**（资料请求 DSR，战役丙波四） | `type`, `customerNo`, `outcome`（办结后 `resolutionCode` 的人话标签） | `submittedAt`, `reviewStartedAt`, `dueAt`, `resolvedAt` |
+| **ServiceProvider**（服务商准入，甲波六 T8；LP 档案同构，侧栏只放生命周期） | Summary：`criticality`（重大性标签）、`regulatedFunction`、`deliveryLocations`、评估 `riskTier` | `createdAt`（含建单人）、`contractStart`、`contractEnd` |
 
 ---
 
