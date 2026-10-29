@@ -54,10 +54,10 @@
   - `MAKER_GROUP_BY_POLICY`：`LP_PROFILE_APPROVAL: 'DUE_DILIGENCE_WRITE'`（原 `'LP_WRITE'` 改）、`LP_PROFILE_HIGH_RISK_APPROVAL: 'DUE_DILIGENCE_WRITE'`、`VENDOR_APPROVAL: 'DUE_DILIGENCE_WRITE'`、`VENDOR_MATERIAL_APPROVAL: 'DUE_DILIGENCE_WRITE'`；`DETAIL_READ_GROUP_BY_POLICY`：LP 两条 `'LP_READ'`、vendor 两条 `'VENDOR_READ'`；`ENTITY_ROUTE_BY_ACTION`：LP 两条 `/admin/lp-profiles/${r}`、vendor 两条 `/admin/governance/compliance-office/service-providers/${r}`；`ACTION_TYPE_LABELS`：`'LP profile registration (high risk)'`、`'Service provider onboarding'`、`'Material service provider onboarding'`
   - `admin-web/src/rbac/permissions.ts` 新键（值 = 代表路由码，T2 / T4 / T6 的路由落地后才真实存在；S6 在 T10 才跑）：`VENDOR_READ: 'api.get.admin_outsourcing_vendors'`、`VENDOR_APPLY: 'api.post.admin_outsourcing_vendors'`、`VENDOR_TERMINATE: 'api.post.admin_outsourcing_vendors_vendorno_terminate'`、`DUE_DILIGENCE_WRITE: 'api.post.admin_lp_profiles_lpno_assessment_conclude'`、`INFOSEC_ASSESSMENT_WRITE: 'api.post.admin_outsourcing_vendors_vendorno_assessment_infosec'`、`LP_PROFILE_RESUBMIT: 'api.post.admin_lp_profiles_lpno_resubmit'`；`VENDOR_REGISTER_WRITE` 键留到 T8 随其唯一消费者一起删
 
-- [ ] **Step 1: 写失败测试**——`approvalEntityRoutes.spec.ts` 不改，先只往 `DETAIL_READ_GROUP_BY_POLICY` 加三条 → 跑 `npx jest admin-web/src/pages/approvalEntityRoutes --silent` 应红（键集不等），证明这道闸活着
-- [ ] **Step 2: 按 Interfaces 逐处登记**——四组进联合类型 + 桶 + 绑定；三策略 + 白名单；审计码两册（只增不退）+ 实体 / workflow 类型；三条事件；verify-rbac 两表；前端两表 + permissions 键
-- [ ] **Step 3: 跑 `npx jest src/modules/audit-logging admin-web/src/pages/approvalEntityRoutes --silent` 全绿（closure 四条 + 计数）；`npx tsc --noEmit -p tsconfig.json` 绿；`cd admin-web && npx tsc -b --noEmit` 绿**
-- [ ] **Step 4: Commit** `feat(尽调): 登记处地基——四权限组/三审批策略/审计码两册/三领域事件`
+- [x] **Step 1: 写失败测试**——`approvalEntityRoutes.spec.ts` 不改，先只往 `DETAIL_READ_GROUP_BY_POLICY` 加三条 → 跑 `npx jest admin-web/src/pages/approvalEntityRoutes --silent` 应红（键集不等），证明这道闸活着
+- [x] **Step 2: 按 Interfaces 逐处登记**——四组进联合类型 + 桶 + 绑定；三策略 + 白名单；审计码两册（只增不退）+ 实体 / workflow 类型；三条事件；verify-rbac 两表；前端两表 + permissions 键
+- [x] **Step 3: 跑 `npx jest src/modules/audit-logging admin-web/src/pages/approvalEntityRoutes --silent` 全绿（closure 四条 + 计数）；`npx tsc --noEmit -p tsconfig.json` 绿；`cd admin-web && npx tsc -b --noEmit` 绿**
+- [x] **Step 4: Commit** `feat(尽调): 登记处地基——四权限组/三审批策略/审计码两册/三领域事件`
 
 ---
 
@@ -81,7 +81,7 @@
   - 路由：`GET /admin/documents/:docNo/content`，groups `['LP_READ','VENDOR_READ']`（OR）；响应 `Content-Disposition: inline; filename="<originalName>"`
   - shell：`default_file_storage_dir <scope>` → `/tmp/exchange_js_<scope>/files`
 
-- [ ] **Step 1: 写失败测试** `documents.service.spec.ts`（内存 prisma mock + 临时目录 `fs.mkdtempSync`，`process.env.FILE_STORAGE_DIR` 指向它）：
+- [x] **Step 1: 写失败测试** `documents.service.spec.ts`（内存 prisma mock + 临时目录 `fs.mkdtempSync`，`process.env.FILE_STORAGE_DIR` 指向它）：
 
 ```ts
 it('store：PDF 落到 <dir>/<ownerType>/<ownerNo>/<docNo>.pdf，返回 DOC 开头单号，写 DOCUMENT_UPLOADED 审计', ...)
@@ -91,13 +91,13 @@ it('listByOwner 只返回该 owner 的文件且不含 storagePath / id', ...)
 it('storageDir：缺 FILE_STORAGE_DIR 抛错', ...)
 ```
 
-- [ ] **Step 2: 跑 `npx jest src/core/documents --silent` 确认红**（模块不存在）
-- [ ] **Step 3: 实现** schema + 迁移 + module / service / controller（`@UseInterceptors(FileInterceptor('file'))` 只在各 owner 的上传端点用——本任务不建上传端点，只建下载端点与服务）+ `@types/multer` + rbac `route()` + `reset-business-data.ts` 登记
-- [ ] **Step 4: shell / 部署贯通**——`db-env.sh` 加函数；`stack-common.sh` 在算出 `STACK` 后 `export FILE_STORAGE_DIR="$(default_file_storage_dir "${STACK}")"`（main 同理）；`on-stack.sh` 的 `exec env` 行加 `FILE_STORAGE_DIR="${FILE_STORAGE_DIR}"`；`reset-stack.sh` 在 `db:biz:reset` 前 `rm -rf` + `mkdir -p`，`db:seed:business` 那行加 `FILE_STORAGE_DIR="${FILE_STORAGE_DIR}"`；`demo.env.template` 加行；`deploy/demo-run.sh` 不改（`RuntimeDirectory` 每次启动新建）
-- [ ] **Step 5: `adminFetch` 改法**——`if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has('Content-Type'))`
-- [ ] **Step 6: 跑 `npx jest src/core/documents --silent` 绿；后端 tsc 绿；admin tsc 绿；`bash scripts/stack.sh reset self` 走通（迁移建表 + 目录创建，`ls /tmp/exchange_js_wt_<名>/files` 存在）**
-- [ ] **Step 7: 失效验证**——临时把 `maxBytes` 改成 1 再跑 spec 第一条应红，还原
-- [ ] **Step 8: Commit** `feat(文件): 系统首个文件存储——stored_documents + FILE_STORAGE_DIR 贯通栈脚本与云端模板`
+- [x] **Step 2: 跑 `npx jest src/core/documents --silent` 确认红**（模块不存在）
+- [x] **Step 3: 实现** schema + 迁移 + module / service / controller（`@UseInterceptors(FileInterceptor('file'))` 只在各 owner 的上传端点用——本任务不建上传端点，只建下载端点与服务）+ `@types/multer` + rbac `route()` + `reset-business-data.ts` 登记
+- [x] **Step 4: shell / 部署贯通**——`db-env.sh` 加函数；`stack-common.sh` 在算出 `STACK` 后 `export FILE_STORAGE_DIR="$(default_file_storage_dir "${STACK}")"`（main 同理）；`on-stack.sh` 的 `exec env` 行加 `FILE_STORAGE_DIR="${FILE_STORAGE_DIR}"`；`reset-stack.sh` 在 `db:biz:reset` 前 `rm -rf` + `mkdir -p`，`db:seed:business` 那行加 `FILE_STORAGE_DIR="${FILE_STORAGE_DIR}"`；`demo.env.template` 加行；`deploy/demo-run.sh` 不改（`RuntimeDirectory` 每次启动新建）
+- [x] **Step 5: `adminFetch` 改法**——`if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has('Content-Type'))`
+- [x] **Step 6: 跑 `npx jest src/core/documents --silent` 绿；后端 tsc 绿；admin tsc 绿；`bash scripts/stack.sh reset self` 走通（迁移建表 + 目录创建，`ls /tmp/exchange_js_wt_<名>/files` 存在）**
+- [x] **Step 7: 失效验证**——临时把 `maxBytes` 改成 1 再跑 spec 第一条应红，还原
+- [x] **Step 8: Commit** `feat(文件): 系统首个文件存储——stored_documents + FILE_STORAGE_DIR 贯通栈脚本与云端模板`
 
 ---
 
@@ -125,7 +125,7 @@ it('storageDir：缺 FILE_STORAGE_DIR 抛错', ...)
     - `hasRed(targetType, targetNo): Promise<boolean>`（供前端 view 决定按钮，放进 `DueDiligenceView.flags = { hasRed, missingNames: string[], infosecBlocked }`——`getView` 可选传 `input` 算 flags）
   - 审计信封：domain `GOVERNANCE`，category GOVERNANCE，workflowType `DUE_DILIGENCE`，primary subject `DUE_DILIGENCE_ASSESSMENT/assessmentNo`，subjects 另带目标（`LIQUIDITY_PROVIDER` 或 `OUTSOURCING_VENDOR`）为 RELATED，`correlationId = assessmentNo`（OPENED 为 START），`requestId` 带 action + assessmentNo + uuid
 
-- [ ] **Step 1: 写失败测试** `due-diligence.service.spec.ts`（照 `outsourcing-vendors.service.spec.ts:162-215` 的 `Test.createTestingModule` + 真 `AuditLogsService` 过闸写法，prisma 用行为化内存 mock——`findUnique` 按 where 真过滤，不许无视 where）：
+- [x] **Step 1: 写失败测试** `due-diligence.service.spec.ts`（照 `outsourcing-vendors.service.spec.ts:162-215` 的 `Test.createTestingModule` + 真 `AuditLogsService` 过闸写法，prisma 用行为化内存 mock——`findUnique` 按 where 真过滤，不许无视 where）：
 
 ```ts
 it('open 两次同一目标只开一份 DDA，审计 DD_ASSESSMENT_OPENED 仅一条', ...)
@@ -140,10 +140,10 @@ it('conclude RETURNED 无 reason → 400；带 reason → 落库并审计 DD_ASS
 it('四属性过闸：每条审计都经 assertActionSpec 不抛', ...)
 ```
 
-- [ ] **Step 2: 跑 `npx jest src/modules/governance/compliance-office/due-diligence --silent` 确认红**
-- [ ] **Step 3: 实现** schema + 迁移 + 常量 + DTO + 服务 + 模块登记 + reset 清单
-- [ ] **Step 4: 跑该 spec 绿；后端 tsc 绿；`npx jest src/modules/audit-logging --silent`（closure ③ 此刻仍因旧写点红——记录，不算本任务红）**
-- [ ] **Step 5: Commit** `feat(尽调): 尽调评估主体——DDA/SCR 两表、逐名筛查、定档、CISO 评估、送审五道硬规则`
+- [x] **Step 2: 跑 `npx jest src/modules/governance/compliance-office/due-diligence --silent` 确认红**
+- [x] **Step 3: 实现** schema + 迁移 + 常量 + DTO + 服务 + 模块登记 + reset 清单
+- [x] **Step 4: 跑该 spec 绿；后端 tsc 绿；`npx jest src/modules/audit-logging --silent`（closure ③ 此刻仍因旧写点红——记录，不算本任务红）**
+- [x] **Step 5: Commit** `feat(尽调): 尽调评估主体——DDA/SCR 两表、逐名筛查、定档、CISO 评估、送审五道硬规则`
 
 ---
 
@@ -178,8 +178,8 @@ it('四属性过闸：每条审计都经 assertActionSpec 不抛', ...)
   - 路由（`rbac.catalog.ts` 与控制器同加；`@RequirePermissions(buildPermissionCode(...))` 逐条一致）：`POST /admin/lp-profiles` 改 body ｜ `POST /admin/lp-profiles/:lpNo/resubmit` [`LP_WRITE`] ｜ `POST /admin/lp-profiles/:lpNo/documents` [`LP_WRITE`]（multipart：`file` + 字段 `docType`）｜ `GET /admin/lp-profiles/:lpNo/documents` [`LP_READ`] ｜ `GET /admin/lp-profiles/:lpNo/assessment` [`LP_READ`] ｜ `POST .../assessment/screening-records` ｜ `POST .../assessment/screening-records/:recordNo/evidence`（multipart）｜ `PATCH .../assessment` ｜ `POST .../assessment/conclude`（后四条 [`DUE_DILIGENCE_WRITE`]）
   - `LpProfileView` 随新列更新（`beneficialOwners` 解析为数组；删三旧键）
 
-- [ ] **Step 1: 全量清点**：`grep -rnE "screeningAnswer|screenedAt|dueDiligenceRef|screenLpEntityName|LP_PROFILE_SCREENED|lp-entity-screening" src test prisma scripts admin-web/src doc-final --include="*.ts" --include="*.tsx" --include="*.md" | grep -v "doc-final/archive"`——预期终态：src / test / prisma / scripts / admin-web 为 **0**，`doc-final` 只剩本波 spec / plan 与 T11 要改的 `sumsub-mock-touchpoints.md:19`、`decisions.md:166`（历史裁定原文不改）
-- [ ] **Step 2: 写失败测试**（`lp-profile-workflow.service.spec.ts` 重写第一 describe；照既有 `new` 直构 + jest.fn 写法，DDA / documents 也 mock）：
+- [x] **Step 1: 全量清点**：`grep -rnE "screeningAnswer|screenedAt|dueDiligenceRef|screenLpEntityName|LP_PROFILE_SCREENED|lp-entity-screening" src test prisma scripts admin-web/src doc-final --include="*.ts" --include="*.tsx" --include="*.md" | grep -v "doc-final/archive"`——预期终态：src / test / prisma / scripts / admin-web 为 **0**，`doc-final` 只剩本波 spec / plan 与 T11 要改的 `sumsub-mock-touchpoints.md:19`、`decisions.md:166`（历史裁定原文不改）
+- [x] **Step 2: 写失败测试**（`lp-profile-workflow.service.spec.ts` 重写第一 describe；照既有 `new` 直构 + jest.fn 写法，DDA / documents 也 mock）：
 
 ```ts
 it('initiateCreate：建档 PENDING_ASSESSMENT，开 DDA，不开审批单', ...)
@@ -194,11 +194,11 @@ it('transition 七条新边各写对应审计码且 metadata 带 from/to；非�
 it('create 不再写 LP_PROFILE_SCREENED；LP_PROFILE_CREATED 过四属性闸（registeredIn 必填）', ...)
 ```
 
-- [ ] **Step 3: 跑 `npx jest src/modules/asset-treasury/lp-desk --silent` 确认红**
-- [ ] **Step 4: 实现**——schema + 迁移（`ALTER TABLE` 加列 / 删列：SQLite 删列用 `prisma migrate diff` 生成的表重建脚本）；DTO；迁移表 + `ACTION_BY_EDGE`；服务；workflow；handler；控制器（multipart 端点 `@UseInterceptors(FileInterceptor('file'))` + `@UploadedFile() file: Express.Multer.File` + `@Body('docType')`）；模块；rbac 路由；删 mock 文件；种子最小改
-- [ ] **Step 5: 跑 Step 1 的 grep 核对终态；`npx jest src/modules/asset-treasury/lp-desk src/modules/audit-logging --silent` 全绿（`LP_PROFILE_SCREENED` 写点已删、已退役、计数 121）；后端 tsc 绿**
-- [ ] **Step 6: `bash scripts/stack.sh reset self` 走通；`bash scripts/on-stack.sh self test:e2e -- --testPathPattern lp` 若存在则绿**
-- [ ] **Step 7: Commit** `feat(LP): 申请表扩成尽调申请、六态七边、合规评估编排、按风险档分流审批、退役 mock 自动筛查`
+- [x] **Step 3: 跑 `npx jest src/modules/asset-treasury/lp-desk --silent` 确认红**
+- [x] **Step 4: 实现**——schema + 迁移（`ALTER TABLE` 加列 / 删列：SQLite 删列用 `prisma migrate diff` 生成的表重建脚本）；DTO；迁移表 + `ACTION_BY_EDGE`；服务；workflow；handler；控制器（multipart 端点 `@UseInterceptors(FileInterceptor('file'))` + `@UploadedFile() file: Express.Multer.File` + `@Body('docType')`）；模块；rbac 路由；删 mock 文件；种子最小改
+- [x] **Step 5: 跑 Step 1 的 grep 核对终态；`npx jest src/modules/asset-treasury/lp-desk src/modules/audit-logging --silent` 全绿（`LP_PROFILE_SCREENED` 写点已删、已退役、计数 121）；后端 tsc 绿**
+- [x] **Step 6: `bash scripts/stack.sh reset self` 走通；`bash scripts/on-stack.sh self test:e2e -- --testPathPattern lp` 若存在则绿**
+- [x] **Step 7: Commit** `feat(LP): 申请表扩成尽调申请、六态七边、合规评估编排、按风险档分流审批、退役 mock 自动筛查`
 
 ---
 
@@ -219,10 +219,10 @@ it('create 不再写 LP_PROFILE_SCREENED；LP_PROFILE_CREATED 过四属性闸（
   - `partnerStatusMap.ts`：`PARTNER_STATUS_META: Record<string, { label: string; badgeClass: string }>`，键 `PENDING_ASSESSMENT→'Pending assessment'`、`RETURNED→'Returned for documents'`、`PENDING_APPROVAL→'Pending approval'`、`PENDING_NOTIFICATION→'Pending VARA notification'`、`ACTIVE→'Active'`、`SUSPENDED→'Suspended'`、`REJECTED→'Rejected'`、`TERMINATED→'Terminated'`；`LP_DOC_TYPE_LABELS`、`VENDOR_DOC_TYPE_LABELS`、`SCREENING_LIST_LABELS`、`RISK_TIER_LABELS`
   - 申请页：按 spec §4.1 分三组渲染；UBO 为可增删行（seq 自动编号）；六个文件槽（各一个 `UploadButton`，提交成功拿到 lpNo 后逐槽上传，全部完成后跳详情）；resubmit 模式预填 + 文件槽显示已有文件
 
-- [ ] **Step 1: 实现四个共用件 + 申请页 + 列表 / 详情改造**（照 `DetailCard` / `InfoField` / `SidebarGroup` 既有 props；按钮样式 `adminButtonClass`）
-- [ ] **Step 2: `cd admin-web && npx tsc -b --noEmit` 绿；`npx jest admin-web/src --silent` 绿（`module-parity.spec` 不涉本页）**
-- [ ] **Step 3: preview 渲染验证**（self 栈，`stack.sh up`；treasury 号登录）：① `/admin/lp-profiles/new` 填表 + 传 2 个 PDF → 详情页 Documents 两行、状态 Pending assessment；② 切合规官号：记公司 GREEN + UBO#1 RED → Send 按钮消失、Reject 可点；再记一家全绿 + 定档 LOW → Send 可点 → 审批中心出现 `LP_PROFILE_APPROVAL`；③ CFO 批 → 详情 Active。**三张截图**落 `doc-final/superpowers/plans/artifacts/2026-10-28-partner-due-diligence/lp-*.png`
-- [ ] **Step 4: Commit** `feat(LP·前端): 尽调申请页、详情三块（材料/合规评估/审批）、共用尽调面板与文件卡`
+- [x] **Step 1: 实现四个共用件 + 申请页 + 列表 / 详情改造**（照 `DetailCard` / `InfoField` / `SidebarGroup` 既有 props；按钮样式 `adminButtonClass`）
+- [x] **Step 2: `cd admin-web && npx tsc -b --noEmit` 绿；`npx jest admin-web/src --silent` 绿（`module-parity.spec` 不涉本页）**
+- [x] **Step 3: preview 渲染验证**（self 栈，`stack.sh up`；treasury 号登录）：① `/admin/lp-profiles/new` 填表 + 传 2 个 PDF → 详情页 Documents 两行、状态 Pending assessment；② 切合规官号：记公司 GREEN + UBO#1 RED → Send 按钮消失、Reject 可点；再记一家全绿 + 定档 LOW → Send 可点 → 审批中心出现 `LP_PROFILE_APPROVAL`；③ CFO 批 → 详情 Active。**三张截图**落 `doc-final/superpowers/plans/artifacts/2026-10-28-partner-due-diligence/lp-*.png`
+- [x] **Step 4: Commit** `feat(LP·前端): 尽调申请页、详情三块（材料/合规评估/审批）、共用尽调面板与文件卡`
 
 ---
 
@@ -248,8 +248,8 @@ it('create 不再写 LP_PROFILE_SCREENED；LP_PROFILE_CREATED 过四属性闸（
   - `OutsourcingVendorApprovalService` / `OutsourcingVendorMaterialApprovalService extends ApprovalHandlerBase`（workflowType `OUTSOURCING_VENDOR`）
   - 路由（控制器 + `rbac.catalog.ts` 重写 vendor 块）：`GET /admin/outsourcing-vendors`、`GET /:vendorNo`、`GET /:vendorNo/documents`、`GET /:vendorNo/assessment` [`VENDOR_READ`] ｜ `POST /admin/outsourcing-vendors`（apply）、`POST /:vendorNo/resubmit`、`POST /:vendorNo/documents` [`VENDOR_APPLY`] ｜ `POST /:vendorNo/assessment/screening-records`、`POST .../screening-records/:recordNo/evidence`、`PATCH /:vendorNo/assessment`、`POST /:vendorNo/assessment/conclude`、`POST /:vendorNo/assessment/upgrade-materiality` [`DUE_DILIGENCE_WRITE`] ｜ `POST /:vendorNo/assessment/infosec` [`INFOSEC_ASSESSMENT_WRITE`] ｜ `POST /:vendorNo/terminate` [`VENDOR_REGISTER_WRITE`]；**删** `PATCH /:vendorNo`
 
-- [ ] **Step 1: 清点**：`grep -rnE "VENDOR_REGISTERED|VENDOR_UPDATED|CreateVendorBodyDto|UpdateVendorBodyDto|vendors\.register\(|vendors\.update\(" src test prisma scripts admin-web/src | grep -v spec` 记清单，预期终态 0（admin-web 的消费者 T8 删，本任务后端侧归零）
-- [ ] **Step 2: 写失败测试** `outsourcing-vendor-workflow.service.spec.ts`（照 LP workflow spec 写法）：
+- [x] **Step 1: 清点**：`grep -rnE "VENDOR_REGISTERED|VENDOR_UPDATED|CreateVendorBodyDto|UpdateVendorBodyDto|vendors\.register\(|vendors\.update\(" src test prisma scripts admin-web/src | grep -v spec` 记清单，预期终态 0（admin-web 的消费者 T8 删，本任务后端侧归零）
+- [x] **Step 2: 写失败测试** `outsourcing-vendor-workflow.service.spec.ts`（照 LP workflow spec 写法）：
 
 ```ts
 it('apply：四问任一「会」→ MATERIAL；全「不会」→ NON_MATERIAL；状态 PENDING_ASSESSMENT；开 DDA', ...)
@@ -264,10 +264,10 @@ it('transition 九条边各写对应审计码并带 from/to；ACTIVE→PENDING_A
 it('assertActiveByNo：PENDING_NOTIFICATION 抛 400（付款门）', ...)
 ```
 
-- [ ] **Step 3: 跑 `npx jest src/modules/governance/compliance-office --silent` 确认红**
-- [ ] **Step 4: 实现**（schema / 迁移 / 常量 / DTO / 服务 / workflow / handlers / 控制器 / 模块 / rbac / 种子最小改 / e2e 重写）
-- [ ] **Step 5: 跑 compliance-office 单测 + `src/modules/audit-logging` 全绿（两退役码写点已删、计数 123）；后端 tsc 绿；`stack.sh reset self` 走通；`on-stack.sh self test:e2e -- --testPathPattern compliance-office` 绿**
-- [ ] **Step 6: Commit** `feat(服务商): 运营申请+重大性判定、七态九边、尽调编排、按重大性分流审批、退役合规直接登记`
+- [x] **Step 3: 跑 `npx jest src/modules/governance/compliance-office --silent` 确认红**
+- [x] **Step 4: 实现**（schema / 迁移 / 常量 / DTO / 服务 / workflow / handlers / 控制器 / 模块 / rbac / 种子最小改 / e2e 重写）
+- [x] **Step 5: 跑 compliance-office 单测 + `src/modules/audit-logging` 全绿（两退役码写点已删、计数 123）；后端 tsc 绿；`stack.sh reset self` 走通；`on-stack.sh self test:e2e -- --testPathPattern compliance-office` 绿**
+- [x] **Step 6: Commit** `feat(服务商): 运营申请+重大性判定、七态九边、尽调编排、按重大性分流审批、退役合规直接登记`
 
 ---
 
@@ -285,7 +285,7 @@ it('assertActiveByNo：PENDING_NOTIFICATION 抛 400（付款门）', ...)
   - `markSubmitted` 在审计之后 `this.eventEmitter.emit(DOMAIN_EVENTS.REGULATORY_FILING_SUBMITTED.name, { filingNo, type: row.type, externalRef })`
   - workflow：`onDecided` APPROVED + MATERIAL → `transition(PENDING_NOTIFICATION)` → `filings.openForVendorNotification({..., approvalNo, reason:'ONBOARDING'})` → `vendors.stampNotificationFilingNo` → 审计 `VENDOR_NOTIFICATION_OPENED`（metadata / extra `{ filingNo }`，由 `stampNotificationFilingNo` 内写）；`onFilingSubmitted(event)`（`@OnEvent(DOMAIN_EVENTS.REGULATORY_FILING_SUBMITTED.name, { async: true })`）：`vendors.findByNotificationFilingNo(event.filingNo)`，命中且状态 `PENDING_NOTIFICATION` → `transition(ACTIVE, {}, { causationId: event.filingNo })`，否则无动作；`terminate`：`vendors.terminate` 后若 `criticality==='MATERIAL'` → `openForVendorNotification({..., reason:'TERMINATION'})`（**不**盖 `notificationFilingNo`，不等它）
 
-- [ ] **Step 1: 写失败测试**：
+- [x] **Step 1: 写失败测试**：
 
 ```ts
 // regulatory-filing.service.spec.ts
@@ -298,9 +298,9 @@ it('onFilingSubmitted：filingNo 不匹配 / 匹配但状态 ACTIVE / 终止那�
 it('terminate MATERIAL：TERMINATED 后开 reason=TERMINATION 告知单，不盖章；NON_MATERIAL 不开单', ...)
 ```
 
-- [ ] **Step 2: 确认红 → 实现 → `npx jest src/modules/governance --silent` 全绿；后端 tsc 绿**
-- [ ] **Step 3: 栈级验证**（self 栈）：用 e2e 或 `scripts/` 临时脚本走「申请 MATERIAL → 评估 + CISO → 送审 → CFO 批 → 高管批 → 报送台出现 DRAFT 告知单 → signoff → 审批 → mark-submitted → 服务商 ACTIVE」，断言 `outsourcing_vendors.status` 与 `audit_log_events` 序列；把该脚本固化成 `test/vendor-onboarding.e2e-spec.ts`（照 `compliance-office.e2e-spec.ts` 写法，`waitUntil` 等事件）
-- [ ] **Step 4: Commit** `feat(报备门): 重大服务商批后自动开告知单、报送台发「已报送」事件、服务商认领转 ACTIVE、终止联动`
+- [x] **Step 2: 确认红 → 实现 → `npx jest src/modules/governance --silent` 全绿；后端 tsc 绿**
+- [x] **Step 3: 栈级验证**（self 栈）：用 e2e 或 `scripts/` 临时脚本走「申请 MATERIAL → 评估 + CISO → 送审 → CFO 批 → 高管批 → 报送台出现 DRAFT 告知单 → signoff → 审批 → mark-submitted → 服务商 ACTIVE」，断言 `outsourcing_vendors.status` 与 `audit_log_events` 序列；把该脚本固化成 `test/vendor-onboarding.e2e-spec.ts`（照 `compliance-office.e2e-spec.ts` 写法，`waitUntil` 等事件）
+- [x] **Step 4: Commit** `feat(报备门): 重大服务商批后自动开告知单、报送台发「已报送」事件、服务商认领转 ACTIVE、终止联动`
 
 ---
 
@@ -315,10 +315,10 @@ it('terminate MATERIAL：TERMINATED 后开 reason=TERMINATION 告知单，不盖
 - Consumes: T5 `DueDiligencePanel` / `DocumentsCard` / `UploadButton` / `partnerStatusMap`；T6 / T7 端点
 - Produces: 详情页区块：Application（§5.1 三组字段，重大性四问以 ✓/✗ 列出 + 系统判定徽章 + 升档理由）/ Documents / Due diligence（`requireInfosec = criticality==='MATERIAL'`，`canWriteInfosec = hasPermission(INFOSEC_ASSESSMENT_WRITE)`）/ Approval（`approvalNo` 链审批中心）/ VARA notification（`notificationFilingNo` 链报送台详情；`PENDING_NOTIFICATION` 态横幅「Waiting for VARA notification to be submitted」）/ Lifecycle 侧栏 + Terminate 按钮（`VENDOR_TERMINATE`）/ `RETURNED` 态「Edit & resubmit」；合规官在评估区多一个「Upgrade to MATERIAL」（仅 NON_MATERIAL，弹理由）
 
-- [ ] **Step 1: 实现三页 + 删旧 tab + 侧栏 + 路由 + 付款单下拉**
-- [ ] **Step 2: `cd admin-web && npx tsc -b --noEmit` 绿；`npx jest admin-web/src --silent` 绿；`grep -rn "VENDOR_REGISTER_WRITE\|VendorModal" admin-web/src` 为 0**
-- [ ] **Step 3: preview 渲染验证**（self 栈）：① 运营号：侧栏 Compliance Office 组只露 Service Providers；申请页四问答一个「会」→ 提交后详情显示 MATERIAL 徽章且无降档入口；② 合规官号：评估区 Send 置灰 title 显示「Waiting for CISO」；③ CISO 号：填 infosec → 合规官 Send 可点；④ CFO 批 → 高管批 → 详情横幅待报备；金库号付款单下拉里该服务商置灰带「Pending VARA notification」；⑤ 合规官在报送台走到 SUBMITTED → 详情 Active，下拉可选。**五张截图**落 artifacts 目录 `vendor-*.png`
-- [ ] **Step 4: Commit** `feat(服务商·前端): Service Providers 独立页（申请/详情/评估/报备）、Registers 只剩 RI、付款单下拉置灰非生效服务商`
+- [x] **Step 1: 实现三页 + 删旧 tab + 侧栏 + 路由 + 付款单下拉**
+- [x] **Step 2: `cd admin-web && npx tsc -b --noEmit` 绿；`npx jest admin-web/src --silent` 绿；`grep -rn "VENDOR_REGISTER_WRITE\|VendorModal" admin-web/src` 为 0**
+- [x] **Step 3: preview 渲染验证**（self 栈）：① 运营号：侧栏 Compliance Office 组只露 Service Providers；申请页四问答一个「会」→ 提交后详情显示 MATERIAL 徽章且无降档入口；② 合规官号：评估区 Send 置灰 title 显示「Waiting for CISO」；③ CISO 号：填 infosec → 合规官 Send 可点；④ CFO 批 → 高管批 → 详情横幅待报备；金库号付款单下拉里该服务商置灰带「Pending VARA notification」；⑤ 合规官在报送台走到 SUBMITTED → 详情 Active，下拉可选。**五张截图**落 artifacts 目录 `vendor-*.png`
+- [x] **Step 4: Commit** `feat(服务商·前端): Service Providers 独立页（申请/详情/评估/报备）、Registers 只剩 RI、付款单下拉置灰非生效服务商`
 
 ---
 
@@ -339,10 +339,10 @@ it('terminate MATERIAL：TERMINATED 后开 reason=TERMINATION 告知单，不盖
   - **Sable Crest Trading FZCO**（LP，`PENDING_ASSESSMENT`）：注册地 UAE-RAK ICC，1 位 UBO「Marwan Al-Sable」，六份 PDF 已传，DDA 已开、零筛查记录
   - **Pearl Clean Services LLC**（服务商，NON_MATERIAL，`PENDING_APPROVAL`）：DDA 结论 SENT_FOR_APPROVAL、LOW、2 条 GREEN；一张 `VENDOR_APPROVAL` 审批单 `PENDING_APPROVAL`（提单人合规官）
   - 占位 PDF：种子内 `writePlaceholderPdf(path, title)` 写最小合法 PDF（约 300 字节，`%PDF-1.4` + 一页含标题文本），路径与 `DocumentsService` 同规则（`${FILE_STORAGE_DIR}/${ownerType}/${ownerNo}/${docNo}.pdf`）；种子启动时 `FILE_STORAGE_DIR` 缺失即抛
-- [ ] **Step 1: 写种子 + data.md 手写区**
-- [ ] **Step 2: `bash scripts/stack.sh reset self` 全程绿（含 `verify:demo-data ALL PASS`）；`bash scripts/on-stack.sh self demo:all` 全绿（花名册 + COA 恒等式）；`ls` 文件目录看到 5 + 2 家的 PDF**
-- [ ] **Step 3: 失效验证**：把 Pearl Clean 的审批单 `status` 改成 `APPROVED` 再 reset → 剧目第 40 幕 CFO 队列应空（人工确认后还原）
-- [ ] **Step 4: Commit** `feat(种子): LP 两家、服务商三家按尽调全流程重铺；新增 Sable Crest（待评估）与 Pearl Clean（待批准）；占位 PDF 落文件目录`
+- [x] **Step 1: 写种子 + data.md 手写区**
+- [x] **Step 2: `bash scripts/stack.sh reset self` 全程绿（含 `verify:demo-data ALL PASS`）；`bash scripts/on-stack.sh self demo:all` 全绿（花名册 + COA 恒等式）；`ls` 文件目录看到 5 + 2 家的 PDF**
+- [x] **Step 3: 失效验证**：把 Pearl Clean 的审批单 `status` 改成 `APPROVED` 再 reset → 剧目第 40 幕 CFO 队列应空（人工确认后还原）
+- [x] **Step 4: Commit** `feat(种子): LP 两家、服务商三家按尽调全流程重铺；新增 Sable Crest（待评估）与 Pearl Clean（待批准）；占位 PDF 落文件目录`
 
 ---
 
@@ -354,9 +354,9 @@ it('terminate MATERIAL：TERMINATED 后开 reason=TERMINATION 告知单，不盖
 
 **Interfaces:**
 - Produces 新判据：S11a 组清单加 `VENDOR_APPLY, VENDOR_READ, DUE_DILIGENCE_WRITE, INFOSEC_ASSESSMENT_WRITE`；S11b 改成**显式持有者表** `{ OBLIGATION_WRITE:['COMPLIANCE_OFFICER'], VENDOR_REGISTER_WRITE:['COMPLIANCE_OFFICER'], RI_REGISTER_WRITE:['COMPLIANCE_OFFICER'], DUE_DILIGENCE_WRITE:['COMPLIANCE_OFFICER'], VENDOR_APPLY:['OPS_OFFICER'], INFOSEC_ASSESSMENT_WRITE:['CISO'] }` 恰等；S11d（新）`VENDOR_READ` 持有集恰为 T1 七角色；S11c 不变（`COMPLIANCE_OFFICE_VIEW` 仍五角色）；S13c `LP_READ` 持有集加 `SENIOR_MANAGEMENT_OFFICER` 成五；S13d：`totalDomains === 15 && totalBuckets === 87 && declaredPermissionGroups.size === 96`（实跑后以输出为准，差异要能解释到组 / 桶）
-- [ ] **Step 1: 改判据 → `bash scripts/on-stack.sh self verify:rbac` 全绿**；失效验证：临时把 CFO 的 `VENDOR_READ` 拿掉 → S9 应红（vendor 两策略），还原
-- [ ] **Step 2: 全量闸**：`npx tsc --noEmit -p tsconfig.json`；`cd admin-web && npx tsc -b --noEmit`；`cd client-web && npx tsc -b --noEmit`；`npx jest --silent`（**全量，不接管道**，判据全绿）；`bash scripts/on-stack.sh self test:e2e`（全量，环境债红要逐条说明）；`bash scripts/stack.sh reset self` → `demo:all`，判据对照 `doc-final/demo/baseline.md` 全绿（`test:client` 不触发——client-web 零改动）
-- [ ] **Step 3: Commit** `chore(闸门): verify:rbac 判据随四组三策略改写；全量闸绿`
+- [x] **Step 1: 改判据 → `bash scripts/on-stack.sh self verify:rbac` 全绿**；失效验证：临时把 CFO 的 `VENDOR_READ` 拿掉 → S9 应红（vendor 两策略），还原
+- [x] **Step 2: 全量闸**：`npx tsc --noEmit -p tsconfig.json`；`cd admin-web && npx tsc -b --noEmit`；`cd client-web && npx tsc -b --noEmit`；`npx jest --silent`（**全量，不接管道**，判据全绿）；`bash scripts/on-stack.sh self test:e2e`（全量，环境债红要逐条说明）；`bash scripts/stack.sh reset self` → `demo:all`，判据对照 `doc-final/demo/baseline.md` 全绿（`test:client` 不触发——client-web 零改动）
+- [x] **Step 3: Commit** `chore(闸门): verify:rbac 判据随四组三策略改写；全量闸绿`
 
 ---
 
@@ -370,15 +370,15 @@ it('terminate MATERIAL：TERMINATED 后开 reason=TERMINATION 告知单，不盖
 - Modify: `doc-final/BACKLOG.md`（:514 → `[x]` 本波解决；:519 → `[x]` 入册门半边已做、年审在 :516）；`doc-final/CHANGELOG.md`（顶部一行）；`doc-final/superpowers/specs/2026-09-25-campaign-a-incident-regulatory-charter.md`（补「波六」一节：目标 / 边界 / 验收 = 场景 37–40 可演 + 闸全绿，指向本 spec）；本 spec 头状态改「已实施（plan 同名）」
 - Modify: 根 `README.md` / `doc-final/delivery/`（触碰检查：动了状态机、审计集、业务键 `DDA/SCR/DOC` → 对应文件补一行）
 
-- [ ] **Step 1: 逐文件改；`grep -rn "dueDiligenceRef\|Entity Screening\|VENDOR_REGISTERED\|Register Vendor" doc-final --include="*.md" | grep -v "archive\|superpowers/specs/2026-10-28\|superpowers/plans/2026-10-28\|decisions.md"` 为 0**
-- [ ] **Step 2: Commit** `docs(甲波六): 模块文档/剧本 37–40/决策六拍板/BACKLOG 销账/CHANGELOG/总纲波六`
+- [x] **Step 1: 逐文件改；`grep -rn "dueDiligenceRef\|Entity Screening\|VENDOR_REGISTERED\|Register Vendor" doc-final --include="*.md" | grep -v "archive\|superpowers/specs/2026-10-28\|superpowers/plans/2026-10-28\|decisions.md"` 为 0**
+- [x] **Step 2: Commit** `docs(甲波六): 模块文档/剧本 37–40/决策六拍板/BACKLOG 销账/CHANGELOG/总纲波六`
 
 ---
 
 ### Task 12: 四幕走查 + 终审
 
-- [ ] **Step 1: 干净重铺**：`bash scripts/stack.sh reset self && bash scripts/stack.sh up`，等就绪
-- [ ] **Step 2: 按 `demo/script.md` 场景 37–40 逐步走**（`scripts/demo-shot.js` 先例截图，每幕 ≥ 2 张，落 artifacts 目录），每幕末核对：审计时间线 / 审批单 / 报送单 / 文件可打开；任何一步与剧本不符 → 回对应任务修，不改剧本迁就
-- [ ] **Step 3: 终审（`opus`）**：拿 spec §1「做」表与 §3–§10 逐条问「这条承诺的代码在哪」（含括号里的承诺）；`review-rubric.md` 三件事；孤儿清点（`npx ts-prune` 或 grep 本波新增导出的消费者）；修复轮按 CLAUDE.md 分层
-- [ ] **Step 4: 收尾报告**：闸门清单（命令 + 退出码 + 关键行）、checklist 对账表（Global Constraints「收尾过哪几条」逐条打勾）、`Documentation updated: modules§0-4 / modules§5 / demo / decisions — 甲波六`
-- [ ] **Step 5: 合并前**：`superpowers:finishing-a-development-branch`；合并后主树 `prisma:generate` → build → `stack.sh reset main` → `up` → `db:base:sync` → `demo:all`（判例顺序）；spec / plan 移 `doc-final/archive/superpowers/`；evidence 目录压缩改写
+- [x] **Step 1: 干净重铺**：`bash scripts/stack.sh reset self && bash scripts/stack.sh up`，等就绪
+- [x] **Step 2: 按 `demo/script.md` 场景 37–40 逐步走**（`scripts/demo-shot.js` 先例截图，每幕 ≥ 2 张，落 artifacts 目录），每幕末核对：审计时间线 / 审批单 / 报送单 / 文件可打开；任何一步与剧本不符 → 回对应任务修，不改剧本迁就
+- [x] **Step 3: 终审（`opus`）**：拿 spec §1「做」表与 §3–§10 逐条问「这条承诺的代码在哪」（含括号里的承诺）；`review-rubric.md` 三件事；孤儿清点（`npx ts-prune` 或 grep 本波新增导出的消费者）；修复轮按 CLAUDE.md 分层
+- [x] **Step 4: 收尾报告**：闸门清单（命令 + 退出码 + 关键行）、checklist 对账表（Global Constraints「收尾过哪几条」逐条打勾）、`Documentation updated: modules§0-4 / modules§5 / demo / decisions — 甲波六`
+- [ ] **Step 5: 合并前**（未执行——会话指令「不合并、不推送」，待业主拍板合并后执行）：`superpowers:finishing-a-development-branch`；合并后主树 `prisma:generate` → build → `stack.sh reset main` → `up` → `db:base:sync` → `demo:all`（判例顺序）；spec / plan 移 `doc-final/archive/superpowers/`；evidence 目录压缩改写
