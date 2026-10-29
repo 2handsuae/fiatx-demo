@@ -103,10 +103,7 @@ mock 的归因 / 筛查**按地址（IBAN）尾号给确定性结论**——演�
 
 | 用途 | 输入（整串复制） | 结局（确定） |
 |---|---|---|
-| LP 实体背调 · RED | LP 名称含 `sanction`（大小写不敏感），如 `Sanction Bridge Capital FZE` | 建档当场 `REJECTED`，**不开审批单**；LP 详情页红条「Entity screening returned RED at registration — rejected on the spot, no approval was opened.」；审计 `LP_PROFILE_CREATED` + `LP_PROFILE_SCREENED` + `LP_PROFILE_REJECTED`（后者系统主体，reason 固定 `Entity screening returned RED at registration`） |
-| LP 实体背调 · YELLOW | 名称含 `offshore`，如 `Offshore Meridian OTC Ltd` | 放行：开 `LP_PROFILE_APPROVAL`，审批载荷 `screeningAnswer=YELLOW`；详情页 Entity Screening 区徽章 YELLOW |
-| LP 实体背调 · GREEN | 其余，如 `Northbridge Liquidity Ltd` | 开审批，载荷 `screeningAnswer=GREEN` |
-| 两词并存 | 如 `Offshore Sanction Co` | RED 压过 YELLOW → 当场拒 |
+| LP 实体背调（已退役） | 无输入串——2026-10-29 甲波六起，LP 名称里的 `sanction` / `offshore` 不再触发任何自动筛查，建档也不再当场拒 | LP 申请落 `PENDING_ASSESSMENT`；筛查改为合规官在尽调评估里**逐名手工登记**（公司名 + 每位实际控制人，结论 GREEN / YELLOW / RED 自选）；有 RED 只能「不通过」，缺名单不能送审——造数与确定结局见下方「合作方准入旅程种子」节，演法见剧本场景 37 / 38 |
 | 到货来源 · 干净占位 | ⚡Simulate LP delivery 的来源栏**留空**：买入链上币（USDT-TRON）落 `TDeliverySourcePlaceholder00000000`，买入法币（AED）落 `AE000000000000000000000`（常量 `DEFAULT_DELIVERY_SOURCE`，`lp-desk/constants/lp-delivery-source.constant.ts`） | 筛查 GREEN；尾号 `0000` 与 `1111` / `2222` / `3333` / `4444` 都不撞 |
 | 到货来源 · YELLOW | 买 AED 填 IBAN `AE960860000000000002222`；买 USDT 填地址 `TD2Cm1x6HwVV78amHf8prJn5zkiwCK2222` | 单据 Delivery Screening 区琥珀横幅「…screened YELLOW — flagged for review. Acceptance is not blocked.」 |
 | 到货来源 · RED | 买 AED 填 IBAN `AE720860000000000003333`；买 USDT 填地址 `TSf8p11LABtkukQGWVnkUjR6LMrvH13333` | 红色横幅「…screened RED — flagged for review. Acceptance is not blocked.」；**验收仍可点、可走到 `SUCCESS`**（拦人不拦状态）；审计 `LP_EXCHANGE_DELIVERY_SCREENED`（系统主体，afterData 带来源与结论）。到货**不做归因** |
