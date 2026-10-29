@@ -321,7 +321,7 @@ function App() {
             <Route path="governance/complaints" element={withPermission(<ComplaintListPage />, [PERMISSIONS.COMPLAINT_READ])} />
             <Route path="governance/complaints/:complaintNo" element={withPermission(<ComplaintDetailPage />, [PERMISSIONS.COMPLAINT_READ])} />
 
-            {/* 战役甲波四（Task 9）：合规办公室骨架——闹钟墙/合规日历/两本登记册，
+            {/* 战役甲波四（Task 9）：合规办公室骨架——闹钟墙/合规日历/服务商准入/RI 登记册，
                 与事故登记/报送台平级（treasury governance file 三兄弟）。 */}
             <Route path="governance/compliance-office/clock-wall" element={withPermission(<ComplianceClockWallPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />
             <Route path="governance/compliance-office/obligations" element={withPermission(<ComplianceObligationListPage />, [PERMISSIONS.COMPLIANCE_OFFICE_VIEW])} />

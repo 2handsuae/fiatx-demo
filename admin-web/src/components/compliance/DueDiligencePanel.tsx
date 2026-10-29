@@ -407,7 +407,8 @@ export const DueDiligencePanel = ({
     if (requireInfosec && !assessment.infosec) return 'Waiting for the CISO assessment';
     return '';
   })();
-  const canSendAtAll = !flags.hasRed && !flags.infosecBlocked;
+  // 红灯 / CISO 不可接受 → 评估结论只许「不通过」：「退回补料」「通过并送审」都不出现（后端同守，spec §3 / §5.3）
+  const rejectOnly = flags.hasRed || flags.infosecBlocked;
   const owners = target?.beneficialOwners ?? [];
 
   return (
@@ -757,13 +758,15 @@ export const DueDiligencePanel = ({
             ) : target ? (
               <>
                 <div className="flex flex-wrap items-center gap-2">
-                  <button type="button" disabled={concluding} onClick={() => { setConcludeError(''); setReasonFor('RETURNED'); }} className={adminButtonClass('workflowSecondary')}>
-                    Return for documents
-                  </button>
+                  {!rejectOnly && (
+                    <button type="button" disabled={concluding} onClick={() => { setConcludeError(''); setReasonFor('RETURNED'); }} className={adminButtonClass('workflowSecondary')}>
+                      Return for documents
+                    </button>
+                  )}
                   <button type="button" disabled={concluding} onClick={() => { setConcludeError(''); setReasonFor('REJECTED'); }} className={adminButtonClass('workflowNegative')}>
                     Reject
                   </button>
-                  {canSendAtAll && (
+                  {!rejectOnly && (
                     <button
                       type="button"
                       disabled={concluding || sendBlockedReason !== ''}
@@ -775,7 +778,7 @@ export const DueDiligencePanel = ({
                     </button>
                   )}
                 </div>
-                {canSendAtAll && sendBlockedReason && <p className="mt-2 font-mono text-[11px] text-adm-t3">{sendBlockedReason}</p>}
+                {!rejectOnly && sendBlockedReason && <p className="mt-2 font-mono text-[11px] text-adm-t3">{sendBlockedReason}</p>}
                 {concludeError && !reasonFor && <p className="mt-2 text-xs text-adm-red">{concludeError}</p>}
               </>
             ) : null}

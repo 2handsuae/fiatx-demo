@@ -100,6 +100,7 @@ function buildDeps() {
     attachEvidence: jest.fn(async () => ({ docNo: 'DOC260101000002' })),
     saveAssessment: jest.fn(async () => undefined),
     assertSendable: jest.fn(async () => undefined),
+    assertReturnable: jest.fn(async () => undefined),
     conclude: jest.fn(async () => undefined),
   };
   const documents = {
@@ -252,6 +253,9 @@ describe('LpProfileWorkflowService.conclude — 退回补料 / 不通过', () =>
     expect(result).toEqual({ lpNo, status: LpProfileStatus.RETURNED });
     expect(deps.dueDiligence.conclude).toHaveBeenCalledWith('LIQUIDITY_PROVIDER', lpNo, { conclusion: 'RETURNED', reason: 'Licence copy is unreadable' }, compliance);
     expect(deps.dueDiligence.assertSendable).not.toHaveBeenCalled(); // 送审五道硬规则只拦「通过并送审」
+    // 退回只过「红灯 / CISO 不可接受」这一道（只有绿 / 黄时放行），且先于落结论
+    expect(deps.dueDiligence.assertReturnable).toHaveBeenCalledWith('LIQUIDITY_PROVIDER', lpNo);
+    expect(deps.dueDiligence.assertReturnable.mock.invocationCallOrder[0]).toBeLessThan(deps.dueDiligence.conclude.mock.invocationCallOrder[0]);
     expect(deps.approvals.createAndSubmit).not.toHaveBeenCalled();
     expect(deps.audits.map((a) => a.input.action)).toEqual(['LP_PROFILE_RETURNED']);
     expect(deps.audits[0].input).toMatchObject({ reason: 'Licence copy is unreadable', fromStatus: 'PENDING_ASSESSMENT', toStatus: 'RETURNED' });
@@ -259,6 +263,30 @@ describe('LpProfileWorkflowService.conclude — 退回补料 / 不通过', () =>
     await deps.svc.resubmit(lpNo, dto(), treasury);
     expect(deps.rows.get(lpNo).status).toBe(LpProfileStatus.PENDING_ASSESSMENT);
     expect(deps.audits.map((a) => a.input.action)).toEqual(['LP_PROFILE_RETURNED', 'LP_PROFILE_RESUBMITTED']);
+  });
+
+  it('RETURNED 撞红灯（任一筛查记录为红）→ 400 只许不通过；不落结论、不迁状态、不留痕', async () => {
+    const deps = buildDeps();
+    const lpNo = await seedLp(deps);
+    deps.dueDiligence.assertReturnable.mockRejectedValue(new BadRequestException('Screening hit (RED) — only REJECT is allowed'));
+
+    await expect(deps.svc.conclude(lpNo, { conclusion: 'RETURNED', reason: 'Please re-upload' }, compliance)).rejects.toThrow('Screening hit (RED) — only REJECT is allowed');
+
+    expect(deps.dueDiligence.conclude).not.toHaveBeenCalled();
+    expect(deps.rows.get(lpNo).status).toBe(LpProfileStatus.PENDING_ASSESSMENT);
+    expect(deps.audits).toEqual([]);
+  });
+
+  it('REJECTED 不过退回这道闸：红灯下照样能不通过', async () => {
+    const deps = buildDeps();
+    const lpNo = await seedLp(deps);
+    deps.dueDiligence.assertReturnable.mockRejectedValue(new BadRequestException('Screening hit (RED) — only REJECT is allowed'));
+
+    const result = await deps.svc.conclude(lpNo, { conclusion: 'REJECTED', reason: 'OFAC hit on beneficial owner' }, compliance);
+
+    expect(result).toEqual({ lpNo, status: LpProfileStatus.REJECTED });
+    expect(deps.dueDiligence.assertReturnable).not.toHaveBeenCalled();
+    expect(deps.audits.map((a) => a.input.action)).toEqual(['LP_PROFILE_REJECTED']);
   });
 
   it('REJECTED：落结论 → 迁 REJECTED（终态）带原因，不开审批单', async () => {
@@ -322,7 +350,7 @@ describe('LpProfileWorkflowService — 评估可写窗口（PENDING_ASSESSMENT |
     await expect(deps.svc.saveAssessment(lpNo, assessmentDto, compliance)).rejects.toThrow('Assessment is locked');
     await expect(deps.svc.conclude(lpNo, { conclusion: 'REJECTED', reason: 'x' }, compliance)).rejects.toThrow('Assessment is locked');
 
-    for (const m of ['recordScreening', 'attachEvidence', 'saveAssessment', 'conclude', 'assertSendable'] as const) {
+    for (const m of ['recordScreening', 'attachEvidence', 'saveAssessment', 'conclude', 'assertSendable', 'assertReturnable'] as const) {
       expect(deps.dueDiligence[m]).not.toHaveBeenCalled();
     }
   });

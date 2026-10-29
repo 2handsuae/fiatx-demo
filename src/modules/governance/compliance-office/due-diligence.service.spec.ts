@@ -370,8 +370,8 @@ describe('DueDiligenceService (甲波六 T3)', () => {
     });
   });
 
-  // ── getView.flags / hasRed ───────────────────────────────────────────
-  describe('flags / hasRed', () => {
+  // ── getView.flags ────────────────────────────────────────────────────
+  describe('flags', () => {
     it('带 input：flags 给出 hasRed / missingNames / infosecBlocked；不带 input：missingNames 恒空', async () => {
       await openLp();
       await company(); await ubo(alice, 'RED');
@@ -383,14 +383,53 @@ describe('DueDiligenceService (甲波六 T3)', () => {
       expect((await service.getView(LP, LP_NO))!.flags)
         .toEqual({ hasRed: true, missingNames: [], infosecBlocked: true });
     });
+  });
 
-    it('hasRed：无壳 false；有红 true；无红 false', async () => {
-      expect(await service.hasRed(LP, LP_NO)).toBe(false);
+  // ── assertReturnable（终审 F1：红灯 / CISO 不可接受 → 只许不通过，退回亦拒）─────────────
+  describe('assertReturnable', () => {
+    const unacceptable = {
+      soc2: 'NONE', iso27001: 'NONE', dataLocationAcceptable: false, drPlanAcceptable: false, opinion: 'no', verdict: 'UNACCEPTABLE',
+    };
+
+    it('任一筛查记录为红 → 400 "Screening hit (RED) — only REJECT is allowed"；什么都没写（无新审计、无结论）', async () => {
       await openLp();
-      await company();
-      expect(await service.hasRed(LP, LP_NO)).toBe(false);
-      await ubo(alice, 'RED');
-      expect(await service.hasRed(LP, LP_NO)).toBe(true);
+      await company(); await ubo(alice, 'RED');
+      const auditsBefore = prisma.__events.length;
+      expect(await msg(service.assertReturnable(LP, LP_NO))).toBe('Screening hit (RED) — only REJECT is allowed');
+      expect(prisma.__events.length).toBe(auditsBefore);
+      expect((await service.getView(LP, LP_NO))!.conclusion).toBeNull();
+    });
+
+    it('CISO 结论不可接受 → 400 "CISO verdict UNACCEPTABLE — only REJECT is allowed"', async () => {
+      await openLp();
+      await service.recordInfosec(LP, LP_NO, unacceptable as any, ciso);
+      expect(await msg(service.assertReturnable(LP, LP_NO))).toBe('CISO verdict UNACCEPTABLE — only REJECT is allowed');
+    });
+
+    it('红灯与 CISO 不可接受并存 → 红灯文案在前（与 assertSendable 同序）', async () => {
+      await openLp();
+      await company(sendInput.companyName, 'RED');
+      await service.recordInfosec(LP, LP_NO, unacceptable as any, ciso);
+      expect(await msg(service.assertReturnable(LP, LP_NO))).toBe('Screening hit (RED) — only REJECT is allowed');
+    });
+
+    it('只有绿 / 黄 → 放行；退回不要求名字全筛、不要求定档、不要求 CISO（②③④ 只拦送审）', async () => {
+      await openLp();
+      await expect(service.assertReturnable(LP, LP_NO)).resolves.toBeUndefined(); // 一条记录都没有
+      await company(sendInput.companyName, 'YELLOW'); await ubo(alice, 'GREEN');   // Bob 没筛、没定档
+      await expect(service.assertReturnable(LP, LP_NO)).resolves.toBeUndefined();
+    });
+
+    it('CISO 可接受 → 放行', async () => {
+      await openLp();
+      await service.recordInfosec(LP, LP_NO, {
+        soc2: 'HAS', iso27001: 'HAS', dataLocationAcceptable: true, drPlanAcceptable: true, opinion: 'fine', verdict: 'ACCEPTABLE',
+      }, ciso);
+      await expect(service.assertReturnable(LP, LP_NO)).resolves.toBeUndefined();
+    });
+
+    it('目标无评估壳 → 404', async () => {
+      await expect(service.assertReturnable(LP, 'NOPE')).rejects.toThrow(NotFoundException);
     });
   });
 

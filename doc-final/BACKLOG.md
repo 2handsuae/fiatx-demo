@@ -339,6 +339,8 @@ Last Updated: 2026-10-08（报送台整备波文档收口：销 6 行（整行�
 
 - [ ] **EOCN TFS Guidelines 2025 原文存档 `reference/`**：`CNMR`（原 `FFR`）官方更名出处的核实依赖 EOCN TFS Guidelines 2025 原文，但该文档所在域名 `uaeiec.gov.ae` 被会话网络策略拦截，agent 无法下载存档；源出波三，波四骨架（:19）、波五骨架（:20）两波接力均沿用同一句"仍未销账、继续悬挂"、未推进存档。性质=业主亲办考证项（需业主本机访问该域名下载原文存入 `doc-final/reference/`），非本战役任何一波的技术或设计缺口 ｜来源: 战役甲波三 T1 评审白项 6（2026-09-26）→ 波四/波五骨架接力未销 → 2026-09-28 战役甲波五收官改判：该项此前仅记于已归档的波三 spec（`archive/superpowers/specs/2026-09-26-campaign-a-wave3-aml-reporting-family-spec.md:16`），`archive/` 不被日常读取、形同失踪，本次移出归档文件补登入本表
 
+- [ ] **重大服务商的上线告知单被撤销（CANCELLED）后，服务商永远停在 `PENDING_NOTIFICATION`，没有任何出路**：报备门只认「告知单被标已提交」这一个事件（`regulatory-filing.submitted`）把服务商推进 `ACTIVE`；而告知单是自动开出的 `DRAFT`，合规官在报送台对这张草稿单点「作废」（`DRAFT → CANCELLED`，GENERAL 族既有边）就是**正常单人顺序操作**——撤销后没有对应事件、服务商也没有「回退 / 重开告知单」的边，卡在待报备，付款单下拉里永远置灰，演示者既讲不圆（"告知单撤了然后呢"）也救不回（只能重铺）。设计稿 §1「不做」明列「告知单被撤销 / 驳回时服务商状态回退」，本波未建；补齐 = 撤销告知单发外发事件 + 服务商侧一条出路（回退 / 重开告知单，要新边） ｜来源: 2026-10-29 甲波六终审（R17：原记 PRODUCTION-NOTES，改判业务缺口） ｜落点: `outsourcing-vendor-workflow.service.ts#onFilingSubmitted`、`regulatory-filing.constants.ts`（GENERAL 族 cancel 边无外发事件）
+
 ## M. 战役乙 · LP 兑换台（第九幕「公司的钱」，V7 财资）
 
 - [ ] **`LedgerAccountList.tsx` 的 decimals 查找键与显示键不一致，code≠currency 的资产小数位显示错（USDT-TRON 类被放大约 10⁴ 倍）**：`decimalsMap` 用 `asset.currency`（如 `USDT`）建键，表格行按 `asset.code`（如 `USDT-TRON`）去查，键不对时静默回退 2 位小数——凡 `code≠currency` 的资产（本仓目前即 USDT-TRON）在这张账本科目视图里全部显示错，6 位小数的余额被放大成 2 位小数的读法，波前既有（内部划转单等既有流程同样受影响），LP 兑换台走查现场也能看到（前厅/运营户 USDT 余额行数字异常大）。业主芯片已挂 `task_475851be`。

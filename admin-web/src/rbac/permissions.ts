@@ -172,8 +172,8 @@ export const PERMISSIONS = {
   REG_FILING_DETAIL_READ: 'api.get.admin_regulatory_filings_filingno',
   REG_FILING_WRITE: 'api.post.admin_regulatory_filings',
 
-  // 战役甲波四（Task 9）：合规办公室骨架——闹钟墙 + 合规日历（周期义务）+ 两本登记册
-  // （外包商 / RI）。键名精确照 rbac.catalog.ts 的 PermissionGroup 字面量
+  // 战役甲波四（Task 9）：合规办公室骨架——闹钟墙 + 合规日历（周期义务）+ RI 登记册
+  // （外包商册已于甲波六改成服务商准入，见下方服务商几个键）。键名精确照 rbac.catalog.ts 的 PermissionGroup 字面量
   // （COMPLIANCE_OFFICE_VIEW/OBLIGATION_WRITE/RI_REGISTER_WRITE，见该文件 98-101 行；
   // 外包商册的写键已于甲波六 T8 随登记册 Vendors tab 退役，见下方服务商几个键）；值是 buildPermissionCode(method, path) 对该组第一条注册路由的
   // 派生值——同组内其余路由（见 rbac.catalog.ts 515-537 行）绑定的角色完全一致，按本文件

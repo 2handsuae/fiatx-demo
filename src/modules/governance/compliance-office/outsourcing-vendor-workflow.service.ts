@@ -111,7 +111,8 @@ export class OutsourcingVendorWorkflowService {
   }
 
   /** 合规官三选一落结论，并驱动服务商沿迁移表走一步。**先落结论，后迁状态**（尽调服务会拒缺原因的退回 / 不通过，
-   *  拒了就不碰服务商）；送审多一道前置——五道硬规则全过才落结论、才开审批单。
+   *  拒了就不碰服务商）；送审多一道前置——五道硬规则全过才落结论、才开审批单；
+   *  退回也有前置——红灯 / CISO 不可接受时只许「不通过」。
    *  RETURNED 态的服务商**不能**再下结论：状态表里 RETURNED 只有「运营重新提交」一条出路，让合规官在退回期间继续筛查 / 定档
    *  是为后续评估备料，但结论要等重提回到 PENDING_ASSESSMENT 后再下——否则会留下「结论已落、状态没动」的半截子。 */
   async conclude(vendorNo: string, dto: ConcludeAssessmentDto, actor: ApprovalActorContext): Promise<{ vendorNo: string; status: string; approvalNo?: string }> {
@@ -123,6 +124,8 @@ export class OutsourcingVendorWorkflowService {
     switch (dto.conclusion) {
       case 'RETURNED':
       case 'REJECTED': {
+        // 红灯 / CISO 不可接受时评估结论只许「不通过」——退回补料也拒（「不通过」不经此检查）
+        if (dto.conclusion === 'RETURNED') await this.dueDiligence.assertReturnable(TARGET, vendorNo);
         await this.dueDiligence.conclude(TARGET, vendorNo, dto, actor);
         const to = dto.conclusion === 'RETURNED' ? VendorStatus.RETURNED : VendorStatus.REJECTED;
         const updated = await this.vendors.transition(vendorNo, to, {}, { actor, reason: dto.reason });

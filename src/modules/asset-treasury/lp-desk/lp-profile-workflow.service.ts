@@ -97,7 +97,8 @@ export class LpProfileWorkflowService {
   }
 
   /** 合规官三选一落结论，并驱动档案沿迁移表走一步。**先落结论，后迁状态**（尽调服务会拒缺原因的退回 / 不通过，
-   *  拒了就不碰档案）；送审多一道前置——五道硬规则全过才落结论、才开审批单。
+   *  拒了就不碰档案）；送审多一道前置——五道硬规则全过才落结论、才开审批单；
+   *  退回也有前置——红灯 / CISO 不可接受时只许「不通过」。
    *  RETURNED 态的档案**不能**再下结论：状态表里 RETURNED 只有「金库重新提交」一条出路，让合规官在退回期间继续筛查 / 定档
    *  是为后续评估备料，但结论要等重提回到 PENDING_ASSESSMENT 后再下——否则会留下「结论已落、状态没动」的半截子。 */
   async conclude(lpNo: string, dto: ConcludeAssessmentDto, actor: ApprovalActorContext): Promise<{ lpNo: string; status: string; approvalNo?: string }> {
@@ -109,6 +110,8 @@ export class LpProfileWorkflowService {
     switch (dto.conclusion) {
       case 'RETURNED':
       case 'REJECTED': {
+        // 红灯 / CISO 不可接受时评估结论只许「不通过」——退回补料也拒（「不通过」不经此检查）
+        if (dto.conclusion === 'RETURNED') await this.dueDiligence.assertReturnable(TARGET, lpNo);
         await this.dueDiligence.conclude(TARGET, lpNo, dto, actor);
         const to = dto.conclusion === 'RETURNED' ? LpProfileStatus.RETURNED : LpProfileStatus.REJECTED;
         const updated = await this.profiles.transition(lpNo, to, {}, { actor, reason: dto.reason });

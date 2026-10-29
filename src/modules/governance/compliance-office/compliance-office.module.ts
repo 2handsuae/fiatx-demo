@@ -1,7 +1,7 @@
 // 甲波六 T6：服务商准入 workflow（OutsourcingVendorWorkflowService）+ 两个审批 handler（一般 CFO 单步 / 重大 CFO→高管）接进来；
 // 尽调评估（DueDiligenceService）与文件存储（DocumentsModule）T3 起已在本模块。
 // 战役甲波四 · 合规办公室骨架（Task 3/4/5）模块接线：T2 义务主体服务 + T3 到期开单 sweep +
-// T4 两本登记册（vendor/RI）主体服务 + T5 RI 换人审批链/闹钟墙聚合/控制器。导入
+// T4 服务商 / RI 两个主体服务 + T5 RI 换人审批链/闹钟墙聚合/控制器。导入
 // RegulatoryFilingsModule 拿 RegulatoryFilingService（sweep 命中序最后一步
 // openForObligation 开单；clock-wall 聚合横向只读 regulatory_filings 表）——照
 // incidents.module.ts 同款先例（governance 子域横向拿 RegulatoryFilingService 都走这条线，

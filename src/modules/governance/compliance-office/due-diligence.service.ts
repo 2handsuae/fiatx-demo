@@ -1,7 +1,8 @@
 // 甲波六 T3 · 尽调评估主体 DueDiligenceAssessment（DDA…）+ 下挂筛查记录 ScreeningRecord（SCR…）。
 // 铁律③：本服务只写自己的两张表（due_diligence_assessments / screening_records）；证据截图的落盘与元数据
 // 交给 DocumentsService（它是 stored_documents 的唯一写者）。LP 线（T4）与服务商线（T6）的 workflow 调本服务：
-// 先 assertSendable 过五道硬规则，再 conclude 落结论——conclude 自己不做规则检查，只落结论。
+// 先 assertSendable 过五道硬规则（退回则先 assertReturnable 过红灯 / CISO 不可接受这两道），再 conclude 落结论——
+// conclude 自己不做规则检查，只落结论。
 // 本服务**不看**目标（LP / 服务商）当前状态：「可写窗口」（PENDING_ASSESSMENT / RETURNED 才可写）由两线 workflow
 // 各自的 assertAssessable 把关（spec §3）。评估不设状态列，所以本主体没有迁移表。
 import { randomUUID } from 'node:crypto';
@@ -121,13 +122,6 @@ export class DueDiligenceService {
     return this.toView(row, records, this.computeFacts(row, records, input));
   }
 
-  /** 供前端按钮判断；无评估壳 → false。 */
-  async hasRed(targetType: DdTargetType, targetNo: string): Promise<boolean> {
-    const row = await this.findRow(targetType, targetNo);
-    if (!row) return false;
-    return this.computeFacts(row, await this.loadRecords(row)).hasRed;
-  }
-
   // ── 逐名筛查 ────────────────────────────────────────────────────────
 
   async recordScreening(targetType: DdTargetType, targetNo: string, dto: RecordScreeningDto, actor: ApprovalActorContext): Promise<{ recordNo: string }> {
@@ -204,16 +198,14 @@ export class DueDiligenceService {
     });
   }
 
-  // ── 送审硬规则（workflow 在 conclude(SENT_FOR_APPROVAL) 之前调） ──────
+  // ── 结论前置检查（workflow 在 conclude 之前调） ──────────────────────
 
-  /** 五道顺序检查，第一道不过就抛，不攒错。① 任一记录为红 ② 公司名 / 现任每位实控人无匹配记录
-   *  ③ 未定档 ④ 需要 CISO 却没结论 ⑤ CISO 结论不可接受。②③④ 只拦「通过并送审」，「不通过 / 退回」不经此方法。 */
+  /** 送审（SENT_FOR_APPROVAL）五道顺序检查，第一道不过就抛，不攒错。① 任一记录为红 ② 公司名 / 现任每位实控人无匹配记录
+   *  ③ 未定档 ④ 需要 CISO 却没结论 ⑤ CISO 结论不可接受。②③④ 只拦「通过并送审」。 */
   async assertSendable(targetType: DdTargetType, targetNo: string, input: SendableInput): Promise<void> {
     const row = await this.requireRow(targetType, targetNo);
     const facts = this.computeFacts(row, await this.loadRecords(row), input);
-    if (facts.hasRed) {
-      throw new BadRequestException('Screening hit (RED) — only REJECT is allowed');
-    }
+    this.assertNoRed(facts);
     if (facts.missingNames.length > 0) {
       throw new BadRequestException(`Screening missing for: ${facts.missingNames.join(', ')}`);
     }
@@ -223,9 +215,24 @@ export class DueDiligenceService {
     if (input.requireInfosec && !row.infosecVerdict) {
       throw new BadRequestException('Waiting for CISO information-security assessment');
     }
-    if (facts.infosecBlocked) {
-      throw new BadRequestException('CISO verdict UNACCEPTABLE — only REJECT is allowed');
-    }
+    this.assertInfosecAcceptable(facts);
+  }
+
+  /** 退回（RETURNED）前置检查：只有 ① 红灯 ⑤ CISO 不可接受 这两道（同款文案、同款顺序）——红灯 / 不可接受时评估结论只许
+   *  「不通过」（spec §3 / §5.3），退回补料也不行。缺名 / 未定档 / 等 CISO 不拦退回。「不通过」不经任何前置检查。 */
+  async assertReturnable(targetType: DdTargetType, targetNo: string): Promise<void> {
+    const row = await this.requireRow(targetType, targetNo);
+    const facts = this.computeFacts(row, await this.loadRecords(row));
+    this.assertNoRed(facts);
+    this.assertInfosecAcceptable(facts);
+  }
+
+  private assertNoRed(facts: DueDiligenceFlags): void {
+    if (facts.hasRed) throw new BadRequestException('Screening hit (RED) — only REJECT is allowed');
+  }
+
+  private assertInfosecAcceptable(facts: DueDiligenceFlags): void {
+    if (facts.infosecBlocked) throw new BadRequestException('CISO verdict UNACCEPTABLE — only REJECT is allowed');
   }
 
   // ── 落结论（覆盖存最新一轮；往轮历史看审计） ──────────────────────────

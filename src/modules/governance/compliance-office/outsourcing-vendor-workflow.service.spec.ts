@@ -110,6 +110,7 @@ function buildDeps() {
     saveAssessment: jest.fn(async () => undefined),
     recordInfosec: jest.fn(async () => undefined),
     assertSendable: jest.fn(async () => undefined),
+    assertReturnable: jest.fn(async () => undefined),
     conclude: jest.fn(async () => undefined),
   };
   const documents = {
@@ -364,6 +365,9 @@ describe('OutsourcingVendorWorkflowService.conclude — 退回补料 / 不通过
     expect(result).toEqual({ vendorNo, status: VendorStatus.RETURNED });
     expect(deps.dueDiligence.conclude).toHaveBeenCalledWith('OUTSOURCING_VENDOR', vendorNo, { conclusion: 'RETURNED', reason: 'Contract copy is unsigned' }, compliance);
     expect(deps.dueDiligence.assertSendable).not.toHaveBeenCalled(); // 送审硬规则只拦「通过并送审」
+    // 退回只过「红灯 / CISO 不可接受」这一道（只有绿 / 黄时放行），且先于落结论
+    expect(deps.dueDiligence.assertReturnable).toHaveBeenCalledWith('OUTSOURCING_VENDOR', vendorNo);
+    expect(deps.dueDiligence.assertReturnable.mock.invocationCallOrder[0]).toBeLessThan(deps.dueDiligence.conclude.mock.invocationCallOrder[0]);
     expect(deps.approvals.createAndSubmit).not.toHaveBeenCalled();
     expect(deps.audits.map((a) => a.input.action)).toEqual(['VENDOR_RETURNED']);
     expect(deps.audits[0].input).toMatchObject({ reason: 'Contract copy is unsigned', fromStatus: 'PENDING_ASSESSMENT', toStatus: 'RETURNED' });
@@ -371,6 +375,42 @@ describe('OutsourcingVendorWorkflowService.conclude — 退回补料 / 不通过
     await deps.svc.resubmit(vendorNo, dto(), ops);
     expect(deps.rows.get(vendorNo).status).toBe(VendorStatus.PENDING_ASSESSMENT);
     expect(deps.audits.map((a) => a.input.action)).toEqual(['VENDOR_RETURNED', 'VENDOR_RESUBMITTED']);
+  });
+
+  it('RETURNED 撞红灯（任一筛查记录为红）→ 400 只许不通过；不落结论、不迁状态、不留痕', async () => {
+    const deps = buildDeps();
+    const vendorNo = await seedVendor(deps);
+    deps.dueDiligence.assertReturnable.mockRejectedValue(new BadRequestException('Screening hit (RED) — only REJECT is allowed'));
+
+    await expect(deps.svc.conclude(vendorNo, { conclusion: 'RETURNED', reason: 'Please re-upload' }, compliance)).rejects.toThrow('Screening hit (RED) — only REJECT is allowed');
+
+    expect(deps.dueDiligence.conclude).not.toHaveBeenCalled();
+    expect(deps.rows.get(vendorNo).status).toBe(VendorStatus.PENDING_ASSESSMENT);
+    expect(deps.audits).toEqual([]);
+  });
+
+  it('重大服务商 CISO 结论不可接受时 RETURNED → 400 只许不通过；不落结论、不迁状态、不留痕', async () => {
+    const deps = buildDeps();
+    const vendorNo = await seedVendor(deps, VendorStatus.PENDING_ASSESSMENT, { impactContinuity: true });
+    deps.dueDiligence.assertReturnable.mockRejectedValue(new BadRequestException('CISO verdict UNACCEPTABLE — only REJECT is allowed'));
+
+    await expect(deps.svc.conclude(vendorNo, { conclusion: 'RETURNED', reason: 'Ask for a better DR plan' }, compliance)).rejects.toThrow('CISO verdict UNACCEPTABLE — only REJECT is allowed');
+
+    expect(deps.dueDiligence.conclude).not.toHaveBeenCalled();
+    expect(deps.rows.get(vendorNo).status).toBe(VendorStatus.PENDING_ASSESSMENT);
+    expect(deps.audits).toEqual([]);
+  });
+
+  it('REJECTED 不过退回这道闸：红灯 / CISO 不可接受下照样能不通过', async () => {
+    const deps = buildDeps();
+    const vendorNo = await seedVendor(deps);
+    deps.dueDiligence.assertReturnable.mockRejectedValue(new BadRequestException('CISO verdict UNACCEPTABLE — only REJECT is allowed'));
+
+    const result = await deps.svc.conclude(vendorNo, { conclusion: 'REJECTED', reason: 'CISO: not acceptable' }, compliance);
+
+    expect(result).toEqual({ vendorNo, status: VendorStatus.REJECTED });
+    expect(deps.dueDiligence.assertReturnable).not.toHaveBeenCalled();
+    expect(deps.audits.map((a) => a.input.action)).toEqual(['VENDOR_REJECTED']);
   });
 
   it('REJECTED：落结论 → 迁 REJECTED（终态）带原因，不开审批单', async () => {
@@ -436,7 +476,7 @@ describe('OutsourcingVendorWorkflowService — 评估可写窗口（PENDING_ASSE
     await expect(deps.svc.recordInfosec(vendorNo, infosecDto, ciso)).rejects.toThrow('Assessment is locked');
     await expect(deps.svc.conclude(vendorNo, { conclusion: 'REJECTED', reason: 'x' }, compliance)).rejects.toThrow('Assessment is locked');
 
-    for (const m of ['recordScreening', 'attachEvidence', 'saveAssessment', 'recordInfosec', 'conclude', 'assertSendable'] as const) {
+    for (const m of ['recordScreening', 'attachEvidence', 'saveAssessment', 'recordInfosec', 'conclude', 'assertSendable', 'assertReturnable'] as const) {
       expect(deps.dueDiligence[m]).not.toHaveBeenCalled();
     }
   });

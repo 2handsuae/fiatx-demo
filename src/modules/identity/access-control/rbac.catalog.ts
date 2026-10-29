@@ -131,7 +131,7 @@ export type PermissionGroup =
   // 是业务方（运营）提服务商申请的写门；DUE_DILIGENCE_WRITE 是合规官独占的背调经办门
   // （LP 与服务商共用——开案 / 筛查 / 评分 / 结论 / 送审 / 退回重提）；INFOSEC_ASSESSMENT_WRITE 是
   // CISO 独占的信息安全评估门。既有 VENDOR_REGISTER_WRITE 收窄为「终止服务商」（登记 / 修改改走
-  // 申请流程），T8 随其唯一消费者一起删除。
+  // 申请流程），仍是后端守「终止服务商」路由的那一组。
   | 'VENDOR_APPLY'
   | 'VENDOR_READ'
   | 'DUE_DILIGENCE_WRITE'
@@ -642,8 +642,9 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/regulatory-filings/:filingNo/simulate-deadline-timeout', 'Fast-forward filing deadline into the past (demo only)', ['DEMO_CLOCK_WRITE']),
 
   // 战役甲波四 T5（spec §2/§3/§4）：合规办公室骨架——闹钟墙聚合 + 周期义务（合规日历）+
-  // 两本登记册（外包商 / RI）。三个写面各自单一经办人（合规官独占，`COMPLIANCE_OFFICE_
-  // VIEW`/`OBLIGATION_WRITE`/`VENDOR_REGISTER_WRITE`/`RI_REGISTER_WRITE` 四组一组一门），
+  // RI 登记册（外包商册自甲波六 T6 起改成服务商准入，读写门见下方 VENDOR_* / DUE_DILIGENCE_WRITE 各组）。
+  // 写面各自单一经办人（合规官独占，`COMPLIANCE_OFFICE_
+  // VIEW`/`OBLIGATION_WRITE`/`VENDOR_REGISTER_WRITE`〔现仅终止服务商〕/`RI_REGISTER_WRITE` 一组一门），
   // 不需要 cap.* 服务层族独占（与波三报送台的差异见 spec §5：本域没有"两个经办人共享同一组
   // 写路由"的情形）。
   route('GET', '/admin/compliance-office/clock-wall', 'Compliance clock wall — aggregate filing deadlines and obligation due dates', ['COMPLIANCE_OFFICE_VIEW']),
@@ -1269,16 +1270,16 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
     ],
   },
   // ─── Domain: Compliance Office ────────────────────────
-  // 战役甲波四 T5（spec §5）：闹钟墙 + 合规日历（周期义务）+ 两本登记册（外包商 / RI）。
+  // 战役甲波四 T5（spec §5）：闹钟墙 + 合规日历（周期义务）+ RI 登记册；外包商册自甲波六起改成服务商准入（见下方各桶）。
   // 三个写面各自单一经办人（甲波四原貌=合规官；其后同域加入 agreements〔合规官提交/高管批〕与 DSR〔DPO 独办〕，写面已不全归合规官），一组一门，不需要 cap.* 服务层族独占
   // （与上方 Regulatory Filings 域的差异：本域没有"两个经办人共享同一组写路由"的情形）。
   {
     id: 'compliance-office', label: 'Compliance Office', icon: '📋',
     buckets: [
-      { key: 'compliance-office.view', label: 'View clock wall, calendar & registers', description: 'Browse the compliance clock wall, the periodic-obligation calendar, and both registers (vendors / responsible individuals)', groups: ['COMPLIANCE_OFFICE_VIEW'] },
+      { key: 'compliance-office.view', label: 'View clock wall, calendar & RI register', description: 'Browse the compliance clock wall, the periodic-obligation calendar and the responsible individual register', groups: ['COMPLIANCE_OFFICE_VIEW'] },
       { key: 'compliance-office.obligations', label: 'Manage periodic obligations', description: 'Register, update, enable/disable periodic regulatory obligations — the compliance calendar', groups: ['OBLIGATION_WRITE'] },
       // 甲波六 T1：服务商登记 / 修改退役（改走申请 + 背调 + 审批流程），本桶只剩终止；
-      // groups 保持 VENDOR_REGISTER_WRITE（T8 随唯一消费者删除该组时再收口）。
+      // groups 仍是 VENDOR_REGISTER_WRITE——它现在就是守「终止服务商」路由的那一组。
       { key: 'compliance-office.vendors', label: 'Terminate outsourcing vendors', description: 'Terminate outsourcing vendors — registering and updating moved to the service provider onboarding flow (apply → due diligence → approval)', groups: ['VENDOR_REGISTER_WRITE'] },
       // 甲波六 T1（2026-10-29，spec §8）：服务商 / LP 背调与审批四桶，各挂单组（Ruling-13）。
       { key: 'compliance-office.view_vendors', label: 'View service providers', description: 'Browse service provider applications, due diligence assessments and the active register', groups: ['VENDOR_READ'] },

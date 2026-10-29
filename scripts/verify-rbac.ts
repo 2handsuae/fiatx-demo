@@ -878,7 +878,7 @@ function runStaticChecks(): void {
       `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 96，含 FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW/PRUDENTIAL_CHECK_WRITE/AGREEMENT_WRITE/DSR_READ/DSR_WRITE/VENDOR_APPLY/VENDOR_READ/DUE_DILIGENCE_WRITE/INFOSEC_ASSESSMENT_WRITE）`,
   );
 
-  // ── S14：公司资金三组「四处齐」+ 唯一持有断言 + OR 粗门登记（战役乙波二 T3/T5/T8/T10）──
+  // ── S14：公司资金三组「四处齐」+ 唯一持有断言 + 服务商名册读门登记（战役乙波二 T3/T5/T8/T10；甲波六 T6 起读门为单一 VENDOR_READ）──
   // 同 S10/S11/S12/S13 范式：三个新组（FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW）
   // 一次性核验 route() 挂载 / ACTION_BUCKET_CATALOG 桶挂载 / 职务持有均 >=1（联合类型
   // 成员由 tsc 收口，同 S10-S13 头注释）；三桶挂既有 Treasury 域（treasury.view_funding/
@@ -1940,7 +1940,7 @@ const PROBES: DirectionalProbe[] = [
   // 七条纯权限闸探针，同「公司资金三组门」先例：POST /admin/prudential/check 真跑
   // PrudentialService.performCheck——无副作用纯读汇总（computeStatus）+ 落一条真实审计
   // 行（见 prudential.controller.ts 头注释），重复跑不脏演示数据，不需要 cleanup，同
-  // 「金库可以看外包商名册」这类纯读 ALLOW 先例。GET /admin/prudential/status 走既有
+  // 「金库可以看服务商名册」（VENDOR_READ）这类纯读 ALLOW 先例。GET /admin/prudential/status 走既有
   // FUNDING_DASHBOARD_VIEW（T1 零权限扩张先例，四职务本就持有）——这里只探金库侧已被
   // check 探针覆盖，改探高管正例 + 运营反例两条。兑换腿 advance 用占位 swapNo（T5 把
   // 该 route 改回 FUNDS_ORDER_ACT 之后，唯金库能推）——ALLOW 判据只验权限闸，占位
