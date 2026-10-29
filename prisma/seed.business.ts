@@ -79,7 +79,7 @@ export async function seedBusiness(
   // needs seedCustomers' Frank/Leo/Mona rows + Leo/Mona 的限制账 openedAt 锚。
   await seedAmlFilingFamily(prisma);
   // ③f Compliance office layer（战役甲波四 T7，spec §7/§9）：合规日历义务台账三行 +
-  // 两本登记册（外包商三行 + RI 席位四行）——各表互不依赖，也不依赖上面任何客户/事件/
+  // 两本登记册（外包商四行 + RI 席位四行）——各表互不依赖，也不依赖上面任何客户/事件/
   // 报送单种子行（spec §10：两册与义务台账均无横向外键）。
   await seedComplianceObligations(prisma);
   await seedOutsourcingVendors(prisma);

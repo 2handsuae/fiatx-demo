@@ -31,7 +31,8 @@ export interface ScreeningRecordView {
   recordedBy: string;
 }
 
-/** 前端据此决定按钮：hasRed → 「通过并送审」不出现；missingNames 非空 → 置灰并提示缺谁；infosecBlocked → 同红灯。 */
+/** 前端据此决定按钮：hasRed / infosecBlocked → 只剩「不通过」（「通过并送审」「退回补料」都不出现，后端 assertSendable / assertReturnable 同守）；
+ *  missingNames 非空 → 置灰并提示缺谁。 */
 export interface DueDiligenceFlags {
   hasRed: boolean;
   missingNames: string[];
@@ -237,7 +238,7 @@ export class DueDiligenceService {
 
   // ── 落结论（覆盖存最新一轮；往轮历史看审计） ──────────────────────────
 
-  /** 只落结论，不做送审规则检查（由 workflow 先调 assertSendable）。RETURNED / REJECTED 必带 reason。 */
+  /** 只落结论，不做规则检查（由 workflow 先调：送审调 assertSendable、退回调 assertReturnable、不通过不调）。RETURNED / REJECTED 必带 reason。 */
   async conclude(targetType: DdTargetType, targetNo: string, dto: ConcludeAssessmentDto, actor: ApprovalActorContext): Promise<void> {
     const row = await this.requireRow(targetType, targetNo);
     const needsReason = dto.conclusion === 'RETURNED' || dto.conclusion === 'REJECTED';
@@ -273,7 +274,7 @@ export class DueDiligenceService {
     return this.prisma.screeningRecord.findMany({ where: { assessmentId: row.id }, orderBy: { createdAt: 'asc' } });
   }
 
-  // ── 内部：事实计算（getView 与 assertSendable 共用，规则只在这一处） ─────
+  // ── 内部：事实计算（getView / assertSendable / assertReturnable 共用，规则只在这一处） ─────
 
   /** 「已筛」判定（R4）：一位当事人只有在存在**身份对得上**的记录时才算已筛——
    *  公司：subjectKind=COMPANY 且名字相同；实控人：subjectKind=BENEFICIAL_OWNER 且 uboSeq 相同且名字相同。
