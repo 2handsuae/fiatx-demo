@@ -6,13 +6,21 @@
 // 「是否受监管职能」答是 → 发牌机构 + 牌照号必填。材料槽位随答案增减：一般档 2 份，受监管加牌照副本，重大档再加 6 份。
 // 文件在服务商建好前没有可传的地址，所以先在页面里暂存选中的文件；提交成功拿到 vendorNo 后逐槽上传，
 // 全部传完才跳详情；有槽传失败时留在本页说明（申请已建，缺的文件可在详情页补）。
-// 实际控制人（UBO）序号 seq 的规矩同 LP 申请页：新申请随增删顺排；重提时已有的人保留原 seq、绝不重排。
-import { useEffect, useRef, useState } from 'react';
+// 实际控制人（UBO）序号 seq 的规矩（重提时绝不重排，R4）与材料槽位的暂存 / 上传，与 LP 申请页共用
+// BeneficialOwnersField / StagedDocumentSlots（components/compliance/），本页只管自己的字段分组。
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Plus, RefreshCw, X } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { DetailCard } from '../components/compliance/DetailPageComponents';
-import { FilePickButton } from '../components/compliance/UploadButton';
-import { MaterialityPill, PartnerStatusPill } from '../components/ui/PartnerStatusPill';
+import {
+  BeneficialOwnersField,
+  hasNamelessOwner,
+  ownersPayload,
+  useBeneficialOwners,
+} from '../components/compliance/BeneficialOwnersField';
+import { ResubmitGuard } from '../components/compliance/ResubmitGuard';
+import { StagedDocumentSlots, uploadStagedFiles, type SlotState } from '../components/compliance/StagedDocumentSlots';
+import { MaterialityPill } from '../components/ui/PartnerStatusPill';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
@@ -24,51 +32,11 @@ import {
   expectedVendorDocTypes,
   labelOf,
 } from '../utils/partnerStatusMap';
-import { openStoredDocument, uploadStoredDocument } from '../utils/storedDocument';
+import type { VendorView } from '../utils/vendorTypes';
 import type { StoredDocumentView } from '../components/compliance/DocumentsCard';
-
-interface OwnerRow {
-  seq: number;
-  name: string;
-  nationality: string;
-}
-
-/** 后端 VendorView 里申请页用得到的部分。 */
-interface VendorApplicationView {
-  vendorNo: string;
-  name: string;
-  registeredIn: string;
-  registrationNo: string;
-  deliveryLocations: string[];
-  contactName: string;
-  contactEmail: string;
-  beneficialOwners: { seq: number; name: string; nationality?: string }[];
-  licensingAuthority: string | null;
-  licenceNo: string | null;
-  serviceDescription: string;
-  regulatedFunction: boolean;
-  involvesPersonalData: boolean;
-  involvesConfidentialInfo: boolean;
-  contractStart: string;
-  contractEnd: string | null;
-  annualFee: string | null;
-  feeCurrency: string | null;
-  subcontracts: boolean;
-  subcontractorNames: string | null;
-  applicationReason: string;
-  impactLicence: boolean;
-  impactLegal: boolean;
-  impactFinancial: boolean;
-  impactContinuity: boolean;
-  replaceability: string;
-  criticality: string;
-  criticalityReason: string | null;
-  status: string;
-}
 
 type Answer = boolean | null;
 type ImpactField = (typeof VENDOR_IMPACT_QUESTIONS)[number]['field'];
-type SlotState = { phase: 'idle' | 'uploading' | 'done' } | { phase: 'error'; message: string };
 
 const fi = 'mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs';
 const API = import.meta.env.VITE_API_URL;
@@ -118,7 +86,7 @@ const ServiceProviderApplyPage = () => {
   const [deliveryLocations, setDeliveryLocations] = useState('');
   const [contactName, setContactName] = useState('');
   const [contactEmail, setContactEmail] = useState('');
-  const [owners, setOwners] = useState<OwnerRow[]>([]);
+  const { owners, load: loadOwners, addOwner, removeOwner, patchOwner } = useBeneficialOwners(isResubmit);
   const [licensingAuthority, setLicensingAuthority] = useState('');
   const [licenceNo, setLicenceNo] = useState('');
 
@@ -155,8 +123,6 @@ const ServiceProviderApplyPage = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [submittedVendorNo, setSubmittedVendorNo] = useState<string | null>(null);
-  /** 重提模式下的下一个 seq：只增不减，被删掉的序号不复用。 */
-  const nextSeq = useRef(1);
 
   // 重提：预填申请 + 现有文件 + 退回原因。
   useEffect(() => {
@@ -171,7 +137,7 @@ const ServiceProviderApplyPage = () => {
           adminFetch(`${API}/admin/outsourcing-vendors/${enc}/assessment`),
         ]);
         if (!detailRes.ok) { setError(await getApiErrorMessage(detailRes, 'Failed to load the application')); return; }
-        const d = (await detailRes.json()) as VendorApplicationView;
+        const d = (await detailRes.json()) as VendorView;
         if (cancelled) return;
         setLoadedStatus(d.status);
         setName(d.name);
@@ -180,8 +146,7 @@ const ServiceProviderApplyPage = () => {
         setDeliveryLocations(d.deliveryLocations.join(', '));
         setContactName(d.contactName);
         setContactEmail(d.contactEmail);
-        setOwners(d.beneficialOwners.map((o) => ({ seq: o.seq, name: o.name, nationality: o.nationality ?? '' })));
-        nextSeq.current = d.beneficialOwners.reduce((m, o) => Math.max(m, o.seq), 0) + 1;
+        loadOwners(d.beneficialOwners);
         setLicensingAuthority(d.licensingAuthority ?? '');
         setLicenceNo(d.licenceNo ?? '');
         setServiceDescription(d.serviceDescription);
@@ -220,19 +185,6 @@ const ServiceProviderApplyPage = () => {
     return () => { cancelled = true; };
   }, [resubmitVendorNo]);
 
-  const addOwner = () => {
-    const seq = isResubmit ? nextSeq.current++ : owners.length + 1;
-    setOwners((cur) => [...cur, { seq, name: '', nationality: '' }]);
-  };
-  const removeOwner = (seq: number) =>
-    setOwners((cur) => {
-      const rest = cur.filter((o) => o.seq !== seq);
-      // 新申请还没有任何筛查记录指向序号，删完顺排即可；重提时序号已被筛查记录引用，不得重排。
-      return isResubmit ? rest : rest.map((o, i) => ({ ...o, seq: i + 1 }));
-    });
-  const patchOwner = (seq: number, patch: Partial<OwnerRow>) =>
-    setOwners((cur) => cur.map((o) => (o.seq === seq ? { ...o, ...patch } : o)));
-
   const anyImpact = VENDOR_IMPACT_QUESTIONS.some((q) => impacts[q.field] === true);
   const allImpactsAnswered = VENDOR_IMPACT_QUESTIONS.every((q) => impacts[q.field] !== null);
   const material = anyImpact || loadedCriticality === 'MATERIAL';
@@ -246,7 +198,7 @@ const ServiceProviderApplyPage = () => {
     if (parsedLocations.length === 0) return 'Enter at least one service delivery / data storage location';
     if (!contactName.trim()) return 'Contact name is required';
     if (!contactEmail.trim()) return 'Contact email is required';
-    if (owners.some((o) => !o.name.trim() && o.nationality.trim())) return 'Every beneficial owner row needs a name';
+    if (hasNamelessOwner(owners)) return 'Every beneficial owner row needs a name';
     if (!serviceDescription.trim()) return 'Service description is required';
     if (regulatedFunction === null) return 'Say whether this is a regulated function';
     if (regulatedFunction && (!licensingAuthority.trim() || !licenceNo.trim())) {
@@ -275,9 +227,7 @@ const ServiceProviderApplyPage = () => {
         deliveryLocations: parsedLocations,
         contactName: contactName.trim(),
         contactEmail: contactEmail.trim(),
-        beneficialOwners: owners
-          .filter((o) => o.name.trim())
-          .map((o) => ({ seq: o.seq, name: o.name.trim(), ...(o.nationality.trim() ? { nationality: o.nationality.trim() } : {}) })),
+        beneficialOwners: ownersPayload(owners),
         ...(licensingAuthority.trim() ? { licensingAuthority: licensingAuthority.trim() } : {}),
         ...(licenceNo.trim() ? { licenceNo: licenceNo.trim() } : {}),
         serviceDescription: serviceDescription.trim(),
@@ -306,20 +256,12 @@ const ServiceProviderApplyPage = () => {
       setSubmittedVendorNo(vendorNo);
 
       // 申请已建好：只传当前槽位里选中的文件（答案改回去、槽位消失的文件不传）。
-      let failed = 0;
-      for (const docType of slotTypes) {
-        const file = files[docType];
-        if (!file) continue;
-        setSlotState((cur) => ({ ...cur, [docType]: { phase: 'uploading' } }));
-        try {
-          await uploadStoredDocument(`${API}/admin/outsourcing-vendors/${encodeURIComponent(vendorNo)}/documents`, { docType }, file);
-          setSlotState((cur) => ({ ...cur, [docType]: { phase: 'done' } }));
-        } catch (e) {
-          if (e instanceof AdminSessionError) return;
-          failed += 1;
-          setSlotState((cur) => ({ ...cur, [docType]: { phase: 'error', message: e instanceof Error ? e.message : 'Upload failed' } }));
-        }
-      }
+      const failed = await uploadStagedFiles({
+        url: `${API}/admin/outsourcing-vendors/${encodeURIComponent(vendorNo)}/documents`,
+        docTypes: slotTypes,
+        files,
+        onSlotState: (docType, state) => setSlotState((cur) => ({ ...cur, [docType]: state })),
+      });
       if (failed === 0) navigate(`${SERVICE_PROVIDERS_PATH}/${encodeURIComponent(vendorNo)}`);
       else setError(`${vendorNo} was ${isResubmit ? 'resubmitted' : 'submitted'}, but ${failed} document(s) could not be uploaded. Open the provider to add them.`);
     } catch (e) {
@@ -327,17 +269,6 @@ const ServiceProviderApplyPage = () => {
       setError(e instanceof Error ? e.message : 'Failed to submit the application');
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const [openError, setOpenError] = useState('');
-  const openExisting = async (docNo: string) => {
-    setOpenError('');
-    try {
-      await openStoredDocument(docNo);
-    } catch (e) {
-      if (e instanceof AdminSessionError) return;
-      setOpenError(e instanceof Error ? e.message : 'Failed to open the document');
     }
   };
 
@@ -355,19 +286,13 @@ const ServiceProviderApplyPage = () => {
   // 重提只对「已退回」开放（后端同样拒）；其他状态给一句说明和回路。
   if (isResubmit && loadedStatus !== 'RETURNED') {
     return (
-      <div className="flex h-full flex-col">
-        <PageTitleBar title="Resubmit service provider application" subtitle={resubmitVendorNo}>
-          <button type="button" onClick={() => navigate(backTo)} className={adminButtonClass('listSecondary')}>Back</button>
-        </PageTitleBar>
-        <div className="p-6 text-sm text-adm-t2">
-          {error || (
-            <span className="inline-flex items-center gap-2">
-              Only an application that was returned for documents can be edited and resubmitted. Current status:
-              <PartnerStatusPill status={loadedStatus} />
-            </span>
-          )}
-        </div>
-      </div>
+      <ResubmitGuard
+        title="Resubmit service provider application"
+        subtitle={resubmitVendorNo}
+        status={loadedStatus}
+        error={error}
+        onBack={() => navigate(backTo)}
+      />
     );
   }
 
@@ -424,47 +349,13 @@ const ServiceProviderApplyPage = () => {
               <input value={licenceNo} onChange={(e) => setLicenceNo(e.target.value)} className={`${fi} font-mono`} />
             </label>
 
-            <div className="md:col-span-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs">Beneficial owners <span className="text-adm-t3">(optional — each one is screened by name during the assessment)</span></p>
-                <button type="button" onClick={addOwner} className={adminButtonClass('detailUtility')}>
-                  <Plus size={13} /> Add beneficial owner
-                </button>
-              </div>
-              {owners.length === 0 ? (
-                <p className="mt-2 font-mono text-[11px] text-adm-t3">None listed</p>
-              ) : (
-                <div className="mt-2 space-y-2">
-                  {owners.map((o) => (
-                    <div key={o.seq} className="flex items-center gap-2">
-                      <span className="w-8 shrink-0 font-mono text-[11px] text-adm-t3">#{o.seq}</span>
-                      <input
-                        value={o.name}
-                        onChange={(e) => patchOwner(o.seq, { name: e.target.value })}
-                        className="w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs"
-                        placeholder="Full name"
-                        aria-label={`Beneficial owner #${o.seq} name`}
-                      />
-                      <input
-                        value={o.nationality}
-                        onChange={(e) => patchOwner(o.seq, { nationality: e.target.value })}
-                        className="w-40 shrink-0 rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs"
-                        placeholder="Nationality (optional)"
-                        aria-label={`Beneficial owner #${o.seq} nationality`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeOwner(o.seq)}
-                        className="shrink-0 rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-red"
-                        title="Remove this beneficial owner"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <BeneficialOwnersField
+              owners={owners}
+              hint="optional — each one is screened by name during the assessment"
+              onAdd={addOwner}
+              onRemove={removeOwner}
+              onPatch={patchOwner}
+            />
           </DetailCard>
 
           <DetailCard title="What they will do for us" columns={2}>
@@ -556,38 +447,14 @@ const ServiceProviderApplyPage = () => {
             columns={1}
             description="All optional — anything missing can be added later, and compliance can return the application for what is still missing. PDF, PNG or JPG, up to 10 MB each. The list follows your answers above."
           >
-            <div className="-mx-4 -mb-4 divide-y divide-adm-border border-t border-adm-border">
-              {slotTypes.map((docType) => {
-                const state = slotState[docType];
-                const already = existingDocs.filter((d) => d.docType === docType);
-                return (
-                  <div key={docType} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 text-xs">
-                    <span className="w-60 shrink-0 text-adm-t1">{labelOf(VENDOR_DOC_TYPE_LABELS, docType)}</span>
-                    <FilePickButton
-                      file={files[docType] ?? null}
-                      onPick={(f) => setFiles((cur) => ({ ...cur, [docType]: f }))}
-                      label={already.length ? 'Add another' : 'Choose file'}
-                      disabled={submitting || submittedVendorNo !== null}
-                    />
-                    {already.map((d) => (
-                      <button
-                        key={d.docNo}
-                        type="button"
-                        onClick={() => void openExisting(d.docNo)}
-                        className="max-w-[240px] truncate font-mono text-[11px] text-adm-blue underline hover:opacity-75"
-                        title={`${d.docNo} · ${d.originalName}`}
-                      >
-                        {d.originalName}
-                      </button>
-                    ))}
-                    {state?.phase === 'uploading' && <span className="font-mono text-[11px] text-adm-amber">Uploading…</span>}
-                    {state?.phase === 'done' && <span className="font-mono text-[11px] text-adm-green">Uploaded</span>}
-                    {state?.phase === 'error' && <span className="font-mono text-[11px] text-adm-red">{state.message}</span>}
-                  </div>
-                );
-              })}
-            </div>
-            {openError && <p className="text-xs text-adm-red">{openError}</p>}
+            <StagedDocumentSlots
+              slots={slotTypes.map((code) => ({ code, label: labelOf(VENDOR_DOC_TYPE_LABELS, code) }))}
+              files={files}
+              slotState={slotState}
+              existingDocs={existingDocs}
+              disabled={submitting || submittedVendorNo !== null}
+              onPick={(docType, f) => setFiles((cur) => ({ ...cur, [docType]: f }))}
+            />
           </DetailCard>
         </div>
       </div>

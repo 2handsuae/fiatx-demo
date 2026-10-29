@@ -428,8 +428,8 @@ const DashboardLayout = () => {
       ],
     },
     // ─── Compliance Office ────────────────────────────────────────
-    // 战役甲波四（Task 9）：闹钟墙 + 合规日历（周期义务）+ 两本登记册（外包商/RI）——
-    // 独立治理件，与 Governance 组的事故登记/报送台平级（照 rbac.catalog.ts 的
+    // 战役甲波四（Task 9）：闹钟墙 + 合规日历（周期义务）+ 登记册——登记册页现只剩 RI 一本，
+    // 外包商册已于甲波六 T8 抬成 Service Providers 页。独立治理件，与 Governance 组的事故登记/报送台平级（照 rbac.catalog.ts 的
     // 'compliance-office' 独立 domain 先例，同 label 字面量）。
     {
       label: 'Compliance Office',

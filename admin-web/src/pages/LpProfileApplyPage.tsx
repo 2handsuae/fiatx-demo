@@ -4,26 +4,25 @@
 //   /admin/lp-profiles/:lpNo/resubmit 被退回后改申请、补文件重提（LP_PROFILE_RESUBMIT，仅「已退回」态）
 // 文件在档案建好前没有可传的地址，所以先在页面里暂存选中的文件；提交成功拿到 lpNo 后逐槽上传，
 // 全部传完才跳详情；有槽传失败时留在本页说明（档案已建，缺的文件可在详情页补）。
-// 实际控制人（UBO）序号 seq：新申请随增删顺排；重提时已有的人**保留原 seq、绝不重排**，新增的人取
-// 「历史最大 seq + 1」——后端按 seq + 姓名认「这位实控人已筛过」（R4），重排会让已筛记录失效。
-import { useEffect, useRef, useState } from 'react';
+// 实际控制人（UBO）序号 seq 的规矩（重提时绝不重排，R4）与材料槽位的暂存 / 上传，两张申请页共用
+// BeneficialOwnersField / StagedDocumentSlots（components/compliance/），本页只管自己的字段分组。
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Plus, RefreshCw, X } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
 import { DetailCard } from '../components/compliance/DetailPageComponents';
-import { FilePickButton } from '../components/compliance/UploadButton';
-import { PartnerStatusPill } from '../components/ui/PartnerStatusPill';
+import {
+  BeneficialOwnersField,
+  hasNamelessOwner,
+  ownersPayload,
+  useBeneficialOwners,
+} from '../components/compliance/BeneficialOwnersField';
+import { ResubmitGuard } from '../components/compliance/ResubmitGuard';
+import { StagedDocumentSlots, uploadStagedFiles, type SlotState } from '../components/compliance/StagedDocumentSlots';
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { LP_DOC_TYPE_LABELS, LP_TRADING_TYPE_LABELS } from '../utils/partnerStatusMap';
-import { openStoredDocument, uploadStoredDocument } from '../utils/storedDocument';
 import type { StoredDocumentView } from '../components/compliance/DocumentsCard';
-
-interface OwnerRow {
-  seq: number;
-  name: string;
-  nationality: string;
-}
 
 interface ProfileView {
   lpNo: string;
@@ -44,8 +43,6 @@ interface ProfileView {
   status: string;
 }
 
-type SlotState = { phase: 'idle' | 'uploading' | 'done' } | { phase: 'error'; message: string };
-
 const fi = 'mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs';
 const API = import.meta.env.VITE_API_URL;
 
@@ -59,7 +56,7 @@ const LpProfileApplyPage = () => {
   const [registrationNo, setRegistrationNo] = useState('');
   const [licensingAuthority, setLicensingAuthority] = useState('');
   const [licenceNo, setLicenceNo] = useState('');
-  const [owners, setOwners] = useState<OwnerRow[]>([]);
+  const { owners, load: loadOwners, addOwner, removeOwner, patchOwner } = useBeneficialOwners(isResubmit);
   const [tradingTypes, setTradingTypes] = useState<string[]>([]);
   const [volume, setVolume] = useState('');
   const [currency, setCurrency] = useState('USD');
@@ -79,8 +76,6 @@ const LpProfileApplyPage = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [submittedLpNo, setSubmittedLpNo] = useState<string | null>(null);
-  /** 重提模式下的下一个 seq：只增不减，被删掉的序号不复用。 */
-  const nextSeq = useRef(1);
 
   // 重提：预填档案 + 现有文件 + 退回原因。
   useEffect(() => {
@@ -103,8 +98,7 @@ const LpProfileApplyPage = () => {
         setRegistrationNo(d.registrationNo);
         setLicensingAuthority(d.licensingAuthority);
         setLicenceNo(d.licenceNo);
-        setOwners(d.beneficialOwners.map((o) => ({ seq: o.seq, name: o.name, nationality: o.nationality ?? '' })));
-        nextSeq.current = d.beneficialOwners.reduce((m, o) => Math.max(m, o.seq), 0) + 1;
+        loadOwners(d.beneficialOwners);
         setTradingTypes(d.tradingTypes);
         setVolume(d.expectedMonthlyVolume);
         setCurrency(d.volumeCurrency);
@@ -129,18 +123,6 @@ const LpProfileApplyPage = () => {
     return () => { cancelled = true; };
   }, [resubmitLpNo]);
 
-  const addOwner = () => {
-    const seq = isResubmit ? nextSeq.current++ : owners.length + 1;
-    setOwners((cur) => [...cur, { seq, name: '', nationality: '' }]);
-  };
-  const removeOwner = (seq: number) =>
-    setOwners((cur) => {
-      const rest = cur.filter((o) => o.seq !== seq);
-      // 新申请还没有任何筛查记录指向序号，删完顺排即可；重提时序号已被筛查记录引用，不得重排。
-      return isResubmit ? rest : rest.map((o, i) => ({ ...o, seq: i + 1 }));
-    });
-  const patchOwner = (seq: number, patch: Partial<OwnerRow>) =>
-    setOwners((cur) => cur.map((o) => (o.seq === seq ? { ...o, ...patch } : o)));
   const toggleTradingType = (code: string) =>
     setTradingTypes((cur) => (cur.includes(code) ? cur.filter((c) => c !== code) : [...cur, code]));
 
@@ -150,7 +132,7 @@ const LpProfileApplyPage = () => {
     if (!registrationNo.trim()) return 'Registration number is required';
     if (!licensingAuthority.trim()) return 'Licensing authority is required';
     if (!licenceNo.trim()) return 'Licence number is required';
-    if (owners.some((o) => !o.name.trim() && o.nationality.trim())) return 'Every beneficial owner row needs a name';
+    if (hasNamelessOwner(owners)) return 'Every beneficial owner row needs a name';
     if (tradingTypes.length === 0) return 'Choose at least one trading type';
     if (!volume.trim() || Number.isNaN(Number(volume))) return 'Expected monthly volume must be a number';
     if (!currency.trim()) return 'Volume currency is required';
@@ -173,9 +155,7 @@ const LpProfileApplyPage = () => {
         registrationNo: registrationNo.trim(),
         licensingAuthority: licensingAuthority.trim(),
         licenceNo: licenceNo.trim(),
-        beneficialOwners: owners
-          .filter((o) => o.name.trim())
-          .map((o) => ({ seq: o.seq, name: o.name.trim(), ...(o.nationality.trim() ? { nationality: o.nationality.trim() } : {}) })),
+        beneficialOwners: ownersPayload(owners),
         tradingTypes,
         expectedMonthlyVolume: volume.trim(),
         volumeCurrency: currency.trim().toUpperCase(),
@@ -194,19 +174,12 @@ const LpProfileApplyPage = () => {
       setSubmittedLpNo(lpNo);
 
       // 档案已建好：逐槽上传选中的文件。
-      let failed = 0;
-      for (const [docType, file] of Object.entries(files)) {
-        if (!file) continue;
-        setSlotState((cur) => ({ ...cur, [docType]: { phase: 'uploading' } }));
-        try {
-          await uploadStoredDocument(`${API}/admin/lp-profiles/${encodeURIComponent(lpNo)}/documents`, { docType }, file);
-          setSlotState((cur) => ({ ...cur, [docType]: { phase: 'done' } }));
-        } catch (e) {
-          if (e instanceof AdminSessionError) return;
-          failed += 1;
-          setSlotState((cur) => ({ ...cur, [docType]: { phase: 'error', message: e instanceof Error ? e.message : 'Upload failed' } }));
-        }
-      }
+      const failed = await uploadStagedFiles({
+        url: `${API}/admin/lp-profiles/${encodeURIComponent(lpNo)}/documents`,
+        docTypes: Object.keys(files),
+        files,
+        onSlotState: (docType, state) => setSlotState((cur) => ({ ...cur, [docType]: state })),
+      });
       if (failed === 0) navigate(`/admin/lp-profiles/${encodeURIComponent(lpNo)}`);
       else setError(`${lpNo} was ${isResubmit ? 'resubmitted' : 'submitted'}, but ${failed} document(s) could not be uploaded. Open the LP to add them.`);
     } catch (e) {
@@ -214,17 +187,6 @@ const LpProfileApplyPage = () => {
       setError(e instanceof Error ? e.message : 'Failed to submit the application');
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const [openError, setOpenError] = useState('');
-  const openExisting = async (docNo: string) => {
-    setOpenError('');
-    try {
-      await openStoredDocument(docNo);
-    } catch (e) {
-      if (e instanceof AdminSessionError) return;
-      setOpenError(e instanceof Error ? e.message : 'Failed to open the document');
     }
   };
 
@@ -241,24 +203,10 @@ const LpProfileApplyPage = () => {
 
   // 重提只对「已退回」开放（后端同样拒）；其他状态给一句说明和回路。
   if (isResubmit && loadedStatus !== 'RETURNED') {
-    return (
-      <div className="flex h-full flex-col">
-        <PageTitleBar title="Resubmit LP application" subtitle={resubmitLpNo}>
-          <button type="button" onClick={() => navigate(backTo)} className={adminButtonClass('listSecondary')}>Back</button>
-        </PageTitleBar>
-        <div className="p-6 text-sm text-adm-t2">
-          {error || (
-            <span className="inline-flex items-center gap-2">
-              Only an application that was returned for documents can be edited and resubmitted. Current status:
-              <PartnerStatusPill status={loadedStatus} />
-            </span>
-          )}
-        </div>
-      </div>
-    );
+    return <ResubmitGuard title="Resubmit LP application" subtitle={resubmitLpNo} status={loadedStatus} error={error} onBack={() => navigate(backTo)} />;
   }
 
-  const docEntries = Object.entries(LP_DOC_TYPE_LABELS);
+  const docSlots = Object.entries(LP_DOC_TYPE_LABELS).map(([code, label]) => ({ code, label }));
 
   return (
     <div className="flex h-full flex-col">
@@ -298,47 +246,13 @@ const LpProfileApplyPage = () => {
               <input value={licenceNo} onChange={(e) => setLicenceNo(e.target.value)} className={`${fi} font-mono`} />
             </label>
 
-            <div className="md:col-span-2">
-              <div className="flex items-center justify-between">
-                <p className="text-xs">Beneficial owners <span className="text-adm-t3">(each one is screened by name during the assessment)</span></p>
-                <button type="button" onClick={addOwner} className={adminButtonClass('detailUtility')}>
-                  <Plus size={13} /> Add beneficial owner
-                </button>
-              </div>
-              {owners.length === 0 ? (
-                <p className="mt-2 font-mono text-[11px] text-adm-t3">None listed</p>
-              ) : (
-                <div className="mt-2 space-y-2">
-                  {owners.map((o) => (
-                    <div key={o.seq} className="flex items-center gap-2">
-                      <span className="w-8 shrink-0 font-mono text-[11px] text-adm-t3">#{o.seq}</span>
-                      <input
-                        value={o.name}
-                        onChange={(e) => patchOwner(o.seq, { name: e.target.value })}
-                        className="w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs"
-                        placeholder="Full name"
-                        aria-label={`Beneficial owner #${o.seq} name`}
-                      />
-                      <input
-                        value={o.nationality}
-                        onChange={(e) => patchOwner(o.seq, { nationality: e.target.value })}
-                        className="w-40 shrink-0 rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs"
-                        placeholder="Nationality (optional)"
-                        aria-label={`Beneficial owner #${o.seq} nationality`}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeOwner(o.seq)}
-                        className="shrink-0 rounded p-1 text-adm-t3 hover:bg-adm-hover hover:text-adm-red"
-                        title="Remove this beneficial owner"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <BeneficialOwnersField
+              owners={owners}
+              hint="each one is screened by name during the assessment"
+              onAdd={addOwner}
+              onRemove={removeOwner}
+              onPatch={patchOwner}
+            />
           </DetailCard>
 
           <DetailCard title="What they will do with us" columns={2}>
@@ -384,38 +298,14 @@ const LpProfileApplyPage = () => {
             columns={1}
             description="All optional — anything missing can be added later, and compliance can return the application for what is still missing. PDF, PNG or JPG, up to 10 MB each."
           >
-            <div className="-mx-4 -mb-4 divide-y divide-adm-border border-t border-adm-border">
-              {docEntries.map(([docType, label]) => {
-                const state = slotState[docType];
-                const already = existingDocs.filter((d) => d.docType === docType);
-                return (
-                  <div key={docType} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-2.5 text-xs">
-                    <span className="w-60 shrink-0 text-adm-t1">{label}</span>
-                    <FilePickButton
-                      file={files[docType] ?? null}
-                      onPick={(f) => setFiles((cur) => ({ ...cur, [docType]: f }))}
-                      label={already.length ? 'Add another' : 'Choose file'}
-                      disabled={submitting || submittedLpNo !== null}
-                    />
-                    {already.map((d) => (
-                      <button
-                        key={d.docNo}
-                        type="button"
-                        onClick={() => void openExisting(d.docNo)}
-                        className="max-w-[240px] truncate font-mono text-[11px] text-adm-blue underline hover:opacity-75"
-                        title={`${d.docNo} · ${d.originalName}`}
-                      >
-                        {d.originalName}
-                      </button>
-                    ))}
-                    {state?.phase === 'uploading' && <span className="font-mono text-[11px] text-adm-amber">Uploading…</span>}
-                    {state?.phase === 'done' && <span className="font-mono text-[11px] text-adm-green">Uploaded</span>}
-                    {state?.phase === 'error' && <span className="font-mono text-[11px] text-adm-red">{state.message}</span>}
-                  </div>
-                );
-              })}
-            </div>
-            {openError && <p className="text-xs text-adm-red">{openError}</p>}
+            <StagedDocumentSlots
+              slots={docSlots}
+              files={files}
+              slotState={slotState}
+              existingDocs={existingDocs}
+              disabled={submitting || submittedLpNo !== null}
+              onPick={(docType, f) => setFiles((cur) => ({ ...cur, [docType]: f }))}
+            />
           </DetailCard>
         </div>
       </div>

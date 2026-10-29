@@ -26,46 +26,9 @@ import {
   expectedVendorDocTypes,
   labelOf,
 } from '../utils/partnerStatusMap';
+import type { VendorView } from '../utils/vendorTypes';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
-
-/** 后端 VendorView（零 id、零 UUID）。 */
-interface Detail {
-  vendorNo: string;
-  name: string;
-  registeredIn: string;
-  registrationNo: string;
-  deliveryLocations: string[];
-  contactName: string;
-  contactEmail: string;
-  beneficialOwners: { seq: number; name: string; nationality?: string }[];
-  licensingAuthority: string | null;
-  licenceNo: string | null;
-  serviceDescription: string;
-  regulatedFunction: boolean;
-  involvesPersonalData: boolean;
-  involvesConfidentialInfo: boolean;
-  contractStart: string;
-  contractEnd: string | null;
-  annualFee: string | null;
-  feeCurrency: string | null;
-  subcontracts: boolean;
-  subcontractorNames: string | null;
-  applicationReason: string;
-  impactLicence: boolean;
-  impactLegal: boolean;
-  impactFinancial: boolean;
-  impactContinuity: boolean;
-  replaceability: string;
-  criticality: string;
-  criticalityReason: string | null;
-  status: string;
-  approvalNo: string | null;
-  notificationFilingNo: string | null;
-  notes: string | null;
-  createdBy: string;
-  createdAt: string;
-}
 
 const API = import.meta.env.VITE_API_URL;
 
@@ -86,7 +49,7 @@ const ServiceProviderDetailPage = () => {
   const canViewFiling = hasPermission(PERMISSIONS.REG_FILING_DETAIL_READ);
   const canViewApproval = hasPermission(PERMISSIONS.GOV_APPROVAL_DETAIL_READ);
 
-  const [detail, setDetail] = useState<Detail | null>(null);
+  const [detail, setDetail] = useState<VendorView | null>(null);
   const [assessment, setAssessment] = useState<DueDiligenceView | null>(null);
   const [documents, setDocuments] = useState<StoredDocumentView[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,7 +63,7 @@ const ServiceProviderDetailPage = () => {
     setLoading(true);
     try {
       const res = await adminFetch(`${API}/admin/outsourcing-vendors/${encodeURIComponent(vendorNo)}`);
-      if (res.ok) setDetail((await res.json()) as Detail);
+      if (res.ok) setDetail((await res.json()) as VendorView);
       else {
         alert(await getApiErrorMessage(res, 'Failed to load the service provider'));
         navigate(SERVICE_PROVIDERS_PATH);
