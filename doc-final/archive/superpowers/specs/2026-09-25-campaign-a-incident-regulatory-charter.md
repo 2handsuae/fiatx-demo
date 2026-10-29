@@ -95,4 +95,4 @@
 - **边界**：不做复审 / 有效期（另立「合作方复审专项战役」，BACKLOG 已登）；不做 LP 额度上限（否决）；不做自动筛查；不做 VARA 反对分支。
 - **验收口径**：`demo/script.md` 场景 37–40 逐步可演（37 LP 顺路：Oryx Digital Markets Ltd / 38 LP 红灯：Sable Crest Trading FZCO / 39 服务商重大路含报备：Nimbus Cloud Hosting LLC / 40 服务商一般路：Pearl Clean Services LLC，场景 22、36 已按新流程重写并指向它们）；闸 ①–⑥⑧ 全绿（⑧ 重铺后对照 `demo/baseline.md`）；`verify:rbac` 新判据绿。本波零账务，⑦ 不触发。
 - **高危**：动两条状态机 + 三条审批策略 → 任务级评审升档；终审不降档。
-- spec：`2026-10-28-partner-due-diligence-design.md` ｜ plan：`plans/2026-10-28-partner-due-diligence.md`。本波为终波，收尾后本纲随之归档。
+- spec：`archive/superpowers/specs/2026-10-28-partner-due-diligence-design.md` ｜ plan：`archive/superpowers/plans/2026-10-28-partner-due-diligence.md`。本波为终波，2026-10-29 合 main（ff 4e30a3b8），本纲随之归档。

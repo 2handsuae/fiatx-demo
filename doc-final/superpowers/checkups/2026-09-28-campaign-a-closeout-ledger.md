@@ -1,6 +1,6 @@
 # 战役甲收官销账快照（总纲 §4/§7 终闸 2）
 
-> 对应总纲 `superpowers/specs/2026-09-25-campaign-a-incident-regulatory-charter.md` §4（V9 36 条 + 跨版本 5 处）。
+> 对应总纲 `archive/superpowers/specs/2026-09-25-campaign-a-incident-regulatory-charter.md` §4（V9 36 条 + 跨版本 5 处）。
 > **本表是快照，不是销账动作**——表尾「待业主确认后销账」：业主看过、点头，才去 `reference/roadmap.md` 翻勾（agent 不主动读写该文件，翻勾候选清单见 §6，落笔由业主或业主指定会话执行）。
 > 生成方法：逐条对照总纲 §4 原文 + 五波交付物（spec/代码/modules 篇）+ `checkups/2026-09-22-roadmap-219-ideal-vs-actual.md`（roadmap 行号底账）,一条不漏、一条不重复核对。
 

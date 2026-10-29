@@ -8,7 +8,7 @@
 
 **Tech Stack:** NestJS + Prisma（SQLite）后端 ｜ multer（`@nestjs/platform-express` 自带，补 `@types/multer`）｜ React + Vite 管理台 ｜ jest（后端 + admin-web spec 共用根 jest）｜ e2e 经 `on-stack.sh self`
 
-**Spec:** `doc-final/superpowers/specs/2026-10-28-partner-due-diligence-design.md`（执行者必读；§3 骨架与硬规则、§4 / §5 字段表、§12 代码落点）
+**Spec:** `doc-final/archive/superpowers/specs/2026-10-28-partner-due-diligence-design.md`（执行者必读；§3 骨架与硬规则、§4 / §5 字段表、§12 代码落点）
 
 ## Global Constraints
 
@@ -367,7 +367,7 @@ it('terminate MATERIAL：TERMINATED 后开 reason=TERMINATION 告知单，不盖
 - Modify: `doc-final/demo/script.md`（场景 22 :346-371 重写为「运营申请 → 合规评估 → 批」摘要并指向 39 / 40；场景 36 :660-706 重写为新 LP 流程并指向 37 / 38；新增场景 37–40 按 spec §10 四幕逐步写，含登录账号、点哪里、看到什么）；`doc-final/demo/data.md`（T9 已改手写区，核对生成区由 demo:all 刷新过）
 - Modify: `doc-final/reference/sumsub-mock-touchpoints.md:19`（⑨ 行改「人工登记，无外部服务——2026-10-28 甲波六退役 mock」）
 - Modify: `doc-final/decisions.md`（末尾追加「2026-10-28 甲波六·服务商与 LP 背调六拍板」：① 复审整体另立战役 ② LP 不设额度上限（否决）③ 筛查人工登记非自动（乙案）④ 重大性四问任一「会」强制 MATERIAL、只升不降 ⑤ 重大服务商批后过 VARA 事前报备门才 ACTIVE ⑥ 服务商抬成独立页、不建统一尽调队列）
-- Modify: `doc-final/BACKLOG.md`（:514 → `[x]` 本波解决；:519 → `[x]` 入册门半边已做、年审在 :516）；`doc-final/CHANGELOG.md`（顶部一行）；`doc-final/superpowers/specs/2026-09-25-campaign-a-incident-regulatory-charter.md`（补「波六」一节：目标 / 边界 / 验收 = 场景 37–40 可演 + 闸全绿，指向本 spec）；本 spec 头状态改「已实施（plan 同名）」
+- Modify: `doc-final/BACKLOG.md`（:514 → `[x]` 本波解决；:519 → `[x]` 入册门半边已做、年审在 :516）；`doc-final/CHANGELOG.md`（顶部一行）；`doc-final/archive/superpowers/specs/2026-09-25-campaign-a-incident-regulatory-charter.md`（补「波六」一节：目标 / 边界 / 验收 = 场景 37–40 可演 + 闸全绿，指向本 spec）；本 spec 头状态改「已实施（plan 同名）」
 - Modify: 根 `README.md` / `doc-final/delivery/`（触碰检查：动了状态机、审计集、业务键 `DDA/SCR/DOC` → 对应文件补一行）
 
 - [x] **Step 1: 逐文件改；`grep -rn "dueDiligenceRef\|Entity Screening\|VENDOR_REGISTERED\|Register Vendor" doc-final --include="*.md" | grep -v "archive\|superpowers/specs/2026-10-28\|superpowers/plans/2026-10-28\|decisions.md"` 为 0**

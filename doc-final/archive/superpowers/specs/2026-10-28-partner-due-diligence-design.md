@@ -1,6 +1,6 @@
 # 甲波六 · 服务商与 LP 的背调与审批 — 设计稿
 
-日期 2026-10-28 ｜ 状态：**已实施（plan 同名）**——业主 2026-10-29 批准（施工检查 7 问全部由作者裁定，见各节「我的判断」）；实现与文档收口 2026-10-29，终验见 plan Task 12 ｜ plan：`doc-final/superpowers/plans/2026-10-28-partner-due-diligence.md` ｜ 战役甲新增一波
+日期 2026-10-28 ｜ 状态：**已实施并合 main（2026-10-29 ff 4e30a3b8；plan 同名）**——业主 2026-10-29 批准（施工检查 7 问全部由作者裁定，见各节「我的判断」）；实现与文档收口 2026-10-29，终验见 plan Task 12 ｜ plan：`doc-final/archive/superpowers/plans/2026-10-28-partner-due-diligence.md` ｜ 战役甲新增一波
 归属：战役甲（业主 2026-10-28 定义：**甲 = 把所有外部关联方准备好；乙 = 交易与订单**）。甲的总纲 `2026-09-25-campaign-a-incident-regulatory-charter.md` 仍在本目录（五波收官但未归档），本波收尾时往总纲补一节「波六」；本稿自带波级边界，不翻总纲前五波的裁定。
 
 ---
@@ -414,7 +414,7 @@ ACTIVE --terminate--> TERMINATED（既有）
 - `modules/lp-desk.md` §0 :6 / §1 :10 / §2 :32 / §3 :71 / §4 :88 / §5 :92 / §6 :105；`modules/compliance-office.md` §0 :6 / §1 :16 / §2 :42 / §3 :62 / §4 :76 / §5 :95 / §6 :103 / §7 :110；审批 / 审计 / RBAC 同在 `modules/v1-governance.md`（:59 记路由与权限码数量）；报送台 `modules/v9-regulatory-filing.md`。
 - `rules/delivery-checklist.md` 触发表 :20 起（新审计码 / 新状态 / maker-checker / 新审批策略 / 新权限组 / 新端点 / 新事件 / 改 schema / 改页面或种子 / 改前端 / 多波之一波 / 每轮收尾），「两条永不豁免」:47。
 - `reference/sumsub-mock-touchpoints.md:19` ⑨ 行；`decisions.md:166` 是 2026-10-24 八拍板（文件末行）。
-- 战役甲总纲：`superpowers/specs/2026-09-25-campaign-a-incident-regulatory-charter.md`（在现役目录）。
+- 战役甲总纲：`archive/superpowers/specs/2026-09-25-campaign-a-incident-regulatory-charter.md`（在现役目录）。
 
 ### J. 侧栏
 `DashboardLayout.tsx` Treasury 组 :295（LP Register :327-332 `LP_PROFILES_READ`；Vendor Payments :311-316）；Compliance Office 组 :434（Registers :449-454 `COMPLIANCE_OFFICE_VIEW`）；子项按权限过滤 :529-542（:535-537，空组隐藏 :538）。`module-parity.spec.ts` 只扫三域详情页，不涉本波。
