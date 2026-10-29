@@ -647,15 +647,20 @@ function runStaticChecks(): void {
       : `持有职务集合为 {${amlHolders.map(([r]) => r).join(',')}}，期望恰好 {MLRO}`,
   );
 
-  // ── S11：合规办公室四组「四处齐」+ 唯一持有断言（战役甲波四 T5/T6）──────
-  // 同 S10 范式：四个新组（COMPLIANCE_OFFICE_VIEW/OBLIGATION_WRITE/VENDOR_REGISTER_
-  // WRITE/RI_REGISTER_WRITE）一次性核验 route() 挂载 / ACTION_BUCKET_CATALOG 桶挂载 /
-  // 职务持有均 >=1（联合类型成员由 tsc 收口，同 S10 头注释）；再加两条唯一持有断言——
-  // 三写组唯合规官（一组一门，与波三报送台"两经办人共享一组"的形状不同，见
-  // rbac.catalog.ts T5 域注释），COMPLIANCE_OFFICE_VIEW 恰为五职务（合规官/MLRO/高管/
-  // 内审/CISO——裁决人或候选 RI 都要看得见闹钟墙/合规日历/两册）。
+  // ── S11：合规办公室八组「四处齐」+ 持有者表 + 读组恰集（战役甲波四 T5/T6；甲波六 T10 扩）──
+  // 同 S10 范式：甲波四的四个组（COMPLIANCE_OFFICE_VIEW/OBLIGATION_WRITE/VENDOR_REGISTER_
+  // WRITE/RI_REGISTER_WRITE）加甲波六 T1 新增的四个组（VENDOR_APPLY/VENDOR_READ/
+  // DUE_DILIGENCE_WRITE/INFOSEC_ASSESSMENT_WRITE）一次性核验 route() 挂载 /
+  // ACTION_BUCKET_CATALOG 桶挂载 / 职务持有均 >=1（联合类型成员由 tsc 收口，同 S10
+  // 头注释）；再加持有者断言——
+  // 甲波四当年的"三写组唯合规官"随甲波六不再成立：服务商册从"合规官直登"改成"运营申请→
+  // 合规官背调→CISO 信息安全评估→按重大性审批"，于是写门拆成六个、各有各的独占持有者
+  // （S11b 显式持有者表，每组恰等该表值，多一个或少一个都红）；VENDOR_READ 是服务商页的
+  // 读门，持有集恰为 T1 七职务（S11d）；COMPLIANCE_OFFICE_VIEW 恰为五职务（合规官/MLRO/
+  // 高管/内审/CISO——裁决人或候选 RI 都要看得见闹钟墙/合规日历/两册），不因甲波六改变（S11c）。
   const COMPLIANCE_OFFICE_GROUPS: PermissionGroup[] = [
     'COMPLIANCE_OFFICE_VIEW', 'OBLIGATION_WRITE', 'VENDOR_REGISTER_WRITE', 'RI_REGISTER_WRITE',
+    'VENDOR_APPLY', 'VENDOR_READ', 'DUE_DILIGENCE_WRITE', 'INFOSEC_ASSESSMENT_WRITE',
   ];
   const groupCoverage = COMPLIANCE_OFFICE_GROUPS.map((g) => {
     const groupRoutes = RBAC_PERMISSION_DEFINITIONS.filter((d) => d.groups.includes(g));
@@ -667,7 +672,7 @@ function runStaticChecks(): void {
   });
   const uncoveredGroups = groupCoverage.filter((c) => c.routes < 1 || c.buckets < 1 || c.holders.length < 1);
   check(
-    'S11a 合规办公室四组四处齐（route() / ACTION_BUCKET_CATALOG 桶 / 职务持有；联合类型由 tsc 收口）',
+    'S11a 合规办公室八组四处齐（route() / ACTION_BUCKET_CATALOG 桶 / 职务持有；联合类型由 tsc 收口）',
     uncoveredGroups.length === 0,
     uncoveredGroups.length === 0
       ? groupCoverage.map((c) => `${c.group}: route ${c.routes}/bucket ${c.buckets}/职务 ${c.holders.length}`).join('；')
@@ -675,17 +680,26 @@ function runStaticChecks(): void {
   );
 
   const groupHoldersOf = (g: PermissionGroup) => groupCoverage.find((c) => c.group === g)!.holders;
-  const WRITE_GROUPS: PermissionGroup[] = ['OBLIGATION_WRITE', 'VENDOR_REGISTER_WRITE', 'RI_REGISTER_WRITE'];
-  const writeMismatch = WRITE_GROUPS.filter((g) => {
-    const holders = groupHoldersOf(g);
-    return !(holders.length === 1 && holders[0] === 'COMPLIANCE_OFFICER');
+  // 甲波六 T10：显式持有者表（每组一行，持有集恰等表值）——取代甲波四的"三写组唯合规官"通式：
+  // 甲波六后写门不再同属一人（运营申请 / 合规官背调 / CISO 信息安全评估），通式不成立，改逐组钉死。
+  const WRITE_GROUP_HOLDERS: Record<string, string[]> = {
+    OBLIGATION_WRITE: ['COMPLIANCE_OFFICER'],
+    VENDOR_REGISTER_WRITE: ['COMPLIANCE_OFFICER'],
+    RI_REGISTER_WRITE: ['COMPLIANCE_OFFICER'],
+    DUE_DILIGENCE_WRITE: ['COMPLIANCE_OFFICER'],
+    VENDOR_APPLY: ['OPS_OFFICER'],
+    INFOSEC_ASSESSMENT_WRITE: ['CISO'],
+  };
+  const writeMismatch = Object.entries(WRITE_GROUP_HOLDERS).filter(([g, expected]) => {
+    const holders = new Set(groupHoldersOf(g as PermissionGroup));
+    return !(holders.size === expected.length && expected.every((r) => holders.has(r)));
   });
   check(
-    'S11b 三写组唯合规官持有（OBLIGATION_WRITE / VENDOR_REGISTER_WRITE / RI_REGISTER_WRITE，一组一门）',
+    'S11b 六个写组持有者表恰等（OBLIGATION_WRITE/VENDOR_REGISTER_WRITE/RI_REGISTER_WRITE/DUE_DILIGENCE_WRITE=合规官｜VENDOR_APPLY=运营｜INFOSEC_ASSESSMENT_WRITE=CISO）',
     writeMismatch.length === 0,
     writeMismatch.length === 0
-      ? '三组持有职务集合均恰为 {COMPLIANCE_OFFICER}'
-      : `不符: ${writeMismatch.map((g) => `${g}={${groupHoldersOf(g).join(',') || '空'}}`).join(', ')}`,
+      ? Object.entries(WRITE_GROUP_HOLDERS).map(([g, e]) => `${g}={${e.join(',')}}`).join('；')
+      : `不符: ${writeMismatch.map(([g, e]) => `${g}={${groupHoldersOf(g as PermissionGroup).join(',') || '空'}}，期望恰为 {${e.join(',')}}`).join(', ')}`,
   );
 
   const viewHolders = new Set(groupHoldersOf('COMPLIANCE_OFFICE_VIEW'));
@@ -698,6 +712,23 @@ function runStaticChecks(): void {
     viewSetsEqual
       ? `持有职务集合恰为 {${[...viewHolders].join(',')}}`
       : `持有职务集合为 {${[...viewHolders].join(',')}}，期望恰为 {${[...expectedViewHolders].join(',')}}`,
+  );
+
+  // S11d（甲波六 T10 新）：VENDOR_READ 持有集恰为 T1 七职务——服务商列表 / 详情 / 背调页的读门，
+  // 合规官（背调经办）/ CISO（信息安全评估）/ CFO 与高管（两步审批裁决人）/ 内审（全域只读）/
+  // 金库（开付款单前翻收款方，原 FUNDING_WRITE 的 OR 粗门并入）/ 运营（申请人看自己提的申请）。
+  const vendorReadHolders = new Set(groupHoldersOf('VENDOR_READ'));
+  const expectedVendorReadHolders = new Set([
+    'COMPLIANCE_OFFICER', 'CISO', 'CFO', 'SENIOR_MANAGEMENT_OFFICER', 'INTERNAL_AUDITOR', 'TREASURY_OFFICER', 'OPS_OFFICER',
+  ]);
+  const vendorReadSetsEqual = vendorReadHolders.size === expectedVendorReadHolders.size &&
+    [...expectedVendorReadHolders].every((r) => vendorReadHolders.has(r));
+  check(
+    'S11d VENDOR_READ 恰为 {合规官,CISO,CFO,高管,内审,金库,运营}（T1 七职务）',
+    vendorReadSetsEqual,
+    vendorReadSetsEqual
+      ? `持有职务集合恰为 {${[...vendorReadHolders].join(',')}}`
+      : `持有职务集合为 {${[...vendorReadHolders].join(',')}}，期望恰为 {${[...expectedVendorReadHolders].join(',')}}`,
   );
 
   // ── S12：投诉两组「四处齐」+ 唯一持有断言（战役甲波五 T5/T6）────────────────
@@ -757,9 +788,10 @@ function runStaticChecks(): void {
   // 头注释）；两桶挂既有 Treasury 域（treasury.view_lp/treasury.act_lp，T3 域注释），域数
   // 不变仍 15。再加两条精确持有断言——LP_WRITE 金库独持（开档案/启停/登记打款地址/开兑换单/
   // 验收全在金库手上，CFO 单步裁决不占本组，同 INTERNAL_TRANSFER_WRITE「maker≠checker」
-  // 反向先例）；LP_READ 恰为 {TREASURY_OFFICER,CFO,INTERNAL_AUDITOR,COMPLIANCE_OFFICER}（金库=经办人、
-  // CFO=裁决人要看得见列表/详情、内审=全域只读人设，同 INTERNAL_TRANSFER_READ 三持先例；LP 两步准入 T4
-  // 评审裁定加第四者合规官——⚡筛查覆写的持有者要可达 LP 页面，同客户地址簿合规官持 WITHDRAWAL_ADDRESS_READ）。
+  // 反向先例）；LP_READ 恰为 {TREASURY_OFFICER,CFO,INTERNAL_AUDITOR,COMPLIANCE_OFFICER,SENIOR_MANAGEMENT_OFFICER}
+  // （金库=经办人、CFO=裁决人要看得见列表/详情、内审=全域只读人设，同 INTERNAL_TRANSFER_READ 三持先例；LP 两步准入 T4
+  // 评审裁定加第四者合规官——⚡筛查覆写的持有者要可达 LP 页面，同客户地址簿合规官持 WITHDRAWAL_ADDRESS_READ；
+  // 甲波六 T1 加第五者高管——高风险 LP 准入是 CFO→高管两步，第二步裁决人要点得开 LP 详情）。
   // 审批策略（LP_PROFILE_APPROVAL/LP_ADDRESS_APPROVAL/LP_EXCHANGE_APPROVAL）在
   // MAKER_GROUP_BY_POLICY 里已由 T3/T4/T5 登记（见上方 S5/S8 消费的那张表本体）——策略全集
   // 覆盖由已有的 S8「MAKER 表与策略一一对应」自动兜住，不必在这里重复一条判据。
@@ -792,11 +824,11 @@ function runStaticChecks(): void {
   );
 
   const lpReadHolders = new Set(lpHoldersOf('LP_READ'));
-  const expectedLpReadHolders = new Set(['TREASURY_OFFICER', 'CFO', 'INTERNAL_AUDITOR', 'COMPLIANCE_OFFICER']);
+  const expectedLpReadHolders = new Set(['TREASURY_OFFICER', 'CFO', 'INTERNAL_AUDITOR', 'COMPLIANCE_OFFICER', 'SENIOR_MANAGEMENT_OFFICER']);
   const lpReadSetsEqual = lpReadHolders.size === expectedLpReadHolders.size &&
     [...expectedLpReadHolders].every((r) => lpReadHolders.has(r));
   check(
-    'S13c LP_READ 恰为 {金库,CFO,内审,合规官}',
+    'S13c LP_READ 恰为 {金库,CFO,内审,合规官,高管}（甲波六 T1 加高管）',
     lpReadSetsEqual,
     lpReadSetsEqual
       ? `持有职务集合恰为 {${[...lpReadHolders].join(',')}}`
@@ -829,14 +861,21 @@ function runStaticChecks(): void {
     // 战役丙波四 T5：新增 compliance-office.dsr 一桶、DSR_READ/DSR_WRITE 两组，数字再顺延
     // （82→83 桶、90→92 组）——同样先在 82/90 门槛下落红（本任务实测：83 桶/92 组），再改成
     // 83/92 转绿。
-    'S13d 波前→波后计数（域 15→15 不变、桶 82→83、组 90→92；DSR_READ/DSR_WRITE 新成员在册）',
-    totalDomains === 15 && totalBuckets === 83 && declaredPermissionGroups.size === 92 &&
+    // 甲波六 T10：T1 新增四个权限组（VENDOR_APPLY/VENDOR_READ/DUE_DILIGENCE_WRITE/
+    // INFOSEC_ASSESSMENT_WRITE）、四个桶（compliance-office.view_vendors/apply_vendor/
+    // due_diligence/infosec_assessment，全挂既有合规办公室域，域数不变），数字再顺延
+    // （83→87 桶、92→96 组）——数字来源=运行时直接数，非手抄：在 83/92 门槛下实跑落红
+    // （87 桶/96 组），差额 4/4 逐个对得上上面四个新组与四个新桶，再改成 87/96 转绿。
+    'S13d 波前→波后计数（域 15→15 不变、桶 83→87、组 92→96；甲波六四个新组在册）',
+    totalDomains === 15 && totalBuckets === 87 && declaredPermissionGroups.size === 96 &&
       declaredPermissionGroups.has('FUNDING_READ') && declaredPermissionGroups.has('FUNDING_WRITE') &&
       declaredPermissionGroups.has('FUNDING_DASHBOARD_VIEW') && declaredPermissionGroups.has('PRUDENTIAL_CHECK_WRITE') &&
       declaredPermissionGroups.has('AGREEMENT_WRITE') &&
-      declaredPermissionGroups.has('DSR_READ') && declaredPermissionGroups.has('DSR_WRITE'),
-    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 83）｜` +
-      `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 92，含 FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW/PRUDENTIAL_CHECK_WRITE/AGREEMENT_WRITE/DSR_READ/DSR_WRITE）`,
+      declaredPermissionGroups.has('DSR_READ') && declaredPermissionGroups.has('DSR_WRITE') &&
+      declaredPermissionGroups.has('VENDOR_APPLY') && declaredPermissionGroups.has('VENDOR_READ') &&
+      declaredPermissionGroups.has('DUE_DILIGENCE_WRITE') && declaredPermissionGroups.has('INFOSEC_ASSESSMENT_WRITE'),
+    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 87）｜` +
+      `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 96，含 FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW/PRUDENTIAL_CHECK_WRITE/AGREEMENT_WRITE/DSR_READ/DSR_WRITE/VENDOR_APPLY/VENDOR_READ/DUE_DILIGENCE_WRITE/INFOSEC_ASSESSMENT_WRITE）`,
   );
 
   // ── S14：公司资金三组「四处齐」+ 唯一持有断言 + OR 粗门登记（战役乙波二 T3/T5/T8/T10）──
@@ -850,10 +889,11 @@ function runStaticChecks(): void {
   // INTERNAL_AUDITOR}（spec §7 裁定 6，T8 已登记职务绑定）。注资/付款两族的审批策略在
   // MAKER_GROUP_BY_POLICY 里已由 T3/T5 登记——策略全集覆盖由已有的 S8「MAKER 表与策略
   // 一一对应」自动兜住，不必在这里重复一条判据。
-  // 再加一条 OR 粗门登记判据（brief Step1 明点）——外包商名册两条 GET 是
-  // COMPLIANCE_OFFICE_VIEW（T6 先例）与 FUNDING_WRITE（T8 零权限扩张，金库开付款前要
-  // 能翻到收款方）的 OR：静态判据只核对 route() 声明的 groups 数组含两者（真放行由
-  // 行为探针「金库 GET /admin/outsourcing-vendors 200」互证，见下方 PROBES 表）。
+  // 再加一条服务商名册 GET 读门判据——甲波四/乙波二时代这两条 GET 是 COMPLIANCE_OFFICE_VIEW
+  // 与 FUNDING_WRITE 的 OR 粗门（金库开付款前要能翻到收款方）；甲波六 T6 把读门换成单一的
+  // VENDOR_READ（CFO 两者皆无而两步审批的每个批准人都要读得到详情，OR 粗门放不下），并新增
+  // 背调文件列表与评估视图两条 GET。静态判据核对 outsourcing-vendors 下全部 GET 的 groups 恰为
+  // ['VENDOR_READ']（真放行由行为探针「金库 GET /admin/outsourcing-vendors 200」互证，见下方 PROBES 表）。
   const FUNDING_GROUPS: PermissionGroup[] = ['FUNDING_READ', 'FUNDING_WRITE', 'FUNDING_DASHBOARD_VIEW'];
   const fundingCoverage = FUNDING_GROUPS.map((g) => {
     const groupRoutes = RBAC_PERMISSION_DEFINITIONS.filter((d) => d.groups.includes(g));
@@ -894,25 +934,26 @@ function runStaticChecks(): void {
       : `持有职务集合为 {${[...fundingDashboardHolders].join(',')}}，期望恰为 {${[...expectedFundingDashboardHolders].join(',')}}`,
   );
 
+  const VENDOR_GET_ROUTE_COUNT = 4; // 列表 / 详情 / :vendorNo/documents / :vendorNo/assessment（甲波六 T6）
   const vendorRegisterRoutes = RBAC_PERMISSION_DEFINITIONS.filter(
-    (d) => d.method === 'GET' && (d.path === '/admin/outsourcing-vendors' || d.path === '/admin/outsourcing-vendors/:vendorNo'),
+    (d) => d.method === 'GET' && (d.path === '/admin/outsourcing-vendors' || d.path.startsWith('/admin/outsourcing-vendors/')),
   );
-  const vendorRegisterOrGateBad = vendorRegisterRoutes.filter(
-    (d) => !(d.groups.includes('COMPLIANCE_OFFICE_VIEW') && d.groups.includes('FUNDING_WRITE')),
+  const vendorRegisterGateBad = vendorRegisterRoutes.filter(
+    (d) => !(d.groups.length === 1 && d.groups[0] === 'VENDOR_READ'),
   );
   check(
-    'S14d 外包商名册两条 GET 的 groups 恰含 COMPLIANCE_OFFICE_VIEW+FUNDING_WRITE（OR 粗门登记）',
-    vendorRegisterRoutes.length === 2 && vendorRegisterOrGateBad.length === 0,
-    vendorRegisterRoutes.length === 2 && vendorRegisterOrGateBad.length === 0
+    'S14d 服务商名册全部 GET 的 groups 恰为 [VENDOR_READ]（甲波六 T6 替换原 COMPLIANCE_OFFICE_VIEW+FUNDING_WRITE 的 OR 粗门）',
+    vendorRegisterRoutes.length === VENDOR_GET_ROUTE_COUNT && vendorRegisterGateBad.length === 0,
+    vendorRegisterRoutes.length === VENDOR_GET_ROUTE_COUNT && vendorRegisterGateBad.length === 0
       ? vendorRegisterRoutes.map((d) => `${d.method} ${d.path}: groups=[${d.groups.join(',')}]`).join('；')
-      : `不符: 路由数 ${vendorRegisterRoutes.length}（期望 2）｜groups 不含两者的: ${vendorRegisterOrGateBad.map((d) => `${d.method} ${d.path}=[${d.groups.join(',')}]`).join(', ')}`,
+      : `不符: GET 路由数 ${vendorRegisterRoutes.length}（期望 ${VENDOR_GET_ROUTE_COUNT}）｜groups 不恰为 [VENDOR_READ] 的: ${vendorRegisterGateBad.map((d) => `${d.method} ${d.path}=[${d.groups.join(',')}]`).join(', ')}`,
   );
 
   // ── S15：审慎巡检单组「四处齐」+ 唯一持有断言 + 兑换腿 advance 组回归钉死（战役乙波三 T3/T5/T7）──
   // 同 S10-S14 范式：单个新组（PRUDENTIAL_CHECK_WRITE）核验 route() 挂载 /
   // ACTION_BUCKET_CATALOG 桶挂载 / 职务持有均 >=1（联合类型成员由 tsc 收口，同 S10-S14
   // 头注释）；桶挂既有 Treasury 域（treasury.prudential_check，T3 域注释），域数不变仍
-  // 15——桶/组总数由 S13d 持续顺延（丙波四 T5 后为 83/92）并断言 PRUDENTIAL_CHECK_WRITE 在册，本判据不
+  // 15——桶/组总数由 S13d 持续顺延（甲波六 T10 后为 87/96）并断言 PRUDENTIAL_CHECK_WRITE 在册，本判据不
   // 重复算总数，只核这一个新组本身「登记齐全」。再加一条精确持有断言——
   // PRUDENTIAL_CHECK_WRITE 唯金库持有（T3 定案：运营/合规官/高管均不加，同
   // LP_WRITE/FUNDING_WRITE「maker≠checker」反向先例）。再加一条丙案钉死判据（brief
@@ -1330,6 +1371,12 @@ interface DirectionalProbe {
   cleanup?: (ctx: { json: any; token: string }) => Promise<void>;
 }
 
+// 甲波六 T10：信息安全评估探针共用的合法体（DTO 全字段合规，ALLOW 探针靠占位 vendorNo 的 404 收尾，而非 400）。
+const INFOSEC_PROBE_BODY = {
+  soc2: 'HAS', iso27001: 'NONE', dataLocationAcceptable: true, drPlanAcceptable: true,
+  opinion: 'verify:rbac probe', verdict: 'ACCEPTABLE',
+};
+
 const PROBES: DirectionalProbe[] = [
   // ── 解冻只在合规官 ──────────────────────────────────────
   {
@@ -1686,7 +1733,7 @@ const PROBES: DirectionalProbe[] = [
     role: 'treasury', expect: 'DENY',
   },
   {
-    section: '合规办公室四组门(T6)', name: '内审 不得 建外包商登记（内审零写人设不破）', method: 'POST',
+    section: '合规办公室四组门(T6)', name: '内审 不得 提服务商申请（POST /admin/outsourcing-vendors 现为运营 VENDOR_APPLY，内审零写人设不破）', method: 'POST',
     routePattern: '/admin/outsourcing-vendors', path: '/admin/outsourcing-vendors',
     role: 'auditor', expect: 'DENY',
   },
@@ -1694,6 +1741,76 @@ const PROBES: DirectionalProbe[] = [
     section: '合规办公室四组门(T6)', name: '运营 不得 看闹钟墙', method: 'GET',
     routePattern: '/admin/compliance-office/clock-wall', path: '/admin/compliance-office/clock-wall',
     role: 'ops_officer', expect: 'DENY',
+  },
+
+  // ── 服务商 / LP 尽调门（甲波六 T10）──────────────────────────────────────
+  // 四个新组（VENDOR_APPLY 运营 / VENDOR_READ 七职务 / DUE_DILIGENCE_WRITE 合规官 /
+  // INFOSEC_ASSESSMENT_WRITE CISO）的行为互证：静态表 S11b/S11d 只核"谁持有"，这里真登录
+  // 打一遍"持有者放行、非持有者挡下"。全部打占位 vendorNo/lpNo（NOPE 业务上必然不存在）：
+  // DENY 靠 Guard 先于 Pipe/Handler 在 403 挡下；ALLOW 判据只验权限闸不验业务——守卫放行后
+  // 落到服务层 findByNo 抛 404（或 body 校验 400），非 403 即成立（见文件头「ALLOW→POST 允许
+  // 404/400」红线）。故意不用 POST /admin/outsourcing-vendors（真申请）作运营 ALLOW 探针：
+  // 那会真建一条服务商并起审批流，污染 reset 基线的服务商花名册；resubmit 打占位单号零残留，
+  // 且同属 VENDOR_APPLY 一个组。
+  {
+    section: '服务商尽调门(甲波六)', name: '运营 可以 重提服务商申请（VENDOR_APPLY 正例，占位 vendorNo）', method: 'POST',
+    routePattern: '/admin/outsourcing-vendors/:vendorNo/resubmit', path: `/admin/outsourcing-vendors/${NOPE}/resubmit`,
+    role: 'ops_officer', expect: 'ALLOW', body: { reason: 'verify:rbac probe' },
+  },
+  {
+    section: '服务商尽调门(甲波六)', name: '合规官 不得 提服务商申请（申请归业务方运营，合规官不再直登）', method: 'POST',
+    routePattern: '/admin/outsourcing-vendors', path: '/admin/outsourcing-vendors',
+    role: 'compliance_lead', expect: 'DENY',
+  },
+  {
+    section: '服务商尽调门(甲波六)', name: '合规官 不得 重提服务商申请（无 VENDOR_APPLY）', method: 'POST',
+    routePattern: '/admin/outsourcing-vendors/:vendorNo/resubmit', path: `/admin/outsourcing-vendors/${NOPE}/resubmit`,
+    role: 'compliance_lead', expect: 'DENY', body: { reason: 'verify:rbac probe' },
+  },
+  {
+    section: '服务商尽调门(甲波六)', name: '合规官 可以 提交服务商背调结论（DUE_DILIGENCE_WRITE 正例，占位 vendorNo）', method: 'POST',
+    routePattern: '/admin/outsourcing-vendors/:vendorNo/assessment/conclude', path: `/admin/outsourcing-vendors/${NOPE}/assessment/conclude`,
+    role: 'compliance_lead', expect: 'ALLOW', body: { conclusion: 'REJECTED', reason: 'verify:rbac probe' },
+  },
+  {
+    section: '服务商尽调门(甲波六)', name: '运营 不得 提交服务商背调结论（背调归合规官独占）', method: 'POST',
+    routePattern: '/admin/outsourcing-vendors/:vendorNo/assessment/conclude', path: `/admin/outsourcing-vendors/${NOPE}/assessment/conclude`,
+    role: 'ops_officer', expect: 'DENY', body: { conclusion: 'REJECTED', reason: 'verify:rbac probe' },
+  },
+  {
+    section: '服务商尽调门(甲波六)', name: 'CISO 不得 提交服务商背调结论（评估人≠背调经办人）', method: 'POST',
+    routePattern: '/admin/outsourcing-vendors/:vendorNo/assessment/conclude', path: `/admin/outsourcing-vendors/${NOPE}/assessment/conclude`,
+    role: 'ciso', expect: 'DENY', body: { conclusion: 'REJECTED', reason: 'verify:rbac probe' },
+  },
+  {
+    section: '服务商尽调门(甲波六)', name: 'CISO 可以 录入信息安全评估（INFOSEC_ASSESSMENT_WRITE 正例，占位 vendorNo）', method: 'POST',
+    routePattern: '/admin/outsourcing-vendors/:vendorNo/assessment/infosec', path: `/admin/outsourcing-vendors/${NOPE}/assessment/infosec`,
+    role: 'ciso', expect: 'ALLOW', body: INFOSEC_PROBE_BODY,
+  },
+  {
+    section: '服务商尽调门(甲波六)', name: '合规官 不得 录入信息安全评估（信息安全评估归 CISO 独占）', method: 'POST',
+    routePattern: '/admin/outsourcing-vendors/:vendorNo/assessment/infosec', path: `/admin/outsourcing-vendors/${NOPE}/assessment/infosec`,
+    role: 'compliance_lead', expect: 'DENY', body: INFOSEC_PROBE_BODY,
+  },
+  {
+    section: '服务商尽调门(甲波六)', name: 'CFO 可以 看服务商名册（VENDOR_READ 正例——两步审批裁决人；GET 的 ALLOW 判 2xx，故打列表不打占位详情）', method: 'GET',
+    routePattern: '/admin/outsourcing-vendors', path: '/admin/outsourcing-vendors',
+    role: 'cfo', expect: 'ALLOW',
+  },
+  {
+    section: '服务商尽调门(甲波六)', name: 'MLRO 不得 看服务商名册（VENDOR_READ 七职务不含 MLRO）', method: 'GET',
+    routePattern: '/admin/outsourcing-vendors', path: '/admin/outsourcing-vendors',
+    role: 'mlro', expect: 'DENY',
+  },
+  {
+    section: '服务商尽调门(甲波六)', name: '合规官 可以 提交 LP 背调结论（DUE_DILIGENCE_WRITE 与服务商共用，占位 lpNo）', method: 'POST',
+    routePattern: '/admin/lp-profiles/:lpNo/assessment/conclude', path: `/admin/lp-profiles/${NOPE}/assessment/conclude`,
+    role: 'compliance_lead', expect: 'ALLOW', body: { conclusion: 'REJECTED', reason: 'verify:rbac probe' },
+  },
+  {
+    section: '服务商尽调门(甲波六)', name: '金库 不得 提交 LP 背调结论（金库只开档案，送审改归合规官）', method: 'POST',
+    routePattern: '/admin/lp-profiles/:lpNo/assessment/conclude', path: `/admin/lp-profiles/${NOPE}/assessment/conclude`,
+    role: 'treasury', expect: 'DENY', body: { conclusion: 'REJECTED', reason: 'verify:rbac probe' },
   },
 
   // ── 投诉两组门（战役甲波五 T6）─────────────────────────────────────────
@@ -1814,7 +1931,7 @@ const PROBES: DirectionalProbe[] = [
     role: 'sm', expect: 'ALLOW',
   },
   {
-    section: '公司资金三组门(T10)', name: '金库 可以 看外包商名册（OR 粗门正例，FUNDING_WRITE 一侧放行）', method: 'GET',
+    section: '公司资金三组门(T10)', name: '金库 可以 看服务商名册（VENDOR_READ 正例——甲波六 T6 起不再是 COMPLIANCE_OFFICE_VIEW|FUNDING_WRITE 的 OR 粗门）', method: 'GET',
     routePattern: '/admin/outsourcing-vendors', path: '/admin/outsourcing-vendors',
     role: 'treasury', expect: 'ALLOW',
   },

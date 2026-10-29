@@ -147,6 +147,8 @@ Q6 谁查过审计日志：重铺后恒红，管理员真查一次审计页当�
 
 > ⚠️ **2026-10-03 起本节口径在本机不可复现**——审批事件监听器数超过 e2e 文件里的 `setMaxListeners(50)`，起 `AppModule` 即抛，详见 `TOOLING-DEBT.md` 同日条目与本文末「同日订正（e2e 口径）」；下文三要素与 83/83 是收官当时（Node 与监听器数更少时）的实测，修好前不得援引为现状。
 
+> **2026-10-29 更新（甲波六 Task 10 收尾闸）**：监听器上限已由 `c58a3678` 修好，全量 `test:e2e`（`test/` 下 **26** 个套件，不再是冻结的 11 个）重新跑得起来：`Test Suites: 9 failed, 17 passed, 26 total` / `Tests: 20 failed, 150 passed, 170 total`；**同一命令在 main 基线 `9bc4bcc8`（只叠加 `c58a3678`）上是 9 套件 / 20 例红、失败测试名集合与本分支逐一相同**——即这 20 例全是基线旧债，本波零新增。逐例分类与复现见 `TOOLING-DEBT.md`（`AGREEMENT_NOT_ACCEPTED` 13 例并入「e2e 直插 prisma 造客户的夹具没有协议同意行」条的 2026-10-29 补记；余 7 例及私库铺库退出码见该文件末两条）。按本节「判据铁律=全绿」，**e2e 目前不是绿闸**；有 `TOOLING-DEBT` 登记不等于豁免。⚠️ `demo-roster` 红的那一轮会把失败花名册写进 `demo/data.md` 的 `GENERATED` 区，收尾前须 `git checkout -- doc-final/demo/data.md` 或重跑 `demo:all` 覆盖。
+
 全量 11 套件 **83/83**（收官在 main 实测）。跑法三要素，缺一必假红：
 
 1. **私库先铺**：六个自带独立库的套件（kyt-verdict-landing / sanction-subject-split / deposit-sumsub-verdicts / material-requests / customer-restrictions / sla）在每次 `stack.sh reset` 后库被清空，须逐库 `DATABASE_URL=file:/tmp/exchange_js_main/<e2e-库名>.db` 依次 `prisma migrate deploy` + `db:base:sync` + `db:biz:init`；
@@ -203,7 +205,7 @@ test/sla.e2e-spec.ts                         # 私库
 | 表 | 行数 | 关键行 |
 |---|---|---|
 | `compliance_obligations` | **3** | `OBL2601015484`（MONTHLY/VARA/ACTIVE）／`OBL2601011955`（QUARTERLY/VARA/ACTIVE）／`OBL2601017307`（ANNUAL/VARA/ACTIVE） |
-| `outsourcing_vendors` | **3** | `VEN2601019644`（Sumsub/MATERIAL/ACTIVE）／`VEN2601017083`（HexTrust/MATERIAL/ACTIVE）／`VEN2601019912`（Gulf Office Systems/NON_MATERIAL/ACTIVE） |
+| `outsourcing_vendors` | **4**（2026-10-29 甲波六 Task 9 起由 3 → 4，原「外包商」更名「服务商」；逐行状态断言见本文末「甲波六尽调种子断言」） | `VEN2601019644`（Sumsub/MATERIAL/ACTIVE）／`VEN2601017083`（HexTrust/MATERIAL/ACTIVE）／`VEN2601019912`（Gulf Office Systems/NON_MATERIAL/ACTIVE）／`VEN2601015134`（Pearl Clean Services LLC/NON_MATERIAL/**PENDING_APPROVAL**，甲波六新增） |
 | `responsible_individuals` | **4** | `RI2601011344`（MLRO）／`RI2601013891`（Compliance Officer）／`RI2601015148`（CFO）／`RI2601019215`（CISO），均 `status=ACTIVE`、`pendingApprovalNo=NULL` |
 
 **闹钟墙开箱判据（Ruling R2 核实结论）**：重铺后 `regulatory_filings` 里已有 3 行落在 `FILING_CLOCK_WALL_STATUSES`（DRAFT/PENDING_SIGNOFF/SIGNED_OFF 且 `deadlineAt` 非空）——`FIL2601010266`（`INFO_REQUEST_RESPONSE`/DRAFT，波二种子）、`FIL2601012321`（`PNMR`/DRAFT，波三种子）、`FIL2601013167`（`INCIDENT_REPORT`/SIGNED_OFF，波二种子），叠加 `compliance_obligations` 三行（`status=ACTIVE` 恒上墙）——闹钟墙聚合端点开箱即非空、且已有 `DRAFT` 态带钟报送单在墙上，无需本任务再补报送单样例。
@@ -400,35 +402,87 @@ sqlite3 -readonly <栈库> "select count(*) from data_subject_requests;"        
 
 ## LP 两步准入种子断言与闸判据（reset 判据，2026-10-24 Task 10 起）
 
-本节是 LP 两步准入（档案背调 + 打款地址簿 + 开单选地址抄单 + 到货来源筛查 + 改结算流程退役）落地后的 reset 判据。种子形态变化（档案不再带结算坐标、新增打款地址簿与单据新列）**不影响前文「战役乙波一 LP 地基种子断言」节的任何判据**：该节的行数、单号、F_LIQ / F_OPS 余额与对账直比判据**照旧有效**——本轮不动账本分录。reset 日志里认这两行标记：`Seeded 2 LP profile rows (... both entity-screened GREEN) + 1 APPROVED profile-registration approval case.` 与 `Seeded 3 Falcon payout addresses (AED IBAN ×1 / USDT TRON ×2, all ACTIVE) + 3 APPROVED address approval cases.`
+本节是 LP 两步准入（档案背调 + 打款地址簿 + 开单选地址抄单 + 到货来源筛查 + 改结算流程退役）落地后的 reset 判据。种子形态变化（档案不再带结算坐标、新增打款地址簿与单据新列）**不影响前文「战役乙波一 LP 地基种子断言」节的任何判据**：该节的行数、单号、F_LIQ / F_OPS 余额与对账直比判据**照旧有效**——本轮不动账本分录。reset 日志里认这两行标记（第一行 2026-10-29 甲波六 Task 9 起改成三档案；旧标记 `Seeded 2 LP profile rows (... both entity-screened GREEN) + 1 APPROVED profile-registration approval case.` 作废）：`Seeded 3 LP profile rows (Falcon ACTIVE / Dune SUSPENDED / Sable Crest PENDING_ASSESSMENT); assessment, screening, files, approvals and audit trail follow in seedPartnerDueDiligence.` 与 `Seeded 3 Falcon payout addresses (AED IBAN ×1 / USDT TRON ×2, all ACTIVE) + 3 APPROVED address approval cases.`
 
 **种子行断言**（`bash scripts/stack.sh reset self` 之后、`demo:all` 之前；2026-10-24 在 HEAD `c66ba7a6` 的 self 栈上直查，种子行逐字相符；手驱过 LP 建档 / 审批的库会多出现场行，核对时按单号过滤，别数总行数）：
 
 | 表 | 断言 |
 |---|---|
-| `liquidity_providers` | reset 后 **2** 行：Falcon `LPP2601010183`（ACTIVE）／Dune `LPP2601017193`（SUSPENDED）；两家 `screeningAnswer='GREEN'`、`screenedAt` 非空、`dueDiligenceRef` 分别为 `DD-2026-FALCON-001` / `DD-2026-DUNE-002`；`pragma table_info(liquidity_providers)` 里**没有** `fiatBankName / fiatIban / cryptoNetwork / cryptoAddress` 四列 |
+| `liquidity_providers` | reset 后 **3** 行（甲波六 Task 9 起由 2 → 3）：Falcon `LPP2601010183`（ACTIVE，`approvalNo=APR2601015507`）／Dune `LPP2601017193`（SUSPENDED，`approvalNo=APR2601015435`）／Sable Crest Trading FZCO `LPP2601014866`（PENDING_ASSESSMENT，无 `approvalNo`）；`pragma table_info(liquidity_providers)` 里**没有** `fiatBankName / fiatIban / cryptoNetwork / cryptoAddress`（2026-10-24 退役）与 `screeningAnswer / screenedAt / dueDiligenceRef`（2026-10-29 甲波六退役：实体背调 mock 与尽调引用号两列被逐名筛查记录取代，见末节）共七列 |
 | `lp_payout_addresses` | reset 后 **3** 行，全属 Falcon、全 `ACTIVE` / `screeningAnswer='GREEN'`：`LPA2601014044`（AED，IBAN `AE470865518855649193687`，`addressType=BANK`）／`LPA2601014090`（USDT-TRON，`TP8CA9uffHQmsP9HNXa9KpQ6TomURrr3eP`，`SELF_CUSTODY`，`hostingMismatch=0`）／`LPA2601018028`（USDT-TRON，`TT7y4FMXAN3FAwM8DLki9Du8ShJMqvXJZT`）；Dune 零行 |
 | `approval_cases`（`actionType='LP_ADDRESS_APPROVAL'`） | **3** 行：`APR2601017133` / `APR2601015524` / `APR2601016020`，均 `APPROVED`、`entityRef` 为对应 LPA 号；连同前文的 `LP_PROFILE_APPROVAL`（`APR2601015507`）与 `LP_EXCHANGE_APPROVAL`（`APR2601015999`），reset 后 LP 相关审批案共 **5** |
 | `lp_exchanges` | **1** 行 `LPX2601016429`（SUCCESS）：`payoutAddressNo=LPA2601014044`、`payoutIban=AE470865518855649193687`（`payoutAddress` 空）；`deliveryFromAddress=TDeliverySourcePlaceholder00000000`（`deliveryFromIban` 空）、`deliveryScreeningAnswer='GREEN'`、`deliveryScreenedAt` 非空（= `deliveredAt`）。腿 1 `FDO2601017173` 的 `toIban` = 该 IBAN，腿 2 `FDO2601017269` 的 `fromAddress` = 该占位串 |
-| `audit_log_events`（`actorNo='DEMO_SEED'` ∧ `action like 'LP_%'`） | `LP_PROFILE_CREATED` ×1、`LP_ADDRESS_REGISTERED` ×3、`LP_ADDRESS_APPROVED` ×3（种子直铺终态、不重放流程，故**没有** `*_SCREENED` 行）；`LP_ADDRESS_APPROVED` 行带 `approvalNo` + `causationId` + `PENDING_APPROVAL→ACTIVE`，同一地址的两行落同一 `correlationId`（地址自己的 `traceId`） |
+| `audit_log_events`（`action like 'LP_%'`） | **地址族**（不变）：`actorNo='DEMO_SEED'` 的 `LP_ADDRESS_REGISTERED` ×3、`LP_ADDRESS_APPROVED` ×3（种子直铺终态、不重放流程，故**没有** `*_SCREENED` 行）；`LP_ADDRESS_APPROVED` 行带 `approvalNo` + `causationId` + `PENDING_APPROVAL→ACTIVE`，同一地址的两行落同一 `correlationId`（地址自己的 `traceId`）。**档案族**（甲波六 Task 9 起改写）：`LP_PROFILE_CREATED` ×3，**真人 operator**（`actorType='ADMIN'`、`actorNo='ADM2501010011'` = 金库 `treasury@`），不再是 `DEMO_SEED`；`LP_PROFILE_SENT_FOR_APPROVAL` ×2（Falcon / Dune，`ADM2501010006` = 合规官，`PENDING_ASSESSMENT→PENDING_APPROVAL`）；`LP_PROFILE_APPROVED` ×2（Falcon / Dune，`actorType='SYSTEM'`、`actorNo='DEMO_SEED'`——审批裁决驱动的边由种子当系统写手，`PENDING_APPROVAL→ACTIVE`）；`LP_PROFILE_SUSPENDED` ×1（Dune，`ADM2501010011`，`ACTIVE→SUSPENDED`）；Sable Crest 只有 `LP_PROFILE_CREATED`。⚠️ 这组计数**只在 `rm` 栈库后重铺**时成立：`reset` 不清 `audit_log_events`，跑过 e2e 的库会多出 `LPP26…` 非种子单号的 `LP_PROFILE_*` 行（见「verify:rbac 操作约束」同源缺口） |
 
 可复现命令（`DB` 取栈库：self 为 `/tmp/exchange_js_wt_<名>/dev.db`，main 为 `/tmp/exchange_js_main/dev.db`）：
 
 ```bash
-sqlite3 "$DB" "select lpNo,status,screeningAnswer,dueDiligenceRef from liquidity_providers;"
+sqlite3 "$DB" "select lpNo,name,status,ifnull(approvalNo,'-') from liquidity_providers order by lpNo;"
 sqlite3 "$DB" "select addressNo,status,screeningAnswer,approvalNo from lp_payout_addresses order by createdAt;"
 sqlite3 "$DB" "select payoutAddressNo,payoutIban,deliveryFromAddress,deliveryScreeningAnswer from lp_exchanges;"
-sqlite3 "$DB" "select action,count(*) from audit_log_events where actorNo='DEMO_SEED' and action like 'LP_%' group by action;"
+sqlite3 "$DB" "select action,actorType,actorNo,count(*) from audit_log_events where action like 'LP_%' group by action,actorType,actorNo order by action,actorNo;"
 ```
+
+（2026-10-29 甲波六 Task 10 订正：第 1 条原写 `select lpNo,status,screeningAnswer,dueDiligenceRef from liquidity_providers`，两列已退役、命令会报 `no such column`；第 4 条原按 `actorNo='DEMO_SEED'` 过滤，档案族改真人 operator 后会漏掉 `LP_PROFILE_CREATED` 等。四条现均实跑过，期望输出见末节「甲波六尽调种子断言」。）
 
 **闸判据**（数字均为 2026-10-24 在 HEAD `c66ba7a6` 实跑所得）：
 
 | 闸 | 命令 | 判据 |
 |---|---|---|
 | 审计词表 | `npm run audit:vocab`（exit 0） | 现役合计 **360** 码（波前 352，+11 −3）；TREASURY 域 45；LP 码 16 → **24**（档案族 8 → 6、新地址族 9、兑换族 8 → 9）；退役名册 117 → **120**（`LP_PROFILE_CHANGE_PROPOSED / APPLIED / REJECTED` 入 `DEPRECATED_AUDIT_ACTIONS`）。注意该命令会改写 `doc-final/lark/2026-09-16-audit-actions-catalog-full.md`（只动版头「基线 main `<哈希>`」一处），本任务实跑后已还原、不入库 |
-| 权限矩阵 | `bash scripts/on-stack.sh self verify:rbac`（`API base: http://localhost:3120`，exit 1） | **173 ✓ / 1 ✗**；唯一红 = `S7 catalog 字典真实性`四行 sumsub demo 死行，**既有债**（`TOOLING-DEBT.md` 该行：路由装饰器在共用基类上、S7 正则只扫文件自身），非本轮引入，**不得称全绿**。本轮相关判据全绿：S4 `52` 条策略点名真实职务｜S5 `51` 条 maker-checker 策略无未登记自批死锁｜S8 `52` = 51 受保护 + 1 豁免｜S9 `42` 条带回链策略裁决人都看得见要批的对象（含 `LP_ADDRESS_APPROVAL → LP_READ`）｜S13a LP 两组四处齐（`LP_READ`: route 6 / bucket 1 / 职务 4；`LP_WRITE`: route 13 / bucket 1 / 职务 1）｜S13b `LP_WRITE` 金库独持｜S13c `LP_READ` 恰为 {金库, CFO, 内审, **合规官**}（合规官是本轮 T4 评审裁定新加：⚡筛查覆写的持有者得能打开 LP 页面，只读）｜S13d 域 15 / 桶 83 / 组 92 |
+| 权限矩阵 | `bash scripts/on-stack.sh self verify:rbac`（`API base: http://localhost:3120`，exit 1） | **173 ✓ / 1 ✗**；唯一红 = `S7 catalog 字典真实性`四行 sumsub demo 死行，**既有债**（`TOOLING-DEBT.md` 该行：路由装饰器在共用基类上、S7 正则只扫文件自身），非本轮引入，**不得称全绿**。本轮相关判据全绿：S4 `52` 条策略点名真实职务｜S5 `51` 条 maker-checker 策略无未登记自批死锁｜S8 `52` = 51 受保护 + 1 豁免｜S9 `42` 条带回链策略裁决人都看得见要批的对象（含 `LP_ADDRESS_APPROVAL → LP_READ`）｜S13a LP 两组四处齐（`LP_READ`: route 6 / bucket 1 / 职务 4；`LP_WRITE`: route 13 / bucket 1 / 职务 1）｜S13b `LP_WRITE` 金库独持｜S13c `LP_READ` 恰为 {金库, CFO, 内审, **合规官**}（合规官是本轮 T4 评审裁定新加：⚡筛查覆写的持有者得能打开 LP 页面，只读）｜S13d 域 15 / 桶 83 / 组 92（**以上为 2026-10-24 当时口径**；甲波六 Task 10 起 S13c 加高管成五职务、S13d 为域 15 / 桶 87 / 组 96、`verify:rbac` 为 186 ✓ / 1 ✗，现行数字见末节） |
 | 单测 | `npx jest src/modules/asset-treasury/lp-desk`（exit 0） | **9 suites / 241 tests** 全绿（含：地址迁移表穷举 6×6 = 36 组合恰 6 合法；开单四道守卫与批准时复查；⚡到货 RED 来源「照常 DELIVERED 且可被 `accept` 验收」两条行为用例；改结算端点不复存在的路由元数据断言） |
 
 **引自 T9 任务报告、本任务未重跑的**：根 / admin-web / client-web 三个 tsc exit 0；全量 `npx jest --runInBand` 264 passed / 1 failed suite，唯一红 = `identity/users/invite-expiry.service.spec.ts`（既有债，`TOOLING-DEBT.md`「起完整 `AppModule` 的 jest……」条），**不得称全绿**；空库迁移链（含 `20261024072146_lp_two_step_additive` + `20261024100112_retire_lp_profile_coordinates`）从零建起 exit 0、`verify:demo-data ALL PASS`。**本任务（文档收口）未跑**：`demo:all`、`verify:coa`、`recon:demo:pass/break`——LP 历史单账本三笔分录零改动，前文 F_LIQ / F_OPS 余额与 `COA` 恒等式判据不变，实跑归战役收尾闸。**2026-10-24 战役收尾闸（T11）已实跑，实测如下**（self 栈 `reset self` 重铺后，命令均经 `on-stack.sh self`，退出码取原始值）：`demo:all` exit 0，`花名册：35/35 符合预期`、`asserts: 5/5 PASS`、`data.md` 生成区零 diff；`verify:coa` exit 0 三次（`demo:all` 后；场景 26 悬空期 F_LIQ 非零的中间态；走查全弧后），均为四恒等式 ✓ + `67 个科目全部 ≥ 0` + `ALL INVARIANTS PASS`；`recon:demo:pass` exit 0，`status=PASS walletsChecked=19 casesOpened=0`、五条 pass 断言全 OK（F_LIQ USDT-TRON 钱包在受检之列）；**另在走完场景 36 / 26 / 27 三条 LP 弧的库上**再跑一次 `recon:demo:pass`：exit 0，`status=PASS walletsChecked=7 casesOpened=0`，F_LIQ 的 AED / USDT-TRON 两个钱包各 4 行流水、`internal=0`——即场景 26 ⑦「终态平」的判据；`recon:demo:break` exit 0，`scenarios: 18/18 DETECTED`、`wallets: 12/12 bucket OK`、`casesOpened 12/12`、两条身份恒等式 OK（`ALL 18 SCENARIOS DETECTED PER MANIFEST`）。
 
 **失效验证声明**：本节是对既有检查的复述，未新增检查，故没有为本节单做失效验证。可引的既有失效验证——`audit:vocab`：「战役丙波四种子断言」节实测口径里记过「临时删掉种子里 `DSR_RESOLVED` 一行 → exit 1，报"有码没说明"、不写盘」；「改结算端点不复存在」：T9 临时给控制器加回 `@Post(':lpNo/settlement-change')` 处理器，该 spec 红（`1 failed, 1 passed`），撤回后绿。
+
+## 甲波六尽调种子断言（reset 判据，2026-10-29 Task 10 起）
+
+本节是「合作方尽调与准入」（LP / 服务商共用的背调、四个新权限组、三条新审批策略、VARA 告知门、`stored_documents` 文件存储）落地后的 reset 判据。**先决条件**：`reset` 不清 `audit_log_events`（与「verify:rbac 操作约束」同源缺口），跑过 e2e / `verify:rbac` 的库须先 `stack.sh down` + `rm -f <栈库>/dev.db` 再 `reset`，下面带审计的断言才成立；文件存储目录由 `reset-stack.sh` 连根清掉重建（元数据行与二进制同步归零）。
+
+**种子行断言**（`bash scripts/stack.sh reset self` 之后、`demo:all` 前后均成立——`demo:all` 只写客户订单，不碰下列任何表；`DB` 取栈库，`FD` 取 `FILE_STORAGE_DIR`，self 栈二者都在 `/tmp/exchange_js_wt_<名>/` 下）：
+
+| 项 | 断言 |
+|---|---|
+| LP 档案 `liquidity_providers` | **3** 行：Falcon `LPP2601010183` **ACTIVE**（`APR2601015507`）／Dune `LPP2601017193` **SUSPENDED**（`APR2601015435`）／Sable Crest Trading FZCO `LPP2601014866` **PENDING_ASSESSMENT**（无审批单）；七个退役列零存在 |
+| 服务商 `outsourcing_vendors` | **4** 行：Sumsub `VEN2601019644` MATERIAL **ACTIVE**（`APR2601019730`，告知单 `FIL2601017132`）／HexTrust `VEN2601017083` MATERIAL **ACTIVE**（`APR2601014198`，`FIL2601013725`）／Gulf Office Systems `VEN2601019912` NON_MATERIAL **ACTIVE**（`APR2601019628`）／Pearl Clean Services LLC `VEN2601015134` NON_MATERIAL **PENDING_APPROVAL**（`APR2601017676`） |
+| 尽调评估 `due_diligence_assessments` | 共 **7**（`LIQUIDITY_PROVIDER` 3 + `OUTSOURCING_VENDOR` 4），每个对象恰一份：Falcon `DDA2601016825`（LOW）／Dune `DDA2601011093`（MEDIUM）／Sable Crest `DDA2601019297`（未定档、无结论）／Sumsub `DDA2601018956`（MEDIUM，CISO 评估 `ACCEPTABLE`）／HexTrust `DDA2601019211`（MEDIUM，`ACCEPTABLE`）／Gulf `DDA2601010224`（LOW）／Pearl Clean `DDA2601019549`（LOW）；除 Sable Crest 外结论均 `SENT_FOR_APPROVAL` |
+| 筛查记录 `screening_records` | 共 **12** 条、全 `GREEN`：Falcon 2 / Dune 2 / Sumsub 2 / HexTrust 2 / Gulf 2 / Pearl Clean 2 / **Sable Crest 0**（第 38 幕现场逐名登记，零条是刻意的） |
+| 文件 `stored_documents` | 共 **30** 行 = `FILE_STORAGE_DIR` 下 **30** 个文件，且每条 `storagePath` 都真实存在（LP 18 = 3 × 6 类；服务商 12 = Sumsub 4 + HexTrust 4 + Gulf 2 + Pearl Clean 2） |
+| VARA 告知单 | `regulatory_filings` 里 `type='MATERIAL_CHANGE_NOTIFICATION'` 恰 **2** 行、全 `SUBMITTED`：`FIL2601017132`（`VARA-MCN-2026-001`，Sumsub）／`FIL2601013725`（`VARA-MCN-2026-002`，HexTrust） |
+| Pearl Clean 待批 | `approval_cases` 里 `entityRef='VEN2601015134'` 的 `VENDOR_APPROVAL` 恰一张 `APR2601017676`、`status='PENDING'`；其 `approval_steps` 第 1 步 `PENDING`、候选角色 `CFO`（第 40 幕由 CFO 现场批） |
+| 准入审批单分布 | `LP_PROFILE_APPROVAL` APPROVED ×2；`VENDOR_APPROVAL` APPROVED ×1 + PENDING ×1；`VENDOR_MATERIAL_APPROVAL` APPROVED ×2（CFO→高管两步） |
+
+**与前文的订正关系**：「战役乙波一 LP 地基种子断言」节的 `liquidity_providers | 2` 行作废（现为 3）；该节其余行（`lp_exchanges` 1／三条 `funds_orders`／`tb_transfer_evidence` 3／`account_flows` 6／两张 APPROVED 审批单／F_LIQ·F_OPS 余额）**照旧有效**——本波不动账本。「战役甲波四」节的 `outsourcing_vendors | 3` 行同样作废（现为 4）。
+
+可复现命令（全部在 2026-10-29 实跑过，输出与上表逐项相符；`demo:all` 前后各一遍）：
+
+```bash
+DB=/tmp/exchange_js_wt_<名>/dev.db; FD=/tmp/exchange_js_wt_<名>/files
+sqlite3 "$DB" "select lpNo,name,status,ifnull(approvalNo,'-') from liquidity_providers order by lpNo;"
+sqlite3 "$DB" "select count(*) from pragma_table_info('liquidity_providers') where name in ('screeningAnswer','screenedAt','dueDiligenceRef','fiatBankName','fiatIban','cryptoNetwork','cryptoAddress');"   # 期望 0
+sqlite3 "$DB" "select vendorNo,name,criticality,status,ifnull(approvalNo,'-'),ifnull(notificationFilingNo,'-') from outsourcing_vendors order by vendorNo;"
+sqlite3 "$DB" "select count(*) from due_diligence_assessments; select targetType,count(*) from due_diligence_assessments group by targetType order by targetType;"
+sqlite3 "$DB" "select count(*), sum(result='GREEN') from screening_records;"   # 12|12
+sqlite3 "$DB" "select d.targetNo,count(s.id) from due_diligence_assessments d left join screening_records s on s.assessmentId=d.id group by d.targetNo order by d.targetNo;"
+sqlite3 "$DB" "select count(*) from stored_documents;"; find "$FD" -type f | wc -l   # 30 与 30
+sqlite3 "$DB" "select storagePath from stored_documents;" | while read p; do [ -f "$p" ] || echo "MISSING $p"; done   # 无输出
+sqlite3 "$DB" "select filingNo,type,status,externalRef from regulatory_filings where type='MATERIAL_CHANGE_NOTIFICATION' order by externalRef;"
+sqlite3 "$DB" "select approvalNo,actionType,entityRef,status from approval_cases where actionType='VENDOR_APPROVAL' and entityRef='VEN2601015134';"
+sqlite3 "$DB" "select actionType,status,count(*) from approval_cases where actionType in ('LP_PROFILE_APPROVAL','VENDOR_APPROVAL','VENDOR_MATERIAL_APPROVAL') group by actionType,status order by actionType,status;"
+```
+
+**闸判据**（2026-10-29，self 栈 `partner_due_diligence_769401`，Node 20.20.2；命令均不接管道，退出码取自命令本身）：
+
+| 闸 | 命令 | 判据 |
+|---|---|---|
+| 编译 | `npx tsc --noEmit -p tsconfig.json`／`cd admin-web && npx tsc -b --noEmit`／`cd client-web && npx tsc -b --noEmit` | 三个 exit 0；`git diff 9bc4bcc8..HEAD -- client-web` 零行（`test:client` 不触发） |
+| 单测 | `npx jest --silent`（全量，默认并行） | exit 1，**唯一红** = `regulatory-filing-sweep.service.spec.ts`（`TOOLING-DEBT.md`「默认并行 worker 下偶发假红」条：`Expected 1 / Received 5`），`271 passed, 1 failed of 272`；该 spec 单跑 exit 0（8/8）；全量 `--runInBand` exit 0：**272 套件全绿，4449 例通过 + 2 skipped + 5 todo** |
+| 重铺 | `bash scripts/stack.sh reset self`（先 `down` 并 `rm -f` 栈库） | exit 0，链内 `verify:demo-data ALL PASS`，`✔ Capital injection: 2 transfer(s) created`；日志认 `Seeded 4 outsourcing vendor rows (...)`、`Seeded 3 LP profile rows (...)`、`Seeded partner due-diligence trail for 7 partners: 7 assessments, 12 GREEN screening records, 30 placeholder PDFs (...), 8 approval cases, 2 VARA notification filings.` |
+| 演示 | `bash scripts/stack.sh up` → `bash scripts/on-stack.sh self demo:all` | exit 0，`花名册：35/35 符合预期`、`asserts: 5/5 PASS`、`data.md` 生成区零 diff（`git status` 无改动） |
+| 权限矩阵 | `bash scripts/on-stack.sh self verify:rbac` | exit 1，**`186 ✓ / 1 ✗`**，唯一红 = `S7 catalog 字典真实性`四行 sumsub demo 死行（`TOOLING-DEBT.md` 既有债，**不得称全绿**）。现行数字：S4 `55` 条策略点名真实职务｜S5 `54` 条 maker-checker 策略无未登记自批死锁｜S5c 50 组确认不相交｜S8 `55` = 54 受保护 + 1 豁免｜S9 `45` 条带回链策略裁决人都看得见要批的对象（含 `VENDOR_APPROVAL` / `VENDOR_MATERIAL_APPROVAL → VENDOR_READ`、`LP_PROFILE_HIGH_RISK_APPROVAL → LP_READ`）｜S11a 合规办公室**八**组四处齐｜S11b 六个写组持有者表恰等（`OBLIGATION_WRITE` / `VENDOR_REGISTER_WRITE` / `RI_REGISTER_WRITE` / `DUE_DILIGENCE_WRITE` = 合规官，`VENDOR_APPLY` = 运营，`INFOSEC_ASSESSMENT_WRITE` = CISO）｜S11c `COMPLIANCE_OFFICE_VIEW` 仍五职务｜S11d `VENDOR_READ` 恰七职务（合规官 / CISO / CFO / 高管 / 内审 / 金库 / 运营）｜S13c `LP_READ` 五职务（加高管）｜S13d 域 **15** / 桶 **87** / 组 **96**（波前 83 / 92，差额 = 四个新组 + 四个新桶，全在 `compliance-office` 域）｜S14d 服务商名册 4 条 GET 的 groups 恰为 `[VENDOR_READ]`；另加 12 条「服务商尽调门」行为探针（持有者放行、非持有者 403，双向对照）全绿。**顺序铁律不变**：`verify:rbac` 写数据（角色往返审批单等），跑完必须重铺再 `demo:all` |
+| 全量 e2e | `bash scripts/on-stack.sh self test:e2e` | exit 1，`9 failed, 17 passed, 26 suites`／`20 failed, 150 passed, 170 tests`；与 main 基线 `9bc4bcc8` 逐例相同，**本波零新增**，分类见上方 e2e 节 2026-10-29 更新与 `TOOLING-DEBT.md`。**不得称绿** |
+| 私库铺库 | 六个要跑 `db:biz:init` 的 e2e 私库逐个按头注释铺 | `prisma migrate deploy` / `db:base:sync` exit 0，`db:biz:init` **exit 1**（`seedStatementHistoryLegs` 撞栈库已写的账本，`TOOLING-DEBT.md` 末条；基线同），库是半成品但套件可跑 |
+
+**失效验证**（2026-10-29，均为临时改 `rbac.catalog.ts`、跑完整份还原、`git diff` 空）：① 拿掉 CFO 的 `VENDOR_READ` → `S9` 红（`VENDOR_APPROVAL: 裁决人 CFO 不持 VENDOR_READ ｜ VENDOR_MATERIAL_APPROVAL: …`）且 `S11d` 红；② 同轮给金库加 `DUE_DILIGENCE_WRITE`、给服务商名册列表 GET 多挂 `FUNDING_WRITE`、拿掉高管的 `LP_READ` → `S11b` / `S14d` / `S13c` 各自红、`S9` 因高管不持 `LP_READ` 再红一条（`API_BASE=http://127.0.0.1:1` 只跑静态段）；③ 改写前的旧判据在新代码上实跑红 3 条（`S13c` / `S13d` / `S14d`），即「判据没跟上」可见。**未做**：新增的 12 条行为探针没有逐条做「守卫恒开 / 恒关」的失效验证（要改权限表并重启后端）；它们每组都是「持有者非 403 + 非持有者 403」对照，守卫恒开则 DENY 探针红、恒关则 ALLOW 探针红，对照本身即判别力。⚠️ 其中「运营可以重提服务商申请」的 ALLOW 探针实得 `400`（占位单号 + 空体被校验管线先拦，守卫已放行），只证明过了权限闸，没走到服务层 404。
