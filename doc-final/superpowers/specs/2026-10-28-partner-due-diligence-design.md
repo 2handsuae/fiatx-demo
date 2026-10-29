@@ -257,7 +257,7 @@ ACTIVE --terminate--> TERMINATED（既有）
 | Governance → Approvals / Regulatory Filings | 不改页面，只多四种审批单与一条自动来路 |
 | **不建**统一「尽调队列」页 | 合规官用两张列表的状态筛选（我的判断，业主同意） |
 
-侧栏对运营：Compliance Office 组下只露出 Service Providers 一项（组内按权限过滤是既有机制）。
+侧栏对运营：Compliance Office 组下露出 Service Providers（本波新增）与既有的 Sumsub Events 两项（组内按权限过滤是既有机制；实施复核 R12：Sumsub Events 本就对运营可见，不因本波挪动）。
 
 ---
 
