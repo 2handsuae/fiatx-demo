@@ -149,7 +149,7 @@ mock 的归因 / 筛查**按地址（IBAN）尾号给确定性结论**——演�
 
 Mona 的 EMIRATES_ID 补料请求（`requestNo=MRQ2601019867`，PENDING_SUBMISSION）在上方「材料请求账」种子同批铺出（`DEMO_MATERIAL_REQUESTS` 新增一行，不挂 `restrictionCause`——`restrictionNo` 恒 `null`，即「blocking:false」：她已有的 SILENT SANCTION 便签 scope=ALL 早已卡住全部能力，这条补料只是发一份中性话术，照 `sanction-disposition-workflow.service.ts#landPartial` 落地口径 `origin='OPERATOR_ISSUED'`、`issuedBy`=MLRO userNo）。
 
-## 合规办公室种子（business seed，三义务 + 三供应商 + 四 RI 席位，2026-09-27 战役甲波四 Task 7）
+## 合规办公室种子（business seed，三义务 + 四服务商 + 四 RI 席位，2026-09-27 战役甲波四 Task 7；2026-10-29 甲波六 Task 9 服务商册改按准入全流程重铺）
 
 `seedComplianceObligations()` / `seedOutsourcingVendors()` / `seedResponsibleIndividuals()`（`prisma/seed.business.ts`，紧随 `seedAmlFilingFamily()` 之后）同样直铺快照数据（不走各自 Service，没有 operator、不写审计——「留痕」由 e2e 证，同上方两个报送台种子节先例）。三张表互不依赖，也不依赖客户/事件/报送单种子行（spec §10：两册与义务台账均无横向外键）。单号用 `buildDeterministicNo('OBL'|'VEN'|'RI', seedKey)` 派生、`upsert` 保幂等，reset 重铺后逐字不变。
 
@@ -163,13 +163,18 @@ Mona 的 EMIRATES_ID 补料请求（`requestNo=MRQ2601019867`，PENDING_SUBMISSI
 
 ⚠️ `nextDueAt` 相对**铺场时刻**取下一自然期末（`nextPeriodEnd()`，`prisma/seed.business.ts`）——不是固定日期，每次 `stack.sh reset` 重铺都保证落在未来（闹钟墙开箱即非空、不会因久未 reset 而集体显示成"已超期"）；`obligationNo` 逐字不变（只吃 seedKey，不吃时间）。MLRO 季报／EWRA（内部风险自评）／牌照年费三条经 spec §9 二手多源交叉调研后判组织件不建（裁定 10，收件方非监管，与内幕名单同判），不铺种子；截止天数一手条文未规定的行，`basisNote` 只写查实的条款号，不补想象中的宽限天数。
 
-### 外包商登记册（三行）
+### 服务商登记册（四行，甲波六 Task 9 起按准入全流程重铺；原「外包商登记册」）
 
-| 供应商 | vendorNo | 外包内容 | criticality | contractStart |
-|---|---|---|---|---|
-| Sumsub | `VEN2601019644` | KYC/AML 身份核验与筛查 | MATERIAL | 2025-01-01 |
-| HexTrust | `VEN2601017083` | 数字资产托管（TRON 网络钱包基础设施） | MATERIAL | 2025-01-01 |
-| Gulf Office Systems | `VEN2601019912` | 办公室 IT 支持 | NON_MATERIAL | 2025-06-01 |
+`seedOutsourcingVendors()` 直铺四家服务商的**终态行**（申请表全部必填列 + 重大性四问；四问答案与 `criticality` 一致，任一「会」→ MATERIAL，同 `judgeCriticality`）；申请人 `createdByUserId` = 运营 `ADM2501010008`，状态 / 审批单号 / 告知单号已盖好。评估、筛查、文件、审批单、告知单、审计留痕在 `seedPartnerDueDiligence()` 按同一张旅程时间表补齐（见下方「合作方准入旅程种子」）。`vendorNo` 用 `buildDeterministicNo('VEN', seedKey)`，存量三家号不变。
+
+| 服务商 | vendorNo | 外包内容 | criticality | 状态 | 四问「会」（牌照 / 法律 / 财务 / 连续性） | 交付地 | 涉个人数据 | contractStart | approvalNo | notificationFilingNo |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Sumsub | `VEN2601019644` | KYC/AML 身份核验与筛查 | MATERIAL | ACTIVE | 会 / 会 / 不 / 不 | GB | 是 | 2025-01-01 | `APR2601019730`（CFO→高管两步） | `FIL2601017132`（`VARA-MCN-2026-001`） |
+| HexTrust | `VEN2601017083` | 数字资产托管（TRON 网络钱包基础设施） | MATERIAL | ACTIVE | 会 / 不 / 不 / 会 | HK | 是 | 2025-01-01 | `APR2601014198`（CFO→高管两步） | `FIL2601013725`（`VARA-MCN-2026-002`） |
+| Gulf Office Systems | `VEN2601019912` | 办公室 IT 支持 | NON_MATERIAL | ACTIVE | 全不 | AE | 否 | 2025-06-01 | `APR2601019628`（CFO 单步） | — |
+| **Pearl Clean Services LLC**（新增，第 40 幕） | `VEN2601015134` | 办公室保洁与物业清洁 | NON_MATERIAL | **PENDING_APPROVAL** | 全不 | AE | 否 | 2026-11-01 | `APR2601017676`（CFO 单步，**待批**） | — |
+
+`replaceability`：Sumsub / HexTrust = HARD，Gulf / Pearl = EASY（只供合规参考，不参与判定）。每家各 1 位实际控制人（Sumsub = Daniel Whitcombe、HexTrust = Wei Ling Tan、Gulf = Hamad Al Suwaidi、Pearl Clean = Noura Al Kaabi，虚构），`licensingAuthority` / `licenceNo` 空（`regulatedFunction=false`）。存量三家的 `contractStart` 早于其准入旅程的时刻（旅程在 2026-02，种子叙事上是「合同已履行、按新规补走全流程」），告知单正文里的 `Contract start` 照行上取值，不另编。
 
 与波一「外包商断供」事件（`outsourcing-kyc-relay-degraded`，`subjectRefs.vendor=SUMSUB`）的呼应是纯叙事，不建外键、不建联动（spec §4.1，YAGNI）。
 
@@ -198,23 +203,23 @@ Mona 的 EMIRATES_ID 补料请求（`requestNo=MRQ2601019867`，PENDING_SUBMISSI
 
 ⚠️ 三行 `submittedAt`/`ackDeadlineAt`/`resolveDeadlineAt`/`acknowledgedAt`/`extendedAt`/`resolvedAt` 都相对**铺场时刻**回拨，不是固定日期——每次 `stack.sh reset` 重铺，②的"还剩 2 天"效果会重新从铺场当下起算，但 `complaintNo` 逐字不变（`buildDeterministicNo` 只吃 seedKey，不吃时间）。entries 的 `actorNo`：ACK/EXTENSION_NOTICE/INTERNAL_NOTE 落 `ops_officer@fiatx.com` 的固定 `userNo`（`ADM2501010008`，rbac.catalog.ts `COMPLAINT_WRITE` 唯一持有职务）；FINAL_RESPONSE 落 `'SYSTEM'` 字面量，同 `applyResolution()` 真实行为（裁决生效是系统动作，无 actor）。
 
-## LP 兑换台种子（business seed，两档案 + Falcon 三条打款地址 + 一张历史单，2026-09-29 战役乙波一 Task 9；2026-10-24 LP 两步准入改为终态）
+## LP 兑换台种子（business seed，三档案 + Falcon 三条打款地址 + 一张历史单，2026-09-29 战役乙波一 Task 9；2026-10-24 LP 两步准入改为终态；2026-10-29 甲波六 Task 9 档案按准入全流程重铺）
 
 `seedLpDesk()`（`prisma/seed.business.ts`，紧随 `seedCapitalInjection()` 之后——历史单卖出腿要扣公司 AED 起始余额，注资必须先落地）照该函数的直写形态铺快照数据：不走 `LpProfileService`/`LpExchangeWorkflowService`（链路长、依赖 Nest DI/事件总线/审批服务，seed 脚本走裸 `PrismaClient`+`tigerbeetle-node`，服务直调铺数走不通），手写镜像并逐行对齐 `lp-exchange-workflow.service.ts` 的真实记账/回单形态。`lpNo`/`exchangeNo`/`approvalNo`/资金单号均用 `buildDeterministicNo` 派生，reset 重铺后逐字不变。
 
-### 两档案
+### 三档案
 
-LP 两步准入（2026-10-24）起，档案**不再持有结算坐标**（四列已退役）——收款坐标只在下面的打款地址簿里。两家都回填尽调引用号 + 实体背调 GREEN（reset 世界里每家 LP 都有背调结论，详情页 Entity Screening 区不出空洞）。种子直铺终态、不重放流程。
+LP 两步准入（2026-10-24）起，档案**不再持有结算坐标**（四列已退役）——收款坐标只在下面的打款地址簿里。甲波六 Task 9（2026-10-29）起档案即 LP 申请表，**实体背调 mock 与尽调引用号两列已退役**（筛查改为合规官逐名登记的筛查记录，见下方「合作方准入旅程种子」）。`seedLpDesk()` 只铺档案行：状态直接是终态，申请人 `createdByUserId` = 金库 `ADM2501010011`，`approvalNo` 是准入审批单的确定性号（审批单本体随旅程补）。
 
-| LP | lpNo | 状态 | 背调 / 尽调引用 | 协议锚 `agreementRef` | approvalNo |
+| LP | lpNo | 状态 | 注册地 / 发牌 | 协议锚 `agreementRef` | approvalNo |
 |---|---|---|---|---|---|
-| Falcon Liquidity FZE | `LPP2601010183` | ACTIVE | GREEN（`screenedAt` 铺场时刻 −10 天）／ `DD-2026-FALCON-001` | `LPA-2026-FALCON-001` | `APR2601015507`（真实 `ApprovalCase`+`ApprovalStep` 背书，CFO 单步 APPROVED——评审 R15 补种，见下方「审批背书」段；载荷快照键集 = `lpNo / name / agreementRef / screeningAnswer / dueDiligenceRef`） |
-| Dune OTC DMCC | `LPP2601017193` | SUSPENDED | GREEN（−14 天）／ `DD-2026-DUNE-002` | `LPA-2026-DUNE-002` | 无（种子直落 SUSPENDED，不经历"先批准再停用"的迁移路径）；**零打款地址** |
+| Falcon Liquidity FZE | `LPP2601010183` | ACTIVE（风险档 LOW） | `United Arab Emirates (DIFC)` ／ `Dubai Financial Services Authority (DFSA)` | `LPA-2026-FALCON-001` | `APR2601015507`（`LP_PROFILE_APPROVAL`，CFO 单步 APPROVED；快照键集 = `lpNo / name / registeredIn / licensingAuthority / riskTier / conditions / assessmentNo`） |
+| Dune OTC DMCC | `LPP2601017193` | SUSPENDED（风险档 MEDIUM；2026-10-12 金库停用） | `United Arab Emirates (DMCC)` ／ `Virtual Assets Regulatory Authority (VARA)` | `LPA-2026-DUNE-002` | `APR2601015435`（同上，CFO 单步 APPROVED——先批准后被停用，走完准入再 `LP_PROFILE_SUSPENDED`）；**零打款地址** |
+| **Sable Crest Trading FZCO**（新增，第 38 幕） | `LPP2601014866` | **PENDING_ASSESSMENT** | `United Arab Emirates (RAK ICC)` ／ `RAK International Corporate Centre (RAK ICC)` | `LPA-2026-SABLE-003` | 无（未送审）；1 位实控人「Marwan Al-Sable」，六份文件已传、评估壳已开、**零筛查记录** |
 
+Falcon / Dune 的 `agreementStart` 钉成固定日（`2026-09-30` / `2026-09-14`），不再相对铺场时刻。准入全程审计（建档 → 开评估壳 → 逐名筛查 → 定档 → 结论 → 送审 → 批准，Dune 再停用）一律在 `seedPartnerDueDiligence()` 写——此前「Falcon 建档单条 `LP_PROFILE_CREATED`、Dune 不写审计」的口径作废。
 
-Falcon 建档写一条 `LP_PROFILE_CREATED` 审计（`actionDomain=TREASURY`，`reason` 非空——契约 `requiredFields=['reason']`，`writeSeedAudit` 2026-09-29 起支持覆盖默认 CONFIG 域 + 传 `reason`，见 `prisma/seed-audit.helper.ts`）；Dune 不写审计（同其余种子表"没有 operator、不写审计"先例）。
-
-**审批背书（评审 R15 甲案，2026-09-29 修复轮）**：Falcon 建档（`APR2601015507`，`LP_PROFILE_APPROVAL`）与历史单（`APR2601015999`，`LP_EXCHANGE_APPROVAL`）各配一条真实 `ApprovalCase`+`ApprovalStep`（CFO 单步，status=APPROVED），`objectSnapshot` 逐字对齐 `lp-profile-workflow.service.ts#initiateCreate`/`lp-exchange-workflow.service.ts#initiate` 的真实快照形状（零 UUID）。补种原因：详情页 `approvalNo` 非空即渲染链接，占位号此前点进去是 `Approval not found` 死链——演示者最可能点开的两个页面（Falcon 档案 / LPX 历史单）都会撞上，故补真实背书替换占位值。
+**审批背书**：Falcon / Dune 准入单（`LP_PROFILE_APPROVAL`）与 Falcon 历史单（`APR2601015999`，`LP_EXCHANGE_APPROVAL`）各配一条真实 `ApprovalCase`+`ApprovalStep`（CFO 单步，status=APPROVED），`objectSnapshot` 逐字对齐 `lp-profile-workflow.service.ts#sendForApproval` / `lp-exchange-workflow.service.ts#initiate` 的真实快照形状（零 UUID）。准入单提单人 = 合规官（`ADM2501010006`，同真实送审）。详情页 `approvalNo` 非空即渲染链接，故每个有 `approvalNo` 的档案都有真实审批单背书，不留死链。
 
 ### Falcon 打款地址簿三条（LP 两步准入，2026-10-24；终态 ACTIVE）
 
@@ -244,6 +249,52 @@ IBAN 复用平台池 IBAN 生成器（`buildSystemPoolIban('LP_FALCON','AED')`�
 
 **种子后（`stack.sh reset self`，`demo:all` 跑之前）的期望余额**（实测坐实）：F_LIQ（USDT）归零（85 进 86 出，净 0）；F_OPS(AED) 从注资起点 1,000,000 减至 **950,000**（−50,000）；F_OPS(USDT) 从注资起点 100,000 加至 **113,600**（+13,600）。三个时间戳字段（`executedAt`/`deliveredAt`/`settledAt`）相对**铺场时刻**回拨 3/2/1 天，不锚死日历日期（同上方各种子节先例）。
 
+## 合作方准入旅程种子（尽调评估 / 筛查记录 / 文件，2026-10-29 甲波六 Task 9）
+
+`seedPartnerDueDiligence()`（`prisma/seed.business.ts`，排在 `seedLpDesk()` 之后、`seedCompanyFunding()` 之前）给上面七家（LP 三 + 服务商四）补齐「已走完全流程」的纸面证据：尽调评估、逐名筛查记录、申请文件、准入审批单、重大服务商的 VARA 告知单、全程审计。照 `seedLpDesk()` 的直写形态（不走服务），行形逐字对齐 `due-diligence.service.ts` / `documents.service.ts` / `regulatory-filing.service.ts#openForVendorNotification` 真实写出的行：用户存 `userNo`（`ADM…`）、审批单里的人是 `User.id`、单号 `buildDeterministicNo` 派生。
+
+**时间全部是固定时刻**（`PARTNER_JOURNEYS` 一张表，不相对铺场时刻——种子里相对运行时的日期是定时炸弹的判例）：LP 旅程在 2026-09（Dune 2026-09-01 起、Falcon 2026-09-14 起，均早于 Falcon 打款地址与历史兑换单），存量服务商旅程在 2026-02（远早于 HexTrust 2026-08-31 付款单），新增两家在 2026-10-27/28。**唯一例外**：Pearl Clean 的待批审批单 `timeoutAt` 钉成 `2099-12-31`（策略本是 48h）——审批过期 cron 每分钟扫一次，固定在过去的 48h 会让它在起栈后第一分钟 `EXPIRED`、服务商 `REJECTED`，第 40 幕演不出来。
+
+### 评估 / 筛查 / 文件
+
+| 合作方 | 评估号 | 风险档 | 结论 | 筛查记录（公司 + 实控人，均 GREEN、六张名单全查） | CISO 评估 | 文件（占位 PDF） |
+|---|---|---|---|---|---|---|
+| Falcon | `DDA2601016825` | LOW | `SENT_FOR_APPROVAL` | `SCR2601018647` / `SCR2601017183` | — | 6（LP 六类各一） |
+| Dune | `DDA2601011093` | MEDIUM | `SENT_FOR_APPROVAL` | `SCR2601010037` / `SCR2601011008` | — | 6 |
+| Sable Crest | `DDA2601019297` | —（未定档） | —（未下结论） | **零条**（`flags.missingNames` = 公司名 + Marwan Al-Sable） | — | 6 |
+| Sumsub | `DDA2601018956` | MEDIUM | `SENT_FOR_APPROVAL` | `SCR2601010057` / `SCR2601019270` | HAS / HAS / 数据地可接受 / 灾备可接受 / `ACCEPTABLE` | 4（注册证书、合同、SOC2/ISO 证书、灾备计划） |
+| HexTrust | `DDA2601019211` | MEDIUM | `SENT_FOR_APPROVAL` | `SCR2601012309` / `SCR2601014086` | 同上 | 4 |
+| Gulf Office Systems | `DDA2601010224` | LOW | `SENT_FOR_APPROVAL` | `SCR2601016738` / `SCR2601016935` | —（一般服务商无此段） | 2（注册证书、合同） |
+| Pearl Clean | `DDA2601019549` | LOW | `SENT_FOR_APPROVAL` | `SCR2601017661` / `SCR2601015495` | — | 2 |
+
+筛查记录无证据截图（`evidenceDocNo` 空，同「证据可缺」）；筛查人 / 定档人 / 落结论人 = 合规官 `ADM2501010006`，CISO 评估人 = `ADM2501010003`。
+
+**占位 PDF 不进仓库**：种子当场由 `prisma/seed-placeholder-pdf.helper.ts` 生成（约 600 字节的最小合法 PDF，`%PDF-1.4` + 一页 + 一行标题 `PLACEHOLDER - <文件类别> - <合作方名>`），按 `${FILE_STORAGE_DIR}/${ownerType}/${ownerNo}/${docNo}.pdf` 落盘，`stored_documents` 元数据行（`storagePath` 为绝对路径、`sizeBytes` 为实际字节数、上传人 = 申请人 userNo）与之一一对应；共 **30 份**（LP 三家各 6 + 服务商 4+4+2+2）。`FILE_STORAGE_DIR` 缺失时种子在最开头就抛。`stack.sh reset` 连目录一起清再重铺。
+
+### 审批单与告知单
+
+| 审批单 | 类型 | 实体 | 状态 | 步骤 |
+|---|---|---|---|---|
+| `APR2601015507` | `LP_PROFILE_APPROVAL` | Falcon | APPROVED | CFO |
+| `APR2601015435` | `LP_PROFILE_APPROVAL` | Dune | APPROVED | CFO |
+| `APR2601019730` | `VENDOR_MATERIAL_APPROVAL` | Sumsub | APPROVED | CFO → 高管（SMO） |
+| `APR2601014198` | `VENDOR_MATERIAL_APPROVAL` | HexTrust | APPROVED | CFO → 高管（SMO） |
+| `APR2601019628` | `VENDOR_APPROVAL` | Gulf Office Systems | APPROVED | CFO |
+| **`APR2601017676`** | `VENDOR_APPROVAL` | **Pearl Clean** | **PENDING** | CFO（提单人合规官，CFO 可批——第 40 幕） |
+| `APR2601011332` / `APR2601018252` | `REG_FILING_SUBMIT`（告知单签发） | `FIL2601017132` / `FIL2601013725` | APPROVED | 高管（SMO） |
+
+所有准入审批单的提单人一律是合规官（同真实送审）；两步单的 step 1 / step 2 裁决时刻相隔数小时。两张 `MATERIAL_CHANGE_NOTIFICATION` 告知单（Sumsub `FIL2601017132` 外部回执 `VARA-MCN-2026-001`、HexTrust `FIL2601013725` `VARA-MCN-2026-002`）终态 `SUBMITTED`，标题 `Material outsourcing — <名>: onboarding`，正文五行（服务商 / 范围 / 交付地与数据地 / 重大性 / 合同起始日）同 `openForVendorNotification`，`approvalNo` 指向各自的签发审批单；服务商行上 `notificationFilingNo` 已盖。
+
+### 审计留痕（`writeSeedAudit`，94 行）
+
+人做的边带真人 operator（`actorType=ADMIN`、actorNo = 申请人 / 合规官 / CISO 的 `ADM…`、`sourcePlatform=ADMIN`）；审批裁决与报送事件驱动的边（批准、告知单开出、转 ACTIVE、签发完成）是种子自己当系统写手（`actorNo=DEMO_SEED`）。序列（按真实先后）：
+
+- LP：`LP_PROFILE_CREATED` → `DD_ASSESSMENT_OPENED` → `DOCUMENT_UPLOADED`×6 → `DD_SCREENING_RECORDED`×2 → `DD_ASSESSMENT_SAVED` → `DD_ASSESSMENT_CONCLUDED` → `LP_PROFILE_SENT_FOR_APPROVAL` → `LP_PROFILE_APPROVED`（Dune 再 `LP_PROFILE_SUSPENDED`；Sable Crest 只到 `DOCUMENT_UPLOADED`×6）。
+- 服务商：`VENDOR_APPLIED` → `DD_ASSESSMENT_OPENED` → `DOCUMENT_UPLOADED`×N → `DD_SCREENING_RECORDED`×2 → `DD_ASSESSMENT_SAVED` →（重大：`DD_INFOSEC_RECORDED`）→ `DD_ASSESSMENT_CONCLUDED` → `VENDOR_SENT_FOR_APPROVAL` →（一般：`VENDOR_APPROVED`→ACTIVE；重大：`VENDOR_APPROVED`→PENDING_NOTIFICATION → `FILING_OPENED` → `VENDOR_NOTIFICATION_OPENED` → `FILING_SIGNOFF_REQUESTED` → `FILING_SIGNED_OFF` → `FILING_SUBMITTED` → `VENDOR_ACTIVATED`）；Pearl Clean 只到 `VENDOR_SENT_FOR_APPROVAL`。
+- 每条状态边带 `fromStatus` / `toStatus`，审批驱动边带 `approvalNo` + `causationId`（= 审批单 `id`，种子给审批单确定性 id，审计表在 reset 时不清，重铺后旧审计仍指得到新单）。
+
+`demo:all` 花名册只含客户订单，这七家**不进花名册**；第 37–40 幕的现场动作（金库新申请 Oryx、给 Sable Crest UBO 记 OFAC 红、运营申请 Nimbus、CFO 批 Pearl Clean）都是演示者现场做，不预铺。
+
 ## 公司资金种子（business seed，两张 CIN 壳单 + 一张 PAY 历史单，2026-09-29 战役乙波二 Task 9）
 
 `seedCompanyFunding()`（`prisma/seed.business.ts`，紧随 `seedLpDesk()` 之后）照该函数的直写形态铺快照数据：不走 `CapitalInjectionWorkflowService`/`VendorPaymentWorkflowService`（同 LP 的理由——链路长，seed 脚本走裸 `PrismaClient`+`tigerbeetle-node`，服务直调铺数走不通）。`cinNo`/`payNo`/`approvalNo`/资金单号均用 `buildDeterministicNo` 派生，reset 重铺后逐字不变。
@@ -265,7 +316,7 @@ IBAN 复用平台池 IBAN 生成器（`buildSystemPoolIban('LP_FALCON','AED')`�
 
 账本新增一条：code 87 `VENDOR_PAYMENT`，DR `E.FIRM_OPS` / CR `A.FIRM_ASSET`，AED ledger，2,500.00 元（250,000 分）——`deterministicTransferId('SEED_VENDOR_PAYMENT', 'AED', 'VENDOR_PAYMENT', 0)`；配 1 条 `tbTransferEvidence` + 2 条 `accountFlow` 镜像（debit→OUT / credit→IN，同 LP 卖出腿 84 先例）。
 
-**种子后（`stack.sh reset self`，`demo:all` 跑之前）的期望余额**（实测坐实）：F_OPS(AED) 从 LP 卖出腿之后的 950,000 再减至 **947,500**（−2,500，即码 87 一条出账）；F_OPS(USDT) 不动（本任务零 USDT 出账）。三张种子表没有 operator，不写审计（同其余种子表先例——LP 兑换单本身也是零审计，仅 LP 档案登记写审计）。
+**种子后（`stack.sh reset self`，`demo:all` 跑之前）的期望余额**（实测坐实）：F_OPS(AED) 从 LP 卖出腿之后的 950,000 再减至 **947,500**（−2,500，即码 87 一条出账）；F_OPS(USDT) 不动（本任务零 USDT 出账）。三张种子表没有 operator，不写审计（同其余种子表先例——LP 兑换单本身也是零审计；准入旅程与 Falcon 打款地址的留痕见各自小节）。
 
 ## 客户协议种子（business seed，两版本 + 13 条同意，2026-10-03 战役丙波三 Task 1）
 

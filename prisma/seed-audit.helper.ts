@@ -10,7 +10,8 @@ export interface SeedAuditInput {
   action: string;
   subjectType: string;
   subjectNo: string;
-  afterData: Record<string, unknown>;
+  /** 甲波六 T9 起可省：真实服务写的状态边 / 评估行大多不带 afterData，种子照样可以不带（落库为 NULL）。 */
+  afterData?: Record<string, unknown>;
   actorNo: SeedActorNo;
   ownerCustomerNo?: string | null;
   /** 默认 'CONFIG'（本文件原设计——见下方函数注释）；显式传其它域给非 CONFIG 域的动作码
@@ -32,6 +33,22 @@ export interface SeedAuditInput {
   fromStatus?: string | null;
   toStatus?: string | null;
   correlationId?: string | null;
+  /** 甲波六 T9 加（以下六项都是可选，不传则行为与加之前逐字一致）——种子要把「合作方准入全流程」的留痕铺成与真实服务写出的行同形：
+   *  operator：真人操作员（userNo + 角色快照）。传了就按 AuditLogsService.recordByActor 的 ADMIN 形态写
+   *  （actorType=ADMIN、actorNo=userNo、sourcePlatform=ADMIN），审计页「谁做的」读得到合规官 / CFO 的 ADM 号；
+   *  不传保持原样（SYSTEM + actorNo，种子自己当系统写手——审批裁决驱动的状态边就是这种）。 */
+  operator?: { userNo: string; roles: string[] };
+  /** 事件发生时刻（默认 new Date()）。旅程时间表是固定时刻，审计时间线要与档案 / 评估 / 文件上的时刻对得上。 */
+  occurredAt?: Date;
+  /** 默认 `${action}_${subjectNo}`。同一主体上同一动作码要写多条时（两条筛查记录、多份文件）必须显式给不同值，
+   *  否则幂等键相同，第二条会被静默当作「已存在」吞掉。 */
+  requestId?: string;
+  /** 业务元数据（真实服务把业务键镜像进 metadata，requiredFields 的顶层展开项也在这里落得住）；种子来源标记 seedVersion / commit 仍保留。 */
+  metadata?: Record<string, unknown>;
+  /** 主体之外的牵连主体（真实服务写 RELATED / INSTRUMENT 子主体：审批单、被评估对象、筛查记录等）。 */
+  relatedSubjects?: Array<{ subjectType: string; subjectNo: string; subjectRole: 'RELATED' | 'INSTRUMENT' }>;
+  /** 默认 'SYSTEM'（原设计）；治理域 / 业务域的码显式传 'GOVERNANCE' / 'BUSINESS'，与真实服务信封的 category 一致。 */
+  category?: string;
 }
 
 // 审计单号 = AUD + 日期 + 6 位随机数，同一天内会撞（生日问题）。服务侧
@@ -64,17 +81,21 @@ function currentCommit(): string {
  *  显式传 'TREASURY' 覆盖默认值。 */
 export async function writeSeedAudit(prisma: PrismaClient, input: SeedAuditInput) {
   const actionDomain = input.actionDomain ?? 'CONFIG';
-  const requestId = `${input.action}_${input.subjectNo}`;
+  const requestId = input.requestId ?? `${input.action}_${input.subjectNo}`;
+  // 行为人：传了 operator 就是真人（ADMIN），否则种子自己当系统写手（原行为）。
+  const actor = input.operator
+    ? { type: 'ADMIN', no: input.operator.userNo, roles: input.operator.roles, platform: 'ADMIN' }
+    : { type: 'SYSTEM', no: input.actorNo as string, roles: ['SYSTEM'], platform: 'SYSTEM' };
   const idempotencyKey = createHash('sha256')
     .update([actionDomain, input.action, input.subjectType, input.subjectNo, 'NO_CORRELATION', requestId].join('|'))
     .digest('hex');
   const existing = await prisma.auditLogEvent.findUnique({ where: { idempotencyKey } });
   if (existing) return existing;
 
-  const occurredAt = new Date();
+  const occurredAt = input.occurredAt ?? new Date();
   const correlationId = input.correlationId ?? randomUUID();
   const afterData = JSON.stringify(input.afterData);
-  const metadataObj = { seedVersion: process.env.npm_package_version ?? '0.0.0', commit: currentCommit() };
+  const metadataObj = { ...(input.metadata ?? {}), seedVersion: process.env.npm_package_version ?? '0.0.0', commit: currentCommit() };
   const metadata = JSON.stringify(metadataObj);
   const retainedUntil = new Date(occurredAt);
   retainedUntil.setFullYear(retainedUntil.getFullYear() + 8);
@@ -91,11 +112,11 @@ export async function writeSeedAudit(prisma: PrismaClient, input: SeedAuditInput
     primarySubjectNo: input.subjectNo,
     ownerCustomerNo: input.ownerCustomerNo ?? null,
     traceId: correlationId,
-    actorType: 'SYSTEM',
-    actorNo: input.actorNo,
+    actorType: actor.type,
+    actorNo: actor.no,
     requestId,
     sourceIp: null,
-    sourcePlatform: 'SYSTEM',
+    sourcePlatform: actor.platform,
     outcome: 'SUCCESS',
     reason: input.reason ?? null,
     metadata: metadataObj,
@@ -108,16 +129,16 @@ export async function writeSeedAudit(prisma: PrismaClient, input: SeedAuditInput
       return await prisma.auditLogEvent.create({
         data: {
           eventNo: generateReferenceNo('AUD'),
-          category: 'SYSTEM',
+          category: input.category ?? 'SYSTEM',
           occurredAt,
           recordedAt: occurredAt,
           action: input.action,
           actionDomain,
-          actorType: 'SYSTEM',
-          actorNo: input.actorNo,
-          actorDisplayName: input.actorNo,
-          actorRolesAtTime: JSON.stringify(['SYSTEM']),
-          sourcePlatform: 'SYSTEM',
+          actorType: actor.type,
+          actorNo: actor.no,
+          actorDisplayName: actor.no,
+          actorRolesAtTime: JSON.stringify(actor.roles),
+          sourcePlatform: actor.platform,
           requestId,
           primarySubjectType: input.subjectType,
           primarySubjectNo: input.subjectNo,
@@ -138,6 +159,7 @@ export async function writeSeedAudit(prisma: PrismaClient, input: SeedAuditInput
           subjects: {
             create: [
               { subjectType: input.subjectType, subjectNo: input.subjectNo, subjectRole: 'PRIMARY', occurredAt },
+              ...(input.relatedSubjects ?? []).map((s) => ({ ...s, occurredAt })),
               ...(input.ownerCustomerNo
                 ? [{ subjectType: 'CUSTOMER', subjectNo: input.ownerCustomerNo, subjectRole: 'OWNER', occurredAt }]
                 : []),

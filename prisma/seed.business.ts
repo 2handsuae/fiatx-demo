@@ -1,6 +1,7 @@
-import { Prisma, PrismaClient } from '@prisma/client';
+import { LiquidityProvider, Prisma, PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
+import * as path from 'path';
 import { createClient as tbCreateClient } from 'tigerbeetle-node';
 import { generateReferenceNo } from '../src/common/utils/no-generator.util';
 import { ensureBaseSeeded } from './seed.base';
@@ -23,15 +24,20 @@ import { platformWalletSlots } from '../src/config/manifests/vaults.manifest';
 import { NETWORKS } from '../src/config/manifests/networks.manifest';
 import { fakeTronAddress } from '../src/common/utils/tron-address.util';
 import { writeSeedAudit } from './seed-audit.helper';
-import { FilingStatus, FilingEntryKinds, RegulatoryAuthorities } from '../src/modules/governance/regulatory-filings/regulatory-filing.constants';
+import { writePlaceholderPdf } from './seed-placeholder-pdf.helper';
+import { FilingStatus, FilingEntryKinds, REGULATORY_AUTHORITY_LABELS, RegulatoryAuthorities } from '../src/modules/governance/regulatory-filings/regulatory-filing.constants';
 import { getFilingTypeConfig } from '../src/modules/governance/regulatory-filings/filing-type-registry';
 import { addBusinessDays } from '../src/modules/governance/regulatory-filings/business-days';
 import { DUBAI_UTC_OFFSET_MS, businessMonthOf, toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { fakeChainTxHash, fakeBankRef } from '../src/common/utils/fake-external-refs.util';
 import { DEFAULT_DELIVERY_SOURCE } from '../src/modules/asset-treasury/lp-desk/constants/lp-delivery-source.constant';
 import { INCIDENT_REPORT_BASES } from '../src/modules/governance/incidents/incident.constants';
-import { ObligationFrequencies, ObligationStatus, VendorStatus } from '../src/modules/governance/compliance-office/compliance-office.constants';
+import { ObligationFrequencies, ObligationStatus } from '../src/modules/governance/compliance-office/compliance-office.constants';
 import { ComplaintCategories, ComplaintClientMessageTypes, ComplaintEntryKinds, ComplaintResolutionOutcomes, ComplaintStatus } from '../src/modules/governance/complaints/complaint.constants';
+import { AuditActions, AuditEntityTypes } from '../src/modules/audit-logging/constants/audit-actions.constant';
+import { ApprovalActionTypes, DEFAULT_APPROVAL_POLICIES } from '../src/modules/governance/approvals/constants/approval.constants';
+import { DD_TARGET_TYPES, SCREENING_LISTS } from '../src/modules/governance/compliance-office/due-diligence.constants';
+import { DOCUMENT_OWNER_TYPES, LP_DOC_TYPES } from '../src/core/documents/documents.constants';
 import { DSR_DUE_DAYS, DSR_SUMMARY_PROFILE_FIELDS, DsrResolutionCode, DsrStatus, DsrType } from '../src/modules/identity/dsr-requests/dsr.constants';
 
 type SeedBusinessOptions = {
@@ -43,6 +49,8 @@ export async function seedBusiness(
   options: SeedBusinessOptions = {},
 ): Promise<void> {
   console.log('--- Seeding Business Data (Transaction-Ready Demo) ---');
+  // 合作方申请文件（占位 PDF）要落盘：缺 FILE_STORAGE_DIR 在这里就抛，不等跑到账本之后才炸（甲波六 T9）。
+  requireFileStorageDir();
 
   if (!options.skipEnsureBase) {
     await ensureBaseSeeded(prisma);
@@ -86,6 +94,9 @@ export async function seedBusiness(
   // needs seedCapitalInjection 的公司起始余额（卖出腿要扣 FIRM_OPS AED，注资在前才不会
   // 让恒等式在负数区间起步）。
   await seedLpDesk(prisma);
+  // 合作方准入旅程的纸面证据（甲波六 T9，spec §10）：七家（LP 三 + 服务商四）的尽调评估 / 筛查记录 / 占位 PDF / 准入审批单 /
+  // VARA 告知单 / 审计留痕——needs seedLpDesk 的三档案行与 seedOutsourcingVendors 的四服务商行（只补行外的证据，不改行）。
+  await seedPartnerDueDiligence(prisma);
   // 公司资金种子（战役乙波二 Task 9，spec §7/§9）：两张 CIN 壳单 + 一张 PAY 历史单——
   // needs seedCapitalInjection 的账本行（CIN 壳单复用）+ seedOutsourcingVendors 的
   // vendor-hextrust 登记行（PAY 历史单挂靠）；排在 seedLpDesk 之后跑（F_OPS(AED) 期望
@@ -1700,28 +1711,192 @@ async function seedComplianceObligations(prisma: PrismaClient): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ③f-2 Outsourcing vendor register — 战役甲波四 Task 7（spec §4.1/§7）：三行，呼应
-// 波一「外包商断供」事件（`outsourcing-kyc-relay-degraded`，subjectRefs.vendor=SUMSUB）
-// ——呼应是纯叙事，不建外键（spec §4.1：两主体各管各的，YAGNI）。Sumsub / HexTrust 判
-// MATERIAL（分别是 KYC/AML 筛查与客户资产托管的关键职能外包）；一家 office-IT 供应商
-// 判 NON_MATERIAL 对照（非核心行政 IT 支持）。
+// 甲波六 T9（2026-10-29，spec §10）：合作方准入「旅程时间表」——LP 三家 + 服务商四家。
+// 存量五家（Falcon / Dune / Sumsub / HexTrust / Gulf）按「已走完全流程」重铺，新增两家供演示剧目起手：
+// Sable Crest Trading FZCO（LP，待评估——第 38 幕「红灯」）、Pearl Clean Services LLC（服务商，待批准——第 40 幕「一般路」）。
 //
-// 与 seedComplianceObligations 同一性质：直铺快照数据，不走 OutsourcingVendorsService
-// （没有 operator、不写审计）。vendorNo 用 buildDeterministicNo(seedKey) 派生，upsert
-// 保幂等。
+// 一张表串起三处：档案 / 服务商行（seedLpDesk / seedOutsourcingVendors 读 applied、settled、approval.key、notification.filingKey）、
+// 纸面证据（seedPartnerDueDiligence 读全部：评估、筛查、文件、审批单、报送单、审计）。时间**全是固定时刻**——
+// 种子里相对运行时的日期是定时炸弹（既有判例）；存量各家的终态时刻都早于下游种子事件（Falcon 的打款地址与历史兑换单、
+// HexTrust 的 2026-08-31 付款单）。号码一律 `buildDeterministicNo`，存量五家的 LPP / VEN 号沿用原 seedKey（不变）。
+//
+// 唯一的「相对」例外不在这张表里而在审批单：Pearl Clean 的待批审批单 timeoutAt 钉成远期固定日（见 seedPartnerDueDiligence）——
+// 审批过期 cron 每分钟扫一次，固定在过去的 48h 会让它在铺数后第一分钟就 EXPIRED → 服务商 REJECTED，第 40 幕演不出来。
 // ─────────────────────────────────────────────────────────────
 
-// 甲波六 T6（2026-10-29）：服务商册改成服务商准入（申请表字段全部必填列）——三家种子补齐新必填列（最小改动让种子能跑），
-// 状态仍直铺 ACTIVE、不走流程重放；尽调评估 / CISO 评估 / 审批单 / 历史告知单随 T9 整体重铺。四问答案与 criticality 一致
-// （任一「会」→ MATERIAL，同 judgeCriticality）。
+/** 旅程里出场的操作员（userNo 取自 seed.base.ts ROLE_SEED_ACCOUNTS；用户一律存 userNo，不是 UUID）。 */
+const PDD_USERS = {
+  TREASURY: { userNo: 'ADM2501010011', role: 'TREASURY_OFFICER' }, // LP 申请人（金库）
+  OPS: { userNo: 'ADM2501010008', role: 'OPS_OFFICER' }, // 服务商申请人（运营）
+  COMPLIANCE: { userNo: 'ADM2501010006', role: 'COMPLIANCE_OFFICER' }, // 两线评估 / 送审 / 报送，审批单提单人
+  CISO: { userNo: 'ADM2501010003', role: 'CISO' }, // 重大服务商信息安全评估
+  CFO: { userNo: 'ADM2501010010', role: 'CFO' }, // 审批第一步
+  SMO: { userNo: 'ADM2501010002', role: 'SENIOR_MANAGEMENT_OFFICER' }, // 审批第二步 / 报送签发
+} as const;
+type PddUserKey = keyof typeof PDD_USERS;
+
+interface PartnerJourney {
+  kind: 'LP' | 'VENDOR';
+  /** 档案 / 服务商的 seedKey（LPP / VEN 号由它派生）。 */
+  seedKey: string;
+  /** 申请时已传的文件类别（各一份占位 PDF）。 */
+  docTypes: string[];
+  /** 申请提交（档案 / 服务商行出生；同一分钟内开评估壳）。 */
+  applied: string;
+  /** 第一份文件上传时刻，之后每份 +1 分钟。 */
+  docsFrom: string;
+  /** 合规官逐名筛查：公司记录在此刻，每位实控人 +5 分钟（全绿、六张名单全查）。缺省 = 尚未筛（Sable Crest）。 */
+  screenedFrom?: string;
+  assessed?: string;
+  /** CISO 信息安全评估（仅 MATERIAL）。 */
+  infosec?: { at: string; dataLocationAcceptable: boolean; drPlanAcceptable: boolean; opinion: string };
+  /** 合规官落结论「通过并送审」，同刻迁 PENDING_APPROVAL，随后开审批单。 */
+  concluded?: string;
+  riskTier?: 'LOW' | 'MEDIUM' | 'HIGH';
+  opinion?: string;
+  conditions?: string;
+  /** 准入审批单：key 派生 APR 号；步骤与角色取自 DEFAULT_APPROVAL_POLICIES；decided 缺省 = 还在待批（Pearl Clean）。 */
+  approval?: { key: string; actionType: string; reasons: string[]; decided?: string[] };
+  /** Dune：批准后又被金库停用。 */
+  suspended?: { at: string; reason: string };
+  /** 重大服务商批后的 VARA 告知单：开单即在批准时刻；签发审批 → 标记已报送 → 服务商 ACTIVE。 */
+  notification?: { filingKey: string; signoffKey: string; signoffRequested: string; signoffDecided: string; submitted: string; externalRef: string };
+  /** 档案 / 服务商行最后一次状态变化（行的 updatedAt）。 */
+  settled: string;
+}
+
+const PARTNER_JOURNEYS: PartnerJourney[] = [
+  {
+    kind: 'LP', seedKey: 'falcon-liquidity-fze', docTypes: LP_DOC_TYPES,
+    applied: '2026-09-14T06:00:00Z', docsFrom: '2026-09-14T06:10:00Z',
+    screenedFrom: '2026-09-15T08:00:00Z', assessed: '2026-09-15T08:20:00Z', concluded: '2026-09-15T08:30:00Z',
+    riskTier: 'LOW',
+    opinion: 'DFSA-licensed DIFC liquidity provider. The company and its beneficial owner clear all six lists with no adverse media. Low counterparty risk — standard CFO approval.',
+    conditions: 'AED/USDT spot and OTC block trades only; annual review.',
+    approval: {
+      key: 'lp-falcon-liquidity-registration', actionType: ApprovalActionTypes.LP_PROFILE_APPROVAL,
+      reasons: ['Assessment and screening reviewed against the agreement terms — LP admission approved.'],
+      decided: ['2026-09-15T10:30:00Z'],
+    },
+    settled: '2026-09-15T10:30:00Z',
+  },
+  {
+    kind: 'LP', seedKey: 'dune-otc-dmcc', docTypes: LP_DOC_TYPES,
+    applied: '2026-09-01T07:00:00Z', docsFrom: '2026-09-01T07:10:00Z',
+    screenedFrom: '2026-09-02T09:00:00Z', assessed: '2026-09-02T09:20:00Z', concluded: '2026-09-02T09:30:00Z',
+    riskTier: 'MEDIUM',
+    opinion: 'VARA-licensed OTC desk with clean screening. Medium risk: a single desk carries the block-ticket flow, so concentration and settlement discipline need watching.',
+    conditions: 'OTC block tickets only; ticket-size cap to be set in the LPA annex.',
+    approval: {
+      key: 'lp-dune-otc-dmcc-registration', actionType: ApprovalActionTypes.LP_PROFILE_APPROVAL,
+      reasons: ['Medium-risk desk accepted for OTC block flow under the stated conditions.'],
+      decided: ['2026-09-02T13:00:00Z'],
+    },
+    suspended: { at: '2026-10-12T10:00:00Z', reason: 'Block-ticket pricing dispute under review — new LP exchange orders paused until it is resolved.' },
+    settled: '2026-10-12T10:00:00Z',
+  },
+  {
+    // 第 38 幕起点：文件已传、评估壳已开，零筛查记录——合规官现场给 UBO 记一条 OFAC 红。
+    kind: 'LP', seedKey: 'sable-crest-trading-fzco', docTypes: LP_DOC_TYPES,
+    applied: '2026-10-27T07:00:00Z', docsFrom: '2026-10-27T07:10:00Z',
+    settled: '2026-10-27T07:15:00Z',
+  },
+  {
+    kind: 'VENDOR', seedKey: 'vendor-sumsub', docTypes: ['INCORPORATION_CERT', 'CONTRACT', 'SOC2_ISO_CERT', 'DR_PLAN'],
+    applied: '2026-02-02T06:00:00Z', docsFrom: '2026-02-02T06:10:00Z',
+    screenedFrom: '2026-02-03T08:00:00Z', assessed: '2026-02-03T08:20:00Z', concluded: '2026-02-03T11:00:00Z',
+    infosec: { at: '2026-02-03T10:00:00Z', dataLocationAcceptable: true, drPlanAcceptable: true, opinion: 'SOC 2 Type II and ISO 27001 certificates verified and in date; applicant data hosted in the UK; DR plan reviewed — acceptable.' },
+    riskTier: 'MEDIUM',
+    opinion: 'Core AML/KYC screening function (material outsourcing): loss of service directly impairs onboarding and sanctions screening. The company and its owner are clear on all six lists.',
+    conditions: 'Annual SOC 2 refresh and exit-plan review.',
+    approval: {
+      key: 'vendor-sumsub-approval', actionType: ApprovalActionTypes.VENDOR_MATERIAL_APPROVAL,
+      reasons: ['Assessment and CISO review accepted.', 'Material outsourcing accepted — proceed to the VARA notification.'],
+      decided: ['2026-02-04T07:00:00Z', '2026-02-04T13:00:00Z'],
+    },
+    notification: {
+      filingKey: 'vendor-sumsub-mcn', signoffKey: 'vendor-sumsub-mcn-signoff',
+      signoffRequested: '2026-02-05T08:00:00Z', signoffDecided: '2026-02-05T12:00:00Z', submitted: '2026-02-06T09:00:00Z',
+      externalRef: 'VARA-MCN-2026-001',
+    },
+    settled: '2026-02-06T09:00:01Z',
+  },
+  {
+    kind: 'VENDOR', seedKey: 'vendor-hextrust', docTypes: ['INCORPORATION_CERT', 'CONTRACT', 'SOC2_ISO_CERT', 'DR_PLAN'],
+    applied: '2026-02-09T06:00:00Z', docsFrom: '2026-02-09T06:10:00Z',
+    screenedFrom: '2026-02-10T08:00:00Z', assessed: '2026-02-10T08:20:00Z', concluded: '2026-02-10T11:00:00Z',
+    infosec: { at: '2026-02-10T10:00:00Z', dataLocationAcceptable: true, drPlanAcceptable: true, opinion: 'SOC 2 Type II and ISO 27001 certificates verified and in date; custody keys held under multi-party control; DR plan reviewed — acceptable.' },
+    riskTier: 'MEDIUM',
+    opinion: 'Custodian of client digital assets (material outsourcing): loss of service directly impairs deposit and withdrawal availability. The company and its owner are clear on all six lists.',
+    conditions: 'Annual SOC 2 refresh; quarterly custody segregation attestation.',
+    approval: {
+      key: 'vendor-hextrust-approval', actionType: ApprovalActionTypes.VENDOR_MATERIAL_APPROVAL,
+      reasons: ['Assessment and CISO review accepted.', 'Material outsourcing accepted — proceed to the VARA notification.'],
+      decided: ['2026-02-11T07:00:00Z', '2026-02-11T13:00:00Z'],
+    },
+    notification: {
+      filingKey: 'vendor-hextrust-mcn', signoffKey: 'vendor-hextrust-mcn-signoff',
+      signoffRequested: '2026-02-12T08:00:00Z', signoffDecided: '2026-02-12T12:00:00Z', submitted: '2026-02-13T09:00:00Z',
+      externalRef: 'VARA-MCN-2026-002',
+    },
+    settled: '2026-02-13T09:00:01Z',
+  },
+  {
+    kind: 'VENDOR', seedKey: 'vendor-office-it', docTypes: ['INCORPORATION_CERT', 'CONTRACT'],
+    applied: '2026-02-16T06:00:00Z', docsFrom: '2026-02-16T06:10:00Z',
+    screenedFrom: '2026-02-17T08:00:00Z', assessed: '2026-02-17T08:20:00Z', concluded: '2026-02-17T08:30:00Z',
+    riskTier: 'LOW',
+    opinion: 'Non-critical corporate IT support with no client-facing or regulatory-critical function. The company and its owner are clear on all six lists.',
+    approval: {
+      key: 'vendor-office-it-approval', actionType: ApprovalActionTypes.VENDOR_APPROVAL,
+      reasons: ['Routine office-IT supplier — approved.'],
+      decided: ['2026-02-17T10:30:00Z'],
+    },
+    settled: '2026-02-17T10:30:00Z',
+  },
+  {
+    // 第 40 幕起点：评估已做完并送审，审批单停在 CFO 一步——现场由 CFO 批、ACTIVE。
+    kind: 'VENDOR', seedKey: 'vendor-pearl-clean', docTypes: ['INCORPORATION_CERT', 'CONTRACT'],
+    applied: '2026-10-27T06:00:00Z', docsFrom: '2026-10-27T06:10:00Z',
+    screenedFrom: '2026-10-28T08:00:00Z', assessed: '2026-10-28T08:20:00Z', concluded: '2026-10-28T08:30:00Z',
+    riskTier: 'LOW',
+    opinion: 'Office cleaning and housekeeping only, with no data or system access. The company and its owner are clear on all six lists.',
+    approval: {
+      key: 'vendor-pearl-clean-approval', actionType: ApprovalActionTypes.VENDOR_APPROVAL,
+      reasons: [],
+    },
+    settled: '2026-10-28T08:30:01Z',
+  },
+];
+
+function pddJourney(seedKey: string): PartnerJourney {
+  const j = PARTNER_JOURNEYS.find((x) => x.seedKey === seedKey);
+  if (!j) throw new Error(`PARTNER_JOURNEYS 里没有 ${seedKey}`);
+  return j;
+}
+
+// ─────────────────────────────────────────────────────────────
+// ③f-2 Outsourcing vendor register — 战役甲波四 Task 7（spec §4.1/§7）：三行，呼应
+// 波一「外包商断供」事件（`outsourcing-kyc-relay-degraded`，subjectRefs.vendor=SUMSUB）
+// ——呼应是纯叙事，不建外键。Sumsub / HexTrust 判 MATERIAL（分别是 KYC/AML 筛查与客户资产托管的关键职能外包）；
+// 一家 office-IT 供应商判 NON_MATERIAL 对照（非核心行政 IT 支持）。
+//
+// 甲波六 T9：服务商册改成服务商准入——四家（存量三家 + 新增 Pearl Clean）按申请表全部必填列直铺**终态行**（四问答案与 criticality
+// 一致，任一「会」→ MATERIAL，同 judgeCriticality；MATERIAL 两家恰各答 2 个「会」）。直铺快照、不走服务（种子没有 operator）；
+// 评估 / 筛查 / 文件 / 审批单 / 告知单 / 审计留痕随旅程时间表在 seedPartnerDueDiligence 补齐。
+// vendorNo 用 buildDeterministicNo(seedKey) 派生，存量三家号不变。
+// ─────────────────────────────────────────────────────────────
+
 const OUTSOURCING_VENDOR_SEEDS: Array<{
   seedKey: string; name: string; serviceDescription: string;
-  criticality: 'MATERIAL' | 'NON_MATERIAL'; contractStart: string; notes: string;
+  criticality: 'MATERIAL' | 'NON_MATERIAL'; contractStart: string;
   registeredIn: string; registrationNo: string; deliveryLocations: string;
+  beneficialOwners: Array<{ seq: number; name: string; nationality: string }>;
   contactName: string; contactEmail: string; applicationReason: string;
   involvesPersonalData: boolean; involvesConfidentialInfo: boolean;
   impactLicence: boolean; impactLegal: boolean; impactFinancial: boolean; impactContinuity: boolean;
   replaceability: 'EASY' | 'HARD';
+  status: 'ACTIVE' | 'PENDING_APPROVAL';
 }> = [
   {
     seedKey: 'vendor-sumsub',
@@ -1729,16 +1904,17 @@ const OUTSOURCING_VENDOR_SEEDS: Array<{
     serviceDescription: 'KYC/AML identity verification and applicant screening (onboarding + periodic re-screening)',
     criticality: 'MATERIAL',
     contractStart: '2025-01-01',
-    notes: 'Material Outsourcing assessment: core AML/KYC screening function — loss of service directly impairs onboarding and sanctions screening.',
     registeredIn: 'United Kingdom',
     registrationNo: 'UK-SEED-100231',
-    deliveryLocations: 'GB,DE',
+    deliveryLocations: 'GB',
+    beneficialOwners: [{ seq: 1, name: 'Daniel Whitcombe', nationality: 'GB' }],
     contactName: 'Account Team',
     contactEmail: 'accounts@sumsub.example',
     applicationReason: 'Outsourced identity verification and sanctions screening for customer onboarding',
     involvesPersonalData: true, involvesConfidentialInfo: true,
-    impactLicence: true, impactLegal: true, impactFinancial: false, impactContinuity: true,
+    impactLicence: true, impactLegal: true, impactFinancial: false, impactContinuity: false,
     replaceability: 'HARD',
+    status: 'ACTIVE',
   },
   {
     seedKey: 'vendor-hextrust',
@@ -1746,16 +1922,17 @@ const OUTSOURCING_VENDOR_SEEDS: Array<{
     serviceDescription: 'Digital asset custody (TRON network wallet infrastructure)',
     criticality: 'MATERIAL',
     contractStart: '2025-01-01',
-    notes: 'Material Outsourcing assessment: custodial control of client digital assets — loss of service directly impairs deposit/withdrawal availability.',
     registeredIn: 'Singapore',
     registrationNo: 'SG-SEED-200774',
-    deliveryLocations: 'SG,AE',
+    deliveryLocations: 'HK',
+    beneficialOwners: [{ seq: 1, name: 'Wei Ling Tan', nationality: 'SG' }],
     contactName: 'Institutional Desk',
     contactEmail: 'institutional@hextrust.example',
     applicationReason: 'Third-party custody of client digital assets and wallet infrastructure',
-    involvesPersonalData: false, involvesConfidentialInfo: true,
-    impactLicence: true, impactLegal: false, impactFinancial: true, impactContinuity: true,
+    involvesPersonalData: true, involvesConfidentialInfo: true,
+    impactLicence: true, impactLegal: false, impactFinancial: false, impactContinuity: true,
     replaceability: 'HARD',
+    status: 'ACTIVE',
   },
   {
     seedKey: 'vendor-office-it',
@@ -1763,16 +1940,36 @@ const OUTSOURCING_VENDOR_SEEDS: Array<{
     serviceDescription: 'Office IT support (workstation provisioning, network helpdesk)',
     criticality: 'NON_MATERIAL',
     contractStart: '2025-06-01',
-    notes: 'Material Outsourcing assessment: non-critical corporate IT support, no client-facing or regulatory-critical function.',
     registeredIn: 'United Arab Emirates (Dubai)',
     registrationNo: 'DED-SEED-310552',
     deliveryLocations: 'AE',
+    beneficialOwners: [{ seq: 1, name: 'Hamad Al Suwaidi', nationality: 'AE' }],
     contactName: 'Service Desk',
     contactEmail: 'servicedesk@gulf-office-systems.example',
     applicationReason: 'Day-to-day office IT support for the Dubai team',
     involvesPersonalData: false, involvesConfidentialInfo: false,
     impactLicence: false, impactLegal: false, impactFinancial: false, impactContinuity: false,
     replaceability: 'EASY',
+    status: 'ACTIVE',
+  },
+  {
+    // 第 40 幕：评估已做、审批单待 CFO 批——批完 NON_MATERIAL 直接 ACTIVE，不报备。
+    seedKey: 'vendor-pearl-clean',
+    name: 'Pearl Clean Services LLC',
+    serviceDescription: 'Office cleaning and housekeeping for the Dubai office',
+    criticality: 'NON_MATERIAL',
+    contractStart: '2026-11-01',
+    registeredIn: 'United Arab Emirates (Dubai)',
+    registrationNo: 'DED-SEED-410877',
+    deliveryLocations: 'AE',
+    beneficialOwners: [{ seq: 1, name: 'Noura Al Kaabi', nationality: 'AE' }],
+    contactName: 'Operations Desk',
+    contactEmail: 'operations@pearl-clean.example',
+    applicationReason: 'Daily cleaning and housekeeping for the Dubai office floor',
+    involvesPersonalData: false, involvesConfidentialInfo: false,
+    impactLicence: false, impactLegal: false, impactFinancial: false, impactContinuity: false,
+    replaceability: 'EASY',
+    status: 'PENDING_APPROVAL',
   },
 ];
 
@@ -1780,28 +1977,28 @@ async function seedOutsourcingVendors(prisma: PrismaClient): Promise<void> {
   let seeded = 0;
   for (const sample of OUTSOURCING_VENDOR_SEEDS) {
     const vendorNo = buildDeterministicNo('VEN', sample.seedKey);
-    const { seedKey: _seedKey, contractStart, ...fields } = sample;
+    const journey = pddJourney(sample.seedKey);
+    const { seedKey: _seedKey, contractStart, beneficialOwners, ...fields } = sample;
     await prisma.outsourcingVendor.upsert({
       where: { vendorNo },
-      update: {
-        ...fields,
-        contractStart: new Date(contractStart),
-        regulatedFunction: false,
-        status: VendorStatus.ACTIVE,
-      },
+      update: {},
       create: {
         vendorNo,
         ...fields,
+        beneficialOwners: JSON.stringify(beneficialOwners),
         contractStart: new Date(contractStart),
         regulatedFunction: false,
-        status: VendorStatus.ACTIVE,
-        createdByUserId: 'SEED',
+        approvalNo: journey.approval ? buildDeterministicNo('APR', journey.approval.key) : null,
+        notificationFilingNo: journey.notification ? buildDeterministicNo('FIL', journey.notification.filingKey) : null,
+        createdByUserId: PDD_USERS.OPS.userNo,
         traceId: `seed-${vendorNo}`,
+        createdAt: new Date(journey.applied),
+        updatedAt: new Date(journey.settled),
       },
     });
     seeded += 1;
   }
-  console.log(`Seeded ${seeded} outsourcing vendor rows (Sumsub + HexTrust MATERIAL, Gulf Office Systems NON_MATERIAL, all ACTIVE).`);
+  console.log(`Seeded ${seeded} outsourcing vendor rows (Sumsub + HexTrust MATERIAL ACTIVE, Gulf Office Systems NON_MATERIAL ACTIVE, Pearl Clean NON_MATERIAL PENDING_APPROVAL).`);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2137,7 +2334,8 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// LP desk — 战役乙波一 Task 9：两档案 + 一张 SUCCESS 历史兑换单；LP 两步准入 Task 9 增补：
+// LP desk — 战役乙波一 Task 9：两档案 + 一张 SUCCESS 历史兑换单（甲波六 T9 起三档案：加 Sable Crest 待评估，
+// 档案行只在本函数铺，准入旅程的纸面证据在 seedPartnerDueDiligence）；LP 两步准入 Task 9 增补：
 // Falcon 打款地址簿三条（各配已批地址审批单 + 登记/批准审计），历史兑换单的收款坐标改抄地址条目、
 // 到货来源改用干净占位 + 到货筛查 GREEN。
 //
@@ -2204,112 +2402,80 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     throw new Error('seedLpDesk: 找不到 treasury/CFO 种子管理员——seed.base.ts 的 db:base:sync 是否先跑？');
   }
 
-  // ── 两档案（终态直铺，不走流程重放）────────────────────────────────────
+  // ── 三档案（终态直铺，不走流程重放）────────────────────────────────────
   // LP 两步准入（2026-10-24）：档案不再持有结算坐标，收款坐标只在下方「打款地址簿」里。
-  // 甲波六 T4（2026-10-29）：档案即 LP 申请表——实体背调 mock 三列退役，两家补齐申请表必填列（最小改动让种子能跑；
-  // 尽调评估壳 / 筛查记录 / 申请文件 / 审批快照随 T9 整体重铺）。
-  const falconLpNo = buildDeterministicNo('LPP', 'falcon-liquidity-fze');
-  const duneLpNo = buildDeterministicNo('LPP', 'dune-otc-dmcc');
-  const falconApprovalNo = buildDeterministicNo('APR', 'lp-falcon-liquidity-registration');
-
-  const DAY_MS = 24 * 60 * 60 * 1000;
-  const nowMs = Date.now();
-  // Falcon 准入审批：铺场时刻−10天提交、+1h CFO 批
-  const falconApprovalSubmittedAt = new Date(nowMs - 10 * DAY_MS);
-  const falconApprovalDecidedAt = new Date(falconApprovalSubmittedAt.getTime() + 60 * 60 * 1000);
-
-  const falcon = await prisma.liquidityProvider.upsert({
-    where: { lpNo: falconLpNo },
-    update: {},
-    create: {
-      lpNo: falconLpNo,
-      name: 'Falcon Liquidity FZE',
-      registeredIn: 'United Arab Emirates (DMCC)',
-      registrationNo: 'DMCC-202614',
-      licensingAuthority: 'Dubai Multi Commodities Centre',
-      licenceNo: 'DMCC-LIC-48213',
-      beneficialOwners: JSON.stringify([{ seq: 1, name: 'Khalid Al Mansoori', nationality: 'AE' }]),
-      tradingTypes: 'SPOT_EXCHANGE,OTC_BLOCK',
-      expectedMonthlyVolume: '5000000',
-      volumeCurrency: 'USD',
+  // 甲波六 T9（2026-10-29）：档案即 LP 申请表——Falcon / Dune 按「已走完全流程」重铺（状态直接是终态，approvalNo 是准入审批单的确定性号），
+  // 新增 Sable Crest（待评估，第 38 幕「红灯」起点）。尽调评估 / 筛查记录 / 申请文件 / 准入审批单 / 审计留痕不在本函数：
+  // 它们依赖本段之后才存在的行，由 seedPartnerDueDiligence 按同一张旅程时间表（PARTNER_JOURNEYS）补齐。
+  const LP_PROFILE_SEEDS: Array<{
+    seedKey: string; name: string; registeredIn: string; registrationNo: string; licensingAuthority: string; licenceNo: string;
+    beneficialOwners: Array<{ seq: number; name: string; nationality: string }>;
+    tradingTypes: string; expectedMonthlyVolume: string; volumeCurrency: string; applicationReason: string;
+    agreementRef: string; agreementStart: string | null; contactName: string; contactEmail: string;
+    status: 'ACTIVE' | 'SUSPENDED' | 'PENDING_ASSESSMENT';
+  }> = [
+    {
+      seedKey: 'falcon-liquidity-fze', name: 'Falcon Liquidity FZE',
+      registeredIn: 'United Arab Emirates (DIFC)', registrationNo: 'DIFC-CL-5214',
+      licensingAuthority: 'Dubai Financial Services Authority (DFSA)', licenceNo: 'DFSA-F007251',
+      beneficialOwners: [{ seq: 1, name: 'Khalid Al Mansoori', nationality: 'AE' }],
+      tradingTypes: 'SPOT_EXCHANGE,OTC_BLOCK', expectedMonthlyVolume: '5000000', volumeCurrency: 'USD',
       applicationReason: 'AED/USDT spot and OTC liquidity for the exchange desk',
-      agreementRef: 'LPA-2026-FALCON-001',
-      agreementStart: new Date(nowMs - 30 * DAY_MS),
-      contactName: 'Layla Hassan',
-      contactEmail: 'layla.hassan@falcon-liquidity.example',
+      agreementRef: 'LPA-2026-FALCON-001', agreementStart: '2026-09-30',
+      contactName: 'Layla Hassan', contactEmail: 'layla.hassan@falcon-liquidity.example',
       status: 'ACTIVE',
-      approvalNo: falconApprovalNo,
-      createdByUserId: TREASURY_USER_NO,
     },
-  });
-  const dune = await prisma.liquidityProvider.upsert({
-    where: { lpNo: duneLpNo },
-    update: {},
-    create: {
-      lpNo: duneLpNo,
-      name: 'Dune OTC DMCC',
-      registeredIn: 'United Arab Emirates (DMCC)',
-      registrationNo: 'DMCC-203377',
-      licensingAuthority: 'Dubai Multi Commodities Centre',
-      licenceNo: 'DMCC-LIC-51970',
-      beneficialOwners: JSON.stringify([{ seq: 1, name: 'Omar Farouk', nationality: 'EG' }]),
-      tradingTypes: 'OTC_BLOCK',
-      expectedMonthlyVolume: '2000000',
-      volumeCurrency: 'USD',
+    {
+      seedKey: 'dune-otc-dmcc', name: 'Dune OTC DMCC',
+      registeredIn: 'United Arab Emirates (DMCC)', registrationNo: 'DMCC-203377',
+      licensingAuthority: 'Virtual Assets Regulatory Authority (VARA)', licenceNo: 'VARA-VASP-0217',
+      beneficialOwners: [{ seq: 1, name: 'Omar Farouk', nationality: 'EG' }],
+      tradingTypes: 'OTC_BLOCK', expectedMonthlyVolume: '2000000', volumeCurrency: 'USD',
       applicationReason: 'OTC block liquidity for large USDT/AED tickets',
-      agreementRef: 'LPA-2026-DUNE-002',
-      agreementStart: new Date(nowMs - 45 * DAY_MS),
-      contactName: 'Hassan Ali',
-      contactEmail: 'hassan.ali@dune-otc.example',
+      agreementRef: 'LPA-2026-DUNE-002', agreementStart: '2026-09-14',
+      contactName: 'Hassan Ali', contactEmail: 'hassan.ali@dune-otc.example',
       status: 'SUSPENDED',
-      createdByUserId: TREASURY_USER_NO,
     },
-  });
-
-  await writeSeedAudit(prisma, {
-    action: 'LP_PROFILE_CREATED',
-    subjectType: 'LIQUIDITY_PROVIDER',
-    subjectNo: falcon.lpNo,
-    actorNo: 'DEMO_SEED',
-    actionDomain: 'TREASURY',
-    // 契约 requiredFields=['reason']（评审 M3：此前恒写 null，`writeSeedAudit` 2026-09-29
-    // 起支持 reason 通道，见 prisma/seed-audit.helper.ts）。
-    reason: 'LP registered — new liquidity provider onboarded for AED/USDT exchange desk.',
-    afterData: {
-      name: falcon.name, agreementRef: falcon.agreementRef, registeredIn: falcon.registeredIn,
-      licensingAuthority: falcon.licensingAuthority, status: falcon.status, approvalNo: falcon.approvalNo,
+    {
+      seedKey: 'sable-crest-trading-fzco', name: 'Sable Crest Trading FZCO',
+      registeredIn: 'United Arab Emirates (RAK ICC)', registrationNo: 'RAKICC-2026-0731',
+      licensingAuthority: 'RAK International Corporate Centre (RAK ICC)', licenceNo: 'RAKICC-LIC-0731',
+      beneficialOwners: [{ seq: 1, name: 'Marwan Al-Sable', nationality: 'AE' }],
+      tradingTypes: 'OTC_BLOCK', expectedMonthlyVolume: '3000000', volumeCurrency: 'USD',
+      applicationReason: 'Additional OTC block liquidity for USDT/AED tickets',
+      agreementRef: 'LPA-2026-SABLE-003', agreementStart: null,
+      contactName: 'Rania Khoury', contactEmail: 'rania.khoury@sablecrest.example',
+      status: 'PENDING_ASSESSMENT',
     },
-  });
+  ];
+  const DAY_MS = 24 * 60 * 60 * 1000;
+  const nowMs = Date.now(); // 下方历史兑换单的时间戳相对铺场时刻回拨（账本分录业务日要落在近几天，既有口径，不动）
 
-  // 评审 R15 甲案：Falcon 准入审批——单步 CFO 已批。objectSnapshot 先取档案身份四键（零 UUID）；真实送审快照
-  // （lp-profile-workflow.service.ts#sendForApproval：另带风险档 / 附加条件 / 评估号）随 T9 种子整体重铺补齐。
-  await prisma.approvalCase.upsert({
-    where: { approvalNo: falconApprovalNo },
-    update: {},
-    create: {
-      approvalNo: falconApprovalNo,
-      actionType: 'LP_PROFILE_APPROVAL',
-      entityRef: falcon.lpNo,
-      createdByUserId: treasuryUser.id, createdByUserNo: TREASURY_USER_NO,
-      status: 'APPROVED', allowCancel: true,
-      objectSnapshot: JSON.stringify({
-        lpNo: falcon.lpNo, name: falcon.name, registeredIn: falcon.registeredIn, licensingAuthority: falcon.licensingAuthority,
-      }),
-      traceId: `SEED_LP_PROFILE_${falcon.lpNo}`,
-      createdAt: falconApprovalSubmittedAt, submittedAt: falconApprovalSubmittedAt,
-      timeoutAt: new Date(falconApprovalSubmittedAt.getTime() + 48 * 60 * 60 * 1000),
-      steps: {
-        create: [{
-          stepNo: 1, status: 'APPROVED', checkerRoleCandidates: 'CFO',
-          decidedByUserId: cfoUser.id, decidedByUserNo: CFO_USER_NO, decidedByRole: 'CFO',
-          reason: 'LP registration reviewed against agreement and due-diligence file — approved.',
-          decidedAt: falconApprovalDecidedAt, createdAt: falconApprovalSubmittedAt,
-        }],
+  const lpRows: Record<string, LiquidityProvider> = {};
+  for (const sample of LP_PROFILE_SEEDS) {
+    const journey = pddJourney(sample.seedKey);
+    const { seedKey, beneficialOwners, agreementStart, ...fields } = sample;
+    const lpNo = buildDeterministicNo('LPP', seedKey);
+    lpRows[seedKey] = await prisma.liquidityProvider.upsert({
+      where: { lpNo },
+      update: {},
+      create: {
+        lpNo,
+        ...fields,
+        beneficialOwners: JSON.stringify(beneficialOwners),
+        agreementStart: agreementStart ? new Date(agreementStart) : null,
+        approvalNo: journey.approval ? buildDeterministicNo('APR', journey.approval.key) : null,
+        createdByUserId: PDD_USERS.TREASURY.userNo,
+        createdAt: new Date(journey.applied),
+        updatedAt: new Date(journey.settled),
       },
-    },
-  });
+    });
+  }
+  const falcon = lpRows['falcon-liquidity-fze'];
+  // 地址簿登记时间锚在 Falcon 准入批准之后（固定时刻，来自旅程时间表）
+  const falconApprovalDecidedAt = new Date(pddJourney('falcon-liquidity-fze').approval!.decided![0]);
 
-  console.log(`Seeded 2 LP profile rows (${falcon.name} ACTIVE / ${dune.name} SUSPENDED) + 1 APPROVED profile-registration approval case.`);
+  console.log(`Seeded ${LP_PROFILE_SEEDS.length} LP profile rows (Falcon ACTIVE / Dune SUSPENDED / Sable Crest PENDING_ASSESSMENT); assessment, screening, files, approvals and audit trail follow in seedPartnerDueDiligence.`);
 
   // ── Falcon 打款地址簿三条（终态 ACTIVE，各配一张已批 LP_ADDRESS_APPROVAL）────────────
   // AED IBAN ×1（复用平台池 IBAN 生成器）+ USDT TRON ×2（演开单时多选；两个不同种子串），
@@ -2674,6 +2840,397 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
   } finally {
     client.destroy();
   }
+}
+
+// ─────────────────────────────────────────────────────────────
+// 合作方准入旅程的纸面证据 — 甲波六 T9（spec §10）：七家（LP 三 + 服务商四）的尽调评估 / 逐名筛查记录 / 申请文件（占位 PDF）/
+// 准入审批单 / 重大服务商的 VARA 告知单与签发审批单 / 全程审计留痕。
+//
+// 照 seedLpDesk 的直写形态：不走 LpProfileWorkflowService / OutsourcingVendorWorkflowService（Nest DI + 事件总线 + 审批服务，
+// 裸 PrismaClient 走不通），手写镜像，逐行对齐 due-diligence.service.ts / documents.service.ts / lp-profile.service.ts /
+// outsourcing-vendors.service.ts / regulatory-filing.service.ts#openForVendorNotification 真实写出的行形：
+//   · 用户一律存 userNo（ADM…），审批单里的人是 User.id（与审批引擎同口径）；
+//   · 评估壳 DDA、筛查记录 SCR、文件 DOC 的号用 buildDeterministicNo 派生（4 位哈希，本函数内会查撞号）；
+//   · 文件落 `${FILE_STORAGE_DIR}/${ownerType}/${ownerNo}/${docNo}.pdf`（storagePath 存绝对路径，与 DocumentsService 同规则）；
+//   · 审计走 writeSeedAudit：人做的边带真人 operator，审批 / 报送事件驱动的边（批准、转 ACTIVE、告知单开出）是种子自己当系统写手。
+// 审批单本体的 id 取 pddUuid(approvalNo)——审计行的 causationId 要指向它，审计表在 reset 时不清，id 若随机则重铺后旧审计指向已删的单。
+// ─────────────────────────────────────────────────────────────
+
+/** 占位 PDF 的标题文字（页上一行）与原文件名用的人话类别名。 */
+const PDD_DOC_LABELS: Record<string, string> = {
+  INCORPORATION_CERT: 'Certificate of Incorporation', UBO_REGISTER: 'Shareholder and UBO Register', LICENCE_COPY: 'Licence Copy',
+  AML_POLICY: 'AML Policy', FINANCIALS: 'Latest Financial Statements', AUTHORISED_SIGNATORIES: 'Authorised Signatories List',
+  CONTRACT: 'Service Contract', SOC2_ISO_CERT: 'SOC 2 and ISO 27001 Certificate', DR_PLAN: 'Disaster Recovery Plan',
+};
+
+/** Pearl Clean 的待批审批单超时点：钉成远期固定日。真实策略是 48h，但审批过期 cron 每分钟扫 PENDING 且 timeoutAt 已过的单，
+ *  铺在过去的 48h 会让它在起栈后第一分钟 EXPIRED → 服务商 REJECTED，第 40 幕演不出来；相对铺场时刻的 48h 则只给两天窗口
+ *  （云端演示环境常隔几天才有人来看）。其余已批审批单不受影响（已是终态，cron 不扫）。 */
+const PDD_PENDING_APPROVAL_TIMEOUT_AT = new Date('2099-12-31T00:00:00Z');
+
+function requireFileStorageDir(): string {
+  const dir = process.env.FILE_STORAGE_DIR;
+  if (!dir) {
+    throw new Error(
+      'FILE_STORAGE_DIR 未设置，无法铺合作方申请文件（占位 PDF）。修法：经 scripts/reset-stack.sh（stack.sh reset）或 scripts/on-stack.sh 调用，由栈提供该变量。',
+    );
+  }
+  return dir;
+}
+
+/** 由业务号确定性铸一个合法 v4 形 UUID（审批单 id 用）：版本位固定 4、变体位落 8-b。 */
+function pddUuid(label: string): string {
+  const h = createHash('sha256').update(`PDD|${label}`).digest('hex');
+  const variant = '89ab'[parseInt(h[16], 16) % 4];
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-4${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
+}
+
+const pddAt = (iso: string, plusSeconds = 0): Date => new Date(new Date(iso).getTime() + plusSeconds * 1000);
+
+async function seedPartnerDueDiligence(prisma: PrismaClient): Promise<void> {
+  const storageDir = requireFileStorageDir();
+
+  // 审批单里的人是 User.id（审批引擎口径）：提单人 = 合规官，批准人按策略步骤的角色取 CFO / 高管。
+  const userIdByNo: Record<string, string> = {};
+  for (const key of ['COMPLIANCE', 'CFO', 'SMO'] as const) {
+    const user = await prisma.user.findUnique({ where: { userNo: PDD_USERS[key].userNo } });
+    if (!user) throw new Error(`seedPartnerDueDiligence: 找不到种子管理员 ${PDD_USERS[key].userNo}（${key}）——seed.base.ts 的 db:base:sync 是否先跑？`);
+    userIdByNo[PDD_USERS[key].userNo] = user.id;
+  }
+  const checkerByRole: Record<string, PddUserKey> = { CFO: 'CFO', SENIOR_MANAGEMENT_OFFICER: 'SMO' };
+
+  // 确定性号的 4 位哈希会撞：本函数内撞了当场抛，别静默覆盖。
+  const used = new Set<string>();
+  const stamp = (prefix: string, key: string): string => {
+    const no = buildDeterministicNo(prefix, key);
+    if (used.has(`${prefix}:${no}`)) throw new Error(`seedPartnerDueDiligence: ${prefix} 号撞车 ${no}（seedKey=${key}）——换一个 seedKey`);
+    used.add(`${prefix}:${no}`);
+    return no;
+  };
+  /** 行已存在则校验身份（防与别的种子撞号后静默沿用别人的行），不存在才建。 */
+  async function ensureRow<T>(what: string, find: () => Promise<T | null>, create: () => Promise<T>, sameIdentity: (row: T) => boolean): Promise<T> {
+    const found = await find();
+    if (!found) return create();
+    if (!sameIdentity(found)) throw new Error(`seedPartnerDueDiligence: ${what} 的确定性号已被另一行占用（撞号）——换 seedKey`);
+    return found;
+  }
+
+  const audit = (a: {
+    action: string; domain: 'GOVERNANCE' | 'TREASURY'; subjectType: string; subjectNo: string; at: Date;
+    by?: PddUserKey; correlationId: string; requestId: string;
+    metadata?: Record<string, unknown>; related?: Array<{ subjectType: string; subjectNo: string; subjectRole: 'RELATED' | 'INSTRUMENT' }>;
+    reason?: string; approvalNo?: string; causationId?: string; fromStatus?: string; toStatus?: string;
+  }) => writeSeedAudit(prisma, {
+    action: a.action, subjectType: a.subjectType, subjectNo: a.subjectNo, actorNo: 'DEMO_SEED',
+    actionDomain: a.domain, category: a.domain === 'TREASURY' ? 'BUSINESS' : 'GOVERNANCE',
+    operator: a.by ? { userNo: PDD_USERS[a.by].userNo, roles: [PDD_USERS[a.by].role] } : undefined,
+    occurredAt: a.at, correlationId: a.correlationId, requestId: `PDD_${a.action}_${a.requestId}`,
+    metadata: a.metadata, relatedSubjects: a.related,
+    reason: a.reason, approvalNo: a.approvalNo, causationId: a.causationId, fromStatus: a.fromStatus, toStatus: a.toStatus,
+  });
+
+  /** 审批单：步骤与角色取自 DEFAULT_APPROVAL_POLICIES（按构造就与引擎策略一致）；decided 缺省 = 待批。 */
+  async function createApproval(p: {
+    approvalNo: string; actionType: string; entityRef: string; snapshot: Record<string, unknown>;
+    submittedAt: Date; reasons: string[]; decided?: string[];
+  }): Promise<{ id: string }> {
+    const policy = DEFAULT_APPROVAL_POLICIES[p.actionType];
+    if (!policy) throw new Error(`seedPartnerDueDiligence: 没有 ${p.actionType} 的默认审批策略`);
+    const done = !!p.decided;
+    if (done && p.decided!.length !== policy.steps.length) {
+      throw new Error(`seedPartnerDueDiligence: ${p.actionType} 策略有 ${policy.steps.length} 步，旅程只给了 ${p.decided!.length} 个裁决时刻`);
+    }
+    const maker = PDD_USERS.COMPLIANCE;
+    const lastDecidedAt = done ? pddAt(p.decided![p.decided!.length - 1]) : p.submittedAt;
+    return ensureRow(
+      `审批单 ${p.approvalNo}`,
+      () => prisma.approvalCase.findUnique({ where: { approvalNo: p.approvalNo } }),
+      () => prisma.approvalCase.create({
+        data: {
+          id: pddUuid(p.approvalNo),
+          approvalNo: p.approvalNo, actionType: p.actionType, entityRef: p.entityRef,
+          createdByUserId: userIdByNo[maker.userNo], createdByUserNo: maker.userNo,
+          status: done ? 'APPROVED' : 'PENDING', allowCancel: policy.allowCancel,
+          objectSnapshot: JSON.stringify(p.snapshot),
+          traceId: `SEED_${p.actionType}_${p.entityRef}`,
+          createdAt: p.submittedAt, submittedAt: p.submittedAt, updatedAt: lastDecidedAt,
+          timeoutAt: done ? new Date(p.submittedAt.getTime() + policy.timeoutHours * 3600 * 1000) : PDD_PENDING_APPROVAL_TIMEOUT_AT,
+          steps: {
+            create: policy.steps.map((step, i) => {
+              const checker = PDD_USERS[checkerByRole[step.roles[0]]];
+              return done
+                ? {
+                    stepNo: step.stepNo, status: 'APPROVED', checkerRoleCandidates: step.roles.join(','),
+                    decidedByUserId: userIdByNo[checker.userNo], decidedByUserNo: checker.userNo, decidedByRole: step.roles[0],
+                    reason: p.reasons[i], decidedAt: pddAt(p.decided![i]), createdAt: p.submittedAt, updatedAt: pddAt(p.decided![i]),
+                  }
+                : { stepNo: step.stepNo, status: 'PENDING', checkerRoleCandidates: step.roles.join(','), createdAt: p.submittedAt };
+            }),
+          },
+        },
+      }),
+      (row) => row.entityRef === p.entityRef && row.actionType === p.actionType,
+    );
+  }
+
+  const counts = { assessments: 0, screenings: 0, documents: 0, approvals: 0, filings: 0 };
+
+  for (const j of PARTNER_JOURNEYS) {
+    const isLp = j.kind === 'LP';
+    const targetType = isLp ? DD_TARGET_TYPES.LIQUIDITY_PROVIDER : DD_TARGET_TYPES.OUTSOURCING_VENDOR;
+    const targetNo = buildDeterministicNo(isLp ? 'LPP' : 'VEN', j.seedKey);
+    const applicant: PddUserKey = isLp ? 'TREASURY' : 'OPS';
+
+    // 目标行（seedLpDesk / seedOutsourcingVendors 已铺）：名字、实控人、审计 correlationId 都从行上读，种子表只写一份。
+    const lp = isLp ? await prisma.liquidityProvider.findUnique({ where: { lpNo: targetNo } }) : null;
+    const vendor = isLp ? null : await prisma.outsourcingVendor.findUnique({ where: { vendorNo: targetNo } });
+    const target = lp ?? vendor;
+    if (!target) throw new Error(`seedPartnerDueDiligence: 找不到 ${targetType} ${targetNo}（${j.seedKey}）——档案 / 服务商种子是否先跑？`);
+    const targetName = target.name;
+    const ubos: Array<{ seq: number; name: string; nationality?: string }> = JSON.parse(target.beneficialOwners || '[]');
+    const targetCorrelation = lp ? lp.lpNo : vendor!.traceId; // LP 旅程锚 lpNo、服务商旅程锚 traceId（同真实 writeAudit）
+    const targetSubjectType = AuditEntityTypes[targetType];
+    const domain = isLp ? 'TREASURY' : 'GOVERNANCE';
+    const plan = (action: string, at: Date, extra: Partial<Parameters<typeof audit>[0]> = {}) =>
+      audit({ action, domain, subjectType: targetSubjectType, subjectNo: targetNo, at, correlationId: targetCorrelation, requestId: targetNo, ...extra });
+
+    // ① 申请提交（出生即 PENDING_ASSESSMENT）
+    if (lp) {
+      await plan(AuditActions.LP_PROFILE_CREATED, pddAt(j.applied), {
+        by: applicant, reason: lp.applicationReason,
+        metadata: { lpNo: lp.lpNo, name: lp.name, registeredIn: lp.registeredIn, licensingAuthority: lp.licensingAuthority, tradingTypes: lp.tradingTypes.split(',') },
+      });
+    } else {
+      await plan(AuditActions.VENDOR_APPLIED, pddAt(j.applied), {
+        by: applicant,
+        metadata: {
+          vendorNo: vendor!.vendorNo, name: vendor!.name, criticality: vendor!.criticality,
+          deliveryLocations: vendor!.deliveryLocations.split(','), regulatedFunction: vendor!.regulatedFunction,
+          impactLicence: vendor!.impactLicence, impactLegal: vendor!.impactLegal, impactFinancial: vendor!.impactFinancial, impactContinuity: vendor!.impactContinuity,
+          replaceability: vendor!.replaceability,
+        },
+      });
+    }
+
+    // ② 评估壳（申请后立刻开；终态字段一次写全，下面的审计按真实先后补）
+    const assessmentNo = stamp('DDA', `dda-${j.seedKey}`);
+    const lastAssessmentEvent = j.concluded ?? j.assessed ?? j.applied;
+    const dda = await ensureRow(
+      `尽调评估 ${assessmentNo}`,
+      () => prisma.dueDiligenceAssessment.findUnique({ where: { assessmentNo } }),
+      () => prisma.dueDiligenceAssessment.create({
+        data: {
+          assessmentNo, targetType, targetNo,
+          riskTier: j.riskTier ?? null, opinion: j.opinion ?? null, conditions: j.conditions ?? null,
+          conclusion: j.concluded ? 'SENT_FOR_APPROVAL' : null, conclusionReason: null,
+          concludedAt: j.concluded ? pddAt(j.concluded) : null, concludedByUserId: j.concluded ? PDD_USERS.COMPLIANCE.userNo : null,
+          infosecSoc2: j.infosec ? 'HAS' : null, infosecIso27001: j.infosec ? 'HAS' : null,
+          infosecDataLocationOk: j.infosec ? j.infosec.dataLocationAcceptable : null,
+          infosecDrPlanOk: j.infosec ? j.infosec.drPlanAcceptable : null,
+          infosecOpinion: j.infosec ? j.infosec.opinion : null, infosecVerdict: j.infosec ? 'ACCEPTABLE' : null,
+          infosecByUserId: j.infosec ? PDD_USERS.CISO.userNo : null, infosecAt: j.infosec ? pddAt(j.infosec.at) : null,
+          createdByUserId: PDD_USERS[applicant].userNo,
+          createdAt: pddAt(j.applied, 1), updatedAt: pddAt(lastAssessmentEvent),
+        },
+      }),
+      (row) => row.targetNo === targetNo && row.targetType === targetType,
+    );
+    counts.assessments += 1;
+    const ddAudit = (action: string, at: Date, by: PddUserKey, requestId: string, metadata: Record<string, unknown>, recordNo?: string) =>
+      audit({
+        action, domain: 'GOVERNANCE', subjectType: AuditEntityTypes.DUE_DILIGENCE_ASSESSMENT, subjectNo: assessmentNo, at, by,
+        correlationId: assessmentNo, requestId,
+        metadata: { assessmentNo, targetType, targetNo, ...metadata },
+        related: [
+          { subjectType: targetSubjectType, subjectNo: targetNo, subjectRole: 'RELATED' },
+          ...(recordNo ? [{ subjectType: AuditEntityTypes.SCREENING_RECORD, subjectNo: recordNo, subjectRole: 'RELATED' as const }] : []),
+        ],
+      });
+    await ddAudit(AuditActions.DD_ASSESSMENT_OPENED, pddAt(j.applied, 1), applicant, assessmentNo, { targetType });
+
+    // ③ 申请文件（占位 PDF 落盘 + 元数据 + 上传审计）
+    const ownerType = isLp ? DOCUMENT_OWNER_TYPES.LIQUIDITY_PROVIDER : DOCUMENT_OWNER_TYPES.OUTSOURCING_VENDOR;
+    for (let i = 0; i < j.docTypes.length; i += 1) {
+      const docType = j.docTypes[i];
+      const label = PDD_DOC_LABELS[docType];
+      if (!label) throw new Error(`seedPartnerDueDiligence: 没有文件类别 ${docType} 的人话名`);
+      const docNo = stamp('DOC', `doc-${j.seedKey}-${docType}`);
+      const storagePath = path.join(storageDir, ownerType, targetNo, `${docNo}.pdf`);
+      const sizeBytes = await writePlaceholderPdf(storagePath, `PLACEHOLDER - ${label} - ${targetName}`);
+      const originalName = `${targetName.replace(/[^A-Za-z0-9]+/g, '_')}_${label.replace(/[^A-Za-z0-9]+/g, '_')}.pdf`;
+      const uploadedAt = pddAt(j.docsFrom, i * 60);
+      await ensureRow(
+        `文件 ${docNo}`,
+        () => prisma.storedDocument.findUnique({ where: { docNo } }),
+        () => prisma.storedDocument.create({
+          data: {
+            docNo, ownerType, ownerNo: targetNo, docType, originalName, mimeType: 'application/pdf', sizeBytes, storagePath,
+            uploadedByUserId: PDD_USERS[applicant].userNo, uploadedAt,
+          },
+        }),
+        (row) => row.ownerNo === targetNo && row.docType === docType,
+      );
+      counts.documents += 1;
+      await audit({
+        action: AuditActions.DOCUMENT_UPLOADED, domain: 'GOVERNANCE', subjectType: AuditEntityTypes.STORED_DOCUMENT, subjectNo: docNo, at: uploadedAt, by: applicant,
+        correlationId: docNo, requestId: docNo,
+        metadata: { ownerType, ownerNo: targetNo, docType, originalName, sizeBytes },
+        related: [{ subjectType: targetSubjectType, subjectNo: targetNo, subjectRole: 'RELATED' }],
+      });
+    }
+
+    // ④ 合规官逐名筛查：公司 + 每位实控人各一条，六张名单全查、全绿
+    if (j.screenedFrom) {
+      const subjects = [
+        { subjectKind: 'COMPANY', subjectName: targetName, uboSeq: null as number | null, key: 'company' },
+        ...ubos.map((u) => ({ subjectKind: 'BENEFICIAL_OWNER', subjectName: u.name, uboSeq: u.seq as number | null, key: `ubo${u.seq}` })),
+      ];
+      for (let i = 0; i < subjects.length; i += 1) {
+        const s = subjects[i];
+        const recordNo = stamp('SCR', `scr-${j.seedKey}-${s.key}`);
+        const screenedAt = pddAt(j.screenedFrom, i * 5 * 60);
+        await ensureRow(
+          `筛查记录 ${recordNo}`,
+          () => prisma.screeningRecord.findUnique({ where: { recordNo } }),
+          () => prisma.screeningRecord.create({
+            data: {
+              recordNo, assessmentId: dda.id, subjectKind: s.subjectKind, subjectName: s.subjectName, uboSeq: s.uboSeq,
+              listsChecked: SCREENING_LISTS.join(','), result: 'GREEN', screenedAt,
+              recordedByUserId: PDD_USERS.COMPLIANCE.userNo, createdAt: screenedAt,
+            },
+          }),
+          (row) => row.assessmentId === dda.id && row.subjectName === s.subjectName,
+        );
+        counts.screenings += 1;
+        await ddAudit(AuditActions.DD_SCREENING_RECORDED, screenedAt, 'COMPLIANCE', recordNo, {
+          recordNo, subjectKind: s.subjectKind, subjectName: s.subjectName, uboSeq: s.uboSeq, listsChecked: SCREENING_LISTS, result: 'GREEN',
+        }, recordNo);
+      }
+    }
+
+    // ⑤ 定档 / CISO / 落结论（顺序同真实先后：定档 → CISO → 结论）
+    if (j.assessed) {
+      await ddAudit(AuditActions.DD_ASSESSMENT_SAVED, pddAt(j.assessed), 'COMPLIANCE', assessmentNo, {
+        riskTier: j.riskTier, opinion: j.opinion, conditions: j.conditions ?? null,
+      });
+    }
+    if (j.infosec) {
+      await ddAudit(AuditActions.DD_INFOSEC_RECORDED, pddAt(j.infosec.at), 'CISO', assessmentNo, {
+        verdict: 'ACCEPTABLE', soc2: 'HAS', iso27001: 'HAS',
+        dataLocationAcceptable: j.infosec.dataLocationAcceptable, drPlanAcceptable: j.infosec.drPlanAcceptable, opinion: j.infosec.opinion,
+      });
+    }
+    if (!j.concluded) continue; // Sable Crest：停在待评估
+
+    await ddAudit(AuditActions.DD_ASSESSMENT_CONCLUDED, pddAt(j.concluded), 'COMPLIANCE', assessmentNo, {
+      conclusion: 'SENT_FOR_APPROVAL', reason: null, riskTier: j.riskTier,
+    });
+
+    // ⑥ 送审：迁 PENDING_APPROVAL，随后开审批单（提单人 = 合规官）
+    await plan(isLp ? AuditActions.LP_PROFILE_SENT_FOR_APPROVAL : AuditActions.VENDOR_SENT_FOR_APPROVAL, pddAt(j.concluded, 1), {
+      by: 'COMPLIANCE', fromStatus: 'PENDING_ASSESSMENT', toStatus: 'PENDING_APPROVAL',
+      metadata: isLp ? { lpNo: targetNo, name: targetName } : { vendorNo: targetNo, name: targetName },
+    });
+    const a = j.approval!;
+    const approvalNo = stamp('APR', a.key);
+    const approval = await createApproval({
+      approvalNo, actionType: a.actionType, entityRef: targetNo, submittedAt: pddAt(j.concluded, 2), reasons: a.reasons, decided: a.decided,
+      snapshot: lp
+        ? { lpNo: targetNo, name: targetName, registeredIn: lp.registeredIn, licensingAuthority: lp.licensingAuthority, riskTier: j.riskTier, conditions: j.conditions ?? null, assessmentNo }
+        : {
+            vendorNo: targetNo, name: targetName, serviceDescription: vendor!.serviceDescription, criticality: vendor!.criticality,
+            deliveryLocations: vendor!.deliveryLocations.split(','), riskTier: j.riskTier, assessmentNo,
+          },
+    });
+    counts.approvals += 1;
+    if (!a.decided) continue; // Pearl Clean：审批单待 CFO 批
+
+    // ⑦ 审批通过（审批引擎的决议事件驱动，种子当系统写手）：LP 与一般服务商直接 ACTIVE；重大服务商进待报备并开告知单
+    const approvedAt = pddAt(a.decided[a.decided.length - 1]);
+    const instrument = [{ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: approvalNo, subjectRole: 'INSTRUMENT' as const }];
+    const material = !!j.notification;
+    await plan(isLp ? AuditActions.LP_PROFILE_APPROVED : AuditActions.VENDOR_APPROVED, approvedAt, {
+      fromStatus: 'PENDING_APPROVAL', toStatus: material ? 'PENDING_NOTIFICATION' : 'ACTIVE',
+      approvalNo, causationId: approval.id, related: instrument,
+      metadata: isLp ? { lpNo: targetNo, name: targetName } : { vendorNo: targetNo, name: targetName },
+    });
+
+    if (j.suspended) {
+      await plan(AuditActions.LP_PROFILE_SUSPENDED, pddAt(j.suspended.at), {
+        by: 'TREASURY', fromStatus: 'ACTIVE', toStatus: 'SUSPENDED', reason: j.suspended.reason,
+        metadata: { lpNo: targetNo, name: targetName },
+      });
+    }
+
+    // ⑧ 重大服务商：告知单（开单 → 签发审批 → 标记已报送）→ 服务商认领转 ACTIVE
+    if (j.notification) {
+      const n = j.notification;
+      const cfg = getFilingTypeConfig('MATERIAL_CHANGE_NOTIFICATION');
+      const filingNo = stamp('FIL', n.filingKey);
+      const filingTraceId = `seed-${filingNo}`;
+      const signoffNo = stamp('APR', n.signoffKey);
+      const filingTitle = `Material outsourcing — ${targetName}: onboarding`;
+      const filingBody = [
+        `Provider: ${targetName}`,
+        `Scope: ${vendor!.serviceDescription}`,
+        `Delivery & data locations: ${vendor!.deliveryLocations.split(',').join(', ')}`,
+        `Materiality: ${vendor!.criticality}`,
+        `Contract start: ${vendor!.contractStart.toISOString().slice(0, 10)}`,
+      ].join('\n');
+      const openedAt = pddAt(a.decided[a.decided.length - 1], 1);
+      await ensureRow(
+        `报送单 ${filingNo}`,
+        () => prisma.regulatoryFiling.findUnique({ where: { filingNo } }),
+        () => prisma.regulatoryFiling.create({
+          data: {
+            filingNo, direction: cfg.direction, type: 'MATERIAL_CHANGE_NOTIFICATION', authority: cfg.defaultAuthority as string,
+            title: filingTitle, body: filingBody, deadlineAt: null,
+            externalRef: n.externalRef, submittedAt: pddAt(n.submitted), submittedByUserId: PDD_USERS.COMPLIANCE.userNo,
+            status: FilingStatus.SUBMITTED, approvalNo: signoffNo,
+            createdByUserId: 'SYSTEM', traceId: filingTraceId, createdAt: openedAt, updatedAt: pddAt(n.submitted),
+          },
+        }),
+        (row) => row.type === 'MATERIAL_CHANGE_NOTIFICATION' && row.title === filingTitle,
+      );
+      counts.filings += 1;
+      const signoff = await createApproval({
+        approvalNo: signoffNo, actionType: ApprovalActionTypes.REG_FILING_SUBMIT, entityRef: filingNo, submittedAt: pddAt(n.signoffRequested),
+        reasons: ['Material change notification reviewed — cleared for submission to VARA.'], decided: [n.signoffDecided],
+        snapshot: {
+          filingNo, type: 'MATERIAL_CHANGE_NOTIFICATION', direction: cfg.direction, authority: cfg.defaultAuthority, ccAuthorities: [],
+          basisCode: null, incidentNo: null, deadlineAt: null, title: filingTitle,
+          impact: `Submitting ${cfg.label} to ${REGULATORY_AUTHORITY_LABELS[cfg.defaultAuthority as string]}`,
+        },
+      });
+      counts.approvals += 1;
+      const filingAudit = (action: string, at: Date, extra: Partial<Parameters<typeof audit>[0]>) =>
+        audit({
+          action, domain: 'GOVERNANCE', subjectType: AuditEntityTypes.REGULATORY_FILING, subjectNo: filingNo, at,
+          correlationId: filingTraceId, requestId: filingNo, ...extra,
+          metadata: { filingNo, type: 'MATERIAL_CHANGE_NOTIFICATION', ...(extra.metadata ?? {}) },
+        });
+      await filingAudit(AuditActions.FILING_OPENED, openedAt, { approvalNo, metadata: { source: 'VENDOR_ONBOARDING', vendorNo: targetNo, approvalNo } });
+      await plan(AuditActions.VENDOR_NOTIFICATION_OPENED, pddAt(a.decided[a.decided.length - 1], 2), { metadata: { vendorNo: targetNo, name: targetName, filingNo } });
+      await filingAudit(AuditActions.FILING_SIGNOFF_REQUESTED, pddAt(n.signoffRequested, 1), {
+        by: 'COMPLIANCE', fromStatus: 'DRAFT', toStatus: 'PENDING_SIGNOFF', approvalNo: signoffNo,
+      });
+      await filingAudit(AuditActions.FILING_SIGNED_OFF, pddAt(n.signoffDecided), {
+        fromStatus: 'PENDING_SIGNOFF', toStatus: 'SIGNED_OFF', approvalNo: signoffNo, causationId: signoff.id,
+      });
+      await filingAudit(AuditActions.FILING_SUBMITTED, pddAt(n.submitted), {
+        by: 'COMPLIANCE', fromStatus: 'SIGNED_OFF', toStatus: 'SUBMITTED', metadata: { chainDeadlineSetFor: [], externalRef: n.externalRef },
+      });
+      await plan(AuditActions.VENDOR_ACTIVATED, pddAt(n.submitted, 1), {
+        fromStatus: 'PENDING_NOTIFICATION', toStatus: 'ACTIVE', causationId: filingNo,
+        reason: `VARA notification submitted — ref ${n.externalRef}`, metadata: { vendorNo: targetNo, name: targetName },
+      });
+    }
+  }
+
+  console.log(
+    `Seeded partner due-diligence trail for ${PARTNER_JOURNEYS.length} partners: ${counts.assessments} assessments, ${counts.screenings} GREEN screening records, ` +
+    `${counts.documents} placeholder PDFs (under ${storageDir}), ${counts.approvals} approval cases, ${counts.filings} VARA notification filings.`,
+  );
 }
 
 // ─────────────────────────────────────────────────────────────
