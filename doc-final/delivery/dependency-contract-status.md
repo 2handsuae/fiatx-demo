@@ -12,7 +12,7 @@
 | 银行（法币入出金） | 🎭 纯占位 | 入账/出账确认由模拟端点触发；「银行对账单」由 `recon:demo` 脚本铸造；IBAN 只有格式校验 | `src/modules/asset-treasury/withdrawal-addresses/bank-validator.util.ts` ＋ recon 脚本 | — |
 | 托管方回单（内部划转腿） | 🎭 纯占位（演示装置） | 划转腿一提交，模拟托管方就写外部对账单 OUT/IN 两行并增减当日收盘 | 见 `simulated-externals.md` 托管方行 | — |
 | VASP 归属判断（对手方是否 VASP） | 🎭 纯占位 | 由 mock Sumsub 侧判定：充值靠操作员 ⚡喂归因（替 Sumsub 告知 VASP / Unhosted），地址簿登记靠测试地址尾号（LP 打款地址簿登记、LP 到货来源筛查同走此 mock，2026-10-24 LP 两步准入）；客户端“自报对手方”弹窗已退役（2026-10-22 对手方波二）；真实应由链上地址归属服务自动得出 | `src/modules/sumsub-shared/travel-rule/`；触点明细 `reference/sumsub-mock-touchpoints.md` ①⑤–⑧；`PRODUCTION-NOTES.md` 2026-07-31「真实 VASP 归属服务未接」条 | Sumsub wallet-attribution |
-| LP 实体背调（对手方公司尽调） | 🎭 纯占位 | 按 LP 名称关键词给三档结论（含 `sanction` → RED 建档当场拒、含 `offshore` → YELLOW、其余 GREEN）——连报文结构都别信，只为把「先背调后审批」演下去；真实对应物二选一：Sumsub KYB（候选而非必购）/ 线下人工尽调（不经 Sumsub），届时定 | `src/modules/asset-treasury/lp-desk/lp-entity-screening.mock.ts`；触点明细 `reference/sumsub-mock-touchpoints.md` ⑨；候补 `reference/sumsub-services-needed.md` 候补节 | Sumsub KYB（若采用）；人工尽调无外部契约 |
+| ~~LP 实体背调（对手方公司尽调）~~ → LP / 服务商逐名筛查 | 已退役 mock，现为人工登记（无外部依赖） | 2026-10-29 甲波六起不再有名称关键词 mock：合规官在 LP / 服务商详情页逐名人工登记筛查结果（绿 / 黄 / 红 + 名单 + 证据截图），系统只收结果并锁送审路径——这里没有可信 / 不可信的外部契约可言；真实对应物若要自动化，二选一：Sumsub KYB（候选而非必购）/ 第三方名单库，届时定 | `src/modules/governance/compliance-office/due-diligence.service.ts#recordScreening`（原 `lp-desk/lp-entity-screening.mock.ts` 已删）；触点明细 `reference/sumsub-mock-touchpoints.md` ⑨（已退役）；候补 `reference/sumsub-services-needed.md` §6 | Sumsub KYB（若采用）；人工筛查无外部契约 |
 | 价源（Binance）与 AED 钉住汇率 | 🎭 配置写死 | 无实时行情，价源与汇率随上币配置以版本上架；「按什么价」的语义在客户端报价预览讲清 | 上币配置（`decisions.md` 2026-09-03） | 生产接行情源时另立契约 |
 | 时间（SLA / 账龄） | 🎭 可拨钟（演示装置） | 各域「Simulate SLA Timeout」与账龄拨钟把截止时间拨到过去，生产不存在此能力 | ⚡ 面板 | — |
 

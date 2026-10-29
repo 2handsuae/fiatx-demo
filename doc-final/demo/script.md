@@ -1,6 +1,6 @@
 # 演示总剧本（script）
 
-> 十一幕主线：**开店 → 迎客 → 钱进 → 钱换 → 钱出 → 账对 → 事后说得清 → 异常与监管 → 公司的钱 → 客户的账单与资料 → 客户协议**（第九幕 2026-09-30 战役乙收官定稿，收编场景 26–32，零改号、零动既有八幕——业主拍板总纲 §0 裁定 8，见 `decisions.md`；**2026-10-24 战役 LP 两步准入在第九幕末尾追加场景 36**（编号接全剧本尾号 35 之后，位置在场景 32 之后、第十幕之前，既有场景零改号）；**第十幕「客户的账单与资料」2026-10-03 战役丙波四新增，场景 33–34（演员 Henry）**；**第十一幕「客户协议」（2026-10-03 战役丙波三新增时原排第十幕、场景 33，波四插幕后顺延为第十一幕、场景 35）必须排整场最后、演完重铺**——⚡快进生效会让全库客户当场被拦充值/兑换，且演员 Kate 是第六幕对账场景当事人，见本幕「造数」）。
+> 十一幕主线：**开店 → 迎客 → 钱进 → 钱换 → 钱出 → 账对 → 事后说得清 → 异常与监管 → 公司的钱 → 客户的账单与资料 → 客户协议**（第九幕 2026-09-30 战役乙收官定稿，收编场景 26–32，零改号、零动既有八幕——业主拍板总纲 §0 裁定 8，见 `decisions.md`；**2026-10-24 战役 LP 两步准入在第九幕末尾追加场景 36**（编号接全剧本尾号 35 之后，位置在场景 32 之后、第十幕之前，既有场景零改号）；**2026-10-29 战役甲波六「服务商与 LP 的背调与审批」在第九幕末尾再追加场景 37–40**（37 LP 顺路 / 38 LP 红灯 / 39 服务商重大路含 VARA 报备 / 40 服务商一般路，编号接 36 之后；**演 36 前须先演 37**；同时场景 22 的外包商站并入 39 / 40、场景 36 的建档背调两拍改为指向 37 / 38，其余零改号）；**第十幕「客户的账单与资料」2026-10-03 战役丙波四新增，场景 33–34（演员 Henry）**；**第十一幕「客户协议」（2026-10-03 战役丙波三新增时原排第十幕、场景 33，波四插幕后顺延为第十一幕、场景 35）必须排整场最后、演完重铺**——⚡快进生效会让全库客户当场被拦充值/兑换，且演员 Kate 是第六幕对账场景当事人，见本幕「造数」）。
 > 本文件是**人读的剧本，不是测试**——永远不会"挂"。
 > 运行三原则：① 剧本不跑，造数脚本只在模块收尾闸跑；② 脚本挂了 = 代码删多了 → 改代码，**禁止改脚本迁就**；③ 造数一律走真实流程重放（模拟按钮同一套端点），**禁止直接插表**——直插中间态会把账本扣负、对账全是假破口（实证教训）。
 
@@ -343,29 +343,30 @@
 
 **期望**：观众看懂三件事——① 闹钟墙不是新账本，是把两张表（报送单 `deadlineAt`、义务 `nextDueAt`）聚合读出来的一张只读视图；② 周期申报照样要走高管签发，不因为"是自动开的单"就降级；③ 超时止步于标红+留痕，升级成事故永远是人的决定，不是系统自动升级。
 
-## 场景 22 · 登记册（V9 外包商 / RI 两本册）
+## 场景 22 · 登记册与服务商准入（V9 · RI 登记册 + 外包服务商准入摘要）
 
-> 战役甲波四交付（2026-09-27），2026-09-28 战役甲收官随第八幕定稿。主篇文档 `modules/compliance-office.md`。
+> 战役甲波四交付（2026-09-27），2026-09-28 战役甲收官随第八幕定稿；**2026-10-29 甲波六按新流程重写**：外包商册不再是「合规官手写一行」的登记册，而是「运营申请 → 合规评估 → 审批 →（重大的）VARA 报备」的准入流程，原站 A（登记 / 修改 / 终止）整站退役，完整演法并入第九幕场景 39（重大路）/ 40（一般路）；Registers 页现在整页只剩 RI 一本（没有 tab）。主篇文档 `modules/compliance-office.md`（§3.1 服务商准入、§3.2 RI 册、§3.3 尽调评估）。
 
-**讲什么**：两本法定登记册——外包商（谁在替我们干活、算不算 Material Outsourcing）与 RI（受托责任人，谁在这个岗位上）。RI 换人不是改个名字就完事，是一次事前审批：合规官提、高管批，换人史靠审计链的 from/to 字段可查，不用另建历史表；**批准一落地，报送台还会自动开出一张「重大变更告知」草稿单**（RI 变更是 VARA 牌照事项、须告知监管——系统开单、合规官接办，不靠人记得，和场景 21 的义务到期自动开单同一个路数）。
+**讲什么**：两个主体、两种做法。**外包服务商**（谁在替我们干活、算不算 Material Outsourcing）是一条准入流程：运营提申请、合规官逐名筛查定档、CFO（重大的再加高管）批，重大的批完还要先向 VARA 报备才能生效——完整演法见场景 39 / 40，本场景只做"看"。**RI**（受托责任人，谁在这个岗位上）仍是登记册：换人不是改个名字就完事，是一次事前审批——合规官提、高管批，换人史靠审计链的 from/to 字段可查，不用另建历史表；**批准一落地，报送台还会自动开出一张「重大变更告知」草稿单**（RI 变更是 VARA 牌照事项、须告知监管——系统开单、合规官接办，不靠人记得，和场景 21 的义务到期自动开单同一个路数）。
 
-**造数**：种子已铺三家外包商（Sumsub/HexTrust 两家 Material，Gulf Office Systems 一家 Non-material 对照）与四个 RI 席位（MLRO/Compliance Officer/CFO/CISO，全 ACTIVE、零在途换人，见 `demo/data.md`）。
+**造数**：种子已铺四家外包服务商（Sumsub / HexTrust 两家 Material、Gulf Office Systems 一家 Non-material，三家都 Active 且带完整尽调档案；Pearl Clean Services LLC 一家 Non-material 待 CFO 批，留给场景 40）与四个 RI 席位（MLRO/Compliance Officer/CFO/CISO，全 ACTIVE、零在途换人），见 `demo/data.md`。
 
-**账号**：`compliance_lead@`（合规官，全程登记/提单）→ `sm@`（高管，批换人）。
+**账号**：`compliance_lead@`（合规官，看服务商 / 全程登记提单）→ `sm@`（高管，批换人）。
 
-**站 A · 外包商册增改止**
-走查：Compliance Office → Registers → Outsourcing Vendors tab → 「Register Vendor」填名称/服务描述/Criticality/Contract Start → Register（新行出现）→ 点该行「Edit」补一句 Notes → Save → 挑另一张 Non-material 行点「Terminate」→ 二次确认弹窗（"This cannot be undone — there is no path back to ACTIVE"）填理由 → Confirm Termination → 该行状态变 Terminated、Terminate 按钮消失（终态零出边）。
-判据：登记/修改/终止逐动作各有一条审计（`VENDOR_REGISTERED`/`VENDOR_UPDATED`/`VENDOR_TERMINATED`）；终止不可逆，界面上不再提供任何回到 ACTIVE 的路径。
+**站 A · 服务商准入（摘要，只看不演；演法见场景 39 / 40）**
+走查：`compliance_lead@` 登录 → 侧栏 Compliance Office → Service Providers → 列表四行：Sumsub / HexTrust 的 Materiality 徽章 `Material`、Gulf Office Systems 与 Pearl Clean Services LLC 是 `Non-material`；Status 三家 `Active`、Pearl Clean 是 `Pending approval`；顶部状态下拉可筛 → 点开 Sumsub：Materiality 区四问答案 `✓ Yes` / `✗ No`、Documents 区四份材料、Due Diligence 区公司 + 实际控制人两条绿色筛查记录与 CISO information-security assessment、Approval 区路线 `CFO, then senior management`、VARA Notification 区链到一张已报送的告知单。讲一遍这条链：**运营申请（Ops Officer）→ 合规评估（Compliance Officer 逐名筛查、定档；重大的另有 CISO 评估）→ CFO 批（重大的再加高管）→ 重大的先过 VARA 事前报备门才 Active**。
+（可选，终态不可逆、演完需重铺才还原）终止：打开 Gulf Office Systems → 右上 `Terminate` → 弹层 Notes 可空 → `Confirm termination` → 状态 `Terminated`，Terminate 按钮消失（终态零出边）；终止的是一般服务商，所以报送台**不会**多出告知单——对照：终止重大服务商（Sumsub / HexTrust）会自动开一张告知单，但不拦终止。
+判据：终止写一条审计 `VENDOR_TERMINATED`（ACTIVE → TERMINATED）；合规官在服务商页上**没有**任何登记 / 修改入口（只有 Terminate）；运营登录后侧栏 Compliance Office 组里能看到 Service Providers（外加他本就有的 Sumsub Events）。
 
 **站 B · RI 换人事前审批全弧**
-走查：① Registers → Responsible Individuals tab → 挑一个席位（如 CISO）点「Propose replacement」→ 填 New Incumbent Name / Effective From / Reason（可选 VARA Ref）→ 提交（弹窗提示"This opens an approval — senior management decides"）→ 该席位行 Pending Replacement 列出现审批单号链接 → ② 切 `sm@`，打开审批中心对应 `RI_REPLACEMENT` 单，ObjectSnapshot 里能看到 newIncumbentName/effectiveFrom/reason/varaRef 全量字段 → Approve → ③ 回 Registers 页：该席位 Incumbent 已换成新名字、Effective From 已更新、Pending Replacement 清空 → ④ 切 `compliance_lead@` 打开 Regulatory Filings 列表：批准落地的同一时刻，报送台自动多出一张 `Material change notification`（SYSTEM 开单，状态 `Draft`，Authority `VARA`，标题 `Responsible Individual change — <席位>: <旧任> → <新任>`；该类型无钟，Deadline 显示 `No deadline set`），点开详情，合规官接手走 GENERAL 六态原样（起草 → 送签 → 高管签发 → 标已提交，口播带过、不必演全弧）。
+走查：① `compliance_lead@` → 侧栏 Compliance Office → Registers（整页就是 RI 册，页标题 Compliance Registers）→ 挑一个席位（如 CISO）点「Propose replacement」→ 填 New Incumbent Name / Effective From / Reason（可选 VARA Ref）→ 提交（弹窗提示"This opens an approval — senior management decides"）→ 该席位行 Pending Replacement 列出现审批单号链接 → ② 切 `sm@`，打开审批中心对应 `RI_REPLACEMENT` 单，ObjectSnapshot 里能看到 newIncumbentName/effectiveFrom/reason/varaRef 全量字段 → Approve → ③ 回 Registers 页：该席位 Incumbent 已换成新名字、Effective From 已更新、Pending Replacement 清空 → ④ 切 `compliance_lead@` 打开 Regulatory Filings 列表：批准落地的同一时刻，报送台自动多出一张 `Material change notification`（SYSTEM 开单，状态 `Draft`，Authority `VARA`，标题 `Responsible Individual change — <席位>: <旧任> → <新任>`；该类型无钟，Deadline 显示 `No deadline set`），点开详情，合规官接手走 GENERAL 六态原样（起草 → 送签 → 高管签发 → 标已提交，口播带过、不必演全弧）。
 判据：在途重复提单 400（一席一在途）；换人全弧四码审计（`RI_REPLACEMENT_PROPOSED`→`Approval Granted`→`RI_REPLACEMENT_APPLIED`）+ 建席位那次的 `RI_SEAT_REGISTERED`，一屏可见；批准落地后报送台恰多一张 `MATERIAL_CHANGE_NOTIFICATION`（`DRAFT`、`createdByUserId=SYSTEM`、标题带席位与新旧任、无钟），其 `FILING_OPENED` 审计 metadata 带 `source=RI_REPLACEMENT`/`riNo`/`approvalNo`；驳回 / 撤单 / 过期没有换人，不开单。
 
 **站 C · 审计链回查 from/to**
 走查：打开 Audit Log，按 `subjectNo=<该 RI 席位号>` 搜索 → 四条记录从上到下：Submitted（审批开单）→ Ri Replacement Proposed → Approval Granted → Ri Replacement Applied → 点进最后一条详情页，Metadata 区直接看到 `"fromIncumbent": "<旧姓名>"`、`"toIncumbent": "<新姓名>"`——不用去翻审批单或猜，审计行本身就查得到「谁换了谁」（T8 评审修复：此前这两个字段只在写入时校验、不落库，现已镜像进 metadata）。
-判据：`RI_REPLACEMENT_APPLIED` 审计的 `metadata.fromIncumbent`/`toIncumbent` 与实际换人前后姓名逐字一致。走查截图入 `doc-final/superpowers/checkups/2026-09-27-act-a-wave4-evidence/`（`22-01` 外包商增改止 ～ `22-04` 审计 from/to）。
+判据：`RI_REPLACEMENT_APPLIED` 审计的 `metadata.fromIncumbent`/`toIncumbent` 与实际换人前后姓名逐字一致。走查截图入 `doc-final/superpowers/checkups/2026-09-27-act-a-wave4-evidence/`（`22-02`~`22-04` 是 RI 换人提单 / 落地 / 审计 from-to，仍有效，只是 Registers 页当时带的 tab 条现已去掉；`22-01` 拍的是已退役的外包商册 Vendors tab，仅作历史留底）。
 
-**期望**：观众看懂三件事——① 两本登记册各管各的，两本登记册之间互不联动，闹钟墙是唯一跨表读点；② RI 换人是任命权在高管、提名权在合规官的事前审批，不是改字段——换人史留在审计链，不需要另开一张历史表；③ 换人一批准，告知监管的草稿单就由系统自动开好（事故定损 / 制裁定性 / 义务到期 / RI 换人，报送台第四条自动开单来路），之后照样要合规官起草、高管签发，不因为"是自动开的单"就降级。
+**期望**：观众看懂三件事——① 外包服务商准入与 RI 登记册各管各的、互不联动（服务商的 VARA 告知单与 RI 换人的告知单，是报送台两条独立的自动来路）；② RI 换人是任命权在高管、提名权在合规官的事前审批，不是改字段——换人史留在审计链，不需要另开一张历史表；③ 换人一批准，告知监管的草稿单就由系统自动开好（事故定损 / 制裁定性 / 义务到期 / RI 换人，报送台前四条自动开单来路；第五条是场景 39 的重大服务商准入），之后照样要合规官起草、高管签发，不因为"是自动开的单"就降级。
 
 ---
 
@@ -451,8 +452,8 @@
 ## 第九幕 · 公司的钱（V7 财资 · LP 兑换台 + 公司资金全景 + 审慎红线）
 
 **讲什么**：前八幕讲的是客户的钱怎么进、怎么换、怎么出、出了事怎么办；这一幕回答"公司自己的钱从哪来、怎么进货、怎么花、怎么兜底"——注资、LP 补货/回吐、供应商付款、全景看板、审慎红线（NLA 跌破 → 事件 → 报监管 → 注资复原），每一步单据 + 审批 + 账本分录可见。
-**造数**：场景 26-30 在既有 self 栈现场演（种子/`demo:all` 已铺垫，各场景内部有序衔接）；场景 31-32 须从全新 `reset` 起跑（见场景 31「造数」小节的显式命令），与 26-30 现场互不承接；场景 36（LP 两步准入，2026-10-24 追加）现场新建一家 LP，见该场景「造数」。
-**范围**：场景 26–32，横跨战役乙波一至波三（2026-09-29～09-30 分批交付、分批实走），幕次编号与场景内容于波三收官（2026-09-30）一次性定稿——本幕零改动第一至八幕的既有场景编号。**2026-10-24 追加场景 36**（LP 两步准入与地址治理）：编号接全剧本现有尾号 35 之后，位置仍在本幕末尾，既有场景零改号。⚠️ **连走七场时，场景 31 开场必须重铺**：场景 28 的注资会把 NLA 垫得更高，反而把场景 31 的失窃打不穿红线——28 的现场绝不能被 31 承接。
+**造数**：场景 26-30 在既有 self 栈现场演（种子/`demo:all` 已铺垫，各场景内部有序衔接）；场景 31-32 须从全新 `reset` 起跑（见场景 31「造数」小节的显式命令），与 26-30 现场互不承接；场景 36（LP 打款地址治理，2026-10-24 追加）从场景 37 批准的 Oryx 起，场景 37 / 38（LP 尽调准入）与 39 / 40（服务商准入）2026-10-29 追加，见各场景「造数」。
+**范围**：场景 26–32，横跨战役乙波一至波三（2026-09-29～09-30 分批交付、分批实走），幕次编号与场景内容于波三收官（2026-09-30）一次性定稿——本幕零改动第一至八幕的既有场景编号。**2026-10-24 追加场景 36**（LP 两步准入与地址治理，2026-10-29 起收窄为地址治理）：编号接全剧本现有尾号 35 之后，位置仍在本幕末尾，既有场景零改号。**2026-10-29 甲波六追加场景 37–40**：37 / 38 演 LP 的尽调准入（顺路 / 红灯），39 / 40 演外包服务商的准入（重大路含 VARA 报备门 / 一般路）；其中 36 依赖 37（要一家 ACTIVE 的新 LP），38 / 39 / 40 各自独立（用种子 Sable Crest / 现场新建 Nimbus / 种子 Pearl Clean），40 与 39 互不承接。⚠️ **连走七场时，场景 31 开场必须重铺**：场景 28 的注资会把 NLA 垫得更高，反而把场景 31 的失窃打不穿红线——28 的现场绝不能被 31 承接。
 
 ## 场景 26 · 库存见底找 LP 补货：LP 兑换单正向全弧（V7 财资 · LP 兑换台）
 
@@ -519,7 +520,7 @@
 
 > 战役乙波二交付（2026-09-29），2026-09-30 战役乙收官随第九幕定稿，幕次归属同场景 28。本场景 2026-09-29 T11 在 self 栈全程实走一遍，截图 `37`~`42`。
 
-**讲什么**：公司也要给外部供应商付钱——HexTrust 的托管月费是演示代表，收款方只能从外包商登记册（甲波四立的那本册）下拉选，选不到自由填的地址，这条边把"甲乙两个战役的东西真的接上了"这句话坐实。付款单是公司→外部单腿出，批完钱不会立刻动，要等金库把出款资金单推完才真正扣款。
+**讲什么**：公司也要给外部供应商付钱——HexTrust 的托管月费是演示代表，收款方只能从在册的外包服务商（甲波四立的那本册，甲波六起是 Compliance Office 下的 Service Providers）下拉选，选不到自由填的地址，非 ACTIVE 的服务商在下拉里置灰选不了（场景 39 演这一拍），这条边把"甲乙两个战役的东西真的接上了"这句话坐实。付款单是公司→外部单腿出，批完钱不会立刻动，要等金库把出款资金单推完才真正扣款。
 
 **造数**：不用种子，现场金库对 HexTrust 开一张全新月费付款单（种子已铺一张 SUCCESS 历史付款——2026-08 月费 AED 2,500，讲一句"上个月的账在册可查，这个月现开一张"）。
 
@@ -533,7 +534,7 @@
 ⑤ 回付款单详情，单据已自动转 `SUCCESS`，落账码 87（`VENDOR_PAYMENT`，本波唯一新码）。
 ⑥ 再切看板拍一帧：运营户 AED 水位应声下降，跌幅精确等于付款金额（承接场景 28 之后 1,097,500.00 → **1,094,300.00** AED，跌 3,200.00；本弧实测取自 2026-09-29 T11 走查）。
 
-**判据**：六态六边（`PENDING_APPROVAL→EXECUTING→SUCCESS`，另 `FAILED`「批了运营户没钱」/`REJECTED`/`CANCELLED` 三条负向）；付款后看板下降帧数字精确对得上付款金额；收款方点回外包商登记册真实路由（横向只读，铁律③放行）。
+**判据**：六态六边（`PENDING_APPROVAL→EXECUTING→SUCCESS`，另 `FAILED`「批了运营户没钱」/`REJECTED`/`CANCELLED` 三条负向）；付款后看板下降帧数字精确对得上付款金额；收款方点回 Service Providers 里该服务商的详情页（甲波六前是外包商登记册；横向只读，铁律③放行）。
 
 **期望**：观众看懂两件事——① 公司花钱跟收钱同一套门（金库开、CFO 批），批完不是扣完；② 收款方来自甲波四那本登记册，两个战役的活真的接上了，不是各画各的。
 
@@ -657,34 +658,34 @@ bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash script
 
 **期望**：观众看懂三件事——① 审慎红线不是报表脚注，是金库真的开不出付款单的现场（门拒三个数在屏）；② 客户资金安全与公司自身审慎合规是两条不同的监管义务、两起独立的事故，但共享同一套登记/调查/定损/报送/结案机制，同一场戏里两条线各走各的门（CFO 单步 vs MLRO→CFO 两步）却收在同一次复原里；③ 补偿客户与补充公司自己的流动性，两者都不受跌破红线阻拦——义务优先于自身缓冲的豁免不是纸面条款，是补款划转与注资单在跌破窗口内真实发起成功这件事本身。
 
-## 场景 36 · LP 两步准入与地址治理：建档背调 → 地址先筛后批 → 换地址 → 开单选地址 → 到货红旗拦人不拦状态（V7 财资 · LP 兑换台）
+## 场景 36 · LP 打款地址治理：地址先筛后批 → 换地址 → 开单选地址 → 到货红旗拦人不拦状态（V7 财资 · LP 兑换台；LP 准入见场景 37 / 38）
 
-> LP 两步准入战役交付（2026-10-24），幕次归属第九幕（编号接全剧本尾号 35 之后）。主篇文档 `modules/lp-desk.md`，mock 登记 `reference/sumsub-mock-touchpoints.md` ⑨ 行（实体背调）与 ①②⑥ 行的 LP 侧调用点，可复制的测试串全在 `demo/data.md`「mock 测试地址速查」LP 侧块。本场景逐拍对照代码与管理台页面文案写成，**2026-10-24 战役收尾（T11）已在 self 栈全程真实走查**（真提交 / 真点击，非种子摆拍，① 至 ⑩ 逐拍；另补拍 Offshore 名称得 YELLOW 一拍），截图与 `verify:coa` / `recon:demo:pass` 输出共 94 份入 `doc-final/superpowers/checkups/2026-10-24-lp-two-step-evidence/`（编号 `01`~`69` 为本场景，其中 `26` / `55` 两张冗余帧已删、编号有断号；`04b`~`04d` 为 YELLOW 建档补拍；`38b` 为 Withdraw 弹层文案补拍；全部为 256 色 PNG）。
+> LP 两步准入战役交付（2026-10-24），幕次归属第九幕（编号接全剧本尾号 35 之后）；**2026-10-29 甲波六把「第一步」（建档背调）改成完整的尽调准入并拆到场景 37（正常路）/ 38（红灯），本场景只保留第二步（地址治理）及其后的开单、到货**——原 ① ② 两拍（含 `sanction` / `offshore` 名称关键词的 mock 实体背调三档）随 mock 一并退役删除，③–⑩ 原样保留、改用场景 37 批准的 Oryx Digital Markets Ltd。主篇文档 `modules/lp-desk.md`，mock 登记 `reference/sumsub-mock-touchpoints.md` ①②⑥ 行的 LP 侧调用点（⑨ 行实体背调已退役），可复制的测试串全在 `demo/data.md`「mock 测试地址速查」LP 侧块。③–⑩ 的步骤逐拍对照代码与管理台页面文案写成，2026-10-24 战役收尾在 self 栈真实走查过，截图与 `verify:coa` / `recon:demo:pass` 输出入 `doc-final/superpowers/checkups/2026-10-24-lp-two-step-evidence/`（编号 `01`~`12` 拍的是已退役的 mock 建档背调与 CFO 批档案，仅作历史留底；`13` 起为地址登记、换地址、开单与到货各拍）。
 
-**讲什么**：场景 26 / 27 讲"库存见底怎么找 LP 补货"，默认 LP 早已是熟人。这一场回答它的前一步——**一家新 LP 怎么成为我们愿意打钱的对象**，准入分两步，各裁一件事。第一步裁"**跟不跟这家做生意**"：建档带协议锚与尽调档案引用号，提交瞬间过实体背调（mock 三档），名称带 sanction 当场拒、连审批队列都进不去；过了才进 CFO。第二步裁"**钱打到哪条路上**"：按资产登记打款地址，登记即筛（归因出 VASP、风险三档），先筛后批，CFO 批了才可被兑换单选用；开单时必选一条抄进单据，之后单据不回读地址簿。最后一拍是 LP 的货打进前厅时，对**来源**再过一遍筛查——结论亮红，但**验收照点**：筛查是监控不是门，看见红不点是业务纪律，系统不替人拦。
+**讲什么**：场景 26 / 27 讲"库存见底怎么找 LP 补货"，默认 LP 早已是熟人。这一场回答它的下半句——**一家新 LP 的钱该打到哪条路上**。准入分两步各裁一件事：第一步裁"**跟不跟这家做生意**"，现在是一次完整的尽调，已在场景 37 / 38 演过（申请 + 材料 → 合规逐名筛查定档 → CFO 批）；第二步裁"**钱打到哪条路上**"：按资产登记打款地址，登记即筛（归因出 VASP、风险三档），先筛后批，CFO 批了才可被兑换单选用；开单时必选一条抄进单据，之后单据不回读地址簿。最后一拍是 LP 的货打进前厅时，对**来源**再过一遍筛查——结论亮红，但**验收照点**：筛查是监控不是门，看见红不点是业务纪律，系统不替人拦。
 
-**造数**：不用种子 LP——现场新建一家（`Northbridge Liquidity Ltd`，Agreement Ref `LPA-2026-014`、Due Diligence Ref `DD-2026-021`），其下所有地址 / 单据都归它；Falcon 的三条种子地址是场景 26 / 27 的前提，**本场景不动**。运营户 USDT 够 3,000 即可（种子 113,600）。管理台顶栏 **Simulation 开关要开着**（⚡到货按钮受它门控）。可接在场景 32 之后直接演（32 收官时 NLA 已复原），也可 `reset` 后单独演；它会动运营户余额（USDT −3,000、AED +11,030），所以**不要夹在场景 28 / 29 之前**（28 要对 947,500.00 AED 的种子基线数字）；重演换个 LP 名即可，LP 号随机、地址占坑按 LP 隔离。场景 31–32 仍须从全新 `reset` 起跑，不承接本场景。
+**造数**：**必须先演场景 37**，得到一家 ACTIVE 的 `Oryx Digital Markets Ltd`（协议编号 `LPA-2026-014`；LPP 号现场产生）——其下所有地址 / 单据都归它。Falcon 的三条种子地址是场景 26 / 27 的前提，**本场景不动**。运营户 USDT 够 3,000 即可（种子 113,600）。管理台顶栏 **Simulation 开关要开着**（⚡到货按钮受它门控）。可接在场景 32 之后直接演（32 收官时 NLA 已复原），也可 `reset` 后先演 37 再演本场景；它会动运营户余额（USDT −3,000、AED +11,030），所以**不要夹在场景 28 / 29 之前**（28 要对 947,500.00 AED 的种子基线数字）；重演就再按场景 37 申请一家新 LP（地址占坑按 LP 隔离）。场景 31–32 仍须从全新 `reset` 起跑，不承接本场景。
 
-**账号**：`treasury@fiatx.com`（金库：建档 / 登记地址 / 退役 / 开单 / ⚡推腿 / ⚡到货 / 验收）→ `cfo@fiatx.com`（CFO：建档、地址、兑换单三条审批的唯一裁决人）→ `compliance_lead@fiatx.com`（合规官：⚡筛查覆写，挂 `DEMO_VERDICT_WRITE`，金库喂不了）→ `auditor@fiatx.com`（内审：审计页回查）。
+**账号**：`treasury@fiatx.com`（金库：登记地址 / 退役 / 开单 / ⚡推腿 / ⚡到货 / 验收）→ `cfo@fiatx.com`（CFO：地址、兑换单两条审批的裁决人）→ `compliance_lead@fiatx.com`（合规官：⚡筛查覆写，挂 `DEMO_VERDICT_WRITE`，金库喂不了）→ `auditor@fiatx.com`（内审：审计页回查）。`cfo@` / `treasury@` / `auditor@` 不在登录页 Quick Login 面板里，手输邮箱 + 123456。
 
 **走查**：
-① **建档 · 红**：`treasury@` → 侧栏 Treasury → LP Register →「Register LP」。先指读表单：Name / Agreement Ref / Due Diligence Ref / Reason 四项必填——尽调档案引用号是线下尽调档案的锚，系统只收**结论 + 引用号 + 留痕**，材料柜留线下。现场输入含 `Sanction` 的名称（如 `Sanction Bridge Capital FZE`，大小写随意）、Agreement Ref `LPA-2026-013`、Due Diligence Ref `DD-2026-020`、Reason 随填 → Register → 页顶提示条「…entity screening came back RED, rejected on the spot (no approval opened).」，列表新增一行状态 `REJECTED` → 点进详情：**红条**「Entity screening returned RED at registration — rejected on the spot, no approval was opened.」，Entity Screening 区 Verdict = RED、Approval 为空；切 `cfo@` 审批中心——队列里没有这一家的审批单（落点计算：RED 连审批队列都进不去，不是迁移表的边）。顺带点一句：名称含 `Offshore` 得 YELLOW（放行留痕、审批载荷里带 YELLOW），两词并存 RED 压过 YELLOW。
+① **前置：一家 ACTIVE 的新 LP**。本场景不再自己建档（准入第一步已改成尽调，见场景 37 正常路 / 38 红灯）：先按场景 37 走完，得到 `Oryx Digital Markets Ltd`，状态 `Active`。`treasury@` → 侧栏 Treasury → LP Register → 点 Oryx 一行进详情：Payout Addresses 区块右上有「Register address」按钮——档案 `Active` 才有；在待评估 / 待批态，这块只显示空态「Payout addresses can be registered once the profile is ACTIVE」。
 
-② **建档 · 绿 → CFO 批**：`treasury@` 再 Register LP：`Northbridge Liquidity Ltd` / `LPA-2026-014` / `DD-2026-021` → Register → 提示条带审批号；详情页 Entity Screening = GREEN + Due Diligence Ref，状态 `PENDING_APPROVAL`（琥珀条「Pending CFO review — read-only until decided.」）→ 切 `cfo@` 审批中心打开该单（`ACTION TYPE: LP_PROFILE_APPROVAL`，载荷里读得到 `screeningAnswer: GREEN` 与 `dueDiligenceRef`——CFO 批的不是盲盒）→ Approve（二次确认）→ 切回 `treasury@` 刷新：状态 `ACTIVE`，Payout Addresses 区块里出现「Register address」按钮（区块本身待批时就在、受读权限控制，此前显示空态「Payout addresses can be registered once the profile is ACTIVE」；档案 ACTIVE 才能登记地址）。
+② **开演前核对**：管理台顶栏 Simulation 开关开着；侧栏 Treasury → Company Funds 看板里运营户 USDT 够 3,000（种子 113,600）。
 
-③ **登记地址三拍**（`treasury@`，Northbridge 详情页 Payout Addresses →「Register address」；Asset 选 `USDT-TRON`，Network 由资产带出且只读，Evidence Ref 每条必填——协议锚，合同附件 / 条款引用号，如 `LPA-2026-014 Annex C`；串全部照抄 `data.md`）：
+③ **登记地址三拍**（`treasury@`，Oryx 详情页 Payout Addresses →「Register address」；Asset 选 `USDT-TRON`，Network 由资产带出且只读，Evidence Ref 每条必填——协议锚，合同附件 / 条款引用号，如 `LPA-2026-014 Annex C`；串全部照抄 `data.md`）：
 　a）Address `TDm5cSJoEP2DpN1VyZG3TQrd1JZdSX1111`（尾号 **1111**），Declared Hosting 选 `VASP`，Label `Primary USDT payout` → Register → 提示条「Registered LPA… — awaiting CFO.」（含 View approval 链接），Screening GREEN，状态 `PENDING_APPROVAL` → 点进条目详情：**Attribution** 区读到 Counterparty VASP = Mock VASP Exchange、VASP DID `did:mock:vasp-exchange-001`，下面三行名录资质 **VASP EEC Status = COMPLETED ｜ VASP Risk Score = 3 ｜ VASP Licence = LICENSED**（名录数据住 Sumsub 一侧，读时现拼、不落库）；Hosting Match = Consistent。（若 Declared Hosting 故意选 `Self-Custody`：Self-declaration & Red Flag 区出红旗「Declared hosting does not match attribution」——只留痕不拦截，登记照常。）
 　b）Address `TD2Cm1x6HwVV78amHf8prJn5zkiwCK2222`（尾号 **2222**），Declared Hosting `Self-Custody`，Label `Reserve USDT payout` → Register → 待批，Screening **YELLOW**（中风险放行留痕，审批载荷里带 YELLOW）。
 　c）Address `TSf8p11LABtkukQGWVnkUjR6LMrvH13333`（尾号 **3333**），Declared Hosting `Self-Custody` → Register → 提示条「…address screening came back RED, rejected on the spot (no approval opened).」→ 条目详情状态 `REJECTED`，Screening 区**红条**「Screening returned RED — this registration was rejected. If needed, the same coordinate can be registered again.」（这条登记作废，同一坐标可重新登记），无审批单。
 　讲：**先筛后批**——筛查在登记那一刻跑完，红的当场拒、不进 CFO 队列；无冷却、无验签（客户簿那套自助机制 LP 用不上，CFO 的批准就是真门）。
 
-④ **⚡只在待批态可喂**（排在 CFO 批之前）：`treasury@` 再登记第四条普通链上地址——Address `TaFGEagtJpZ6uzaSaH1gMhWKRmBqr4KuCa`，Declared Hosting `Self-Custody`，Label `Test payout`（GREEN，待批）→ 切 `compliance_lead@`（合规官持 `LP_READ`，打得开 LP 页面）→ 侧栏 Treasury → LP Register → Northbridge → Payout Addresses 点开该条 → 右栏 **Screening Simulation ⚡** →「⚡ Feed RED」→ 弹层填 Reason（必填，如 `Address linked to a sanctioned cluster`）→ 状态翻 `REJECTED`（提示「Screening RED fed — address rejected.」）。⚠️ **⚡ 只对 `PENDING_APPROVAL` 的条目可用——此拍必须排在 CFO 批之前**：已批（ACTIVE）的地址右栏不再出现 ⚡ 区（后端同守卫，直打接口 409）。讲：这是"站在 Sumsub 一侧改判"的后门，真环境里是 Sumsub 筛查回调把待批地址翻红；它是覆写后门，不是绕迁移表的通道。
+④ **⚡只在待批态可喂**（排在 CFO 批之前）：`treasury@` 再登记第四条普通链上地址——Address `TaFGEagtJpZ6uzaSaH1gMhWKRmBqr4KuCa`，Declared Hosting `Self-Custody`，Label `Test payout`（GREEN，待批）→ 切 `compliance_lead@`（合规官持 `LP_READ`，打得开 LP 页面）→ 侧栏 Treasury → LP Register → Oryx → Payout Addresses 点开该条 → 右栏 **Screening Simulation ⚡** →「⚡ Feed RED」→ 弹层填 Reason（必填，如 `Address linked to a sanctioned cluster`）→ 状态翻 `REJECTED`（提示「Screening RED fed — address rejected.」）。⚠️ **⚡ 只对 `PENDING_APPROVAL` 的条目可用——此拍必须排在 CFO 批之前**：已批（ACTIVE）的地址右栏不再出现 ⚡ 区（后端同守卫，直打接口 409）。讲：这是"站在 Sumsub 一侧改判"的后门，真环境里是 Sumsub 筛查回调把待批地址翻红；它是覆写后门，不是绕迁移表的通道。
 
-⑤ **CFO 批 → ACTIVE，废单 Reject 清队**：切 `cfo@` 审批中心——队列里躺着三张 `LP_ADDRESS_APPROVAL`（a / b / ④ 喂红的那条）。打开 a（`ACTION TYPE: LP_ADDRESS_APPROVAL`，Impact 摘要读到「Register USDT-TRON payout address … for Northbridge Liquidity Ltd (… screening GREEN; evidence …). Once approved it can be selected as the payout destination of LP exchange orders」）→ Approve；同样批 b（Impact 里 screening YELLOW）；对 ④ 喂红的那条（**废单**——地址已被拒，审批单还躺着：审批引擎只许提单人或超管撤单，合规官撤不了，所以留在队列）点 **Reject**（理由必填，如 `Address already rejected by screening`）清队（讲解口径；迟到的裁决由守卫吞掉，地址不会复活）。切回 `treasury@` 刷新 Payout Addresses：a / b 两行 `ACTIVE`，c 与 ④ 两行 `REJECTED`。
+⑤ **CFO 批 → ACTIVE，废单 Reject 清队**：切 `cfo@` 审批中心——队列里躺着三张 `LP_ADDRESS_APPROVAL`（a / b / ④ 喂红的那条）。打开 a（`ACTION TYPE: LP_ADDRESS_APPROVAL`，Impact 摘要读到「Register USDT-TRON payout address … for Oryx Digital Markets Ltd (… screening GREEN; evidence …). Once approved it can be selected as the payout destination of LP exchange orders」）→ Approve；同样批 b（Impact 里 screening YELLOW）；对 ④ 喂红的那条（**废单**——地址已被拒，审批单还躺着：审批引擎只许提单人或超管撤单，合规官撤不了，所以留在队列）点 **Reject**（理由必填，如 `Address already rejected by screening`）清队（讲解口径；迟到的裁决由守卫吞掉，地址不会复活）。切回 `treasury@` 刷新 Payout Addresses：a / b 两行 `ACTIVE`，c 与 ④ 两行 `REJECTED`。
 
 ⑥ **换地址 = 登新停旧**：`treasury@` 再登记一条普通地址 Address `T4noF9Q4C2oPCb9jzojh9C7gAQZFS3b9e4`（`Self-Custody`，Label `Payout v2`）→ 切 `cfo@` Approve → 回 `treasury@`，打开 b（2222 那条，旧的）→ 右栏 Actions →「Retire」→ 填 Reason（如 `Replaced by a new address`）→ 状态 `DEACTIVATED`（**永久退役**，没有回头路；Suspend 是可恢复的暂停，换地址用 Retire）。讲：坐标与自报登记后冻结，唯一能改的是 label（Rename Label）；要换坐标就是新登记——登新、批准后停旧，期间始终有一条生效的。此刻 USDT-TRON 的 ACTIVE 地址恰两条：a（Primary USDT payout）与 Payout v2。
 
-⑦ **开单选地址（两条候选演多选）**：`treasury@` → LP Exchanges →「Initiate exchange」→ Liquidity Provider 选 Northbridge → Sell Asset=`USDT-TRON`、Sell Amount `3000` → **Payout Address 下拉列出两条候选**（每行形如 `LPA… · <整串地址> · <label>`，**按登记时间倒序、新的在上**：先是 `T4no…b9e4 · Payout v2`，再是 a 的 `…1111 · Primary USDT payout`），多条候选**不预选**，须点选；已退役的 b、被拒的 c 与 ④ 都不在列（候选 = 该 LP × 该卖出资产 × ACTIVE）→ 选 `Primary USDT payout` → Buy Asset=`AED`、Buy Amount `11030`、Prudential Purpose、Reason → Initiate → `PENDING_APPROVAL`；详情页 Payout Address 读到 LPA 号（可点回链地址详情）与坐标。旁白：绕过界面直接接口传一个退役 / 他家 LP / 资产不符 / 不存在的地址号，后端同样拒，四道各一个错误码（`PAYOUT_ADDRESS_INACTIVE` / `PAYOUT_ADDRESS_WRONG_LP` / `PAYOUT_ADDRESS_ASSET_MISMATCH` / `PAYOUT_ADDRESS_NOT_FOUND`）；批准那一刻还会再复查所选地址仍 ACTIVE（开单到批准之间被停用的，单据落 `FAILED`，一分钱没付）。
+⑦ **开单选地址（两条候选演多选）**：`treasury@` → LP Exchanges →「Initiate exchange」→ Liquidity Provider 选 Oryx → Sell Asset=`USDT-TRON`、Sell Amount `3000` → **Payout Address 下拉列出两条候选**（每行形如 `LPA… · <整串地址> · <label>`，**按登记时间倒序、新的在上**：先是 `T4no…b9e4 · Payout v2`，再是 a 的 `…1111 · Primary USDT payout`），多条候选**不预选**，须点选；已退役的 b、被拒的 c 与 ④ 都不在列（候选 = 该 LP × 该卖出资产 × ACTIVE）→ 选 `Primary USDT payout` → Buy Asset=`AED`、Buy Amount `11030`、Prudential Purpose、Reason → Initiate → `PENDING_APPROVAL`；详情页 Payout Address 读到 LPA 号（可点回链地址详情）与坐标。旁白：绕过界面直接接口传一个退役 / 他家 LP / 资产不符 / 不存在的地址号，后端同样拒，四道各一个错误码（`PAYOUT_ADDRESS_INACTIVE` / `PAYOUT_ADDRESS_WRONG_LP` / `PAYOUT_ADDRESS_ASSET_MISMATCH` / `PAYOUT_ADDRESS_NOT_FOUND`）；批准那一刻还会再复查所选地址仍 ACTIVE（开单到批准之间被停用的，单据落 `FAILED`，一分钱没付）。
 
 ⑧ **推腿到悬空期，⚡到货带红来源**：切 `cfo@` 批该单（`LP_EXCHANGE_APPROVAL`，载荷带 `payoutAddressNo` 与坐标）→ `EXECUTING` → 切 `treasury@` 打开卖出腿资金单（加密腿，收款地址 = 开单时抄下的那条）→ ⚡ Broadcast → ⚡ Seen in Mempool → ⚡ Confirm → 兑换单 `AWAITING_DELIVERY`（T11 实走：点完最后一个 ⚡ 的瞬间资金单页先显示 `Confirmed`、页内「Linked LP exchange」徽章仍是 `EXECUTING`，清算落定要数秒——点 Refresh 或回兑换单页即见 `Cleared` / `AWAITING_DELIVERY`，场景 26 / 27 同此）。回兑换单详情点「⚡ Simulate LP delivery」→ 弹层「Source Address / IBAN (optional)」：买入的是 AED（法币），所以填 IBAN `AE720860000000000003333`（尾号 **3333** = RED）→ Simulate delivery → 单据转 `DELIVERED`；详情页新出 **Delivery Screening** 区块：**红色横幅**「The source of this delivery screened RED — flagged for review. Acceptance is not blocked.」，Source Address / IBAN = 该 IBAN，Verdict = RED 徽章，Screened At。讲："检查站有情报了"——腿 2 是全系统唯一"外部资金直进公司科目"的口子，来源在落前厅的这一刻被筛了一遍。（对照：来源栏留空 = 干净占位，GREEN，不亮横幅；尾号 2222 = YELLOW，琥珀横幅。）
 
@@ -695,12 +696,142 @@ bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash script
 　· 3333 那条：REGISTERED + SCREENED + `LP_ADDRESS_REJECTED`（系统，reason 固定 `Screening returned RED at registration`）三条；
 　· ⚡喂红那条：REGISTERED → SCREENED（GREEN，系统）→ `LP_ADDRESS_REJECTED`（**操作人 = 合规官**，reason = ④ 里填的理由，metadata 里有 `screeningFedBy` 与被晾下的 `openApprovalNo`）；
 　· 退役的 2222 那条：… → `LP_ADDRESS_DEACTIVATED`（金库，reason `Replaced by a new address`）；
-　· Sanction 那家的 LPP 号：`LP_PROFILE_CREATED` → `LP_PROFILE_SCREENED` → `LP_PROFILE_REJECTED`（系统，reason `Entity screening returned RED at registration`）；
 　· 兑换单 LPX 号：`LP_EXCHANGE_REQUESTED` → … → `LP_EXCHANGE_DELIVERED` → `LP_EXCHANGE_DELIVERY_SCREENED`（系统，afterData 带来源与 RED）→ `LP_EXCHANGE_ACCEPTED`——**DELIVERY_SCREENED(RED) 之后紧跟 ACCEPTED**，一眼看出"红旗在案、验收照走"。
 
-**判据**：① 背调：含 `sanction` 的名称建档当场 `REJECTED`、无审批单；GREEN / YELLOW 进 CFO，载荷快照带 `screeningAnswer` + `dueDiligenceRef`。② 地址：尾号 1111 → 归因 Mock VASP Exchange + 名录三行 COMPLETED / 3 / LICENSED；2222 → YELLOW 放行；3333 → 当场 `REJECTED` 无审批单；⚡Feed RED 仅待批态可用（ACTIVE 后无 ⚡ 区，直打接口 409）。③ 地址状态机六态六边（`PENDING_APPROVAL→ACTIVE / REJECTED / CANCELLED`，`ACTIVE→SUSPENDED / DEACTIVATED`，`SUSPENDED→ACTIVE`），`DEACTIVATED` 零出边；坐标登记后冻结，只能改 label。④ 开单候选恰为 ACTIVE（退役 / 被拒 / 待批不在列），单据 `payoutAddressNo` 非空，腿 1 收款地址 = 单据所抄坐标。⑤ 到货 3333 来源 → 单据 `deliveryScreeningAnswer=RED`，单据仍 `DELIVERED` 且验收可执行、走到 `SUCCESS`（行为判据：`lp-exchange-workflow.service.spec.ts` 的 RED 来源两用例——照常 DELIVERED、且该行可被 `accept` 验收——与 ⑨ 同口径）。⑥ 动了钱（三腿 84 / 85 / 86）：走查后现场跑 `bash scripts/on-stack.sh self verify:coa`，两恒等式 + 负余额检查全绿。
+**判据**：① 前置：Oryx 在场景 37 走完尽调准入，状态 `ACTIVE`（本场景不再验准入，准入判据见场景 37 / 38）。② 地址：尾号 1111 → 归因 Mock VASP Exchange + 名录三行 COMPLETED / 3 / LICENSED；2222 → YELLOW 放行；3333 → 当场 `REJECTED` 无审批单；⚡Feed RED 仅待批态可用（ACTIVE 后无 ⚡ 区，直打接口 409）。③ 地址状态机六态六边（`PENDING_APPROVAL→ACTIVE / REJECTED / CANCELLED`，`ACTIVE→SUSPENDED / DEACTIVATED`，`SUSPENDED→ACTIVE`），`DEACTIVATED` 零出边；坐标登记后冻结，只能改 label。④ 开单候选恰为 ACTIVE（退役 / 被拒 / 待批不在列），单据 `payoutAddressNo` 非空，腿 1 收款地址 = 单据所抄坐标。⑤ 到货 3333 来源 → 单据 `deliveryScreeningAnswer=RED`，单据仍 `DELIVERED` 且验收可执行、走到 `SUCCESS`（行为判据：`lp-exchange-workflow.service.spec.ts` 的 RED 来源两用例——照常 DELIVERED、且该行可被 `accept` 验收——与 ⑨ 同口径）。⑥ 动了钱（三腿 84 / 85 / 86）：走查后现场跑 `bash scripts/on-stack.sh self verify:coa`，两恒等式 + 负余额检查全绿。
 
-**期望**：观众看懂三件事——① 准入是两步，各裁一件事：先裁"跟不跟这家做生意"（背调 + 协议锚 + 尽调引用 + CFO），再裁"钱打到哪条路上"（地址登记 + 筛查 + CFO）；② 先筛后批、红的当场拒、黄的放行留痕、绿的进 CFO——筛查在登记那一刻就跑完，CFO 批的不是盲盒；地址登记后冻结，换地址是登新停旧；单据抄快照，钱只会打到过了筛、过了批的坐标；③ 到货筛查是监控不是门——红旗摆在验收那个人的眼前，状态机一条边没加，看见红点不点是业务纪律。
+**期望**：观众看懂三件事——① 准入是两步，各裁一件事：先裁"跟不跟这家做生意"（尽调：申请材料 + 合规逐名筛查定档 + CFO，场景 37 / 38），再裁"钱打到哪条路上"（地址登记 + 筛查 + CFO，本场景）；② 先筛后批、红的当场拒、黄的放行留痕、绿的进 CFO——筛查在登记那一刻就跑完，CFO 批的不是盲盒；地址登记后冻结，换地址是登新停旧；单据抄快照，钱只会打到过了筛、过了批的坐标；③ 到货筛查是监控不是门——红旗摆在验收那个人的眼前，状态机一条边没加，看见红点不点是业务纪律。
+
+---
+
+## 场景 37 · LP 顺路：金库申请 → 合规逐名筛查 → 低风险送审 → CFO 批 → ACTIVE（V7 财资 · LP 尽调准入）
+
+> 甲波六交付（2026-10-29），幕次归属第九幕（编号接场景 36 之后，但**演场景 36 前必须先演本场景**——36 用本场景批准的 Oryx 登记地址）。主篇文档 `modules/lp-desk.md` §1 / §2.1 与 `modules/compliance-office.md` §3.3（尽调评估）。本场景逐拍对照代码与管理台页面文案写成，终验按本文逐字点击走查。
+
+**讲什么**：以前签一家 LP 是「金库填个名字 + 机器自动筛一下 + CFO 点一下」，没人收材料、没人逐名筛查、没人为结论签字担责。现在是一次完整的尽调：**金库交申请和六份材料 → 合规官逐名（公司 + 每位实际控制人）人工登记筛查结果、定风险档、写意见 → 送 CFO 批**。筛查是人做的、系统只收结果——但系统守着规矩：缺了人送不了审、红的送不了审、批完才生效。这一场演正常路：全绿、低风险、CFO 单步批；红灯是场景 38。
+
+**造数**：不用种子 LP——现场新建一家 `Oryx Digital Markets Ltd`。演示机上预备**六个 PDF / PNG / JPG**（每份 ≤ 10 MB，文件名随意）；省事的做法是用栈文件目录里种子生成的占位 PDF（主栈在 `/tmp/exchange_js_main/files/LIQUIDITY_PROVIDER/<任一 LPP 号目录>/` 下，每份几百字节）。Simulation 开关本场景不需要。
+
+**账号**：`treasury@fiatx.com`（金库：申请）→ `compliance_lead@fiatx.com`（合规官：评估 / 送审；可 Quick Login）→ `cfo@fiatx.com`（CFO：批）→ `auditor@fiatx.com`（内审：回查审计）。`cfo@` / `treasury@` / `auditor@` 不在登录页 Quick Login 面板里，手输邮箱 + 123456。
+
+**走查**：
+① **金库提交尽调申请**。`treasury@` → 侧栏 Treasury → LP Register（列表页，状态列用词是 `Active` / `Suspended` 一类，不露内部枚举）→ 右上「Register LP」→ 申请页（标题 Register LP，副标题 "Liquidity provider application — compliance assesses it before any approval is raised"）。按卡片填：
+　· **Who is this**：Legal name `Oryx Digital Markets Ltd` ｜ Country / jurisdiction of registration `United Arab Emirates (ADGM)` ｜ Registration number `ADGM-2026-0457` ｜ Licensing authority `Financial Services Regulatory Authority (FSRA)` ｜ Licence number `FSP-260457` ｜ 点「Add beneficial owner」→ 新行 `#1`，Full name `Layla Haddad`，Nationality `Jordanian`。
+　· **What they will do with us**：Trading types 勾 `Spot exchange` 与 `OTC block trade` ｜ Expected monthly volume `5000000` ｜ Volume currency `USD`（默认已填）｜ Reason for the application `Second liquidity source for AED and USDT spot and block trades`。
+　· **Agreement and contact**：Agreement reference `LPA-2026-014` ｜ Agreement start date 留空（选填）｜ Contact name `Omar Rahman` ｜ Contact email `omar.rahman@oryx-markets.example`。
+　· **Documents**：六行（Certificate of incorporation / Shareholder / UBO register / Licence copy / AML policy or questionnaire / Latest financial statements / Authorised signatories list）各点「Choose file」选一个文件——说明文字写明 "All optional"，缺的合规官可以退回补料，这里六份都传。
+　点页脚「Submit application」→ 逐份显示 Uploading… / Uploaded → 自动跳到该 LP 的详情页（标题 Liquidity Provider，副标题 `LPP…` 号，状态徽章 **Pending assessment**）。记下 LPP 号。
+　详情页自上而下：Liquidity Provider（名称 / 注册地 / 注册号 / 发牌机构 / 牌照号 / Agreement Ref）、Application（Trading Types `Spot exchange · OTC block trade`、Expected Monthly Volume `5,000,000 USD`、Contact）、`Beneficial Owners · 1`（`#1 Layla Haddad`）、`Documents · 6 uploaded`（六行，Document No. 都是 `DOC…`，点文件名能在新窗口打开）、**Due Diligence**（Assessment No. `DDA…`，Risk Tier "Not assessed yet"，Last Conclusion 空——申请一提交就自动开了一份空评估）。金库在此页没有评估入口：评估归合规官。
+
+② **合规官逐名登记筛查**。切 `compliance_lead@`（合规官持 `LP_READ`，LP 页面打得开）→ 侧栏 Treasury → LP Register → 状态下拉选 `Pending assessment`（这就是合规官的待办队列）→ 点 Oryx 一行进详情 → 滚到 **Due Diligence**：黄条 `Not screened yet: Oryx Digital Markets Ltd · Layla Haddad`——公司和每位实际控制人都要有记录。
+　· Screening records 表现在 "No screening records yet"。在下方 **Add screening record** 表单：Subject 默认 `Company`，Name screened 已预填 `Oryx Digital Markets Ltd` ｜ Lists checked 六个全勾（UN / OFAC / EU / UAE local / PEP / Adverse media）｜ Result 点 `Green` ｜ Screened at 留空（默认现在）｜ Evidence screenshot 选一个图片（可选，演示"证据截图"就选一个）→「Add screening record」→ 表里出现第一行（Subject `Oryx Digital Markets Ltd`，小字 `Company · SCR…`），表单复位。
+　· 再填一条：Subject 改选 `Beneficial owner` → 出现 Beneficial owner 下拉，选 `#1 · Layla Haddad`（Name screened 自动带出）｜ Lists checked 全勾 ｜ Result `Green` →「Add screening record」→ 第二行（`Beneficial owner #1 · SCR…`）。黄条消失。
+　· 讲：这一步是**人工登记**——合规官在系统外（名单网站 / 商业数据库）查，系统只收"查了哪些名单、结果几色、截图"；记录按「公司 + 每位实控人」逐名，名字和序号要和申请表对得上（改名、换人都得补记录）。
+
+③ **定档、写意见、送审**。同一页 **Assessment**：Risk tier 选 `Low` ｜ Conditions (optional) `Limited to USDT/AED spot` ｜ Assessment opinion `All six lists clear for the company and its beneficial owner; licensed by the FSRA; low risk.` →「Save assessment」→ 绿字 `Saved`（不先点 Save，下方送审按钮会提示 "Save the assessment first"）。**Conclusion** 区有三个按钮：`Return for documents` / `Reject` / `Send for approval`——此刻 `Send for approval` 可点（缺名、未定档时它是灰的，鼠标悬停和下方灰字写明原因）→ 点「Send for approval」→ 绿条 `Sent for approval — APR… View approval`；详情页黄条 "Pending approval (CFO) — the application, documents and assessment are read-only until it is decided."，徽章 **Pending approval**，Due Diligence 区的录入表单消失（送审后评估锁定）；多出 **Approval** 卡：Approval `APR…`（可点），Route `CFO` `(Low risk)`。
+
+④ **CFO 批**。切 `cfo@` → 侧栏 Governance → Approvals（或在合规官页面点 `View approval` 拿到审批号）→ 打开这条审批单（`ACTION TYPE: LP_PROFILE_APPROVAL`，右栏 Submitted By 是合规官的 ADM 号（不是金库）；Technical Detail 的 objectSnapshot 里读得到 name / registeredIn / licensingAuthority / `riskTier: LOW` / conditions / assessmentNo——CFO 批的不是盲盒；Approval Steps 只有一步 CFO）→「Approve」→ 弹窗 "Approve Request" 再点「Approve」。
+　（旁白，本场景不演：评估档位若选 `High`，审批单会是 `LP_PROFILE_HIGH_RISK_APPROVAL`，CFO 批完状态仍是 Pending approval，还要 `sm@` 高管再批一步才 Active。）
+
+⑤ **回到金库：ACTIVE**。切 `treasury@` → LP Register → Oryx：徽章 **Active**，Approval 卡仍在；Payout Addresses 区块出现「Register address」按钮——**档案 Active 才能登记打款地址**，这就是场景 36 的起点（登记地址、开兑换单）。
+
+⑥ **审计回查**。在 Oryx 详情页右上点「View audit trail」（或切 `auditor@` → Audit → Audit Log → Related No 框输 LPP 号）→ 从上到下（默认新的在上；这里从旧到新念）：`LP_PROFILE_CREATED`（金库）→ `DD_ASSESSMENT_OPENED` → `DOCUMENT_UPLOADED` ×6 → `DD_SCREENING_RECORDED` ×2（合规官；第一条还带一次 `DOCUMENT_UPLOADED` 证据截图）→ `DD_ASSESSMENT_SAVED` → `DD_ASSESSMENT_CONCLUDED`（metadata：conclusion `SENT_FOR_APPROVAL`、riskTier `LOW`）→ `LP_PROFILE_SENT_FOR_APPROVAL`（`PENDING_ASSESSMENT` → `PENDING_APPROVAL`）→ `LP_PROFILE_APPROVED`（系统驱动，`PENDING_APPROVAL` → `ACTIVE`，带审批单号与因果链）。
+
+**判据**：① 申请提交即 `PENDING_ASSESSMENT`，同一动作开出 `DDA…` 评估壳，六份文件落 `stored_documents`（`DOC…`，磁盘在栈的 `files/` 目录下）；② 公司或实控人缺一条对得上身份的筛查记录 → 送审置灰并点名（后端 `Screening missing for: …`）；全绿 + 定档 + Save 后才可送审；③ 送审后 LP `PENDING_APPROVAL`、审批类型 `LP_PROFILE_APPROVAL`（Low/Medium → CFO 单步）、提单人 = 合规官（不是金库）、审批理由 = 评估意见；送审后评估与文件锁定；④ CFO 批 → `ACTIVE`；⑤ 审计链如 ⑥，每条状态边带 from/to；⑥ 本场景零账务，`verify:coa` 不触发。
+
+**期望**：观众看懂三件事——① 准入不再是"填个名字点一下"，而是业务申请 → 合规评估 → 审批三个人三个动作：金库管交材料，合规官管逐名筛查和定档，CFO 管批；② 筛查是人做的，但系统用硬规则守住"逐名"——缺人、红灯都送不了审，CFO 面前的永远是已经过筛的申请；③ 材料真的存在系统里（六份文件，点得开），不是一个引用号。
+
+---
+
+## 场景 38 · LP 红灯：实际控制人命中 OFAC → 无法送审 → 只能不通过（V7 财资 · LP 尽调准入）
+
+> 甲波六交付（2026-10-29），幕次归属第九幕。主篇文档 `modules/lp-desk.md` §1「送审的硬规则」。本场景用种子里的 `Sable Crest Trading FZCO`（`LPP2601014866`，待评估，六份文件已传，1 位实际控制人 Marwan Al-Sable，一条筛查都没做），可在场景 37 前后任意位置演，也可 `reset` 后单独演。
+
+**讲什么**：场景 37 是全绿的顺路；这一场演"筛查出事了"——合规官给实际控制人记一条 OFAC 红：**系统立刻收走「Send for approval」按钮**，这家申请再也走不到 CFO，只剩 Return 和 Reject 两条路。红灯是硬门不是建议：CFO 的队列里永远不会出现带红灯的申请。
+
+**造数**：种子已铺（`Sable Crest Trading FZCO`，状态 Pending assessment，见 `demo/data.md`）。
+
+**账号**：`compliance_lead@fiatx.com`（合规官）→ `cfo@fiatx.com`（CFO：对照"队列里没有这一家"）。
+
+**走查**：
+① **打开待评估的申请**。`compliance_lead@` → 侧栏 Treasury → LP Register → 状态下拉选 `Pending assessment` → 点 `Sable Crest Trading FZCO` 一行 → 详情：徽章 **Pending assessment**；`Beneficial Owners · 1`（`#1 Marwan Al-Sable`）；`Documents · 6 uploaded`；Due Diligence 区黄条 `Not screened yet: Sable Crest Trading FZCO · Marwan Al-Sable`，Screening records 表为空。
+② **先登公司（绿）——对照"缺人送不了审"**。Add screening record：Subject `Company`（Name screened 已预填 `Sable Crest Trading FZCO`）｜ Lists checked 全勾 ｜ Result `Green` →「Add screening record」。黄条变成 `Not screened yet: Marwan Al-Sable`。往下 Assessment 区选 Risk tier `Medium`、Assessment opinion `Company clear; beneficial owner pending.` →「Save assessment」→ Conclusion 区的「Send for approval」**置灰**，下方灰字 `Screening missing for: Marwan Al-Sable`——还有一个人没筛，送不了审。
+③ **登实际控制人（红）**。Add screening record：Subject 改选 `Beneficial owner` → Beneficial owner 选 `#1 · Marwan Al-Sable` ｜ Lists checked 勾 `UN` 与 `OFAC` ｜ Result 点 `Red` ｜ Evidence screenshot 选一个图片（可选）→「Add screening record」。表里多一行，Result 红点 `Red`；黄条消失，换成**红条** `A screening result is Red — this application cannot be sent for approval; it can only be rejected.`；Conclusion 区只剩 `Return for documents` 与 `Reject` 两个按钮——**「Send for approval」整个消失**（不是置灰：红灯下根本没有这个选项；后端同守，直打接口 400 `Screening hit (RED) — only REJECT is allowed`）。
+④ **不通过**。点「Reject」→ 弹层 "Reject application"（提示 "Rejected is final — the application ends here and a new one has to be filed."）→ Reason 填 `OFAC hit on beneficial owner Marwan Al-Sable` → 点弹层「Reject」→ 绿条 `Rejected`；详情页徽章 **Rejected**，红条 `Rejected by compliance: OFAC hit on beneficial owner Marwan Al-Sable`；Due Diligence 区评估成只读，Last Conclusion `Rejected`。`Rejected` 是终态，页头没有「Edit & resubmit」——要再做生意只能重新申请一家新的。
+⑤ **对照：CFO 队列里没有它**。切 `cfo@` → Governance → Approvals → 状态下拉选 `PENDING`：没有 Sable Crest 的审批单（红灯走不到审批；`REJECTED` 是合规官一句话落的，不是审批驳回）。
+⑥ **审计回查**。Sable Crest 详情页「View audit trail」（或 `auditor@` Audit Log 按 `LPP2601014866` 查）：`DD_SCREENING_RECORDED`（公司，`GREEN`）→ `DD_ASSESSMENT_SAVED` → `DD_SCREENING_RECORDED`（实控人，`RED`；若挂了证据截图，紧跟一条 `DOCUMENT_UPLOADED`）→ `DD_ASSESSMENT_CONCLUDED`（metadata：conclusion `REJECTED`、reason 即上面填的）→ `LP_PROFILE_REJECTED`（操作人 = 合规官，`PENDING_ASSESSMENT` → `REJECTED`，reason 同）。
+
+**判据**：① 任一条筛查记录 Red → 评估只允许 Reject / Return，「Send for approval」不出现，后端 `assertSendable` 同拒；② 缺名 → 置灰并点名；③ `REJECTED` 终态零出边，无审批单、无 CFO 队列项；④ 审计：红灯记录、结论、状态边三类各有；⑤ 本场景零账务。
+
+**期望**：观众看懂两件事——① 红灯是**硬门**：合规官给实控人记一条 OFAC 红，系统当场收走送审按钮，CFO 不需要（也没有机会）为一个已知有制裁命中的申请做判断；② "逐名"是系统守的——公司绿了、实控人没筛，一样送不了审。
+
+---
+
+## 场景 39 · 服务商重大路：运营申请 → 系统判重大 → 合规评估 → CISO 评估 → CFO、高管两步批 → 待报备 → 报送台告知单 → ACTIVE（V1 治理 · 合规办公室 · 服务商准入）
+
+> 甲波六交付（2026-10-29），幕次归属第九幕（编号 39；演示的是 Compliance Office 域的服务商准入，收在公司的钱这一幕里是因为终点是 Treasury 的付款单）。主篇文档 `modules/compliance-office.md` §3.1 / §3.3，报送台来路见 `modules/v9-regulatory-filing.md` §2.2。本场景逐拍对照代码与管理台页面文案写成，终验按本文逐字点击走查；全程不需要 Simulation 开关。
+
+**讲什么**：外包不是随便签个合同——VARA 要求"关键或重要职能"的外包要事前报备。系统这样守：**运营提申请时自己回答四个问题，系统据此判重大性，运营改不了**；重大的多一道 CISO 信息安全评估，审批是 CFO → 高管两步；批完**不是生效，而是进"待报备"**——报送台自动开出告知 VARA 的草稿单，合规官送签、高管签发、标已提交填 VARA 回执号之后，服务商才 ACTIVE；在那之前，金库付款单里选不了它。
+
+**造数**：不用种子——现场新建 `Nimbus Cloud Hosting LLC`。演示机上预备 **4 个 PDF / PNG / JPG**（≤ 10 MB，文件名随意）。种子里的 Sumsub / HexTrust / Gulf Office Systems 三家 Active、Pearl Clean Services LLC 待批（留给场景 40）在列表里陪衬，不动。
+
+**账号**：`ops_officer@fiatx.com`（运营：申请；Quick Login「Ops Officer」）→ `compliance_lead@fiatx.com`（合规官：评估 / 送审 / 报送台经办）→ `ciso@fiatx.com`（CISO：信息安全评估；Quick Login「CISO」）→ `cfo@fiatx.com`（CFO：第一步批）→ `sm@fiatx.com`（高管：第二步批 + **报送单签发**；Quick Login「Senior Management Officer」）→ `treasury@fiatx.com`（金库：付款单下拉对照）。
+
+**走查**：
+① **运营提申请，系统判重大**。`ops_officer@` → 侧栏 Compliance Office → **Service Providers**（运营在这个组里能看到 Service Providers 和他本来就有的 Sumsub Events）→ 列表页四行种子（Sumsub / HexTrust / Gulf Office Systems / Pearl Clean Services LLC），右上「Apply」→ 申请页（标题 Apply for a service provider，副标题 "Compliance assesses the application before any approval is raised"）：
+　· **Who is this**：Legal name `Nimbus Cloud Hosting LLC` ｜ Country / jurisdiction of registration `United Arab Emirates (Dubai)` ｜ Registration number `DED-2026-88231` ｜ Service delivery / data storage locations `AE, IE`（国家，逗号分隔）｜ Contact name `Hana Petrov` ｜ Contact email `hana.petrov@nimbus-hosting.example` ｜ Licensing authority / Licence number 留空（选填，非受监管职能）｜ 「Add beneficial owner」→ `#1`，Full name `Tariq Mansoor`，Nationality `Emirati`。
+　· **What they will do for us**：Service description `Cloud hosting of the trading platform and its databases` ｜ "Is this a regulated function (MLRO / CISO / DPO … — VARA IV.A.3)?" 点 `No` ｜ Contract start date `2026-11-01` ｜ Contract end date 留空 ｜ "Does the service involve personal data?" `Yes` ｜ "Does the service involve confidential information?" `Yes` ｜ Annual fee `120000` ｜ Fee currency `USD` ｜ 分包勾选框不勾 ｜ Reason for the application `Replace the self-managed hosting with a managed cloud provider`。（所有 Yes/No 题**没有默认答案**，必须点选。）
+　· **How critical is this service**（卡片说明："Your own answers decide the materiality: if any of the four is Yes, the system treats the provider as material. You cannot override it…"）：四问——licence compliance `No`、other legal obligations `No`、financial performance `No`、continuity of our core business **`Yes`**；"How hard would it be to replace this provider?" 点 `Hard to replace`。答完最后一问，卡片底部 **System judgement** 出现 **Material** 徽章，灰字 "Material providers also need a CISO assessment, CFO and senior-management approval, and a VARA notification before they go live."——**任一答 Yes 即判重大，运营没有"改成一般"的入口**（可现场把 continuity 改回 `No` 再改回 `Yes`，看徽章切换，最后保持 `Yes`）。
+　· **Documents**：槽位随答案出现——重大档共 8 行（Certificate of incorporation / Service contract / Shareholder / UBO register / Latest financial statements / SOC 2 / ISO 27001 certificate / Disaster recovery plan / Subcontractor list / Insurance policy），选其中 4 行点「Choose file」：Certificate of incorporation、Service contract、SOC 2 / ISO 27001 certificate、Disaster recovery plan（"All optional"）。
+　点页脚「Submit application」→ 自动跳详情（标题 Service Provider，副标题 `VEN…` 号，徽章 **Pending assessment** 与 **Material**）。详情页 Materiality 卡：四行 `✗ No` `✗ No` `✗ No` `✓ Yes`，System Judgement `Material`，Replaceability `Hard to replace`；运营在这里**没有** Upgrade 之类的按钮；Due Diligence 卡 Assessment No. `DDA…`、Risk Tier "Not assessed yet"。
+
+② **合规官逐名筛查、定档——但送不了审**。切 `compliance_lead@` → 侧栏 Compliance Office → Service Providers → 状态下拉选 `Pending assessment` → 点 Nimbus → Due Diligence：黄条 `Not screened yet: Nimbus Cloud Hosting LLC · Tariq Mansoor`。同场景 37 ②：Add screening record 登 `Company`（Nimbus，六个名单全勾，`Green`）与 `Beneficial owner` `#1 · Tariq Mansoor`（六个名单全勾，`Green`）→ Assessment 区 Risk tier `Medium`、Assessment opinion `Established regional host; screening clean; certificates and DR plan referred to the CISO.` →「Save assessment」。往下可见新区块 **CISO information-security assessment**，灰字 `Not recorded yet — waiting for the CISO`；Conclusion 区「Send for approval」**置灰**，灰字 `Waiting for the CISO assessment`——**重大服务商没有 CISO 评估，合规官送不了审**。（Materiality 卡里没有 Upgrade to MATERIAL：它已经是 Material，本来就不能再升。）
+
+③ **CISO 填信息安全评估**。切 `ciso@` → 侧栏 Compliance Office → Service Providers → Nimbus（CISO 持 `VENDOR_READ`，只读基本信息）→ Due Diligence 里 **CISO information-security assessment** 表单（只有 CISO 看得到这张表单；CISO 没有 Send 之类按钮）：SOC 2 `Held` ｜ ISO 27001 `Held` ｜ Data location acceptable `Yes` ｜ Disaster recovery plan acceptable `Yes` ｜ Verdict `Acceptable` ｜ Opinion `SOC 2 Type II and ISO 27001 certificates valid; UAE/IE data residency acceptable; DR plan reviewed (RTO 4h).` →「Record CISO assessment」。
+
+④ **合规官送审**。切回 `compliance_lead@` → 刷新 Nimbus 详情：CISO 区变成只读值（SOC 2 Held … Verdict Acceptable，Recorded 带 CISO 的 ADM 号），「Send for approval」可点 → 点 → 绿条 `Sent for approval — APR…`；黄条 "Pending approval (CFO, then senior management)"，徽章 **Pending approval**，Approval 卡 Route `CFO, then senior management` `(Medium risk)`。（若 CISO 填 Verdict `Not acceptable`：Send 按钮消失，只能 Reject——同场景 38 的红灯口径。）
+
+⑤ **CFO 批第一步**。切 `cfo@` → Governance → Approvals → 打开这条（`ACTION TYPE: VENDOR_MATERIAL_APPROVAL`，Technical Detail 的 objectSnapshot：`criticality: MATERIAL`、`deliveryLocations` 含 AE、IE、`riskTier: MEDIUM`、assessmentNo；右栏 Submitted By 是合规官；Approval Steps 两步——第 1 步 CFO、第 2 步高管）→「Approve」→ 弹窗再点「Approve」。批完审批单**仍是 Pending**（还差第二步）；服务商页状态仍 **Pending approval**。
+
+⑥ **高管批第二步 → 待报备（不是 Active）**。切 `sm@` → Governance → Approvals → 同一张 → 「Approve」→ 再点「Approve」。切回 `compliance_lead@` 刷新 Nimbus：徽章变 **Pending VARA notification**；蓝条 "Waiting for VARA notification to be submitted — notification filing FIL…. Approved, but not active yet: payments to this provider stay blocked until the notification is submitted."；多出 **VARA Notification** 卡（Notification Filing `FIL…` 可点，说明 "…The filing was opened automatically when the approval passed; the provider becomes active once compliance marks it as submitted."）。**批准了，但还不能用**——这是报备门。
+
+⑦ **付款单下拉里它被置灰**。切 `treasury@` → 侧栏 Treasury → Vendor Payments →「Initiate payment」→ 弹窗 "Initiate Vendor Payment" 的 Payee 下拉：`Gulf Office Systems`、`Sumsub`、`HexTrust` 可选；**`Nimbus Cloud Hosting LLC (VEN…) — Pending VARA notification` 灰色不可选**（`Pearl Clean Services LLC (VEN2601015134) — Pending approval` 同样灰，那是场景 40 的）。先指给观众看，再点弹窗「Cancel」。（后端对"服务商必须 ACTIVE"的门同样在：绕过界面直接传它的 vendorNo 也被拒。）
+
+⑧ **报送台：自动开出的告知单送签**。切 `compliance_lead@` → 侧栏 Governance → Regulatory Filings（或在 Nimbus 页 VARA Notification 卡点 `FIL…`）→ 列表里最新的一张：Type `Material change notification`、Title `Material outsourcing — Nimbus Cloud Hosting LLC: onboarding`、Status `Draft`、Authority `VARA`、Deadline `No deadline set`——**系统开的单，合规官接办** → 点进详情：Filing Draft 区已预填五行（`Provider: Nimbus Cloud Hosting LLC` / `Scope: Cloud hosting of the trading platform and its databases` / `Delivery & data locations: AE, IE` / `Materiality: MATERIAL` / `Contract start: 2026-11-01`）→ Sign-off 区「Submit for Sign-off」→ 显示 `Pending sign-off — approval APR…`。
+
+⑨ **高管签发**。切 `sm@`（签发报送单的是**高管**，`REG_FILING_SUBMIT` 单步，与服务商审批的第二步是同一个人、两张不同的审批单）→ Governance → Approvals → 这张 `REG_FILING_SUBMIT` 单（Entity 是那个 `FIL…` 号）→「Approve」→ 再点「Approve」。
+
+⑩ **合规官标已提交，服务商 ACTIVE**。切 `compliance_lead@` → 回报送单详情：Sign-off 区 "Signed off — ready to submit to the regulator" → 「Mark Submitted」→ 弹窗 External Reference 填 `VARA-NOTIF-2026-0301`（VARA 回执号）→ 弹窗「Mark Submitted」→ 报送单 **Submitted**。几秒内（事件驱动）回 Nimbus 详情页点页头刷新：徽章 **Active**，蓝条消失，页头出现「Terminate」按钮；VARA Notification 卡的说明变成 "…it was submitted, which is what made the provider active."。
+
+⑪ **付款单下拉里它能选了**。切 `treasury@` → Vendor Payments →「Initiate payment」→ Payee 下拉里 `Nimbus Cloud Hosting LLC (VEN…)` 已是普通可选项（选中即可，不必真开单；点「Cancel」收尾）。
+
+⑫ **审计回查**。Nimbus 详情页「View audit trail」（或 `auditor@` Audit Log 按 `VEN…` 查），从旧到新念：`VENDOR_APPLIED`（运营；metadata criticality `MATERIAL`）→ `DD_ASSESSMENT_OPENED` → `DOCUMENT_UPLOADED` ×4 → `DD_SCREENING_RECORDED` ×2 → `DD_ASSESSMENT_SAVED` → `DD_INFOSEC_RECORDED`（CISO）→ `DD_ASSESSMENT_CONCLUDED` → `VENDOR_SENT_FOR_APPROVAL` → `VENDOR_APPROVED`（系统驱动，`PENDING_APPROVAL` → `PENDING_NOTIFICATION`）→ `VENDOR_NOTIFICATION_OPENED`（带 `filingNo`）→ `VENDOR_ACTIVATED`（系统驱动，`PENDING_NOTIFICATION` → `ACTIVE`，因果链指向告知单号，reason 带回执号）。
+
+**判据**：① 四问任一 Yes → 提交即 `criticality=MATERIAL`，运营无改动入口；② 重大且 CISO 评估未填 → 送审置灰（后端 `Waiting for CISO information-security assessment`）；CISO Verdict `Not acceptable` → 只能 Reject；③ 审批类型 `VENDOR_MATERIAL_APPROVAL`，CFO → 高管两步，提单人 = 合规官；两步批完才动状态；④ 批完是 `PENDING_NOTIFICATION` 而非 `ACTIVE`，报送台**恰多一张** `MATERIAL_CHANGE_NOTIFICATION`（`DRAFT`、`SYSTEM` 开单、VARA、无钟、标题 `Material outsourcing — Nimbus Cloud Hosting LLC: onboarding`，`FILING_OPENED` 审计 metadata `source=VENDOR_ONBOARDING`），服务商行 `notificationFilingNo` 指向它；⑤ 待报备期间付款单下拉置灰（后端 `assertActiveByNo` 同拒）；⑥ 告知单走完 送签 → 高管签发 → 标已提交（必填回执号）后服务商自动 `ACTIVE`（报送台发事件 `regulatory-filing.submitted`，服务商流程认领），付款单可选；⑦ 本场景零账务，`verify:coa` 不触发。
+
+**期望**：观众看懂四件事——① 重大性是系统按运营自己答的四个问题**算出来**的，不是合规官拍脑袋，也不是运营自己选"一般"——合规官只能升不能降；② 重大外包比一般外包多三道关：CISO 的信息安全评估、高管第二步、VARA 事前报备；③ **批准 ≠ 生效**：重大服务商批完停在"待报备"，系统替合规官把告知单开好，但生效要等告知真的递出去（回执号落库）——付款单下拉里置灰的那一刻就是这道门；④ 告知单走的是报送台既有的六态链（合规官起草送签 → 高管签发 → 标已提交），不因为"是自动开的"就降级。
+
+---
+
+## 场景 40 · 服务商一般路：CFO 一步批 → ACTIVE，不报备（V1 治理 · 合规办公室 · 服务商准入）
+
+> 甲波六交付（2026-10-29），幕次归属第九幕。主篇文档 `modules/compliance-office.md` §3.1。本场景用种子里的 `Pearl Clean Services LLC`（`VEN2601015134`，Non-material，评估已做，待 CFO 批），三十秒，用来**对照场景 39**。
+
+**讲什么**：同一条准入流程，一般（Non-material）的外包服务商只需 CFO 一步批、批完直接 Active，没有 CISO 评估、没有高管第二步、没有 VARA 报备。对照场景 39 的四道关，一般路就是"三十秒"。
+
+**造数**：种子已铺（Pearl Clean Services LLC：Non-material、风险档 Low、公司 + 实控人两条绿色记录、2 份材料、`VENDOR_APPROVAL` 审批单待 CFO 批——该审批单的超时点钉在 2099 年，不会在演示前被过期扫描判死），见 `demo/data.md`。
+
+**账号**：`cfo@fiatx.com`（CFO：批）→ `compliance_lead@fiatx.com`（合规官：看报送台）→ `treasury@fiatx.com`（金库：付款单下拉）。
+
+**走查**：
+① **CFO 一步批**。`cfo@` → 侧栏 Governance → Approvals → 状态下拉选 `PENDING`：待批的就是 Action Type `VENDOR_APPROVAL` 这一条（种子里待批的只有它，前提是前面场景新建的审批单都已批完）→ 打开（Technical Detail 的 objectSnapshot：`name: Pearl Clean Services LLC`、`criticality: NON_MATERIAL`、`riskTier: LOW`；Approval Steps **只有一步** CFO）→「Approve」→ 弹窗再点「Approve」→ 审批单直接 **APPROVED**（一步就够，对比场景 39 批完仍是 Pending）。
+② **直接 Active**。切 `compliance_lead@` → 侧栏 Compliance Office → Service Providers → Pearl Clean Services LLC（或在审批单页点实体链接）→ 几秒内刷新：徽章 **Active**、**Non-material**，页头有「Terminate」，**没有** "Pending VARA notification" 蓝条、**没有** VARA Notification 卡，Approval 卡 Route `CFO` `(Low risk)`。
+③ **报送台没有新单**。切到 Governance → Regulatory Filings 列表：没有标题含 `Pearl Clean` 的告知单——一般服务商不报备（对照场景 39 的 `Material outsourcing — Nimbus …: onboarding`）。
+④ **付款单直接可选**。切 `treasury@` → Treasury → Vendor Payments →「Initiate payment」→ Payee 下拉里 `Pearl Clean Services LLC (VEN2601015134)` 是普通可选项（点「Cancel」收尾）。
+
+**判据**：① 审批类型 `VENDOR_APPROVAL`（CFO 单步）；② 批完 `PENDING_APPROVAL` → `ACTIVE`（审计 `VENDOR_APPROVED`，系统驱动，`toStatus=ACTIVE`），不经 `PENDING_NOTIFICATION`；③ 报送台零新增、服务商 `notificationFilingNo` 为空；④ 付款单下拉立即可选；⑤ 本场景零账务。
+
+**期望**：观众看懂一件事——**重大与一般只差在风险程度，不差在流程骨架**：同一条申请 → 评估 → 审批链，一般路 CFO 一步、直接 Active；重大路 CISO + 两步审批 + 报备门。分流依据是运营自己答的四个问题，不是谁说了算。
 
 ---
 

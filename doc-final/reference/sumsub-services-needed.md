@@ -43,7 +43,7 @@
 
 ### 6. KYB（公司型 applicant 的实体尽调）—— 候选而非必购（2026-10-24 LP 两步准入补记）
 - **产品**：Sumsub KYB——给对手方（LP）建公司型 applicant，并跑 applicant 级 AML 筛查
-- **我们哪些流程依赖**：LP 准入第一步的实体背调（`lp-desk/lp-entity-screening.mock.ts`，现为 mock 三档，登记于 `reference/sumsub-mock-touchpoints.md` ⑨ 行）
+- **我们哪些流程依赖**：LP 与外包服务商准入里的逐名筛查——**现为合规官人工登记、无外部服务**（2026-10-28 甲波六退役原 `lp-desk/lp-entity-screening.mock.ts` 三档 mock；见 `reference/sumsub-mock-touchpoints.md` ⑨ 行与 `modules/compliance-office.md` §3.3）。若采用 KYB，自动筛查结果将落入同一套逐名筛查记录
 - **口径**：这不是缺口，也没有错误实证（`src/` `scripts/` `prisma/` 与两个前端内按 kyb / company applicant 字面搜无任何调用）——LP 两步准入本轮刻意不建 Sumsub 主体，KYB 是「不必」而非「不能」。真集成时与「人工尽调流程（不经 Sumsub）」二选一，届时定
 - **购买触发点**：① 公司型客户上线（需要给公司型客户做 KYB）；② 对手方数量大到人工复审追不动。**现阶段**对手方很少，人工尽调（注册文件 + 牌照公示核验）加制裁筛查订阅即可履约，不必买
 - 找 CSM 时别把它当缺口报——它不在上面两类里
