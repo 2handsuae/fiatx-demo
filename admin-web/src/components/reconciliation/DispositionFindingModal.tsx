@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { adminButtonClass } from '../common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../../utils/adminFetch';
-import { rowFacts } from '../../utils/causeRegistry';
+import { PAUSED_CAUSES, rowFacts } from '../../utils/causeRegistry';
 import { useSimulationMode } from '../../utils/simulationMode';
 import type { FlowComparisonRow } from '../../utils/reconTypes';
 import type { DispositionRecordResult } from '../ReconciliationHoldModal';
@@ -42,7 +42,9 @@ export const DispositionFindingModal = ({ open, caseNo, row, kind, label, onClos
 
   useEffect(() => {
     if (!open) return;
-    setCauseCode(causes.length === 1 ? causes[0].code : '');
+    // 暂停的成因（PAUSED_CAUSES）不参与「只有一个成因就自动选中」。
+    const selectable = causes.filter((c) => !PAUSED_CAUSES[c.code]);
+    setCauseCode(selectable.length === 1 ? selectable[0].code : '');
     setOtherReason('');
     setNote('');
     setError('');
@@ -97,29 +99,40 @@ export const DispositionFindingModal = ({ open, caseNo, row, kind, label, onClos
         <p className="mb-3 font-mono text-[11px] text-adm-t3">{caseNo}</p>
 
         <div className="space-y-1.5">
-          {causes.map((c) => (
-            <label
-              key={c.code}
-              className={`flex cursor-pointer items-start gap-2 rounded border p-2 text-xs ${
-                causeCode === c.code ? 'border-adm-blue/50 bg-adm-blue/10' : 'border-adm-border'
-              }`}
-            >
-              <input
-                type="radio"
-                name="finding-cause"
-                checked={causeCode === c.code}
-                onChange={() => setCauseCode(c.code)}
-                className="mt-0.5"
-              />
-              <span className="flex-1">
-                <span className="text-adm-t1">{c.label}</span>
-                {simEnabled && row?.demoRecommended?.causeCode === c.code && (
-                  <span className="ml-2 rounded border border-adm-amber/30 bg-adm-amber/10 px-1.5 py-0.5 text-[10px] font-medium text-adm-amber">⚡ Recommended</span>
-                )}
-                <div className="mt-0.5 text-[11px] text-adm-t3">Clue: {c.clue}</div>
-              </span>
-            </label>
-          ))}
+          {causes.map((c) => {
+            // 暂停的成因置灰、不可选（说明见 PAUSED_CAUSES），也不挂 ⚡ 推荐标。
+            const pausedNote = PAUSED_CAUSES[c.code];
+            return (
+              <label
+                key={c.code}
+                className={`flex items-start gap-2 rounded border p-2 text-xs ${
+                  pausedNote
+                    ? 'cursor-not-allowed border-adm-border'
+                    : `cursor-pointer ${causeCode === c.code ? 'border-adm-blue/50 bg-adm-blue/10' : 'border-adm-border'}`
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="finding-cause"
+                  checked={causeCode === c.code}
+                  disabled={!!pausedNote}
+                  onChange={() => setCauseCode(c.code)}
+                  className="mt-0.5 disabled:cursor-not-allowed"
+                />
+                <span className="flex-1">
+                  <span className={pausedNote ? 'text-adm-t3' : 'text-adm-t1'}>{c.label}</span>
+                  {pausedNote ? (
+                    <span className="ml-2 font-mono text-[10px] text-adm-t3">{pausedNote}</span>
+                  ) : (
+                    simEnabled && row?.demoRecommended?.causeCode === c.code && (
+                      <span className="ml-2 rounded border border-adm-amber/30 bg-adm-amber/10 px-1.5 py-0.5 text-[10px] font-medium text-adm-amber">⚡ Recommended</span>
+                    )
+                  )}
+                  <div className="mt-0.5 text-[11px] text-adm-t3">Clue: {c.clue}</div>
+                </span>
+              </label>
+            );
+          })}
         </div>
 
         {isOther && (

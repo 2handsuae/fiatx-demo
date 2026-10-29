@@ -26,7 +26,7 @@ import Pagination from '../components/common/Pagination';
 // ReconciliationDispositionModal 都已这样引用）。Task 15：COA 人话短语同理复用
 // utils/causeRegistry 已导出的 COA_PHRASE，不重抄一份映射。
 import { formatAmount } from '../utils/reconAmount';
-import { COA_PHRASE } from '../utils/causeRegistry';
+import { COA_PHRASE, PAUSED_CAUSES } from '../utils/causeRegistry';
 // 门控一致性小补（本任务）：气泡此前只按数据在场显示——补上与详情页行级推荐同一个
 // 模拟开关（业主原话「依然是模拟开关下展示」）。
 import { useSimulationMode } from '../utils/simulationMode';
@@ -384,7 +384,13 @@ const ReconciliationCasesListPage = () => {
                             onClick={(e) => e.stopPropagation()}
                             className="inline-flex cursor-default rounded border border-adm-amber/40 bg-adm-amber/10 px-1 py-0.5 font-mono text-[9px] font-semibold text-adm-amber focus:outline-none focus:ring-1 focus:ring-adm-amber"
                           >
-                            ⚡{kase.demoScenarios.map((s) => s.scenarioId).join('·')}
+                            {/* 暂停的成因（PAUSED_CAUSES）对应的场景号置灰划线，不再当可演示的推荐。 */}
+                            ⚡{kase.demoScenarios.map((s, i) => (
+                              <span key={s.scenarioId}>
+                                {i > 0 && '·'}
+                                <span className={PAUSED_CAUSES[s.causeCode] ? 'text-adm-t3 line-through opacity-60' : ''}>{s.scenarioId}</span>
+                              </span>
+                            ))}
                           </button>
                           {/* 定位：right-0 令卡片从触发点右边缘向左展开——本列越靠视口右侧
                               越需要这样防溢出（Disposition 列右边只剩 Status 列，卡片宽
@@ -395,8 +401,9 @@ const ReconciliationCasesListPage = () => {
                             </p>
                             <ul className="space-y-1.5">
                               {kase.demoScenarios.map((s) => (
-                                <li key={s.scenarioId} className="font-mono text-[10px] leading-snug text-adm-t2">
-                                  <div>#{s.scenarioId} {s.causeLabel} — {s.dispositionLabel}</div>
+                                <li key={s.scenarioId} className={`font-mono text-[10px] leading-snug ${PAUSED_CAUSES[s.causeCode] ? 'text-adm-t3 opacity-60' : 'text-adm-t2'}`}>
+                                  <div className={PAUSED_CAUSES[s.causeCode] ? 'line-through' : ''}>#{s.scenarioId} {s.causeLabel} — {s.dispositionLabel}</div>
+                                  {PAUSED_CAUSES[s.causeCode] && <div className="mt-0.5">{PAUSED_CAUSES[s.causeCode]}</div>}
                                   {/* Minor 4（终审修复批）：业主原始诉求"悬浮出现场景说明"——场景号 +
                                       成因标题只说了"是什么"，没说"怎么查证得出这个结论"；补一行
                                       成因注册表自带的 clue，与成因菜单同一个词表来源，不另造文案。 */}

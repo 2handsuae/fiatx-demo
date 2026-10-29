@@ -15,6 +15,12 @@ export const OUTLET_TONE: Record<string, 'green' | 'blue' | 'amber' | 'red'> = {
   INCIDENT: 'red',
 };
 
+// 入金被退汇暂停——客户独立 vIBAN 余额不够时银行怎么处理待向 Zand 确认，问清前前端置灰。
+// 键 = 成因码，值 = 展示用暂停说明；放开时删掉对应键即可。
+export const PAUSED_CAUSES: Record<string, string> = {
+  BOUNCED_FUNDS: 'Paused · pending bank confirmation',
+};
+
 /** Row facts (the input to outlet resolution) — taken as-is from the clicked row, sent to the backend on POST. */
 export const rowFacts = (row: FlowComparisonRow) => ({
   deltaSign: row.deltaAmount != null ? (row.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1 : undefined,
