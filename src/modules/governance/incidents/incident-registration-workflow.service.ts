@@ -73,6 +73,9 @@ export class IncidentRegistrationWorkflowService {
           explainedExternalLineId: dto.explainedExternalLineId,
           causeCode: 'UNAUTHORIZED_OUTFLOW',
           disposition: 'INCIDENT',
+          // 2026-11-04 原因按行方向筛：INCIDENT 只在出账行合法。未授权转出按定义
+          // 就是出账，这条原子路不经案件页、拿不到行事实，显式带 OUT 过格级校验。
+          externalDirection: 'OUT',
           findingNote: dto.findingNote,
         },
         actor,

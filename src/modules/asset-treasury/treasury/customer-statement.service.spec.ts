@@ -99,8 +99,9 @@ describe('CustomerStatementService', () => {
     });
   });
 
-  // ② RECON_ADJUSTMENT row: title uses reasonCustomer, subtitle uses
-  // relatedOrderNo when present (never the ADJ number), null otherwise.
+  // ② RECON_ADJUSTMENT row: title is generated from the reason code alone
+  // (REASON_SPECS.customerLabel), subtitle uses relatedOrderNo when present
+  // (never the ADJ number), null otherwise.
   describe('② adjustment row', () => {
     it('shows "Original order {no}" when relatedOrderNo is present', async () => {
       mockPrisma.reconciliationAdjustment.findMany.mockResolvedValue([
@@ -138,7 +139,7 @@ describe('CustomerStatementService', () => {
         }),
       ];
       const { items } = await service.buildStatement(legs, { isFiat: true });
-      expect(items[0].title).toBe('Balance correction · Duplicate deposit reversal');
+      expect(items[0].title).toBe('Balance correction · Duplicate entry reversal');
       expect(items[0].subtitle).toBeNull();
     });
 
@@ -171,35 +172,26 @@ describe('CustomerStatementService', () => {
       expect(items[0].subtitle).toBe('Original order DEP-0555');
     });
 
-    // Fix round (opus review Critical): reasonCustomer is operator-typed free
-    // text with no controlled vocabulary — it must never reach the response.
-    // The title is looked up from REASON_SPECS.customerLabel by reasonCode
-    // instead. This reproduces the exact leak shape the reviewer found: a
-    // Chinese sentence plus an English sanctions-adjacent word typed into
-    // reasonCustomer by an operator.
-    it('never leaks reasonCustomer free text (Chinese + sensitive word) into the response — controlled title comes from reasonCode', async () => {
+    // The customer-facing title is generated from the reason code alone
+    // (REASON_SPECS.customerLabel) — no operator-typed customer reason exists any more
+    // (the reasonCustomer column was retired 2026-11-04).
+    it('title is generated from the reason code alone (UNEXPLAINED_CLIENT_LOSS → controlled wording "Balance adjustment")', async () => {
       mockPrisma.reconciliationAdjustment.findMany.mockResolvedValue([
         {
-          adjustmentNo: 'ADJ-EVIL',
+          adjustmentNo: 'ADJ-LOSS',
           reasonCode: 'UNEXPLAINED_CLIENT_LOSS',
-          // Present in the raw DB row (as it would be in production) but must
-          // never be read by the presentation layer.
-          reasonCustomer: '资金已被上缴 surrender',
           relatedOrderNo: null,
           direction: 'REDUCE',
         },
       ]);
       const legs: StatementLeg[] = [
         leg({
-          sourceType: 'RECON_ADJUSTMENT', sourceNo: 'ADJ-EVIL', eventCode: 'RECON_ADJUSTMENT_POSTED',
+          sourceType: 'RECON_ADJUSTMENT', sourceNo: 'ADJ-LOSS', eventCode: 'RECON_ADJUSTMENT_POSTED',
           direction: 'OUT', amount: 4000, runningBalance: 96000,
         }),
       ];
       const { items } = await service.buildStatement(legs, { isFiat: true });
       expect(items[0].title).toBe('Balance adjustment');
-      const serialized = JSON.stringify(items);
-      expect(serialized).not.toContain('资金已被上缴');
-      expect(serialized.toLowerCase()).not.toContain('surrender');
     });
 
     it('falls back to "Balance adjustment" when reasonCode is missing or unrecognized', async () => {

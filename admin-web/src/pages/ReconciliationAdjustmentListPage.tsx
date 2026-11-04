@@ -15,7 +15,7 @@ import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/admi
 import { PageTitleBar } from '../components/ui/PageTitleBar';
 import { StatusPill } from '../components/ui/StatusPill';
 import Pagination from '../components/common/Pagination';
-import { REASON_LABEL } from '../components/ReconciliationAdjustmentCreateModal';
+import { reasonDisplayLabel } from '../components/ReconciliationAdjustmentCreateModal';
 import { formatAmount } from '../utils/reconAmount';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
@@ -27,6 +27,7 @@ interface AdjustmentListRow {
   assetCode: string;
   decimals: number;
   reasonCode: string;
+  otherCause: string | null; // 成因 = OTHER 时的「Other cause」一行；其余 null
   direction: string;
   amount: string;
   status: string;
@@ -245,7 +246,7 @@ const ReconciliationAdjustmentListPage = () => {
 
                   {/* Reason */}
                   <td className="px-4 py-2.5 font-mono text-[11px] text-adm-t2">
-                    {REASON_LABEL[adj.reasonCode] ?? adj.reasonCode}
+                    {reasonDisplayLabel(adj.reasonCode, adj.otherCause)}
                   </td>
 
                   {/* Dir — REDUCE/INCREASE badge, same palette as the case detail page's

@@ -12,7 +12,7 @@ import { RecordDispositionDto } from '../dto/disposition.dto';
 import { resolveWalletNo } from '../domain/wallet-no.util';
 import {
   AdjustFamily, CAUSE_REGISTRY, CauseBook, DeferredTarget, DISPOSITION_LABEL, RowFacts,
-  causesFor, dispositionsFor, outletOf,
+  causeDisplayLabel, causesFor, dispositionsFor, outletOf,
 } from './cause-registry';
 
 export interface ReattributionCandidate {
@@ -50,6 +50,11 @@ export class DispositionService {
     const causeSpec = CAUSE_REGISTRY[dto.causeCode];
     if (!causesFor(dto.disposition, facts.matchType, book).some((c) => c.code === dto.causeCode)) {
       throw new BadRequestException(`Cause ${dto.causeCode} does not belong to disposition ${dto.disposition}`);
+    }
+    // 成因 = OTHER 必须用一行话给成因起名（业务规则，不是输入防御）；其余成因不存，恒 null。
+    const otherCause = dto.causeCode === 'OTHER' ? (dto.otherCause?.trim() || null) : null;
+    if (dto.causeCode === 'OTHER' && !otherCause) {
+      throw new BadRequestException('Other cause is required when the cause is Other');
     }
     const outlet = outletOf(dto.disposition);
     // 补单三路的具体去向仍由成因定（哪一路补单）——processed later by
@@ -96,6 +101,7 @@ export class DispositionService {
       matchType: dto.matchType, book,
       causeCode: dto.causeCode, outlet,
       deferredTarget,
+      otherCause,
       findingNote: dto.findingNote,
     };
     // createdByUserId 只在建档时写：这条记录的价值之一就是「这次查证是谁做的」，
@@ -128,6 +134,7 @@ export class DispositionService {
         requestId: `RECON_DISPOSITION_RECORDED_${dispositionNo}_${randomUUID()}`, // 漏了会被静默去重
         metadata: {
           causeCode: dto.causeCode, disposition: dto.disposition, outlet,
+          otherCause, causeLabel: causeDisplayLabel(dto.causeCode, otherCause),
           deferredTarget,
           matchType: dto.matchType, overwrite: !!existing,
         },

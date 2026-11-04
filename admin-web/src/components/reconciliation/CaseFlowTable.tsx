@@ -44,7 +44,7 @@ import { TONE_CLASSES } from '../../utils/reconBucketMap';
 import type { FlowComparisonRow, ReconCaseDetail } from '../../utils/reconTypes';
 import { formatAmount, minorToMajorPlain } from '../../utils/reconAmount';
 import { INTERNAL_TRANSFER_STATUS_LABEL as TRANSFER_STATUS_WORD } from '../../utils/internalTransferStatusMap';
-import { REASON_LABEL } from '../ReconciliationAdjustmentCreateModal';
+import { reasonDisplayLabel } from '../ReconciliationAdjustmentCreateModal';
 import { OUTLET_TONE, PAUSED_CAUSES } from '../../utils/causeRegistry';
 import { ShortRef, SOURCE_TYPE_HREF, buildIncidentHref, IncidentBadge, MatchChip } from './caseDetailBits';
 import { ResolveMenu } from './ResolveMenu';
@@ -614,7 +614,7 @@ export const CaseFlowTable = ({
                           <StatusPill value={adj.status} />
                         </td>
                         <td className="px-3 py-2.5 font-mono text-[11px] text-adm-t2">
-                          {REASON_LABEL[adj.reasonCode] ?? adj.reasonCode}
+                          {reasonDisplayLabel(adj.reasonCode, adj.otherCause)}
                         </td>
                         <td className="px-3 py-2.5 font-mono text-[11px]">
                           <span

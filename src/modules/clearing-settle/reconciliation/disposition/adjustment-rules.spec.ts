@@ -51,9 +51,21 @@ describe('assertReasonAllowed —— cause × book × direction legal combinatio
     expect(() => assertReasonAllowed('AMT_MISBOOKED', 'CLIENT', 'INCREASE')).not.toThrow();
   });
 
-  it('duplicate deposit reversal (DUP_BOOKING) can only reduce', () => {
-    expect(() => assertReasonAllowed('DUP_BOOKING', 'CLIENT', 'REDUCE')).not.toThrow();
-    expect(() => assertReasonAllowed('DUP_BOOKING', 'CLIENT', 'INCREASE')).toThrow(BadRequestException);
+  it('amount causes (AMT_MISBOOKED / AMT_FEE_NETTED / AMT_ROUNDING) are legal both ways on BOTH books (2026-11-04: the firm mismatch cell corrects with the same three codes)', () => {
+    (['AMT_MISBOOKED', 'AMT_FEE_NETTED', 'AMT_ROUNDING'] as const).forEach((code) => {
+      (['CLIENT', 'FIRM'] as const).forEach((book) => {
+        (['REDUCE', 'INCREASE'] as const).forEach((direction) => {
+          expect(() => assertReasonAllowed(code, book, direction)).not.toThrow();
+        });
+      });
+    });
+  });
+
+  it('duplicate posting (DUP_BOOKING) is legal both ways on both books (a duplicated OUT row is reversed by INCREASE; the firm pool can hit either direction)', () => {
+    (['CLIENT', 'FIRM'] as const).forEach((book) => {
+      expect(() => assertReasonAllowed('DUP_BOOKING', book, 'REDUCE')).not.toThrow();
+      expect(() => assertReasonAllowed('DUP_BOOKING', book, 'INCREASE')).not.toThrow();
+    });
   });
 
   it('bank interest (BANK_INTEREST_UNBOOKED) can only land on the firm book, and can only increase', () => {
@@ -78,18 +90,24 @@ describe('assertReasonAllowed —— cause × book × direction legal combinatio
     expect(() => assertReasonAllowed('PAYOUT_NOT_EXECUTED', 'CLIENT', 'REDUCE')).toThrow(BadRequestException);
   });
 
-  it('client-side causes cannot land on the firm book', () => {
-    expect(() => assertReasonAllowed('DUP_BOOKING', 'FIRM', 'REDUCE')).toThrow(BadRequestException);
+  it('client-only causes still cannot land on the firm book', () => {
+    expect(() => assertReasonAllowed('PHANTOM_BOOKING', 'FIRM', 'REDUCE')).toThrow(BadRequestException);
+    expect(() => assertReasonAllowed('PAYOUT_NOT_EXECUTED', 'FIRM', 'INCREASE')).toThrow(BadRequestException);
   });
 
-  it('exactly fifteen reason codes (fourth-family reattribution + wave-2 client pool loss recognition + firm-pool write-off; plus single-code-system Task 2: eleven cause-registry codes + OTHER — the eight old folded codes retired in Task 13), no catch-all beyond OTHER', () => {
+  it('firm-only causes still cannot land on the client book (FIRM_MISBOOKED)', () => {
+    expect(() => assertReasonAllowed('FIRM_MISBOOKED', 'FIRM', 'REDUCE')).not.toThrow();
+    expect(() => assertReasonAllowed('FIRM_MISBOOKED', 'CLIENT', 'REDUCE')).toThrow(BadRequestException);
+  });
+
+  it('exactly thirteen reason codes (fourth-family reattribution + wave-2 client pool loss recognition + firm-pool write-off; plus single-code-system Task 2: nine cause-registry codes + OTHER — the eight old folded codes retired in Task 13, the two firm amount codes retired 2026-11-04), no catch-all beyond OTHER', () => {
     const codes = Object.keys(REASON_SPECS).sort();
     expect(codes).toEqual([
       'AMT_FEE_NETTED', 'AMT_MISBOOKED', 'AMT_ROUNDING',
       'BANK_CHARGE_UNBOOKED', 'BANK_INTEREST_UNBOOKED',
       'CUSTOMER_REATTRIBUTION',
       'DUP_BOOKING',
-      'FIRM_AMT_OVERBOOKED', 'FIRM_AMT_UNDERBOOKED', 'FIRM_MISBOOKED',
+      'FIRM_MISBOOKED',
       'OTHER',
       'PAYOUT_NOT_EXECUTED', 'PHANTOM_BOOKING',
       'UNEXPLAINED_CLIENT_LOSS', 'UNEXPLAINED_WRITE_OFF',
@@ -99,7 +117,16 @@ describe('assertReasonAllowed —— cause × book × direction legal combinatio
   it('firm-book causes have no customer-facing label (customer cannot see firm-side adjustments)', () => {
     expect(REASON_SPECS.BANK_INTEREST_UNBOOKED.customerLabel).toBeNull();
     expect(REASON_SPECS.BANK_CHARGE_UNBOOKED.customerLabel).toBeNull();
-    expect(REASON_SPECS.DUP_BOOKING.customerLabel).toBe('Duplicate deposit reversal');
+    expect(REASON_SPECS.DUP_BOOKING.customerLabel).toBe('Duplicate entry reversal');
+  });
+
+  it('AMT_FEE_NETTED reads "Fee netted" internally (the firm pool nets LP swap fees, not bank fees)', () => {
+    expect(REASON_SPECS.AMT_FEE_NETTED.internalLabel).toBe('Fee netted');
+  });
+
+  it("'ANY' book = exactly the codes both books use: OTHER, the three AMT_* and DUP_BOOKING", () => {
+    const any = Object.entries(REASON_SPECS).filter(([, s]) => s.book === 'ANY').map(([code]) => code).sort();
+    expect(any).toEqual(['AMT_FEE_NETTED', 'AMT_MISBOOKED', 'AMT_ROUNDING', 'DUP_BOOKING', 'OTHER']);
   });
 });
 
@@ -109,11 +136,12 @@ describe('Fourth family REATTRIBUTE (spec §6)', () => {
     for (const [code, spec] of Object.entries(REASON_SPECS)) {
       (byFamily[(spec as any).family] ??= []).push(code);
     }
-    // Task 2（单码制）加了 11 个 cause-registry 同名码 + OTHER，都落进既有四族里，无第五族新增。
+    // Task 2（单码制）加了 cause-registry 同名码 + OTHER，都落进既有四族里，无第五族新增。
     // Task 13：旧 8 折叠码退役后，四族名单只剩单码制新码 + 第四族改记。
+    // 2026-11-04：公司池两个金额码退役——公司池「金额不对」改走 CORRECT 族的 AMT_*，RECORD 族只剩两个银行码。
     expect(byFamily.CORRECT!.sort()).toEqual(['AMT_FEE_NETTED', 'AMT_MISBOOKED', 'AMT_ROUNDING', 'OTHER']);
-    expect(byFamily.REVERSE!.sort()).toEqual(['DUP_BOOKING', 'FIRM_AMT_OVERBOOKED', 'FIRM_MISBOOKED', 'PAYOUT_NOT_EXECUTED', 'PHANTOM_BOOKING']);
-    expect(byFamily.RECORD!.sort()).toEqual(['BANK_CHARGE_UNBOOKED', 'BANK_INTEREST_UNBOOKED', 'FIRM_AMT_UNDERBOOKED']);
+    expect(byFamily.REVERSE!.sort()).toEqual(['DUP_BOOKING', 'FIRM_MISBOOKED', 'PAYOUT_NOT_EXECUTED', 'PHANTOM_BOOKING']);
+    expect(byFamily.RECORD!.sort()).toEqual(['BANK_CHARGE_UNBOOKED', 'BANK_INTEREST_UNBOOKED']);
     expect(byFamily.REATTRIBUTE).toEqual(['CUSTOMER_REATTRIBUTION']);
   });
   it('reattribution entry: debit the misattributed party payable / credit the rightful owner payable — the asset leg does not move (fifth combination)', () => {

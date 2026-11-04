@@ -115,6 +115,8 @@ export interface CaseAdjustmentSummary {
   adjustmentNo: string;
   status: string;      // DRAFT | PENDING_APPROVAL | POSTED | REJECTED
   reasonCode: string;
+  // 成因 = OTHER 时锚中定性行上的「Other cause」一行（调账单自己不存）；其余恒 null。getCase 装配时回填。
+  otherCause?: string | null;
   direction: string;   // REDUCE | INCREASE
   amount: string;       // 最小单位（分）整数字符串
 }
@@ -171,6 +173,8 @@ export interface FlowComparisonRow {
   // 省略（三个都不下发）。
   disposition?: {
     dispositionNo: string; causeCode: string; causeLabel: string;
+    // 成因 = OTHER 时的「Other cause」一行（causeLabel 已是 `Other · <otherCause>`）；其余恒 null。
+    otherCause: string | null;
     outlet: string; outletLabel: string;
     family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE' | 'WRITE_OFF';
     reasonCode?: string; direction?: 'REDUCE' | 'INCREASE';

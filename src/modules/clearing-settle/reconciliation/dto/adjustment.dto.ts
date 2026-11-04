@@ -17,8 +17,8 @@ export class CreateAdjustmentDto {
   @IsIn(['REDUCE', 'INCREASE']) direction!: 'REDUCE' | 'INCREASE';
   @IsString() @IsNotEmpty() amount!: string;               // 最小单位（分）整数字符串
   @Matches(/^\d{4}-\d{2}-\d{2}$/) effectiveDate!: string;
+  // 调查说明（Investigation note）——系统不收「客户可见自由文本原因」，客户面措辞由成因码生成
   @IsString() @IsNotEmpty() reasonInternal!: string;
-  @IsString() @IsNotEmpty() reasonCustomer!: string;
   @IsOptional() @IsString() relatedOrderNo?: string;
   // 定性联动（spec §3.3）：带上则开单成功后回填 disposition.adjustmentNo 并锁定该定性——
   // 已有定性（标准两步：先 POST .../dispositions 再开单）时用这个字段。
@@ -33,6 +33,8 @@ export class CreateAdjustmentDto {
   // REASON_SPECS.family 是占位 'CORRECT'，纯回落会把 OTHER+REVERSE/RECORD 都误判成冲正）。
   @IsOptional() @IsIn(Object.keys(DISPOSITION_LABEL)) disposition?: DispositionKind;
   @IsOptional() @IsString() findingNote?: string;
+  // 原子入口里转给 DispositionService.record() 的「其他成因」一行：成因 = OTHER 时必填
+  @IsOptional() @IsString() otherCause?: string;
   @IsOptional() @IsIn(['AMOUNT_MISMATCH', 'ORPHAN_INTERNAL', 'ORPHAN_EXTERNAL']) matchType?: 'AMOUNT_MISMATCH' | 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL';
   @IsOptional() @IsIn([1, -1]) deltaSign?: 1 | -1;
   @IsOptional() @IsIn(['IN', 'OUT']) internalDirection?: 'IN' | 'OUT';
@@ -61,6 +63,7 @@ export interface AdjustmentListRow {
   assetCode: string;
   decimals: number;
   reasonCode: string;
+  otherCause: string | null; // 成因 = OTHER 时锚中定性行上的「Other cause」一行（调账单自己不存）；其余恒 null
   direction: string;
   amount: string;       // 最小单位（分）整数字符串
   status: string;

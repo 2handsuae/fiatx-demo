@@ -469,7 +469,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     const woDto = {
       caseNo: kase.caseNo, reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '7500000', effectiveDate: kase.businessDate,
       explainedFlowId: row0.internalFlow!.id, explainedExternalLineId: row0.externalLine!.id,
-      reasonInternal: 'e2e 客户池认损', reasonCustomer: '平台调整', dispositionNo: disp.dispositionNo,
+      reasonInternal: 'e2e 客户池认损', dispositionNo: disp.dispositionNo,
     };
     await expect(adjustments.createDraft({ ...woDto, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury())).rejects.toThrow(/Client pool loss recognition/);
     const { adjustmentNo } = await adjustments.createDraft(woDto as any, treasury());
@@ -627,7 +627,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     const disp = await dispositions.record({ caseNo: kase.caseNo, explainedExternalLineId: line.id, matchType: 'ORPHAN_EXTERNAL', causeCode: 'UNEXPLAINED', disposition: 'HOLD_INVESTIGATING', externalDirection: 'IN', findingNote: 'e2e：多出来 50，查不出' } as any, ops());
     await caseService.simulateTimeout(kase.caseNo, ops()); await agingSweep.checkAgingBreaches(new Date());
     expect((await rowByLine(kase.caseNo, line.id)).nextStep).toEqual({ kind: 'CLIENT_SURPLUS' });
-    await expect(adjustments.createDraft({ caseNo: kase.caseNo, reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'INCREASE', amount: '5000', effectiveDate: kase.businessDate, explainedExternalLineId: line.id, reasonInternal: 'x', reasonCustomer: 'x', dispositionNo: disp.dispositionNo } as any, treasury())).rejects.toThrow(/deposit backfill/);
+    await expect(adjustments.createDraft({ caseNo: kase.caseNo, reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'INCREASE', amount: '5000', effectiveDate: kase.businessDate, explainedExternalLineId: line.id, reasonInternal: 'x', dispositionNo: disp.dispositionNo } as any, treasury())).rejects.toThrow(/deposit backfill/);
   });
 
   it('C2 · 腿失败 → FAILED(LEG_FAILED)、零分录；按钮回来、可重新发起', async () => {

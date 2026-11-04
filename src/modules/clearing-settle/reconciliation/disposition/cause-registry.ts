@@ -11,6 +11,10 @@
 // outletOf(disposition) 直存，读侧走「存储 outlet 反查」，见 reconciliation-query.service.ts
 // KIND_OF_OUTLET）——随之退役；各码 kind/family 字段、DeferredTarget.NO_REASON_CODE（连同它的
 // SWAP-无冲正码 file-only 分支）一并清空，三者的唯一消费者就是被删的这三个函数。
+// 处置矩阵改版（业主 2026-11-04）：退役公司池两个金额码（Firm amount underbooked / overbooked）——公司池「金额不对」
+// 与客户池一样只走更正（CORRECT），共用 AMT_* 三码，不再出 RECORD / REVERSE；DUP_BOOKING 进「我有外无 × 公司」；
+// SUPPLEMENT 专用的方向字段改名 direction，语义放宽为「该成因只适用于这个方向的差异行」，
+// 读面对全部处置统一按行方向过滤（rowDirection / causesFor 第四参）。
 // 纯常量 + 纯函数，无 IO，无 Nest 依赖。
 
 export type CauseMatchType = 'AMOUNT_MISMATCH' | 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL';
@@ -26,7 +30,6 @@ export type DeferredTarget =
 
 export type CauseCode =
   | 'AMT_MISBOOKED' | 'AMT_FEE_NETTED' | 'AMT_ROUNDING'
-  | 'FIRM_AMT_UNDERBOOKED' | 'FIRM_AMT_OVERBOOKED'
   | 'DUP_BOOKING' | 'PHANTOM_BOOKING' | 'PAYOUT_NOT_EXECUTED' | 'MISATTRIBUTED_FROM' | 'CUTOFF_STRADDLE'
   | 'FIRM_MISBOOKED'
   | 'MISSED_DEPOSIT' | 'BOUNCED_FUNDS' | 'PAYOUT_RETURNED' | 'MISATTRIBUTED_TO' | 'UNAUTHORIZED_OUTFLOW'
@@ -52,7 +55,8 @@ interface CauseSpec {
   usableIn: DispositionKind[];
   supplementTarget?: DeferredTarget; // usableIn 含 SUPPLEMENT 时必有（业务域入口）
   supplementLabel?: string;          // usableIn 含 SUPPLEMENT 时必有（「补单·<label>」）
-  requiredDirection?: 'IN' | 'OUT';  // usableIn 含 SUPPLEMENT 时必有：账单行方向必须与成因一致
+  /** 该成因只适用于这个方向的差异行；缺省 = 两个方向都适用。行方向的定义见 rowDirection。 */
+  direction?: 'IN' | 'OUT';
 }
 
 const C = (matchType: CauseMatchType, book: CauseBook): Cell => ({ matchType, book });
@@ -60,17 +64,14 @@ const C = (matchType: CauseMatchType, book: CauseBook): Cell => ({ matchType, bo
 // ⚠ 每格菜单的排序 = 本表内声明顺序过滤后的顺序（causesFor 不排序），
 // 手册与截图验收都按这个顺序对——挪行等于改菜单。
 export const CAUSE_REGISTRY: Record<CauseCode, CauseSpec> = {
-  // ── 金额不对 × 客户 ──
-  AMT_MISBOOKED:   { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: 'Amount misbooked', clue: 'Check the original bank receipt; the difference follows no pattern.', usableIn: ['CORRECT'] },
-  AMT_FEE_NETTED:  { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: 'Bank fee netted', clue: 'The difference matches a fixed fee or rate, consistent across every transaction on this channel.', usableIn: ['CORRECT'] },
-  AMT_ROUNDING:    { cells: [C('AMOUNT_MISMATCH', 'CLIENT')], label: 'Rounding difference', clue: 'The difference is at the smallest precision unit.', usableIn: ['CORRECT'] },
-  // ── 金额不对 × 公司 ──
-  FIRM_AMT_UNDERBOOKED: { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: 'Firm amount underbooked', clue: 'Compare the bank receipt against our own books.', usableIn: ['RECORD'] },
-  FIRM_AMT_OVERBOOKED:  { cells: [C('AMOUNT_MISMATCH', 'FIRM')], label: 'Firm amount overbooked', clue: 'Compare the bank receipt against our own books.', usableIn: ['REVERSE'] },
-  // ── 我有外无 × 客户 ──
-  DUP_BOOKING:         { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Duplicate posting (twin)', clue: 'The matched list has a twin entry with the same reference number and amount.', usableIn: ['REVERSE'] },
-  PHANTOM_BOOKING:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Phantom posting', clue: 'No record of this transaction at the bank or on-chain.', usableIn: ['REVERSE'] },
-  PAYOUT_NOT_EXECUTED: { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Payout not executed', clue: 'No receipt on file, or a failure notice was received.', usableIn: ['REVERSE'] },
+  // ── 金额不对 × 客户 / 公司（同一组码：两本账都只走更正，分录由「账簿 × 方向」定）──
+  AMT_MISBOOKED:   { cells: [C('AMOUNT_MISMATCH', 'CLIENT'), C('AMOUNT_MISMATCH', 'FIRM')], label: 'Amount misbooked', clue: 'Check the original bank receipt; the difference follows no pattern.', usableIn: ['CORRECT'] },
+  AMT_FEE_NETTED:  { cells: [C('AMOUNT_MISMATCH', 'CLIENT'), C('AMOUNT_MISMATCH', 'FIRM')], label: 'Fee netted', clue: 'The difference matches a fixed fee or rate, consistent across every transaction on this channel.', usableIn: ['CORRECT'] },
+  AMT_ROUNDING:    { cells: [C('AMOUNT_MISMATCH', 'CLIENT'), C('AMOUNT_MISMATCH', 'FIRM')], label: 'Rounding difference', clue: 'The difference is at the smallest precision unit.', usableIn: ['CORRECT'] },
+  // ── 我有外无 × 客户 / 公司（DUP_BOOKING 两本账共用，声明在 FIRM_MISBOOKED 之前 = 公司格菜单先 Duplicate 后 Firm entry error）──
+  DUP_BOOKING:         { cells: [C('ORPHAN_INTERNAL', 'CLIENT'), C('ORPHAN_INTERNAL', 'FIRM')], label: 'Duplicate posting (twin)', clue: 'The matched list has a twin entry with the same reference number and amount.', usableIn: ['REVERSE'] },
+  PHANTOM_BOOKING:     { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Phantom posting', clue: 'No record of this transaction at the bank or on-chain.', usableIn: ['REVERSE'], direction: 'IN' },
+  PAYOUT_NOT_EXECUTED: { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Payout not executed', clue: 'No receipt on file, or a failure notice was received.', usableIn: ['REVERSE'], direction: 'OUT' },
   MISATTRIBUTED_FROM:  { cells: [C('ORPHAN_INTERNAL', 'CLIENT')], label: 'Misattributed customer', clue: 'A same-day, same-amount "external only" entry exists on the counterparty wallet.', usableIn: ['REATTRIBUTE'] },
   // 终审修复批 Item 7：cells 从单格 ORPHAN_INTERNAL×CLIENT 扩到 ALL_CELLS——跨日切
   // 是「记账时点 vs 外部上报时点」的时序问题，六格（三 matchType × 两 book）任何一格
@@ -81,20 +82,31 @@ export const CAUSE_REGISTRY: Record<CauseCode, CauseSpec> = {
   // ── 我有外无 × 公司 ──
   FIRM_MISBOOKED:          { cells: [C('ORPHAN_INTERNAL', 'FIRM')], label: 'Firm entry error', clue: 'No matching entry on the bank statement.', usableIn: ['REVERSE'] },
   // ── 外有我无 × 客户 ──
-  MISSED_DEPOSIT:   { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Missed customer deposit', clue: 'The external line carries customer attribution (VIBAN / on-chain address).', usableIn: ['SUPPLEMENT'], supplementTarget: 'SUPPLEMENT_DEPOSIT', supplementLabel: 'Deposit backfill', requiredDirection: 'IN' },
-  BOUNCED_FUNDS:    { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Deposit recalled', clue: 'The external OUT line traces back to an earlier successful deposit.', usableIn: ['SUPPLEMENT'], supplementTarget: 'SUPPLEMENT_BOUNCE', supplementLabel: 'Recall claim', requiredDirection: 'OUT' },
-  PAYOUT_RETURNED:  { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Payout returned by bank', clue: 'The external IN line matches a successful withdrawal in amount and carries the original payout reference.', usableIn: ['SUPPLEMENT'], supplementTarget: 'SUPPLEMENT_PAYOUT_RETURN', supplementLabel: 'Return claim', requiredDirection: 'IN' },
+  MISSED_DEPOSIT:   { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Missed customer deposit', clue: 'The external line carries customer attribution (VIBAN / on-chain address).', usableIn: ['SUPPLEMENT'], supplementTarget: 'SUPPLEMENT_DEPOSIT', supplementLabel: 'Deposit backfill', direction: 'IN' },
+  BOUNCED_FUNDS:    { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Deposit recalled', clue: 'The external OUT line traces back to an earlier successful deposit.', usableIn: ['SUPPLEMENT'], supplementTarget: 'SUPPLEMENT_BOUNCE', supplementLabel: 'Recall claim', direction: 'OUT' },
+  PAYOUT_RETURNED:  { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Payout returned by bank', clue: 'The external IN line matches a successful withdrawal in amount and carries the original payout reference.', usableIn: ['SUPPLEMENT'], supplementTarget: 'SUPPLEMENT_PAYOUT_RETURN', supplementLabel: 'Return claim', direction: 'IN' },
   MISATTRIBUTED_TO:     { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Misattributed customer', clue: 'A same-day, same-amount "internal only" entry exists on the counterparty wallet.', usableIn: ['REATTRIBUTE'] },
-  UNAUTHORIZED_OUTFLOW: { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Unauthorized outflow', clue: 'We hold no order for it, and the customer did not initiate it.', usableIn: ['INCIDENT'] },
+  UNAUTHORIZED_OUTFLOW: { cells: [C('ORPHAN_EXTERNAL', 'CLIENT')], label: 'Unauthorized outflow', clue: 'We hold no order for it, and the customer did not initiate it.', usableIn: ['INCIDENT'], direction: 'OUT' },
   // ── 外有我无 × 公司 ──
-  BANK_INTEREST_UNBOOKED: { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Bank interest unbooked', clue: 'The bank statement line item is interest.', usableIn: ['RECORD'] },
-  BANK_CHARGE_UNBOOKED:   { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Bank charges unbooked', clue: 'The bank statement line item is a fee.', usableIn: ['RECORD'] },
-  UNCLAIMED_INFLOW:       { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Unclaimed inflow', clue: "Trace the account owner: if it's a customer, route to Supplement; if it's the firm, route to Record entry.", usableIn: ['HOLD_INVESTIGATING'] },
+  BANK_INTEREST_UNBOOKED: { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Bank interest unbooked', clue: 'The bank statement line item is interest.', usableIn: ['RECORD'], direction: 'IN' },
+  BANK_CHARGE_UNBOOKED:   { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Bank charges unbooked', clue: 'The bank statement line item is a fee.', usableIn: ['RECORD'], direction: 'OUT' },
+  UNCLAIMED_INFLOW:       { cells: [C('ORPHAN_EXTERNAL', 'FIRM')], label: 'Unclaimed inflow', clue: "Trace the account owner: if it's a customer, route to Supplement; if it's the firm, route to Record entry.", usableIn: ['HOLD_INVESTIGATING'], direction: 'IN' },
   // ── 每格通用收尾 ──
   UNEXPLAINED: { cells: ALL_CELLS, label: 'Unexplained (exhausted)', clue: 'State clearly in the notes what was investigated.', usableIn: ['HOLD_INVESTIGATING'] },
   // ── 统一注册表新增（Task 1）：所有处置通用的自由文本兜底 ──
-  OTHER: { cells: ALL_CELLS, label: 'Other', clue: 'State the reason in your own words; it is recorded verbatim.', usableIn: ['CORRECT', 'REVERSE', 'RECORD', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING'] },
+  OTHER: { cells: ALL_CELLS, label: 'Other', clue: 'Name the cause in one line under Other cause; put what was checked in the investigation note.', usableIn: ['CORRECT', 'REVERSE', 'RECORD', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING'] },
 };
+
+/**
+ * 成因展示名（业主 2026-11-04）：成因 = OTHER 且填了「Other cause」一行 → `Other · <otherCause>`，
+ * 其余一律取注册表 label。案件页行 Status 副行、本案调账单 Reason 列、调账详情、审批影响句、
+ * 处置审计 metadata 都走这一个函数，不各拼一份。
+ */
+export function causeDisplayLabel(code: string, otherCause?: string | null): string {
+  const base = CAUSE_REGISTRY[code as CauseCode]?.label ?? code;
+  const named = otherCause?.trim();
+  return code === 'OTHER' && named ? `${base} · ${named}` : base;
+}
 
 export interface RowFacts {
   matchType: CauseMatchType; book: CauseBook;
@@ -111,6 +123,8 @@ export const DISPOSITION_LABEL: Record<DispositionKind, string> = {
   HOLD_NEXT_PERIOD: 'Hold · Next period', HOLD_INVESTIGATING: 'Hold · Investigating',
 };
 // 冲正/冲销只对 DEPOSIT/WITHDRAW 系来源开放（A1b 甲：SWAP 等无调账码，按钮不出现）。
+// 来源限制只对客户池成立——A1b 甲（业主 2026-09-08）的本意是客户的兑换行；公司池的
+// 更正 / 冲销不看 sourceType（业主 2026-11-04）。
 // 注意流水投影里的提现 sourceType 字面量既有 'WITHDRAW' 也有 'WITHDRAWAL'（account_flows
 // 表实测为 WITHDRAWAL）——两者都收，执行时先
 // `grep -rn "sourceType" src/modules/clearing-settle/reconciliation/projector/` 复核投影字面量。
@@ -120,21 +134,34 @@ export function dispositionsFor(facts: RowFacts): DispositionKind[] {
   const out: DispositionKind[] = [];
   if (facts.matchType === 'AMOUNT_MISMATCH') {
     if (facts.book === 'CLIENT') { if (sourceAdjustable(facts.internalSourceType)) out.push('CORRECT'); }
-    else { out.push('RECORD'); if (sourceAdjustable(facts.internalSourceType)) out.push('REVERSE'); }
+    else out.push('CORRECT');
   } else if (facts.matchType === 'ORPHAN_INTERNAL') {
-    if (sourceAdjustable(facts.internalSourceType)) out.push('REVERSE');
-    if (facts.book === 'CLIENT') out.push('REATTRIBUTE');
+    if (facts.book === 'CLIENT') {
+      if (sourceAdjustable(facts.internalSourceType)) out.push('REVERSE');
+      out.push('REATTRIBUTE');
+    } else out.push('REVERSE');
   } else { // ORPHAN_EXTERNAL
-    if (facts.book === 'CLIENT') out.push('SUPPLEMENT', 'REATTRIBUTE', 'INCIDENT');
-    else out.push('RECORD');
+    if (facts.book === 'CLIENT') {
+      out.push('SUPPLEMENT', 'REATTRIBUTE');
+      if (facts.externalDirection === 'OUT') out.push('INCIDENT'); // 未授权转出只会是出账行
+    } else out.push('RECORD');
   }
   out.push('HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING');
   return out;
 }
 
-export function causesFor(kind: DispositionKind, matchType: CauseMatchType, book: CauseBook): Array<{ code: CauseCode; label: string; clue: string }> {
+/** 差异行的方向：外有我无看外部流水方向，其余（金额不对 / 我有外无）看内部流水方向。 */
+export function rowDirection(facts: RowFacts): 'IN' | 'OUT' | undefined {
+  return facts.matchType === 'ORPHAN_EXTERNAL' ? facts.externalDirection : facts.internalDirection;
+}
+
+export function causesFor(
+  kind: DispositionKind, matchType: CauseMatchType, book: CauseBook, direction?: 'IN' | 'OUT',
+): Array<{ code: CauseCode; label: string; clue: string }> {
   return (Object.entries(CAUSE_REGISTRY) as Array<[CauseCode, CauseSpec]>)
     .filter(([, s]) => s.usableIn.includes(kind) && s.cells.some((c) => c.matchType === matchType && c.book === book))
+    // 给了行方向 → 摘掉登记了别的方向的成因；没给方向、或成因没登记方向 → 不动
+    .filter(([, s]) => direction == null || s.direction == null || s.direction === direction)
     .map(([code, s]) => ({ code, label: s.label, clue: s.clue }));
 }
 

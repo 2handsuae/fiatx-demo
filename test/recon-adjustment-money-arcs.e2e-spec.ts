@@ -514,7 +514,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         amount: '20000',
         effectiveDate: TODAY,
         reasonInternal: 'e2e: 重复入账撤销 fixture',
-        reasonCustomer: '充值重复入账已撤销',
       } as any,
       makeActor('E2E_OPS_CREATOR_C1', 'OPS_OFFICER'),
     );
@@ -625,7 +624,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         amount: '15000',
         effectiveDate: TODAY,
         reasonInternal: 'e2e: 提现已撤销但账没冲，钱还在钱包里',
-        reasonCustomer: '提现已撤销，款项退回',
         relatedOrderNo: originalWithdraw.withdrawNo, // 客户账簿加钱必须指明一张真实存在的原单（边界线守卫）
       } as any,
       makeActor('E2E_OPS_CREATOR_C2', 'OPS_OFFICER'),
@@ -678,7 +676,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         amount: '2000',
         effectiveDate: TODAY,
         reasonInternal: 'e2e: 银行付息，我方未记',
-        reasonCustomer: '（公司侧，客户不可见）',
       } as any,
       makeActor('E2E_OPS_CREATOR_F3', 'OPS_OFFICER'),
     );
@@ -720,7 +717,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         amount: '1000',
         effectiveDate: TODAY,
         reasonInternal: 'e2e: 反向断言，这单不会被批',
-        reasonCustomer: '（不会发生）',
       } as any,
       makeActor('E2E_OPS_CREATOR_C4', 'OPS_OFFICER'),
     );
@@ -757,7 +753,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
           amount: '1000',
           effectiveDate: TODAY,
           reasonInternal: 'e2e: 无原单，应被守卫拦下',
-          reasonCustomer: '（不会发生）',
           // relatedOrderNo 故意不传
         } as any,
         makeActor('E2E_OPS_CREATOR_C5', 'OPS_OFFICER'),
@@ -817,7 +812,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         amount: X.toString(),
         effectiveDate: TODAY,
         reasonInternal: 'e2e: 加密币重复入账撤销',
-        reasonCustomer: '充值重复入账已撤销',
       } as any,
       makeActor('E2E_OPS_CREATOR_C8', 'OPS_OFFICER'),
     );
@@ -876,7 +870,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
           amount: '1000',
           effectiveDate: TODAY,
           reasonInternal: 'e2e: 成因与账簿不符，应被成因闸拦下',
-          reasonCustomer: '（不会发生）',
           relatedOrderNo: unrelatedWithdraw.withdrawNo,
         } as any,
         makeActor('E2E_OPS_CREATOR_C6', 'OPS_OFFICER'),
@@ -912,7 +905,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         amount: '2000',
         effectiveDate: TODAY,
         reasonInternal: 'e2e V2: 银行账管费/电汇费，公司承担',
-        reasonCustomer: '（公司侧，客户不可见）',
       } as any,
       makeActor('E2E_OPS_CREATOR_F7', 'OPS_OFFICER'),
     );
@@ -966,7 +958,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         amount: '1000',
         effectiveDate: TODAY,
         reasonInternal: 'e2e V1: maker==checker 必须被拒',
-        reasonCustomer: '（不会发生）',
       } as any,
       soloActor,
     );
@@ -1061,7 +1052,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         effectiveDate: PAST_DATE,               // ① 案件那天，不是今天
         explainedFlowId: orphan.internalSourceId, // ④ 锚在真实证据上
         reasonInternal: 'e2e 场景9：这笔充值根本没到账',
-        reasonCustomer: '充值撤销',
       } as any,
       makeActor('E2E_OPS_CREATOR_C9', 'OPS_OFFICER'),
     );

@@ -151,6 +151,48 @@ describe('DispositionService.record — disposition matrix (Task 3: write-side f
   });
 });
 
+// 对账处置原因字段统一（业主 2026-11-04）：成因 = OTHER 时必须有一行 Other cause，
+// 展示为 `Other · <otherCause>`；其余成因 otherCause 恒 null。findingNote 只是调查说明本身。
+describe('DispositionService.record — Other cause (2026-11-04 reason fields)', () => {
+  const baseDto = {
+    caseNo: 'REC-1', matchType: 'AMOUNT_MISMATCH' as const,
+    explainedFlowId: 'f1', explainedExternalLineId: 'e1',
+    findingNote: 'Checked the bank receipt and the internal posting; no pattern found', internalSourceType: 'DEPOSIT',
+  };
+
+  it('OTHER without otherCause → 400 and nothing is written', async () => {
+    const { svc, prisma, audit } = build();
+    await expect(svc.record({ ...baseDto, causeCode: 'OTHER', disposition: 'CORRECT' } as any, ACTOR))
+      .rejects.toThrow(/Other cause is required when the cause is Other/);
+    await expect(svc.record({ ...baseDto, causeCode: 'OTHER', disposition: 'CORRECT', otherCause: '   ' } as any, ACTOR))
+      .rejects.toThrow(BadRequestException);
+    expect(prisma.reconciliationDisposition.create).not.toHaveBeenCalled();
+    expect(audit.recordByActor).not.toHaveBeenCalled();
+  });
+
+  it('OTHER with otherCause → persisted trimmed, findingNote stays the plain investigation note, audit metadata carries otherCause and the "Other · X" label', async () => {
+    const { svc, prisma, audit } = build();
+    await svc.record({ ...baseDto, causeCode: 'OTHER', disposition: 'CORRECT', otherCause: '  Bank holiday batch skew  ' } as any, ACTOR);
+    const created = prisma.reconciliationDisposition.create.mock.calls[0][0].data;
+    expect(created.causeCode).toBe('OTHER');
+    expect(created.otherCause).toBe('Bank holiday batch skew');
+    expect(created.findingNote).toBe(baseDto.findingNote);
+    const metadata = audit.recordByActor.mock.calls[0][0].metadata;
+    expect(metadata.otherCause).toBe('Bank holiday batch skew');
+    expect(metadata.causeLabel).toBe('Other · Bank holiday batch skew');
+  });
+
+  it('a non-OTHER cause stores otherCause = null even if one is sent, and the label is the registry label', async () => {
+    const { svc, prisma, audit } = build();
+    await svc.record({ ...baseDto, causeCode: 'AMT_FEE_NETTED', disposition: 'CORRECT', otherCause: 'ignored text' } as any, ACTOR);
+    const created = prisma.reconciliationDisposition.create.mock.calls[0][0].data;
+    expect(created.otherCause).toBeNull();
+    const metadata = audit.recordByActor.mock.calls[0][0].metadata;
+    expect(metadata.otherCause).toBeNull();
+    expect(metadata.causeLabel).toBe('Fee netted');
+  });
+});
+
 describe('DispositionService.linkAdjustment', () => {
   it('only accepts findings with an ADJUST-family outlet that are not yet linked', async () => {
     const { svc, prisma } = build({

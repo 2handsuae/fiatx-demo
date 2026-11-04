@@ -18,10 +18,12 @@ import {
   OUTLET_OF,
   RowFacts,
   StoredOutlet,
+  causeDisplayLabel,
   causesFor,
   dispositionsFor,
   resolveWriteOff,
   resolveAdjustmentPrefill,
+  rowDirection,
 } from '../disposition/cause-registry';
 import { REASON_SPECS, ReasonCode } from '../disposition/adjustment-rules';
 import { isSmallAmount } from '../disposition/recon-thresholds.constant';
@@ -444,6 +446,7 @@ export class ReconciliationQueryService {
     const caseCurrency = assetRow?.currency ?? kase.assetCode;
 
     const ctx = await this.loadAnnotationContext(kase, caseNo, caseAdjustments, caseCurrency, flowComparison);
+    for (const a of caseAdjustments) a.otherCause = ctx.otherCauseByAdjustmentNo.get(a.adjustmentNo) ?? null;
     for (const r of flowComparison) {
       await this.annotateRow(r, kase, assetRow, caseCurrency, ctx);
     }
@@ -586,6 +589,7 @@ export class ReconciliationQueryService {
       explainedExternalLineId: string | null;
       dispositionNo: string;
       causeCode: string;
+      otherCause: string | null;
       outlet: string;
       findingNote: string;
       adjustmentNo: string | null;
@@ -614,9 +618,13 @@ export class ReconciliationQueryService {
     const incidentByNo = new Map(caseIncidentRows.map((i) => [i.incidentNo, i]));
     const dByFlow = new Map<string, any>();
     const dByExt = new Map<string, any>();
+    // 本案调账单 → 它挂着的定性行上的「Other cause」（成因 = OTHER 才有）：供「本案调账单」列表把
+    // Reason 列打成 `Other · <otherCause>`（调账单自己没存这个名字，名字在定性行上）。
+    const otherCauseByAdjustmentNo = new Map<string, string>();
     for (const d of dispositions) {
       if (d.explainedFlowId) dByFlow.set(d.explainedFlowId, d);
       if (d.explainedExternalLineId) dByExt.set(d.explainedExternalLineId, d);
+      if (d.adjustmentNo && d.otherCause) otherCauseByAdjustmentNo.set(d.adjustmentNo, d.otherCause);
     }
     // ② 双胞胎线索（15 个成因里唯一机器认得出的证据，spec §0.3）：
     //    已匹配行的 (externalRef, amount) 集合——ORPHAN_INTERNAL 行命中即标。
@@ -639,7 +647,7 @@ export class ReconciliationQueryService {
 
     return {
       adjustmentByNo, transferByAdjustment, transferByLine, walletOwner, availableMinor,
-      caseIncidents, incidentByNo, dByFlow, dByExt, matchedKeys, demoLineCauses, caseBook,
+      caseIncidents, incidentByNo, dByFlow, dByExt, otherCauseByAdjustmentNo, matchedKeys, demoLineCauses, caseBook,
     };
   }
 
@@ -672,7 +680,8 @@ export class ReconciliationQueryService {
     const linkedAdjustment = d?.adjustmentNo ? (adjustmentByNo.get(d.adjustmentNo) ?? null) : null;
     r.disposition = d ? {
       dispositionNo: d.dispositionNo, causeCode: d.causeCode,
-      causeLabel: CAUSE_REGISTRY[d.causeCode as CauseCode]?.label ?? d.causeCode,
+      otherCause: d.otherCause ?? null,
+      causeLabel: causeDisplayLabel(d.causeCode, d.otherCause),
       outlet: d.outlet, outletLabel: DISPOSITION_LABEL[KIND_OF_OUTLET.get(d.outlet as StoredOutlet)!],
       ...(linkedAdjustment ? {
         family: REASON_SPECS[linkedAdjustment.reasonCode as ReasonCode]?.family,
@@ -699,15 +708,12 @@ export class ReconciliationQueryService {
       internalSourceType: r.internalFlow?.sourceType,
       externalDirection: r.externalLine?.direction,
     };
+    // 成因按行方向过滤（所有处置统一）：IN 行不会选到 OUT 专属成因（如 BOUNCED_FUNDS、
+    // PAYOUT_NOT_EXECUTED），判据即 CAUSE_REGISTRY 里登记的 direction。
+    const direction = rowDirection(rowFacts);
     r.dispositions = dispositionsFor(rowFacts).map((kind) => ({
       kind, label: DISPOSITION_LABEL[kind],
-      // SUPPLEMENT 三码不分方向全出会让 IN 行选中 OUT 专属成因（如 BOUNCED_FUNDS），
-      // 一路填到发起才被 assertClaimable 拒——按行方向过滤，判据即 CAUSE_REGISTRY
-      // 里登记的 requiredDirection（写端 resolveOutlet 用的同一份）。
-      causes: kind === 'SUPPLEMENT'
-        ? causesFor(kind, rowFacts.matchType, rowFacts.book)
-          .filter((c) => CAUSE_REGISTRY[c.code].requiredDirection === rowFacts.externalDirection)
-        : causesFor(kind, rowFacts.matchType, rowFacts.book),
+      causes: causesFor(kind, rowFacts.matchType, rowFacts.book, direction),
     }));
     // 波四：开单预填随行下发——与上面 dispositions 同一份 rowFacts，金额三选一交给
     // resolveAdjustmentPrefill（与核销 nextStep 同源公式）；页面与弹窗自此不再各算一遍。

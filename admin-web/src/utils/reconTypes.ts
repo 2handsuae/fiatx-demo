@@ -51,6 +51,8 @@ export interface FlowComparisonRow {
   // 可处置的东西。唯一真相在后端 reconciliation-query.service.ts。
   disposition?: {
     dispositionNo: string; causeCode: string; causeLabel: string;
+    // 成因 = OTHER 时的「Other cause」一行（causeLabel 后端已打成 `Other · <otherCause>`）；其余恒 null。
+    otherCause?: string | null;
     outlet: string; outletLabel: string;
     // 出口的可执行部分（后端 resolveOutlet 算好随行下发）——「开单」直接用，
     // 前端不反推；非 ADJUST 类出口不落分录，三个都没有值。
@@ -125,6 +127,8 @@ export interface CaseAdjustmentRow {
   adjustmentNo: string;
   status: string;      // DRAFT | PENDING_APPROVAL | POSTED | REJECTED
   reasonCode: string;
+  // 成因 = OTHER 时的「Other cause」一行（调账单自己不存，后端从挂着的定性行回填）；其余恒 null。
+  otherCause?: string | null;
   direction: string;   // REDUCE | INCREASE
   amount: string;       // 最小单位（分）整数字符串
 }

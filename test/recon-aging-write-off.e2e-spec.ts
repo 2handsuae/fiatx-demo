@@ -459,7 +459,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     const woDto = {
       caseNo: kase.caseNo, reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '7', effectiveDate: kase.businessDate,
       explainedFlowId: row0.internalFlow!.id, explainedExternalLineId: row0.externalLine!.id,
-      reasonInternal: 'e2e 核销', reasonCustomer: '（公司侧，客户不可见）', dispositionNo: disp.dispositionNo,
+      reasonInternal: 'e2e 核销', dispositionNo: disp.dispositionNo,
     };
     await expect(adjustments.createDraft(woDto as any, treasury)).rejects.toThrow(/aging threshold/);
     expect((await reconQuery.getCase(kase.caseNo)).flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toBeUndefined();
@@ -528,7 +528,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
       },
     });
     const treasury = makeActor('E2E_TREASURY_C', 'TREASURY_OFFICER');
-    const base = { caseNo: kase.caseNo, direction: 'REDUCE', amount: '7', effectiveDate: TODAY, explainedFlowId: flowId, reasonInternal: 'x', reasonCustomer: 'x' };
+    const base = { caseNo: kase.caseNo, direction: 'REDUCE', amount: '7', effectiveDate: TODAY, explainedFlowId: flowId, reasonInternal: 'x' };
     await expect(adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury)).rejects.toThrow(/Client pool loss recognition/);
     const { adjustmentNo } = await adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_CLIENT_LOSS' } as any, treasury);
     expect((await adjustmentRow(adjustmentNo)).book).toBe('CLIENT');

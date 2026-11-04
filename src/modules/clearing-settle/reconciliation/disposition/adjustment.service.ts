@@ -20,7 +20,7 @@ import {
   Book, Direction, ReasonCode, REASON_SPECS,
   assertReasonAllowed, requiresRelatedOrder, resolvePostingLegs, resolveReattributionLegs,
 } from './adjustment-rules';
-import { AdjustFamily, DISPOSITION_LABEL, DispositionKind, OUTLET_OF, StoredOutlet } from './cause-registry';
+import { AdjustFamily, DISPOSITION_LABEL, DispositionKind, OUTLET_OF, StoredOutlet, causeDisplayLabel } from './cause-registry';
 import { isSmallAmount, SMALL_AMOUNT_LINE_MINOR } from './recon-thresholds.constant';
 import { DispositionService } from './disposition.service';
 import { resolveWalletNo } from '../domain/wallet-no.util';
@@ -69,6 +69,9 @@ export class AdjustmentService {
     // 平账三期 Task 10 评审 Fix 3：锚中定性行 outlet==='INCIDENT' 时由调用方
     // （submit()）传入，用来在 UNEXPLAINED_CLIENT_LOSS 分支里分流出事故路文案。
     incidentNo?: string | null;
+    // 成因 = OTHER 时由调用方（submit()）从锚中定性行带入的「Other cause」一行，
+    // 审批句里的 cause 打成 `Other · <otherCause>` 而不是裸 Other。
+    otherCause?: string | null;
   }): string {
     // 第四族改记（spec §6）：三族的「余额增加/减少」话术套上来是错的——钱在托管里
     // 一分没动，只是主人记错了。审批人要读到的是「从谁名下去了谁名下」，
@@ -113,7 +116,9 @@ export class AdjustmentService {
     const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
     // internalLabel 而不是 customerLabel——后者对公司侧两个成因刻意为 null，
     // 借用它会让审批页回落打印裸枚举「成因：BANK_CHARGE」（末站评审 Minor 1）。
-    const label = REASON_SPECS[row.reasonCode as ReasonCode]?.internalLabel ?? row.reasonCode;
+    const label = row.reasonCode === 'OTHER'
+      ? causeDisplayLabel('OTHER', extra?.otherCause)
+      : (REASON_SPECS[row.reasonCode as ReasonCode]?.internalLabel ?? row.reasonCode);
     return `This adjustment will ${dir} ${who}'s balance by ${majorAmount} ${row.assetCode}; `
          + `cause: ${label}; reason: ${row.reasonInternal}`;
   }
@@ -346,6 +351,7 @@ export class AdjustmentService {
           causeCode: dto.causeCode,
           disposition: family,
           findingNote: dto.findingNote,
+          otherCause: dto.otherCause,
           deltaSign: dto.deltaSign,
           internalDirection: dto.internalDirection,
           internalSourceType: dto.internalSourceType,
@@ -420,7 +426,6 @@ export class AdjustmentService {
         amount: dto.amount,
         effectiveDate: dto.effectiveDate,
         reasonInternal: dto.reasonInternal,
-        reasonCustomer: dto.reasonCustomer,
         ownerNo: kase.ownerNo ?? null,
         ownerId: owner?.id ?? null,
         traceId: kase.traceId ?? null,
@@ -481,7 +486,6 @@ export class AdjustmentService {
         amount: dto.amount,
         effectiveDate: dto.effectiveDate,
         reasonInternal: dto.reasonInternal,
-        reasonCustomer: dto.reasonCustomer,
         ownerNo: fromCase.ownerNo ?? null,
         ownerId: owner?.id ?? null,
         traceId: fromCase.traceId ?? null,
@@ -511,7 +515,11 @@ export class AdjustmentService {
         ],
         reason: row.reasonInternal,
         requestId: `RECON_ADJUSTMENT_DRAFTED_${row.adjustmentNo}_${randomUUID()}`,
-        metadata: { reasonCode: row.reasonCode, direction: row.direction, amount: row.amount, book: row.book, toOwnerNo: row.toOwnerNo ?? null },
+        // 成因 = OTHER 时带上财务给它起的名字（原子开单路径下 dto 手边就有），按单号查审计才看得到 Other 具体指什么。
+        metadata: {
+          reasonCode: row.reasonCode, direction: row.direction, amount: row.amount, book: row.book, toOwnerNo: row.toOwnerNo ?? null,
+          ...(row.reasonCode === 'OTHER' && dto.otherCause ? { otherCause: dto.otherCause } : {}),
+        },
         sourcePlatform: 'ADMIN',
       },
       { actorType: 'ADMIN', actorNo: actorDisplay, actorDisplayName: actorDisplay, actorRolesAtTime: actor.roleCodes ?? [] },
@@ -540,7 +548,7 @@ export class AdjustmentService {
     // 平账三期 Task 10 评审 Fix 3：多查 outlet/incidentNo——锚中定性行出口是
     // 'INCIDENT' 时把事故单号递给 describeImpact，UNEXPLAINED_CLIENT_LOSS 分支据此
     // 分流出事故路文案（不带超期天数、不说查无果）。
-    let extra: { walletNo?: string | null; agedDays?: number | null; findingNote?: string | null; incidentNo?: string | null } | undefined;
+    let extra: { walletNo?: string | null; agedDays?: number | null; findingNote?: string | null; incidentNo?: string | null; otherCause?: string | null } | undefined;
     if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF' || row.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
       const kase = await this.prisma.reconciliationCase.findUnique({ where: { caseNo: row.caseNo }, select: { slaDeadline: true } });
       const walletNo = await resolveWalletNo(this.prisma, row.walletRef);
@@ -556,6 +564,13 @@ export class AdjustmentService {
         walletNo, agedDays, findingNote: held?.findingNote ?? null,
         incidentNo: held?.incidentNo ?? null,
       };
+    }
+    // 成因 = OTHER：审批句要带出财务给成因起的名字，它存在锚中定性行上（开单收尾已挂 adjustmentNo）。
+    if (row.reasonCode === 'OTHER') {
+      const linked = await this.prisma.reconciliationDisposition.findFirst({
+        where: { adjustmentNo }, select: { otherCause: true },
+      });
+      extra = { ...extra, otherCause: linked?.otherCause ?? null };
     }
     const impact = this.describeImpact(row, assetRow?.decimals ?? 0, extra);
     // Fix 2（末站整改）：这里此前自己拼一个 { userId: operatorId, userNo: operatorId,
@@ -576,7 +591,8 @@ export class AdjustmentService {
         objectSnapshot: {
           adjustmentNo, caseNo: row.caseNo, book: row.book,
           direction: row.direction, reasonCode: row.reasonCode,
-          customerLabel: REASON_SPECS[row.reasonCode as ReasonCode]?.customerLabel ?? null,
+          // 客户话术只在客户池使用：公司池调账客户不可见，一律 null（'ANY' 码的话术不外露到公司池单上）。
+          customerLabel: row.book === 'CLIENT' ? (REASON_SPECS[row.reasonCode as ReasonCode]?.customerLabel ?? null) : null,
           amount: row.amount, assetCode: row.assetCode, ownerNo: row.ownerNo, impact,
           // 第四族改记：审批页要看见正主是谁，否则审批人只看到"错记方少了一笔"，看不到钱去了哪。
           toOwnerNo: row.toOwnerNo ?? null,
@@ -632,6 +648,15 @@ export class AdjustmentService {
       ? await this.prisma.asset.findMany({ where: { code: { in: assetCodes } }, select: { code: true, decimals: true } })
       : [];
     const decimalsByCode = decimalsMapOf(assets);
+    // 成因 = OTHER 的单：Reason 列要打成 `Other · <otherCause>`，名字存在锚中定性行上——
+    // 只为本页里的 OTHER 行批量查一次（没有 OTHER 行就不发查询）。
+    const otherNos = rows.filter((r: any) => r.reasonCode === 'OTHER').map((r: any) => r.adjustmentNo as string);
+    const linked = otherNos.length
+      ? await this.prisma.reconciliationDisposition.findMany({
+          where: { adjustmentNo: { in: otherNos } }, select: { adjustmentNo: true, otherCause: true },
+        })
+      : [];
+    const otherCauseByNo = new Map<string, string | null>(linked.map((d: any) => [d.adjustmentNo as string, d.otherCause ?? null]));
     return {
       items: rows.map((r: any): AdjustmentListRow => ({
         adjustmentNo: r.adjustmentNo,
@@ -640,6 +665,7 @@ export class AdjustmentService {
         assetCode: r.assetCode,
         decimals: decimalsByCode.get(r.assetCode) ?? 0,
         reasonCode: r.reasonCode,
+        otherCause: otherCauseByNo.get(r.adjustmentNo) ?? null,
         direction: r.direction,
         amount: r.amount,
         status: r.status,
@@ -688,8 +714,13 @@ export class AdjustmentService {
       toWalletRef: _toWalletRef,
       ...rest
     } = row;
+    // 成因 = OTHER：详情页把成因打成 `Other · <otherCause>`，名字存在锚中定性行上，现查（只有 OTHER 才查）。
+    const otherCause = row.reasonCode === 'OTHER'
+      ? ((await this.prisma.reconciliationDisposition.findFirst({ where: { adjustmentNo }, select: { otherCause: true } }))?.otherCause ?? null)
+      : null;
     return {
       ...rest,
+      otherCause,
       walletNo: await resolveWalletNo(this.prisma, row.walletRef),
       toWalletNo: await resolveWalletNo(this.prisma, row.toWalletRef),
       decimals: assetRow?.decimals ?? 0,

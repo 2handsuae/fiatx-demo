@@ -71,7 +71,9 @@ describe('IncidentRegistrationWorkflowService (Task 5, Rule 3 orchestration poin
     expect(dispositionLink.record).toHaveBeenCalledWith(
       {
         caseNo: 'REC9', matchType: 'ORPHAN_EXTERNAL', explainedExternalLineId: 'EXT-1',
-        causeCode: 'UNAUTHORIZED_OUTFLOW', disposition: 'INCIDENT', findingNote: 'found it',
+        causeCode: 'UNAUTHORIZED_OUTFLOW', disposition: 'INCIDENT',
+        // 2026-11-04 原因按行方向筛：INCIDENT 只在出账行合法，原子路显式带 OUT
+        externalDirection: 'OUT', findingNote: 'found it',
       },
       ops,
     );

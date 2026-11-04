@@ -1,6 +1,7 @@
 // admin-web/src/components/ReconciliationSupplementModal.tsx
 // 平账 B 批（spec §2.2 / §7）：三路补单一个组件。证据区只读（金额 / 币种 / 时间 / 参考号 / 银行描述），
-// 下半按定性去向切：① 链上填来源地址、法币填来源 IBAN；②③ 候选原单单选；都要原因。
+// 下半按定性去向切：① 链上填来源地址、法币填来源 IBAN；②③ 候选原单单选。不再另要原因文字——
+// 调查说明在上一步（DispositionFindingModal）已经写过，这里只读展示，提交时原样作为 reason 沿用。
 // 提交打业务域端点；对账域只给候选。UUID 不出现在页面（externalLineId 只是隐藏锚）。
 import { useEffect, useState } from 'react';
 import { adminFetch, AdminSessionError, getApiErrorMessage } from '../utils/adminFetch';
@@ -24,12 +25,12 @@ const ReconciliationSupplementModal = ({ open, caseNo, row, onClose, onDone }: P
   const [kind, setKind] = useState<Kind | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [orderNo, setOrderNo] = useState('');
-  const [fromAddress, setFromAddress] = useState(''); const [fromIban, setFromIban] = useState(''); const [reason, setReason] = useState('');
+  const [fromAddress, setFromAddress] = useState(''); const [fromIban, setFromIban] = useState('');
   const [submitting, setSubmitting] = useState(false); const [error, setError] = useState(''); const [result, setResult] = useState<{ approvalNo: string; no: string } | null>(null);
 
   useEffect(() => {
     if (!open || !row?.externalLine?.id) return;
-    setFacts(null); setResult(null); setError(''); setOrderNo(''); setFromAddress(''); setFromIban(''); setReason('');
+    setFacts(null); setResult(null); setError(''); setOrderNo(''); setFromAddress(''); setFromIban('');
     (async () => {
       try {
         const res = await adminFetch(`${import.meta.env.VITE_API_URL}/admin/reconciliation/cases/${encodeURIComponent(caseNo)}/supplement-candidates?externalLineId=${encodeURIComponent(row.externalLine.id)}`);
@@ -43,16 +44,18 @@ const ReconciliationSupplementModal = ({ open, caseNo, row, onClose, onDone }: P
 
   if (!open || !row) return null;
   const dispositionNo: string | undefined = row.disposition?.dispositionNo;
+  // 调查说明：上一步记定性时写下的那份（父组件传入的是刷新后的行，已带 disposition.findingNote）。
+  const investigationNote: string = row.disposition?.findingNote ?? '';
   const needAddr = kind === 'SUPPLEMENT_DEPOSIT' && facts?.assetType === 'CRYPTO';
   const needIban = kind === 'SUPPLEMENT_DEPOSIT' && facts?.assetType === 'FIAT';
   const needOrder = kind === 'SUPPLEMENT_BOUNCE' || kind === 'SUPPLEMENT_PAYOUT_RETURN';
-  const canSubmit = !!facts && !!kind && !!dispositionNo && reason.trim().length > 0 && (!needAddr || fromAddress.trim()) && (!needIban || fromIban.trim()) && (!needOrder || orderNo);
+  const canSubmit = !!facts && !!kind && !!dispositionNo && investigationNote.trim().length > 0 && (!needAddr || fromAddress.trim()) && (!needIban || fromIban.trim()) && (!needOrder || orderNo);
 
   const submit = async () => {
     if (!canSubmit || !facts || !kind) return;
     setSubmitting(true); setError('');
     try {
-      const body: Record<string, unknown> = { externalLineId: facts.externalLineId, caseNo, dispositionNo, reason: reason.trim() };
+      const body: Record<string, unknown> = { externalLineId: facts.externalLineId, caseNo, dispositionNo, reason: investigationNote.trim() };
       if (needAddr) body.fromAddress = fromAddress.trim(); if (needIban) body.fromIban = fromIban.trim();
       const res = await adminFetch(`${import.meta.env.VITE_API_URL}${ENDPOINT(kind, orderNo)}`, { method: 'POST', body: JSON.stringify(body) });
       if (!res.ok) { setError(await getApiErrorMessage(res, 'Failed to initiate')); return; }
@@ -99,7 +102,10 @@ const ReconciliationSupplementModal = ({ open, caseNo, row, onClose, onDone }: P
                 ))}
               </fieldset>
             )}
-            <label className="mb-3 block text-xs">Reason<textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} className="mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs" placeholder="State the basis clearly: bank receipt / custody notice / customer report" /></label>
+            <div className="mb-3 text-xs">
+              <div className="text-adm-t3">Investigation note</div>
+              <div className="mt-1 whitespace-pre-wrap rounded border border-adm-border bg-adm-bg px-2 py-1 text-adm-t1">{investigationNote || '—'}</div>
+            </div>
             {error && <p className="mb-2 text-xs text-adm-red">{error}</p>}
             <div className="flex justify-end gap-2">
               <button type="button" onClick={onClose} className={adminButtonClass('modalCancel')}>Cancel</button>

@@ -12,7 +12,7 @@ export type ReasonCode =
   | 'CUSTOMER_REATTRIBUTION'
   | 'UNEXPLAINED_WRITE_OFF'
   | 'UNEXPLAINED_CLIENT_LOSS'
-  // 单码制（spec §5）：以下 11 码 + OTHER 直接沿用 cause-registry.ts 的 CauseCode 同名码，
+  // 单码制（spec §5）：以下 9 码 + OTHER 直接沿用 cause-registry.ts 的 CauseCode 同名码，
   // 不再经旧两层「成因 → 调账 reason」折叠映射（旧 8 码已 Task 13 退役）。
   | 'AMT_MISBOOKED'
   | 'AMT_FEE_NETTED'
@@ -20,8 +20,6 @@ export type ReasonCode =
   | 'DUP_BOOKING'
   | 'PHANTOM_BOOKING'
   | 'PAYOUT_NOT_EXECUTED'
-  | 'FIRM_AMT_UNDERBOOKED'
-  | 'FIRM_AMT_OVERBOOKED'
   | 'FIRM_MISBOOKED'
   | 'BANK_INTEREST_UNBOOKED'
   | 'BANK_CHARGE_UNBOOKED'
@@ -30,12 +28,13 @@ export type ReasonCode =
 /**
  * 成因清单（业主 2026-08-28 确认）。**无兜底档**——兜底档一开，说不清的全往里塞，
  * 久了变垃圾桶、审计价值归零。遇到新成因显式加一条。
- * customerLabel = 客户口径词；公司账簿成因为 null（客户看不到公司侧调账）。
+ * customerLabel = 客户口径词；客户话术只在客户池使用，公司池调账客户不可见，快照取 null。
  */
 export const REASON_SPECS: Record<ReasonCode, {
-  /** 'ANY' 仅 OTHER 用——双簿通用兜底，assertReasonAllowed 对它跳过账簿校验。 */
+  /** 'ANY' = 两本账都能用，assertReasonAllowed 对它跳过账簿校验（分录仍只由「账簿 × 方向」定）。
+   *  OTHER 兜底，以及客户 / 公司两格共用的 AMT_* 三码、DUP_BOOKING（业主 2026-11-04）。 */
   book: Book | 'ANY'; directions: Direction[];
-  /** 客户口径词——公司账簿成因为 null（客户看不到公司侧调账）。 */
+  /** 客户口径词——只在客户池使用；公司池调账客户不可见，快照取 null（'ANY' 码的话术也不外露到公司池）。 */
   customerLabel: string | null;
   /** 内部口径词（审批页、管理台、审计摘要用）。**每个成因都必须有**——
    *  末站发现审批页对公司侧成因回落成裸枚举「成因：BANK_CHARGE」，而客户侧
@@ -63,14 +62,13 @@ export const REASON_SPECS: Record<ReasonCode, {
   // ═══ 单码制（spec §5）：cause-registry.ts 的 CauseCode 直落调账 reason，不再经旧的
   // 「成因 → 折叠码」映射（旧 resolveOutlet 那套八码 REASON_CODE 折叠已 Task 13 退役）。
   // customerLabel/internalLabel/family 取值见 task-2-brief.md Step 3；directions 见测试表。
-  AMT_MISBOOKED:          { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: 'Balance correction', internalLabel: 'Amount misbooked', family: 'CORRECT' },
-  AMT_FEE_NETTED:         { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: 'Balance correction', internalLabel: 'Bank fee netted', family: 'CORRECT' },
-  AMT_ROUNDING:           { book: 'CLIENT', directions: ['REDUCE', 'INCREASE'], customerLabel: 'Balance correction', internalLabel: 'Rounding difference', family: 'CORRECT' },
-  DUP_BOOKING:            { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: 'Duplicate deposit reversal', internalLabel: 'Duplicate posting (twin)', family: 'REVERSE' },
+  AMT_MISBOOKED:          { book: 'ANY',    directions: ['REDUCE', 'INCREASE'], customerLabel: 'Balance correction', internalLabel: 'Amount misbooked', family: 'CORRECT' },
+  AMT_FEE_NETTED:         { book: 'ANY',    directions: ['REDUCE', 'INCREASE'], customerLabel: 'Balance correction', internalLabel: 'Fee netted', family: 'CORRECT' },
+  AMT_ROUNDING:           { book: 'ANY',    directions: ['REDUCE', 'INCREASE'], customerLabel: 'Balance correction', internalLabel: 'Rounding difference', family: 'CORRECT' },
+  // DUP_BOOKING 两本账共用：客户池冲重复入账（入账行 REDUCE、出账行重复入账冲掉 = INCREASE），公司池两个方向都可能。
+  DUP_BOOKING:            { book: 'ANY',    directions: ['REDUCE', 'INCREASE'], customerLabel: 'Duplicate entry reversal', internalLabel: 'Duplicate posting (twin)', family: 'REVERSE' },
   PHANTOM_BOOKING:        { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: 'Deposit reversal', internalLabel: 'Phantom posting', family: 'REVERSE' },
   PAYOUT_NOT_EXECUTED:    { book: 'CLIENT', directions: ['INCREASE'],           customerLabel: 'Withdrawal refund', internalLabel: 'Payout not executed', family: 'REVERSE' },
-  FIRM_AMT_UNDERBOOKED:   { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: 'Firm amount underbooked', family: 'RECORD' },
-  FIRM_AMT_OVERBOOKED:    { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: 'Firm amount overbooked', family: 'REVERSE' },
   FIRM_MISBOOKED:         { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: 'Firm entry error', family: 'REVERSE' },
   BANK_INTEREST_UNBOOKED: { book: 'FIRM',   directions: ['INCREASE'],           customerLabel: null, internalLabel: 'Bank interest unbooked', family: 'RECORD' },
   BANK_CHARGE_UNBOOKED:   { book: 'FIRM',   directions: ['REDUCE'],             customerLabel: null, internalLabel: 'Bank charges unbooked', family: 'RECORD' },

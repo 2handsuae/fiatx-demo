@@ -3,7 +3,7 @@
 // 平账一期·调账单 Task 7——调账单详情页（brief §Step3）。从案件详情页的
 // 「开调账单」流程创建成功后跳转到这里，也可以从案件详情页的「本案调账单」
 // 列表点进来。纯展示页：状态、审批单号（可深链审批中心）、成因、方向、
-// 两版原因、分录预览（借/贷科目助记码）。一期没有任何写操作（不重开、不撤销
+// 调查说明、分录预览（借/贷科目助记码）。一期没有任何写操作（不重开、不撤销
 // ——POSTED/REJECTED 是终态，开错了只能再开一张反向单，见 spec §6.3）。
 import { useEffect, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
@@ -15,7 +15,7 @@ import {
 } from '../components/compliance/DetailPageComponents';
 import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
-import { REASON_LABEL } from '../components/ReconciliationAdjustmentCreateModal';
+import { REASON_LABEL, reasonDisplayLabel } from '../components/ReconciliationAdjustmentCreateModal';
 import { formatAmount } from '../utils/reconAmount';
 import {
   AdminSessionError,
@@ -34,12 +34,12 @@ interface AdjustmentDetail {
   book: string;               // CLIENT | FIRM
   direction: string;          // REDUCE | INCREASE
   reasonCode: string;
+  otherCause: string | null;  // 成因 = OTHER 时的「Other cause」一行（后端从挂着的定性行回填）；其余 null
   relatedOrderNo: string | null;
   assetCode: string;
   amount: string;             // 最小单位（分）整数字符串
   effectiveDate: string;
-  reasonInternal: string;
-  reasonCustomer: string;
+  reasonInternal: string;     // 调查说明（Investigation note）
   status: string;             // DRAFT | PENDING_APPROVAL | POSTED | REJECTED
   approvalNo: string | null;
   ownerNo: string | null;
@@ -110,7 +110,10 @@ const ReconciliationAdjustmentDetailPage = () => {
 
   if (!detail) return null;
 
-  const reasonLabel = REASON_LABEL[detail.reasonCode];
+  // OTHER 带 Other cause → `Other · <otherCause>`（不再叠 `· OTHER` 码，重复）；其余仍是「标签 · 码」。
+  const causeText = detail.reasonCode === 'OTHER' && detail.otherCause?.trim()
+    ? reasonDisplayLabel(detail.reasonCode, detail.otherCause)
+    : (REASON_LABEL[detail.reasonCode] ? `${REASON_LABEL[detail.reasonCode]} · ${detail.reasonCode}` : detail.reasonCode);
   const bookLabel = detail.book === 'CLIENT' ? 'Client' : 'Firm';
   const directionLabel = detail.direction === 'INCREASE' ? 'INCREASE' : 'REDUCE';
 
@@ -145,7 +148,7 @@ const ReconciliationAdjustmentDetailPage = () => {
 
           {/* 调账信息 / Adjustment Info */}
           <DetailCard title="Adjustment Info" columns={3}>
-            <InfoField label="Reason" value={reasonLabel ? `${reasonLabel} · ${detail.reasonCode}` : detail.reasonCode} />
+            <InfoField label="Cause" value={causeText} />
             <InfoField label="Direction" value={directionLabel} mono />
             <InfoField label="Amount" value={`${formatAmount(detail.amount, detail.decimals)} ${detail.assetCode}`} accent />
             <InfoField label="Effective Date" value={detail.effectiveDate} mono />
@@ -158,25 +161,9 @@ const ReconciliationAdjustmentDetailPage = () => {
             <InfoField label="Customer" value={detail.ownerNo ?? '— (firm book)'} />
           </DetailCard>
 
-          {/* 两版原因 / Reasons */}
-          <DetailCard title="Reasons" columns={1}>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div>
-                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                  Internal Reason
-                </div>
-                <div className="mt-1 whitespace-pre-wrap text-[13px] text-adm-t1">{detail.reasonInternal}</div>
-              </div>
-              <div>
-                <div className="font-mono text-[9px] uppercase tracking-[0.1em] text-adm-t3">
-                  Internal Note
-                </div>
-                <div className="mt-1 whitespace-pre-wrap text-[13px] text-adm-t1">{detail.reasonCustomer}</div>
-                <p className="mt-1 font-mono text-[9px] text-adm-t3">
-                  Internal record only — the customer statement shows the standard wording for this reason type.
-                </p>
-              </div>
-            </div>
+          {/* 调查说明 / Investigation note —— 一次处置只写一次；客户面措辞由系统按成因码生成，不在此处 */}
+          <DetailCard title="Investigation note" columns={1}>
+            <div className="whitespace-pre-wrap text-[13px] text-adm-t1">{detail.reasonInternal}</div>
           </DetailCard>
 
           {/* 分录预览 / Posting Preview */}

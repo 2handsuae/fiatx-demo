@@ -71,11 +71,11 @@ interface RowPresentation {
 }
 
 /** Controlled customer-facing wording for a reconciliation adjustment reason
- *  code (Task 10 fix round: reasonCustomer is operator-typed free text with no
- *  controlled vocabulary and must never reach a customer response — this reads
- *  REASON_SPECS.customerLabel instead). Falls back to the same "Balance
- *  adjustment" wording used elsewhere in this file when the code is missing,
- *  unrecognized, or maps to a reason with no customer-facing label. */
+ *  code: the title is generated from the reason code alone
+ *  (REASON_SPECS.customerLabel) — there is no operator-typed customer reason.
+ *  Falls back to the same "Balance adjustment" wording used elsewhere in this
+ *  file when the code is missing, unrecognized, or maps to a reason with no
+ *  customer-facing label. */
 function customerLabelFor(reasonCode: string | null | undefined): string {
   const spec = reasonCode ? REASON_SPECS[reasonCode as ReasonCode] : undefined;
   return spec?.customerLabel ?? 'Balance adjustment';

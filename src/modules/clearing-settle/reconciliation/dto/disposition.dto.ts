@@ -11,7 +11,10 @@ export class RecordDispositionDto {
   // 写端翻转（Task 3）：财务先选处置，码只用来配对校验——record() 里矩阵（这一格允许
   // 哪些处置）→ 码（该码是否归属所选处置）两道校验，出口 = outletOf(disposition)。
   @IsIn(Object.keys(DISPOSITION_LABEL)) disposition!: DispositionKind;
+  // 调查说明（Investigation note）：一次处置只写一次，后面的调账 / 补单窗口只读沿用，不再另要原因文字
   @IsString() @IsNotEmpty() findingNote!: string;
+  // 成因 = OTHER 时必填的一行成因名（record() 里做业务规则校验）；展示为「Other · <otherCause>」
+  @IsOptional() @IsString() otherCause?: string;
   // 行事实（出口判定的输入）——前端从被点的那一行原样带上
   @IsOptional() @IsIn([1, -1]) deltaSign?: 1 | -1;
   @IsOptional() @IsIn(['IN', 'OUT']) internalDirection?: 'IN' | 'OUT';

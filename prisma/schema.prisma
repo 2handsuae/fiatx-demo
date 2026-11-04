@@ -1796,7 +1796,6 @@ model ReconciliationAdjustment {
   amount          String    // 最小单位（分）整数，存字符串避免精度损失
   effectiveDate   String    // YYYY-MM-DD 业务生效日
   reasonInternal  String
-  reasonCustomer  String    // 本期不展示，留给客户流水读模型任务
   status          String    @default("DRAFT") // DRAFT | PENDING_APPROVAL | POSTED | REJECTED
   approvalCaseId  String?
   approvalNo      String?
@@ -1830,7 +1829,8 @@ model ReconciliationDisposition {
   causeCode               String
   outlet                  String
   deferredTarget          String?
-  findingNote             String
+  otherCause              String?   // 成因=OTHER 时必填的一行成因名（展示为「Other · <otherCause>」）；其余成因恒 null
+  findingNote             String    // 调查说明（Investigation note）：一次处置只写一次
   adjustmentNo            String?
   supplementNo            String?   // 平账 B 批：与 adjustmentNo 平行，① 先写信号号、执行后改写为充值单号
   incidentNo              String?   // 平账三期：与 adjustmentNo/supplementNo 平行，登记事故后写回

@@ -531,7 +531,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
       caseNo: mainCaseNo, reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE',
       amount: LOSS_MINOR.toString(), effectiveDate: (await caseRow(mainCaseId)).businessDate,
       explainedExternalLineId: (await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: mainDispositionNo } })).explainedExternalLineId,
-      reasonInternal: 'e2e 未授权转出事故认损：公司承损', reasonCustomer: '平台调整',
+      reasonInternal: 'e2e 未授权转出事故认损：公司承损',
       dispositionNo: mainDispositionNo,
     };
     const { adjustmentNo } = await adjustments.createDraft(adjDto as any, treasury());

@@ -19,7 +19,7 @@ describe('ReconciliationAdjustment schema', () => {
         caseNo: 'CASE_SMOKE', walletRef: 'W_SMOKE', book: 'CLIENT',
         direction: 'REDUCE', reasonCode: 'DUP_BOOKING',
         assetCode: 'AED', amount: '1500', effectiveDate: '2026-08-28',
-        reasonInternal: 'smoke', reasonCustomer: 'smoke',
+        reasonInternal: 'smoke',
         createdByUserId: 'U_SMOKE',
       },
     });
@@ -132,7 +132,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     await expect(svc.createDraft({
       caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'AMT_MISBOOKED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward', reasonCustomer: 'Deposit amount correction',
+      reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward',
     } as any, OP)).rejects.toThrow(BadRequestException);
   });
 
@@ -142,7 +142,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     await svc.createDraft({
       caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'AMT_MISBOOKED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward', reasonCustomer: 'Deposit amount correction',
+      reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward',
       relatedOrderNo: 'DEP2608280001',
     } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
@@ -160,7 +160,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     await svc.createDraft({
       caseNo: 'CASE_GATE', reasonCode: 'PAYOUT_NOT_EXECUTED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: 'Withdrawal was voided but the books were not reversed', reasonCustomer: 'Withdrawal refund',
+      reasonInternal: 'Withdrawal was voided but the books were not reversed',
       relatedOrderNo: 'WDR2608280001',
     } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
@@ -173,7 +173,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     await expect(svc.createDraft({
       caseNo: 'CASE_GATE', reasonCode: 'AMT_MISBOOKED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward', reasonCustomer: 'Deposit amount correction',
+      reasonInternal: 'Deposit amount recorded incorrectly, needs correcting upward',
       relatedOrderNo: 'DEP_DOES_NOT_EXIST',
     } as any, OP)).rejects.toThrow(BadRequestException);
     // Rejected cleanly: never reached the persistence step.
@@ -189,7 +189,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     await expect(svc.createDraft({
       caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'BANK_INTEREST_UNBOOKED',
       direction: 'INCREASE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: 'Bank interest', reasonCustomer: 'Bank interest', relatedOrderNo: 'X',
+      reasonInternal: 'Bank interest', relatedOrderNo: 'X',
     } as any, OP)).rejects.toThrow(BadRequestException);
   });
 
@@ -198,7 +198,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     await svc.createDraft({
       caseNo: 'CASE_GATE', lineItemId: 'LI_1', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
+      reasonInternal: 'Same deposit recorded twice',
       book: 'FIRM',
     } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
@@ -215,7 +215,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     await svc.createDraft({
       caseNo: 'CASE_GATE', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
+      reasonInternal: 'Same deposit recorded twice',
       explainedFlowId: 'FLOW_9', explainedExternalLineId: 'EXTLINE_9',
     } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
@@ -229,7 +229,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     await svc.createDraft({
       caseNo: 'CASE_GATE', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
+      reasonInternal: 'Same deposit recorded twice',
     } as any, OP);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ explainedFlowId: null, explainedExternalLineId: null }),
@@ -244,7 +244,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     await expect(svc.createDraft({
       caseNo: 'CASE_GATE', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-29',
-      reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
+      reasonInternal: 'Same deposit recorded twice',
     } as any, OP)).rejects.toThrow(BadRequestException);
     expect(create).not.toHaveBeenCalled();
   });
@@ -255,7 +255,7 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
       await svc.createDraft({
         caseNo: 'CASE_GATE', reasonCode: 'DUP_BOOKING',
         direction: 'REDUCE', amount: '1000', effectiveDate,
-        reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
+        reasonInternal: 'Same deposit recorded twice',
       } as any, OP);
       expect(create).toHaveBeenCalled();
     }
@@ -289,21 +289,21 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
         disposition: { dispositionNo: 'RCD-1', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null },
         asset: { currency: 'USDT', decimals: 6 },
       });
-      const r = await svc.createDraft({ caseNo: 'REC-C1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '7500000', effectiveDate: '2026-09-05', explainedFlowId: 'f-1', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury);
+      const r = await svc.createDraft({ caseNo: 'REC-C1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '7500000', effectiveDate: '2026-09-05', explainedFlowId: 'f-1', reasonInternal: 'x' } as any, treasury);
       expect(r.adjustmentNo).toMatch(/^ADJ/);
       expect(prisma.reconciliationAdjustment.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ book: 'CLIENT', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE' }) }));
     });
     it('client pool · excess funds (INCREASE) → 400 pointing to deposit backfill', async () => {
       const { svc } = makeSvc({ kase: { caseNo: 'REC-C2', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED', walletRef: 'w-2', ownerNo: 'CU-2', slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-2', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
-      await expect(svc.createDraft({ caseNo: 'REC-C2', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'INCREASE', amount: '100', effectiveDate: '2026-09-05', explainedExternalLineId: 'x-1', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/backfill/);
+      await expect(svc.createDraft({ caseNo: 'REC-C2', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'INCREASE', amount: '100', effectiveDate: '2026-09-05', explainedExternalLineId: 'x-1', reasonInternal: 'x' } as any, treasury)).rejects.toThrow(/backfill/);
     });
     it('client pool using the firm pool code / firm pool using the client pool code → 400', async () => {
       const { svc } = makeSvc({ kase: { caseNo: 'REC-C3', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED', walletRef: 'w-3', ownerNo: 'CU-3', slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-3', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
-      await expect(svc.createDraft({ caseNo: 'REC-C3', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-3', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/Client pool loss recognition/);
+      await expect(svc.createDraft({ caseNo: 'REC-C3', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-3', reasonInternal: 'x' } as any, treasury)).rejects.toThrow(/Client pool loss recognition/);
 
       // The other way around: a firm-book case using the client pool's loss-recognition code → 400, copy points to the firm's own write-off code.
       const { svc: svcFirm } = makeSvc({ kase: { caseNo: 'REC-C4', status: 'OPEN', book: 'FIRM', assetCode: 'AED', walletRef: 'w-4', ownerNo: null, slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-4', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
-      await expect(svcFirm.createDraft({ caseNo: 'REC-C4', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-4', reasonInternal: 'x', reasonCustomer: 'x' } as any, treasury)).rejects.toThrow(/Firm pool unexplained differences use/);
+      await expect(svcFirm.createDraft({ caseNo: 'REC-C4', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-4', reasonInternal: 'x' } as any, treasury)).rejects.toThrow(/Firm pool unexplained differences use/);
     });
   });
 });
@@ -326,7 +326,7 @@ describe('createDraft atomic finding (Task 3: write-side flip) — causeCode + f
   // 边界线（只有 CLIENT×INCREASE 才要求 relatedOrderNo）。
   const draftDto = {
     caseNo: 'CASE_ATOMIC', reasonCode: 'AMT_FEE_NETTED', direction: 'REDUCE',
-    amount: '500', effectiveDate: '2026-09-08', reasonInternal: 'x', reasonCustomer: 'y',
+    amount: '500', effectiveDate: '2026-09-08', reasonInternal: 'x',
     explainedFlowId: 'FLOW_ATOMIC_1', explainedExternalLineId: 'EXT_ATOMIC_1',
     matchType: 'AMOUNT_MISMATCH', internalSourceType: 'DEPOSIT',
   };
@@ -444,12 +444,75 @@ describe('createDraft atomic finding (Task 3: write-side flip) — causeCode + f
     await svc.createDraft({
       ...draftDto, reasonCode: 'OTHER', direction: 'REDUCE',
       matchType: 'ORPHAN_INTERNAL', internalSourceType: 'DEPOSIT', internalDirection: 'IN',
-      causeCode: 'OTHER', findingNote: 'Other: manual review note', disposition: 'REVERSE',
+      causeCode: 'OTHER', otherCause: 'Manual review', findingNote: 'Compared the bank receipt and the books by hand', disposition: 'REVERSE',
     } as any, ACTOR);
 
     expect(dispositionPrisma.reconciliationDisposition.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ outlet: 'ADJUST_REVERSE', causeCode: 'OTHER' }) }),
+      expect.objectContaining({ data: expect.objectContaining({ outlet: 'ADJUST_REVERSE', causeCode: 'OTHER', otherCause: 'Manual review' }) }),
     );
+  });
+
+  // 评审 M1（2026-11-04）：按 ADJ 单号查审计，DRAFTED 事件里得看到 Other 具体指什么，而不只是 `OTHER`。
+  it('2026-11-04：OTHER 码走原子入口带 Other cause → RECON_ADJUSTMENT_DRAFTED 审计 metadata 含 otherCause', async () => {
+    const audit = { recordByActor: jest.fn() };
+    const dispositionPrisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data, id: 'd-other-audit' })),
+        findUnique: jest.fn().mockImplementation(({ where }: any) =>
+          Promise.resolve({ dispositionNo: where.dispositionNo, outlet: 'ADJUST_REVERSE', adjustmentNo: null })),
+        update: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data })),
+      },
+      wallet: { findUnique: jest.fn() },
+    };
+    const dispositions = new DispositionService(dispositionPrisma, audit as any);
+    const prisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cu-atomic' }) },
+      reconciliationAdjustment: { create: jest.fn().mockImplementation(({ data }: any) => Promise.resolve({ ...data, adjustmentNo: 'ADJ_OTHER_AUDIT' })) },
+    };
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, audit as any, dispositions as any);
+
+    await svc.createDraft({
+      ...draftDto, reasonCode: 'OTHER', direction: 'REDUCE',
+      matchType: 'ORPHAN_INTERNAL', internalSourceType: 'DEPOSIT', internalDirection: 'IN',
+      causeCode: 'OTHER', otherCause: 'Manual review', findingNote: 'Compared the bank receipt and the books by hand', disposition: 'REVERSE',
+    } as any, ACTOR);
+
+    const drafted = audit.recordByActor.mock.calls.map((c: any) => c[0]).filter((e: any) => e.action === 'RECON_ADJUSTMENT_DRAFTED');
+    expect(drafted).toHaveLength(1);
+    expect(drafted[0].primarySubjectNo).toBe('ADJ_OTHER_AUDIT');
+    expect(drafted[0].metadata).toEqual(expect.objectContaining({ reasonCode: 'OTHER', otherCause: 'Manual review' }));
+  });
+
+  // 对账处置原因字段统一（2026-11-04）：原子入口里 OTHER 不带 otherCause 要被 record() 的业务规则拒，
+  // 且调账单不落库。
+  it('2026-11-04：OTHER 码走原子入口但没填 Other cause → 400，调账单不落库', async () => {
+    const audit = { recordByActor: jest.fn() };
+    const dispositionPrisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        create: jest.fn(),
+      },
+      wallet: { findUnique: jest.fn() },
+    };
+    const dispositions = new DispositionService(dispositionPrisma, audit as any);
+    const prisma: any = {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      customerMain: { findUnique: jest.fn().mockResolvedValue({ id: 'uuid-cu-atomic' }) },
+      reconciliationAdjustment: { create: jest.fn() },
+    };
+    const svc = new AdjustmentService(prisma, {} as any, {} as any, audit as any, dispositions as any);
+
+    await expect(svc.createDraft({
+      ...draftDto, reasonCode: 'OTHER', direction: 'REDUCE',
+      matchType: 'ORPHAN_INTERNAL', internalSourceType: 'DEPOSIT', internalDirection: 'IN',
+      causeCode: 'OTHER', findingNote: 'Compared the bank receipt and the books by hand', disposition: 'REVERSE',
+    } as any, ACTOR)).rejects.toThrow(/Other cause is required when the cause is Other/);
+    expect(dispositionPrisma.reconciliationDisposition.create).not.toHaveBeenCalled();
+    expect(prisma.reconciliationAdjustment.create).not.toHaveBeenCalled();
   });
 });
 
@@ -470,7 +533,7 @@ describe('Incident-path loss recognition (recon wave 3 Task 10) —— outlet=IN
     caseNo: 'REC-INC-1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE',
     amount: '123456', // 1234.56 AED (minor units) — well past the small-amount threshold (100.00 AED), deliberately verifies the threshold is not checked
     effectiveDate: '2026-09-06', explainedFlowId: 'f-inc-1',
-    reasonInternal: 'Unauthorized outflow loss recognition', reasonCustomer: '(firm side, not visible to customer)',
+    reasonInternal: 'Unauthorized outflow loss recognition',
   };
 
   // Task 10 评审 Fix 1（Critical）回归锁：此前这里用一颗「永远 resolve」的假
@@ -605,7 +668,7 @@ describe('Incident-path loss recognition also covers the LARGE_UNEXPLAINED escal
     caseNo: 'REC-ESC-1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE',
     amount: '123456', // well past the small-amount threshold (100.00 AED) — precisely why it escalated
     effectiveDate: '2026-09-06', explainedFlowId: 'f-esc-1',
-    reasonInternal: 'Large unexplained difference, assessed via incident', reasonCustomer: '(firm side, not visible to customer)',
+    reasonInternal: 'Large unexplained difference, assessed via incident',
   };
   const makeSvc = (opts: { disposition?: any; incident: any }) => {
     const dispositionRow = opts.disposition ?? disposition;
@@ -889,7 +952,7 @@ describe('AdjustmentService.getAdjustment —— detail read model (Task 7)', ()
     id: 'uuid-row', adjustmentNo: 'ADJ2608280002', caseNo: 'RC26082800001',
     explainedFlowId: null, explainedExternalLineId: null, walletRef: 'W_CUST_1', book: 'CLIENT', direction: 'REDUCE',
     reasonCode: 'DUP_BOOKING', assetCode: 'AED', amount: '1500',
-    effectiveDate: '2026-08-15', reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
+    effectiveDate: '2026-08-15', reasonInternal: 'Same deposit recorded twice',
     status: 'DRAFT', approvalCaseId: null, approvalNo: null, ownerNo: 'C0042', ownerId: 'uuid-cust',
     traceId: null, createdByUserId: 'U_OP', decidedByUserId: null, postedAt: null, tbTransferId: null,
   };
@@ -978,7 +1041,7 @@ describe('createDraft fourth family (reattribution, spec §6) + finding link-bac
       reasonCode: 'CUSTOMER_REATTRIBUTION', direction: 'REDUCE',   // direction 入参被忽略
       amount: '730000', effectiveDate: '2026-09-01',
       explainedFlowId: 'flow-from', explainedExternalLineId: 'ext-to',
-      relatedOrderNo: 'DEP001', reasonInternal: 'x', reasonCustomer: 'y',
+      relatedOrderNo: 'DEP001', reasonInternal: 'x',
       dispositionNo: 'RCD001',
     } as any, ACTOR);
 
@@ -1014,7 +1077,7 @@ describe('createDraft fourth family (reattribution, spec §6) + finding link-bac
       caseNo: 'REC-FROM', toCaseNo: 'REC-TO',
       reasonCode: 'CUSTOMER_REATTRIBUTION', direction: 'REDUCE',
       amount: '1000', effectiveDate: '2026-08-31',
-      reasonInternal: 'x', reasonCustomer: 'y',
+      reasonInternal: 'x',
     } as any, ACTOR)).rejects.toThrow(/different business dates/);
   });
 
@@ -1042,7 +1105,7 @@ describe('createDraft fourth family (reattribution, spec §6) + finding link-bac
       caseNo: 'REC-FROM',
       reasonCode: 'CUSTOMER_REATTRIBUTION', direction: 'REDUCE',
       amount: '1000', effectiveDate: '2026-09-01',
-      reasonInternal: 'x', reasonCustomer: 'y',
+      reasonInternal: 'x',
     } as any, ACTOR)).rejects.toThrow(/toCaseNo|rightful-owner case number/);
 
     // Assertion 2: toCaseNo given, but relatedOrderNo missing — the rightful owner is "adding funds", no original order means crediting funds out of thin air.
@@ -1050,7 +1113,7 @@ describe('createDraft fourth family (reattribution, spec §6) + finding link-bac
       caseNo: 'REC-FROM', toCaseNo: 'REC-TO',
       reasonCode: 'CUSTOMER_REATTRIBUTION', direction: 'REDUCE',
       amount: '1000', effectiveDate: '2026-09-01',
-      reasonInternal: 'x', reasonCustomer: 'y',
+      reasonInternal: 'x',
     } as any, ACTOR)).rejects.toThrow(/reference an existing order/);
   });
 
@@ -1082,7 +1145,7 @@ describe('createDraft fourth family (reattribution, spec §6) + finding link-bac
     await service.createDraft({
       caseNo: 'CASE_DRAFTED_1', reasonCode: 'DUP_BOOKING',
       direction: 'REDUCE', amount: '1000', effectiveDate: '2026-08-28',
-      reasonInternal: 'Same deposit recorded twice', reasonCustomer: 'Duplicate deposit reversal',
+      reasonInternal: 'Same deposit recorded twice',
     } as any, ACTOR);
 
     expect(recordByActor).toHaveBeenCalledTimes(1);
@@ -1281,6 +1344,95 @@ describe('AdjustmentService.describeImpact fourth family —— the approver mus
 // 顺手收口（前序评审）：Task 5 让 toWalletRef 真正落库之后，详情接口的解构
 // 排除清单只剔了 walletRef —— 改记单一被查询就把正主方钱包的内部 UUID 吐出去，
 // 踩铁律⑥「管理台不暴露 UUID」。
+// 对账处置原因字段统一（2026-11-04）：成因 = OTHER 时，审批影响句与详情读模型都把成因打成
+// `Other · <otherCause>`（名字存在锚中定性行上，调账单自己没有这一列）。
+describe('AdjustmentService —— OTHER cause shows as "Other · <otherCause>" in the approval impact and on the detail read model', () => {
+  const otherRow = {
+    book: 'CLIENT', ownerNo: 'C0042', amount: '1500', assetCode: 'AED',
+    direction: 'REDUCE', reasonCode: 'OTHER', reasonInternal: 'Checked the bank receipt and the books by hand',
+  };
+
+  it('describeImpact: cause reads "Other · <otherCause>" when the name is supplied; bare "Other" when not', () => {
+    const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
+    const named = svc.describeImpact(otherRow as any, 2, { otherCause: 'Bank holiday batch skew' });
+    expect(named).toContain('cause: Other · Bank holiday batch skew;');
+    expect(named).toContain('reason: Checked the bank receipt and the books by hand');
+    expect(svc.describeImpact(otherRow as any, 2)).toContain('cause: Other;');
+  });
+
+  it('getAdjustment: OTHER row carries otherCause read from the linked finding; a non-OTHER row does not touch the disposition table and gets null', async () => {
+    const baseRow = {
+      id: 'uuid-row', adjustmentNo: 'ADJ2611040001', caseNo: 'RC26110400001',
+      explainedFlowId: null, explainedExternalLineId: null, walletRef: 'W_CUST_1', book: 'CLIENT', direction: 'REDUCE',
+      reasonCode: 'OTHER', assetCode: 'AED', amount: '1500',
+      effectiveDate: '2026-11-03', reasonInternal: 'Checked the bank receipt and the books by hand',
+      status: 'DRAFT', approvalCaseId: null, approvalNo: null, ownerNo: 'C0042', ownerId: 'uuid-cust',
+      traceId: null, createdByUserId: 'U_OP', decidedByUserId: null, postedAt: null, tbTransferId: null,
+    };
+    const makePrisma = (row: any) => ({
+      reconciliationAdjustment: { findUnique: jest.fn().mockResolvedValue(row) },
+      reconciliationDisposition: { findFirst: jest.fn().mockResolvedValue({ otherCause: 'Bank holiday batch skew' }) },
+      wallet: { findUnique: jest.fn().mockResolvedValue(null) },
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
+    }) as any;
+
+    const prismaOther = makePrisma(baseRow);
+    const other: any = await new AdjustmentService(prismaOther, null as any, null as any, null as any, null as any).getAdjustment('ADJ2611040001');
+    expect(other.otherCause).toBe('Bank holiday batch skew');
+    expect(prismaOther.reconciliationDisposition.findFirst).toHaveBeenCalledWith(expect.objectContaining({ where: { adjustmentNo: 'ADJ2611040001' } }));
+
+    const prismaPlain = makePrisma({ ...baseRow, reasonCode: 'DUP_BOOKING' });
+    const plain: any = await new AdjustmentService(prismaPlain, null as any, null as any, null as any, null as any).getAdjustment('ADJ2611040001');
+    expect(plain.otherCause).toBeNull();
+    expect(prismaPlain.reconciliationDisposition.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+// 全局调账单列表（GET /adjustments）同样要把 OTHER 单打成 `Other · <otherCause>`：
+// 只为本页里的 OTHER 行批量查一次挂着的定性行，没有 OTHER 行就不发这条查询。
+describe('AdjustmentService.listAdjustments —— OTHER rows carry otherCause (one batched lookup, OTHER rows only)', () => {
+  const mkRow = (adjustmentNo: string, reasonCode: string) => ({
+    adjustmentNo, caseNo: 'RC26110400001', ownerNo: 'C0042', assetCode: 'AED', reasonCode,
+    direction: 'REDUCE', amount: '1500', status: 'DRAFT', effectiveDate: '2026-11-03',
+    createdAt: new Date('2026-11-04T00:00:00Z'),
+  });
+  const makeSvc = (rows: any[], linked: any[] = []) => {
+    const prisma: any = {
+      reconciliationAdjustment: {
+        findMany: jest.fn().mockResolvedValue(rows),
+        count: jest.fn().mockResolvedValue(rows.length),
+      },
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue(linked) },
+      asset: { findMany: jest.fn().mockResolvedValue([{ code: 'AED', decimals: 2 }]) },
+    };
+    return { prisma, svc: new AdjustmentService(prisma, null as any, null as any, null as any, null as any) };
+  };
+
+  it('items carry otherCause from the linked finding for OTHER rows (null for non-OTHER and for an OTHER row with no linked finding), looked up in a single findMany keyed by the OTHER adjustmentNos only', async () => {
+    const { prisma, svc } = makeSvc(
+      [mkRow('ADJ-L1', 'OTHER'), mkRow('ADJ-L2', 'DUP_BOOKING'), mkRow('ADJ-L3', 'OTHER'), mkRow('ADJ-L4', 'OTHER')],
+      [{ adjustmentNo: 'ADJ-L1', otherCause: 'Bank holiday batch skew' }, { adjustmentNo: 'ADJ-L3', otherCause: 'Manual review' }],
+    );
+    const { items } = await svc.listAdjustments({});
+    const byNo = new Map(items.map((i) => [i.adjustmentNo, i]));
+    expect(byNo.get('ADJ-L1')!.otherCause).toBe('Bank holiday batch skew');
+    expect(byNo.get('ADJ-L2')!.otherCause).toBeNull();
+    expect(byNo.get('ADJ-L3')!.otherCause).toBe('Manual review');
+    expect(byNo.get('ADJ-L4')!.otherCause).toBeNull();
+    expect(prisma.reconciliationDisposition.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.reconciliationDisposition.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { adjustmentNo: { in: ['ADJ-L1', 'ADJ-L3', 'ADJ-L4'] } },
+    }));
+  });
+
+  it('a page with no OTHER row never touches the disposition table, and every item has otherCause = null', async () => {
+    const { prisma, svc } = makeSvc([mkRow('ADJ-L5', 'DUP_BOOKING'), mkRow('ADJ-L6', 'AMT_MISBOOKED')]);
+    const { items } = await svc.listAdjustments({});
+    expect(items.map((i) => i.otherCause)).toEqual([null, null]);
+    expect(prisma.reconciliationDisposition.findMany).not.toHaveBeenCalled();
+  });
+});
+
 describe('AdjustmentService.getAdjustment fourth family —— the rightful owner\'s wallet also only reveals the business number', () => {
   const reattrRow = {
     id: 'uuid-row', adjustmentNo: 'ADJ2609010002', caseNo: 'RC26090100001',
@@ -1288,7 +1440,7 @@ describe('AdjustmentService.getAdjustment fourth family —— the rightful owne
     walletRef: 'wallet-from', toWalletRef: 'wallet-to', toOwnerNo: 'CU-TO',
     book: 'CLIENT', direction: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION',
     assetCode: 'AED', amount: '730000', effectiveDate: '2026-09-01',
-    reasonInternal: 'Misattributed customer', reasonCustomer: 'Account correction',
+    reasonInternal: 'Misattributed customer',
     status: 'DRAFT', approvalCaseId: null, approvalNo: null,
     ownerNo: 'CU-FROM', ownerId: 'uuid-from', traceId: null,
     createdByUserId: 'U_OP', decidedByUserId: null, postedAt: null, tbTransferId: null,
@@ -1332,7 +1484,7 @@ describe('Recon batch A: write-off four preconditions (spec §3.2) —— missin
   const dto = {
     caseNo: 'CASE_WO', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '7', effectiveDate: '2026-09-02',
     explainedFlowId: 'flow-1', explainedExternalLineId: 'ext-1',
-    reasonInternal: 'Unexplained write-off', reasonCustomer: '(firm side, not visible to customer)',
+    reasonInternal: 'Unexplained write-off',
   };
   const makeSvc = (kase: any, disposition: any) => {
     const create = jest.fn().mockResolvedValue({ adjustmentNo: 'ADJ_WO', reasonCode: 'UNEXPLAINED_WRITE_OFF', caseNo: 'CASE_WO', amount: '7', direction: 'REDUCE', book: 'FIRM' });
@@ -1542,6 +1694,50 @@ describe('AdjustmentService.submit —— escalation path (outlet stays HOLD_INV
   });
 });
 
+// 评审 M3（2026-11-04）：AMT_* 三码、DUP_BOOKING 现在两本账共用，customerLabel 是非空客户话术。
+// 公司池调账客户看不到，审批页 Technical Detail 渲染的快照里不该出现它——只有客户池才取。
+describe('AdjustmentService.submit —— the approval snapshot carries the customer wording only for the client pool', () => {
+  const actor = { actorType: 'ADMIN' as const, userId: 'U_OPS', userNo: 'U_OPS', roleCodes: ['OPS_OFFICER'] };
+  const baseRow = {
+    adjustmentNo: 'ADJ_LABEL', status: AdjustmentStatus.DRAFT, caseNo: 'REC-LABEL',
+    direction: 'REDUCE', reasonCode: 'AMT_FEE_NETTED',
+    amount: '500', assetCode: 'AED', ownerNo: null, toOwnerNo: null,
+    walletRef: 'w-label', reasonInternal: 'LP netted its fee out of the settlement', traceId: null,
+  };
+
+  const submitWith = async (book: 'CLIENT' | 'FIRM') => {
+    const prisma: any = {
+      reconciliationAdjustment: {
+        findUnique: jest.fn().mockResolvedValue({ ...baseRow, book }),
+        update: jest.fn().mockResolvedValue({}),
+      },
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
+    };
+    let snapshot: any;
+    const approvals: any = {
+      createAndSubmit: jest.fn((createDto: any) => {
+        snapshot = createDto.objectSnapshot;
+        return Promise.resolve({ id: 'appr-label', approvalNo: 'AP-LABEL' });
+      }),
+    };
+    const svc = new AdjustmentService(prisma, approvals, null as any, null as any, null as any);
+    await svc.submit('ADJ_LABEL', actor);
+    return snapshot;
+  };
+
+  it('FIRM book + AMT_FEE_NETTED → snapshot.customerLabel is null (the firm-pool adjustment is invisible to customers)', async () => {
+    const snapshot = await submitWith('FIRM');
+    expect(snapshot.book).toBe('FIRM');
+    expect(snapshot.reasonCode).toBe('AMT_FEE_NETTED');
+    expect(snapshot.customerLabel).toBeNull();
+  });
+
+  it('CLIENT book + the same cause → snapshot.customerLabel is the controlled customer wording (control: the null above comes from the book, not from the cause)', async () => {
+    const snapshot = await submitWith('CLIENT');
+    expect(snapshot.customerLabel).toBe('Balance correction');
+  });
+});
+
 // Task 4（调账单列表端点）: real DB, no mocks — the schema-smoke test at the top of this
 // file already establishes the convention of hitting a live PrismaClient for behaviour
 // that has to come from an actual query (ordering / filtering / a join), not from a mock
@@ -1555,7 +1751,7 @@ describe('AdjustmentService.listAdjustments —— list read model (Task 4)', ()
 
   const baseRow = {
     caseNo: 'CASE_LIST_T4', walletRef: 'W_LIST_T4', book: 'CLIENT',
-    reasonInternal: 'list fixture', reasonCustomer: 'list fixture', createdByUserId: 'U_LIST_T4',
+    reasonInternal: 'list fixture', createdByUserId: 'U_LIST_T4',
   };
 
   beforeAll(async () => {
@@ -1599,7 +1795,7 @@ describe('AdjustmentService.listAdjustments —— list read model (Task 4)', ()
     for (const row of items) {
       expect(Object.keys(row).sort()).toEqual([
         'adjustmentNo', 'amount', 'assetCode', 'caseNo', 'createdAt', 'decimals',
-        'direction', 'effectiveDate', 'ownerNo', 'reasonCode', 'status',
+        'direction', 'effectiveDate', 'otherCause', 'ownerNo', 'reasonCode', 'status',
       ]);
     }
   });
@@ -1624,10 +1820,14 @@ describe('AdjustmentService.listAdjustments —— list read model (Task 4)', ()
 
 describe('单码制 REASON_SPECS（spec §5）', () => {
   it.each([
-    ['AMT_MISBOOKED', 'CLIENT', ['REDUCE', 'INCREASE']],
-    ['DUP_BOOKING', 'CLIENT', ['REDUCE']],
+    // 2026-11-04：AMT_* 三码与 DUP_BOOKING 两本账共用（'ANY'），公司池金额码已退役
+    ['AMT_MISBOOKED', 'ANY', ['REDUCE', 'INCREASE']],
+    ['AMT_FEE_NETTED', 'ANY', ['REDUCE', 'INCREASE']],
+    ['AMT_ROUNDING', 'ANY', ['REDUCE', 'INCREASE']],
+    ['DUP_BOOKING', 'ANY', ['REDUCE', 'INCREASE']],
+    ['PHANTOM_BOOKING', 'CLIENT', ['REDUCE']],
     ['PAYOUT_NOT_EXECUTED', 'CLIENT', ['INCREASE']],
-    ['FIRM_AMT_UNDERBOOKED', 'FIRM', ['REDUCE', 'INCREASE']],
+    ['FIRM_MISBOOKED', 'FIRM', ['REDUCE', 'INCREASE']],
     ['BANK_INTEREST_UNBOOKED', 'FIRM', ['INCREASE']],
     ['BANK_CHARGE_UNBOOKED', 'FIRM', ['REDUCE']],
   ] as const)('%s 落在 %s 簿、方向 %j', (code, book, dirs) => {

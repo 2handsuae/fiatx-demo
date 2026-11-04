@@ -1,7 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { ReconciliationQueryService } from './reconciliation-query.service';
 import { FlowComparisonBuilder } from './flow-comparison.builder';
-import { CAUSE_REGISTRY, DISPOSITION_LABEL, causesFor, dispositionsFor } from '../disposition/cause-registry';
+import { CAUSE_REGISTRY, DISPOSITION_LABEL, causesFor, dispositionsFor, rowDirection } from '../disposition/cause-registry';
 import { REASON_SPECS } from '../disposition/adjustment-rules';
 
 // Helper: build the query service with a mock for the flow-matcher dependency
@@ -1165,11 +1165,10 @@ describe('getCase 行注解（spec §3/§8）', () => {
   ) =>
     dispositionsFor({ matchType, book, ...facts }).map((kind) => ({
       kind, label: DISPOSITION_LABEL[kind],
-      // Task 9（缺口 1）：SUPPLEMENT 三码按账单行方向过滤——镜像实现里的同一条
-      // requiredDirection 判据，不许测试用例自己重复一份独立口径。
-      causes: kind === 'SUPPLEMENT'
-        ? causesFor(kind, matchType, book).filter((c) => CAUSE_REGISTRY[c.code].requiredDirection === facts.externalDirection)
-        : causesFor(kind, matchType, book),
+      // 2026-11-04：成因按行方向过滤对全部处置成立（不再只管 SUPPLEMENT）——方向的定义
+      // 与过滤判据都取注册表的 rowDirection / causesFor 第四参，不许测试用例自己重复
+      // 一份独立口径；具体清单的字面量断言见下面各 literal 用例。
+      causes: causesFor(kind, matchType, book, rowDirection({ matchType, book, ...facts })),
     }));
 
   it('三类差异行带 dispositions（该格合法处置清单 + 组内成因，Task 5 读面翻转）；MATCHED/IN_TRANSIT 不带；r.menu 不再下发', async () => {
@@ -1218,12 +1217,16 @@ describe('getCase 行注解（spec §3/§8）', () => {
     );
     expect(orphanInt.dispositions[0].kind).toBe('REVERSE'); // dispositionsFor 声明顺序第一位
     expect(orphanInt.dispositions[0].causes[0].code).toBe('DUP_BOOKING'); // 手册顺序第一位
+    // 内部行是 OUT：入账专属的 PHANTOM_BOOKING 被摘掉，只剩重复入账 / 提现未执行 / OTHER。
+    expect(orphanInt.dispositions[0].causes.map((c: any) => c.code)).toEqual(['DUP_BOOKING', 'PAYOUT_NOT_EXECUTED', 'OTHER']);
     expect(orphanInt.menu).toBeUndefined();
 
     const orphanExt = result.flowComparison.find((r: any) => r.matchType === 'ORPHAN_EXTERNAL');
     expect(orphanExt.dispositions).toEqual(
       expectedDispositions('ORPHAN_EXTERNAL', 'CLIENT', { externalDirection: 'IN' }),
     );
+    // 外部行是 IN：未授权转出只会是出账行，所以没有「登记事故」。
+    expect(orphanExt.dispositions.map((d: any) => d.kind)).toEqual(['SUPPLEMENT', 'REATTRIBUTE', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']);
     expect(orphanExt.menu).toBeUndefined();
 
     const mismatch = result.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH');
@@ -1294,8 +1297,8 @@ describe('getCase 行注解（spec §3/§8）', () => {
 
   // 缺口 1（Task 9）：SUPPLEMENT 三码（MISSED_DEPOSIT/BOUNCED_FUNDS/PAYOUT_RETURNED）
   // 此前不分方向全出——IN 行能选中 OUT 专属的「退汇认领」，一路填到发起才被
-  // assertClaimable 400。读面按 externalLine.direction 过滤，判据 = CAUSE_REGISTRY
-  // 里的 requiredDirection（写端 resolveOutlet 用的同一份注册表字段）。
+  // assertClaimable 400。读面按行方向过滤，判据 = CAUSE_REGISTRY 里登记的 direction
+  // （2026-11-04 起对全部处置统一成立，见下面「行方向过滤」用例）。
   it('ORPHAN_EXTERNAL × CLIENT：IN 行 SUPPLEMENT causes 只出 MISSED_DEPOSIT/PAYOUT_RETURNED，不含 OUT 专属的 BOUNCED_FUNDS（Task 9 缺口 1）', async () => {
     const externalLines = [
       { id: 'ext-supp-in', direction: 'IN', amount: new Prisma.Decimal(200), externalRef: 'REF-SUPP-IN', datetime: new Date('2026-06-27T09:00:00Z'), description: null },
@@ -1342,6 +1345,82 @@ describe('getCase 行注解（spec §3/§8）', () => {
     const row = result.flowComparison.find((r: any) => r.externalLine?.id === 'ext-supp-out');
     const supplement = row.dispositions.find((d: any) => d.kind === 'SUPPLEMENT');
     expect(supplement.causes.map((c: any) => c.code)).toEqual(['BOUNCED_FUNDS']);
+  });
+
+  // ─── 2026-11-04 处置矩阵改版：行方向过滤对全部处置成立 + 公司池格终态（读面端到端，字面量清单）───
+  async function flowRowsOf(
+    book: 'CLIENT' | 'FIRM', externalLines: any[], internalFlows: any[], matchResult: any,
+  ): Promise<any[]> {
+    const prisma = mkBasePrisma({
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue({ ...baseKase, book }) },
+      externalBalance: { findMany: jest.fn().mockResolvedValue([{ accountRef: 'ACC-ANNO' }]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue(internalFlows) },
+    });
+    const svc = mkSvc(prisma, { flowMatcher: { matchFlows: jest.fn().mockResolvedValue(matchResult) } });
+    return ((await svc.getCase(baseKase.caseNo)) as any).flowComparison;
+  }
+  const extLine = (id: string, direction: 'IN' | 'OUT', amount: number) =>
+    ({ id, direction, amount: new Prisma.Decimal(amount), externalRef: `REF-${id}`, datetime: new Date('2026-06-27T09:00:00Z'), description: null });
+  const intFlow = (id: string, direction: 'IN' | 'OUT', amount: number, sourceType = 'DEPOSIT') =>
+    ({ id, direction, amount: new Prisma.Decimal(amount), externalRef: `REF-${id}`, eventCode: 'E', sourceType, sourceNo: `SRC-${id}`, createdAt: new Date('2026-06-27T09:00:05Z') });
+  const kindsOf = (row: any): string[] => row.dispositions.map((d: any) => d.kind);
+  const causesOf = (row: any, kind: string): string[] | undefined =>
+    row.dispositions.find((d: any) => d.kind === kind)?.causes.map((c: any) => c.code);
+
+  it('③ ORPHAN_INTERNAL × CLIENT：方向过滤对 REVERSE 同样成立——入账行出 PHANTOM_BOOKING、出账行出 PAYOUT_NOT_EXECUTED', async () => {
+    const rows = await flowRowsOf('CLIENT', [], [intFlow('i-in', 'IN', 100), intFlow('i-out', 'OUT', 50, 'WITHDRAW')], {
+      matched: [], orphanInternal: [{ internalFlowId: 'i-in' }, { internalFlowId: 'i-out' }], orphanExternal: [], mismatch: [],
+    });
+    const inRow = rows.find((r) => r.internalFlow?.id === 'i-in');
+    const outRow = rows.find((r) => r.internalFlow?.id === 'i-out');
+    expect(causesOf(inRow, 'REVERSE')).toEqual(['DUP_BOOKING', 'PHANTOM_BOOKING', 'OTHER']);
+    expect(causesOf(outRow, 'REVERSE')).toEqual(['DUP_BOOKING', 'PAYOUT_NOT_EXECUTED', 'OTHER']);
+  });
+
+  it('⑤ ORPHAN_EXTERNAL × CLIENT：「登记事故」只在出账行出现，入账行没有', async () => {
+    const rows = await flowRowsOf('CLIENT', [extLine('e-in', 'IN', 200), extLine('e-out', 'OUT', 300)], [], {
+      matched: [], orphanInternal: [], orphanExternal: [{ externalLineId: 'e-in' }, { externalLineId: 'e-out' }], mismatch: [],
+    });
+    const inRow = rows.find((r) => r.externalLine?.id === 'e-in');
+    const outRow = rows.find((r) => r.externalLine?.id === 'e-out');
+    expect(kindsOf(inRow)).toEqual(['SUPPLEMENT', 'REATTRIBUTE', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']);
+    expect(kindsOf(outRow)).toEqual(['SUPPLEMENT', 'REATTRIBUTE', 'INCIDENT', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']);
+    expect(causesOf(outRow, 'INCIDENT')).toEqual(['UNAUTHORIZED_OUTFLOW']);
+  });
+
+  it('⑥ ORPHAN_EXTERNAL × FIRM：补记按行方向分（入账 = 银行利息、出账 = 银行费用），无主来款只在入账行的调查中里', async () => {
+    const rows = await flowRowsOf('FIRM', [extLine('e-in', 'IN', 20), extLine('e-out', 'OUT', 5)], [], {
+      matched: [], orphanInternal: [], orphanExternal: [{ externalLineId: 'e-in' }, { externalLineId: 'e-out' }], mismatch: [],
+    });
+    const inRow = rows.find((r) => r.externalLine?.id === 'e-in');
+    const outRow = rows.find((r) => r.externalLine?.id === 'e-out');
+    expect(kindsOf(inRow)).toEqual(['RECORD', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']);
+    expect(kindsOf(outRow)).toEqual(['RECORD', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']);
+    expect(causesOf(inRow, 'RECORD')).toEqual(['BANK_INTEREST_UNBOOKED', 'OTHER']);
+    expect(causesOf(outRow, 'RECORD')).toEqual(['BANK_CHARGE_UNBOOKED', 'OTHER']);
+    expect(causesOf(inRow, 'HOLD_INVESTIGATING')).toEqual(['UNCLAIMED_INFLOW', 'UNEXPLAINED', 'OTHER']);
+    expect(causesOf(outRow, 'HOLD_INVESTIGATING')).toEqual(['UNEXPLAINED', 'OTHER']);
+  });
+
+  it('② AMOUNT_MISMATCH × FIRM：只有「更正」+ 两挂起，与内部流水来源无关（SWAP 也出），原因码与客户格同一组', async () => {
+    const rows = await flowRowsOf('FIRM', [extLine('e-sw', 'IN', 200)], [intFlow('i-sw', 'IN', 210, 'SWAP')], {
+      matched: [], orphanInternal: [], orphanExternal: [], mismatch: [{ internalFlowId: 'i-sw', externalLineId: 'e-sw' }],
+    });
+    const row = rows.find((r) => r.matchType === 'AMOUNT_MISMATCH');
+    expect(kindsOf(row)).toEqual(['CORRECT', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']);
+    expect(causesOf(row, 'CORRECT')).toEqual(['AMT_MISBOOKED', 'AMT_FEE_NETTED', 'AMT_ROUNDING', 'OTHER']);
+  });
+
+  it('④ ORPHAN_INTERNAL × FIRM：SWAP 来源也出「冲销」，原因码 = 重复入账 / 公司记错 / OTHER（入账、出账一样）', async () => {
+    const rows = await flowRowsOf('FIRM', [], [intFlow('i-sw-in', 'IN', 100, 'SWAP'), intFlow('i-sw-out', 'OUT', 40, 'SWAP')], {
+      matched: [], orphanInternal: [{ internalFlowId: 'i-sw-in' }, { internalFlowId: 'i-sw-out' }], orphanExternal: [], mismatch: [],
+    });
+    for (const id of ['i-sw-in', 'i-sw-out']) {
+      const row = rows.find((r) => r.internalFlow?.id === id);
+      expect(kindsOf(row)).toEqual(['REVERSE', 'HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING']);
+      expect(causesOf(row, 'REVERSE')).toEqual(['DUP_BOOKING', 'FIRM_MISBOOKED', 'OTHER']);
+    }
   });
 
   it('AMOUNT_MISMATCH × CLIENT 行 internalSourceType=SWAP → dispositions 不含 CORRECT（A1b 甲，读面联调）', async () => {
@@ -1410,6 +1489,7 @@ describe('getCase 行注解（spec §3/§8）', () => {
       dispositionNo: 'DISP-2026-000001',
       causeCode: 'PHANTOM_BOOKING',
       causeLabel: CAUSE_REGISTRY.PHANTOM_BOOKING.label,
+      otherCause: null, // 非 OTHER 成因恒 null
       outlet: 'ADJUST_REVERSE',
       outletLabel: DISPOSITION_LABEL.REVERSE, // 存储 outlet 反查处置种类（KIND_OF_OUTLET）→ DISPOSITION_LABEL
       findingNote: '银行/链上查无此笔，客户确认未收到通知',
@@ -1481,6 +1561,51 @@ describe('getCase 行注解（spec §3/§8）', () => {
     expect(row.disposition.reasonCode).toBe('AMT_MISBOOKED');
     expect(row.disposition.direction).toBe('INCREASE');
     expect(row.disposition.adjustmentNo).toBe('ADJ-2026-000001');
+  });
+
+  // 对账处置原因字段统一（2026-11-04）：成因 = OTHER 的定性，行 Status 副行用的 causeLabel 打成
+  // `Other · <otherCause>`；本案调账单列表每项带 otherCause（名字在定性行上，调账单自己没有）。
+  it('2026-11-04：OTHER 定性 → disposition.causeLabel = "Other · <otherCause>"，本案调账单 otherCause 从挂着的定性行回填（非 OTHER 的单为 null）', async () => {
+    const internalFlows = [
+      { id: 'int-other', direction: 'OUT', amount: new Prisma.Decimal(60), externalRef: 'REF-OTHER', eventCode: 'WITHDRAW_OUT', sourceType: 'WITHDRAW', sourceNo: 'WD-OTHER', createdAt: new Date('2026-06-27T12:00:00Z') },
+    ];
+    const dispositionRow = {
+      dispositionNo: 'DISP-2026-000003', caseNo: baseKase.caseNo,
+      explainedFlowId: 'int-other', explainedExternalLineId: null,
+      matchType: 'ORPHAN_INTERNAL', book: 'CLIENT',
+      causeCode: 'OTHER', otherCause: 'Bank holiday batch skew',
+      outlet: 'ADJUST_REVERSE', deferredTarget: null,
+      findingNote: 'Compared the bank file and the books by hand',
+      adjustmentNo: 'ADJ-2026-000009', incidentNo: null,
+      createdByUserId: 'user-ops-1',
+      createdAt: new Date('2026-06-27T12:30:00Z'), updatedAt: new Date('2026-06-27T13:00:00Z'),
+    };
+    const linkedAdjustments = [
+      { adjustmentNo: 'ADJ-2026-000009', status: 'DRAFT', reasonCode: 'OTHER', direction: 'REDUCE', amount: '6000' },
+      { adjustmentNo: 'ADJ-2026-000010', status: 'POSTED', reasonCode: 'AMT_MISBOOKED', direction: 'INCREASE', amount: '100' },
+    ];
+    const prisma = mkBasePrisma({
+      externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue([]) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue(internalFlows) },
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([dispositionRow]) },
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue(linkedAdjustments) },
+    });
+    const flowMatcher = {
+      matchFlows: jest.fn().mockResolvedValue({
+        matched: [], orphanInternal: [{ internalFlowId: 'int-other' }], orphanExternal: [], mismatch: [],
+      }),
+    };
+    const svc = mkSvc(prisma, { flowMatcher });
+    const result: any = await svc.getCase(baseKase.caseNo);
+
+    const row = result.flowComparison.find((r: any) => r.internalFlow?.id === 'int-other');
+    expect(row.disposition.causeCode).toBe('OTHER');
+    expect(row.disposition.causeLabel).toBe('Other · Bank holiday batch skew');
+    expect(row.disposition.otherCause).toBe('Bank holiday batch skew');
+    expect(row.disposition.findingNote).toBe('Compared the bank file and the books by hand'); // 调查说明原样，不带 "Other: " 前缀
+    expect(result.adjustments.find((a: any) => a.adjustmentNo === 'ADJ-2026-000009').otherCause).toBe('Bank holiday batch skew');
+    expect(result.adjustments.find((a: any) => a.adjustmentNo === 'ADJ-2026-000010').otherCause).toBeNull();
   });
 
   // 平账三期（Task 9）：案件对象的事故列表——独立于上面按行回贴的

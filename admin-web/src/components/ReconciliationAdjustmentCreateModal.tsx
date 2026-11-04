@@ -1,7 +1,8 @@
 // admin-web/src/components/ReconciliationAdjustmentCreateModal.tsx
 //
 // 平账一期·调账单 Task 7——从案件详情页的 flowComparison 行开单。
-// 表单字段：成因 / 方向 / 金额 / 生效日期 / 关联原单号 / 内部原因 / 客户可见原因。
+// 表单字段：成因（Cause）/ 方向 / 金额 / 生效日期 / 关联原单号 / 调查说明（Investigation note）；
+// 成因选 Other 时多一行 Other cause。系统没有「客户可见自由文本原因」——客户面措辞由成因码在后端生成。
 // 表单里没有「账簿」也没有「谁承担」——账簿取自案件（由父组件传入、只读回显），
 // 承担方这个概念一期整个不存在（spec §0 问题 6，Task 7 brief）。
 //
@@ -47,19 +48,17 @@ export type AdjustmentBook = 'CLIENT' | 'FIRM';
 export type AdjustmentDirection = 'REDUCE' | 'INCREASE';
 
 // 展示用成因词表（超集，铁律⑥ demo-visible：详情页 / 调账单列表 / 锁定视图回显用）。
-// Task 13：旧八码下拉数据源清空后不能再从它派生——直接列出单码制 11 码（词取
+// Task 13：旧八码下拉数据源清空后不能再从它派生——直接列出单码制 9 码（词取
 // cause-registry.ts CAUSE_REGISTRY 同名 label）+ OTHER + 第四/五族三码，与
-// adjustment-rules.ts REASON_SPECS 的 15 个 ReasonCode 一一对应，缺一个这里就会有
+// adjustment-rules.ts REASON_SPECS 的 13 个 ReasonCode 一一对应，缺一个这里就会有
 // 一行调账单 Reason 列显示裸码（Task 12 发现的真实回归）。
 export const REASON_LABEL: Record<string, string> = {
   AMT_MISBOOKED: 'Amount misbooked',
-  AMT_FEE_NETTED: 'Bank fee netted',
+  AMT_FEE_NETTED: 'Fee netted',
   AMT_ROUNDING: 'Rounding difference',
   DUP_BOOKING: 'Duplicate posting (twin)',
   PHANTOM_BOOKING: 'Phantom posting',
   PAYOUT_NOT_EXECUTED: 'Payout not executed',
-  FIRM_AMT_UNDERBOOKED: 'Firm amount underbooked',
-  FIRM_AMT_OVERBOOKED: 'Firm amount overbooked',
   FIRM_MISBOOKED: 'Firm entry error',
   BANK_INTEREST_UNBOOKED: 'Bank interest unbooked',
   BANK_CHARGE_UNBOOKED: 'Bank charges unbooked',
@@ -67,6 +66,13 @@ export const REASON_LABEL: Record<string, string> = {
   CUSTOMER_REATTRIBUTION: 'Customer reattribution',
   UNEXPLAINED_WRITE_OFF: 'Unexplained write-off',
   UNEXPLAINED_CLIENT_LOSS: 'Client loss recognition',
+};
+
+// 成因展示名（镜像后端 cause-registry.ts causeDisplayLabel）：OTHER 且填了 Other cause →
+// `Other · <otherCause>`，其余取 REASON_LABEL。本案调账单 Reason 列、调账详情页共用。
+export const reasonDisplayLabel = (reasonCode: string, otherCause?: string | null): string => {
+  const named = otherCause?.trim();
+  return reasonCode === 'OTHER' && named ? `Other · ${named}` : (REASON_LABEL[reasonCode] ?? reasonCode);
 };
 
 // T9：族的中文词——本文件内常量，不是共享注册表（唯一真相仍在后端
@@ -86,27 +92,6 @@ const LOCKED_TITLE: Record<string, string> = {
   WRITE_OFF: 'Write-off · Unexplained, the firm absorbs it',
 };
 
-// Task 8（调账四族一窗到底）：kind 模式的原因码全部来自 row.dispositions[kind].causes
-// （唯一真相在后端 cause-registry.ts CAUSE_REGISTRY），这里只镜像它们的客户面文案
-// （backend adjustment-rules.ts REASON_SPECS.customerLabel）——Customer-facing note
-// 预填用。公司侧成因客户看不到（customerLabel 为 null），预填一句中性内部备注。
-// 镜像约定同 REASON_LABEL 头注释：业务规则变了两边都要改，这是本仓库既有取舍。
-const CAUSE_CUSTOMER_LABEL: Record<string, string | null> = {
-  AMT_MISBOOKED: 'Balance correction',
-  AMT_FEE_NETTED: 'Balance correction',
-  AMT_ROUNDING: 'Balance correction',
-  DUP_BOOKING: 'Duplicate deposit reversal',
-  PHANTOM_BOOKING: 'Deposit reversal',
-  PAYOUT_NOT_EXECUTED: 'Withdrawal refund',
-  FIRM_AMT_UNDERBOOKED: null,
-  FIRM_AMT_OVERBOOKED: null,
-  FIRM_MISBOOKED: null,
-  BANK_INTEREST_UNBOOKED: null,
-  BANK_CHARGE_UNBOOKED: null,
-  OTHER: 'Balance correction',
-};
-const FIRM_SIDE_CUSTOMER_NOTE = '(Firm-side entry; not visible to the customer)';
-
 // T9：处置弹层（Task 8）交回来的锁定态——成因/方向已由后端判死，这里只回显。
 // toCandidatesUrl 只在 family === 'REATTRIBUTE' 时有值（父组件读行上
 // adjustmentPrefill 拼出的候选查询路径，见 ReconciliationCasesDetailPage.tsx
@@ -119,6 +104,9 @@ export interface AdjustmentLocked {
   direction?: AdjustmentDirection;
   directionNote: string;
   toCandidatesUrl?: string;
+  /** 改记族（REATTRIBUTE）锁定视图只读展示的调查说明——上一屏（DispositionFindingModal）刚记下的
+   *  那一份，开单时原样作为 reasonInternal 沿用。核销族不走这里，读下面 writeOff.findingNote。 */
+  findingNote?: string;
   /** 平账 A 批：核销锁定视图——金额 / 生效日只读，说明预填查证结论。
    *  平账处置改版 Task 10：source 区分解锁来源——账龄超期（既有四前提：超期 /
    *  定性=挂起·调查中 / ≤ 小额线 / 账簿）vs 事故已定损（spec §4 M12 三前提：
@@ -185,9 +173,9 @@ const ReconciliationAdjustmentCreateModal = ({
   const [reasonCode, setReasonCode] = useState('');
   const [direction, setDirection] = useState<AdjustmentDirection | ''>('');
   const [amountDisplay, setAmountDisplay] = useState('');
-  // Task 8：kind 模式 OTHER 码的必填手写框——与 reasonInternal（查证说明）分开：
-  // 前者是「这个 Other 具体指什么」，后者是「查过什么、结论依据」，两者都要。
-  const [otherReason, setOtherReason] = useState('');
+  // Task 8：kind 模式 OTHER 码的必填一行——与 reasonInternal（调查说明）分开：
+  // 前者是「这个 Other 具体指什么」（后端存 otherCause），后者是「查过什么、结论依据」，两者都要。
+  const [otherCause, setOtherCause] = useState('');
   // ⚠ 2026-08-29 修正：默认值从 todayStr() 改成案件业务日。
   // 一张调账单修的是**案件那一天**的账，所以生效日必须落在那一天的账期里——
   // 这正是账本 effectiveDate 字段存在的意义（effective-cutoff.ts 按生效日卡截止点）。
@@ -196,8 +184,8 @@ const ReconciliationAdjustmentCreateModal = ({
   // 后端 createDraft 有对应守卫：生效日晚于案件业务日直接 400。
   const [effectiveDate, setEffectiveDate] = useState(caseBusinessDate);
   const [relatedOrderNo, setRelatedOrderNo] = useState('');
+  // 调查说明：kind 模式由人写（一次处置只写一次）；锁定模式（改记 / 核销）只读，沿用上一步已记下的那份。
   const [reasonInternal, setReasonInternal] = useState('');
-  const [reasonCustomer, setReasonCustomer] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   // ⚡ 演示推荐徽标只在模拟模式下显示——与案件页其它 ⚡ 件同一开关。
@@ -212,6 +200,8 @@ const ReconciliationAdjustmentCreateModal = ({
   // Task 8：kind 模式——locked 缺省时才生效（locked 优先级更高，覆盖 REATTRIBUTE/
   // WRITE_OFF 两族既有流程不受影响）。row 缺省时 kind 不生效，退回自由选择表单。
   const isKindMode = !locked && !!kind && !!row;
+  // 锁定模式只读展示的调查说明：核销族读 writeOff.findingNote，改记族读 findingNote。
+  const lockedNote = locked ? (locked.writeOff?.findingNote ?? locked.findingNote ?? '') : '';
   const kindCauses = (isKindMode && row?.dispositions?.find((d) => d.kind === kind)?.causes) || [];
   // 哪一行是「本行」在改记里决定了提交体怎么拼：ORPHAN_INTERNAL（我有外无=错记方）
   // 只带 explainedFlowId，ORPHAN_EXTERNAL（外有我无=正主方）只带
@@ -234,24 +224,13 @@ const ReconciliationAdjustmentCreateModal = ({
     // kind 模式：原单号不是手填的——同一条行的内部流水自带的业务单号（sourceNo），
     // 证据区只读展示，也就是要提交的 relatedOrderNo（见 submit() 里 body 拼装）。
     setRelatedOrderNo(isKindMode ? (row?.internalFlow?.sourceNo ?? '') : (prefill.relatedOrderNo ?? ''));
-    setOtherReason('');
-    setReasonInternal(locked?.writeOff ? `${locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Client pool loss recognition' : 'Firm pool unexplained write-off'}: ${locked.writeOff.findingNote}` : '');
-    setReasonCustomer(
-      locked?.writeOff
-        ? (locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Balance adjustment (custody shortfall recognized as loss; the firm will compensate)' : '(Firm-side write-off; not visible to the customer)')
-        : (isKindMode && initialKindCause ? (CAUSE_CUSTOMER_LABEL[initialKindCause] ?? FIRM_SIDE_CUSTOMER_NOTE) : ''),
-    );
+    setOtherCause('');
+    // 锁定模式：调查说明沿用上一步已记下的那份（只读，系统代带）；kind 模式留空等人写。
+    setReasonInternal(lockedNote);
     setError('');
     setSelectedCandidate(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
-
-  // Task 8：kind 模式选原因码——客户面备注（customerLabel）随之预填；查证说明与
-  // Other 手写框不联动重置（换个码不该抹掉已经写了一半的查证记录）。
-  const pickKindCause = (code: string) => {
-    setReasonCode(code);
-    setReasonCustomer(CAUSE_CUSTOMER_LABEL[code] ?? FIRM_SIDE_CUSTOMER_NOTE);
-  };
 
   // 摘要行左右两方——side=FROM 时本案是错记方、候选是正主；side=TO 时对调。
   const fromParty = side === 'FROM'
@@ -278,13 +257,12 @@ const ReconciliationAdjustmentCreateModal = ({
     !effectiveDate ||
     (needsRelatedOrder && !relatedOrderNo.trim()) ||
     !reasonInternal.trim() ||
-    !reasonCustomer.trim() ||
     // candidatesLoading 外迁进 ReattributionCandidatePicker 后不再由本组件持有——
     // 加载中 selectedCandidate 必为 null（子组件加载完成前不会回调 onPick），
     // 这条闸单靠 !selectedCandidate 已经等价覆盖，不用再重复收一份 loading 状态。
     (isReattribute && !selectedCandidate) ||
-    // Task 8：kind 模式选 Other 时手写框必填（同 DispositionFindingModal 既有惯例）。
-    (isKindMode && reasonCode === 'OTHER' && !otherReason.trim());
+    // Task 8：kind 模式选 Other 时 Other cause 必填（同 DispositionFindingModal 既有惯例）。
+    (isKindMode && reasonCode === 'OTHER' && !otherCause.trim());
 
   const submit = async () => {
     if (submitDisabled || amountMinor === null) return;
@@ -302,8 +280,8 @@ const ReconciliationAdjustmentCreateModal = ({
         direction: isReattribute ? 'REDUCE' : direction,
         amount: (isReattribute || isWriteOff || isKindMode) ? prefill.amountMinor : amountMinor,
         effectiveDate,
+        // 调查说明：kind 模式是人写的那份，锁定模式是上一步沿用的那份（均为纯文本，不加前缀）。
         reasonInternal: reasonInternal.trim(),
-        reasonCustomer: reasonCustomer.trim(),
       };
       if (relatedOrderNo.trim()) body.relatedOrderNo = relatedOrderNo.trim();
       if (locked?.dispositionNo) body.dispositionNo = locked.dispositionNo;
@@ -319,9 +297,10 @@ const ReconciliationAdjustmentCreateModal = ({
         body.matchType = row.matchType;
         body.causeCode = reasonCode;
         body.disposition = kind;
-        body.findingNote = reasonCode === 'OTHER'
-          ? `Other: ${otherReason.trim()}\n${reasonInternal.trim()}`
-          : reasonInternal.trim();
+        // 调查说明只写一次：定性的 findingNote 与调账单的 reasonInternal 是同一份文字；
+        // Other cause 作为独立字段送出（后端存 otherCause），不再拼进说明里。
+        body.findingNote = reasonInternal.trim();
+        if (reasonCode === 'OTHER') body.otherCause = otherCause.trim();
       }
 
       if (isReattribute && selectedCandidate) {
@@ -429,7 +408,7 @@ const ReconciliationAdjustmentCreateModal = ({
             />
           )}
 
-          <label className={labelCls}>Reason</label>
+          <label className={labelCls}>Cause</label>
           {locked ? (
             // T9 锁定视图：成因由上一屏（处置弹层）判死，这里只回显——不给下拉。
             // 唯一真相在后端 cause-registry.ts，前端不猜、不改。
@@ -453,7 +432,7 @@ const ReconciliationAdjustmentCreateModal = ({
                     type="radio"
                     name="kind-cause"
                     checked={reasonCode === c.code}
-                    onChange={() => pickKindCause(c.code)}
+                    onChange={() => setReasonCode(c.code)}
                     disabled={submitting}
                     className="mt-0.5"
                   />
@@ -468,14 +447,15 @@ const ReconciliationAdjustmentCreateModal = ({
               ))}
               {reasonCode === 'OTHER' && (
                 <div className="pt-1">
-                  <label className="mb-1 block font-mono text-[9px] text-adm-t3">Describe the cause (required for Other)</label>
-                  <textarea
-                    value={otherReason}
-                    onChange={(e) => setOtherReason(e.target.value)}
-                    rows={2}
+                  <label className="mb-1 block font-mono text-[9px] text-adm-t3">Other cause (required)</label>
+                  <input
+                    type="text"
+                    value={otherCause}
+                    onChange={(e) => setOtherCause(e.target.value)}
                     disabled={submitting}
-                    className="w-full rounded border border-adm-border bg-adm-bg p-2 text-xs text-adm-t1"
+                    className="w-full rounded border border-adm-border bg-adm-bg px-2 py-1.5 text-xs text-adm-t1"
                   />
+                  <p className="mt-1 font-mono text-[9px] text-adm-t3">Name the cause in one line — shown in place of "Other" on lists, approvals and audit.</p>
                 </div>
               )}
               {reasonCode === 'DUP_BOOKING' && row?.duplicateTwinRef && (
@@ -584,28 +564,24 @@ const ReconciliationAdjustmentCreateModal = ({
             </>
           )}
 
-          <label className={labelCls}>{isKindMode ? 'Investigation Note' : 'Internal Reason'}</label>
-          <textarea
-            value={reasonInternal}
-            onChange={(e) => setReasonInternal(e.target.value)}
-            placeholder={isKindMode
-              ? 'Describe what was checked and the basis for the conclusion — this is the approver\'s only record of the investigation'
-              : 'Specific explanation for the approver, e.g.: the same deposit was booked twice, needs correction'}
-            disabled={submitting}
-            className="mb-4 h-16 w-full resize-none rounded border border-adm-border bg-adm-bg px-2.5 py-2 text-xs text-adm-t1 outline-none transition-colors placeholder:text-adm-t3 focus:border-adm-amber"
-          />
-
-          <label className={labelCls}>{isKindMode ? 'Customer-facing Note' : 'Internal Note'}</label>
-          <textarea
-            value={reasonCustomer}
-            onChange={(e) => setReasonCustomer(e.target.value)}
-            placeholder={isKindMode
-              ? 'Prefilled from the selected cause — this is the wording that appears on the customer statement; edit if needed'
-              : 'Internal record only — the customer statement shows the standard wording for this reason type.'}
-            disabled={submitting}
-            className="w-full resize-none rounded border border-adm-border bg-adm-bg px-2.5 py-2 text-xs text-adm-t1 outline-none transition-colors placeholder:text-adm-t3 focus:border-adm-amber"
-            rows={2}
-          />
+          <label className={labelCls}>Investigation note</label>
+          {locked ? (
+            // 锁定模式（改记 / 核销）：调查说明是上一步已经记下的那份，这里只读展示、不再要求重写，
+            // 提交时原样作为本单的 reasonInternal 沿用。
+            <div className="whitespace-pre-wrap rounded border border-adm-border bg-adm-bg px-2.5 py-2 text-xs text-adm-t1">
+              {lockedNote || '—'}
+            </div>
+          ) : (
+            <>
+              <textarea
+                value={reasonInternal}
+                onChange={(e) => setReasonInternal(e.target.value)}
+                disabled={submitting}
+                className="mb-1 h-16 w-full resize-none rounded border border-adm-border bg-adm-bg px-2.5 py-2 text-xs text-adm-t1 outline-none transition-colors placeholder:text-adm-t3 focus:border-adm-amber"
+              />
+              <p className="font-mono text-[9px] text-adm-t3">What was checked, the evidence, and the conclusion — the approver and auditors read this.</p>
+            </>
+          )}
         </div>
 
         <div className="flex justify-end gap-3 border-t border-adm-border px-6 py-4">

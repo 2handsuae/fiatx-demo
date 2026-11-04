@@ -47,7 +47,7 @@ const HOLD_HINT: Record<HoldKind, string> = {
 
 const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: ReconciliationHoldModalProps) => {
   const [causeCode, setCauseCode] = useState('');
-  const [otherReason, setOtherReason] = useState('');
+  const [otherCause, setOtherCause] = useState('');
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -59,7 +59,7 @@ const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: R
   useEffect(() => {
     if (!open) return;
     setCauseCode(causes.length === 1 ? causes[0].code : '');
-    setOtherReason('');
+    setOtherCause('');
     setNote('');
     setError('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -67,14 +67,15 @@ const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: R
 
   if (!open || !row) return null;
   const isOther = causeCode === 'OTHER';
-  const canSubmit = !!causeCode && note.trim().length > 0 && (!isOther || otherReason.trim().length > 0);
+  const canSubmit = !!causeCode && note.trim().length > 0 && (!isOther || otherCause.trim().length > 0);
 
   const submit = async () => {
     if (!canSubmit) return;
     setSubmitting(true);
     setError('');
     try {
-      const findingNote = isOther ? `Other: ${otherReason.trim()}\n${note.trim()}` : note.trim();
+      // 调查说明只写一次、原样存；Other cause 是独立字段（后端存成 otherCause），不再拼进说明里。
+      const findingNote = note.trim();
       const res = await adminFetch(
         `${import.meta.env.VITE_API_URL}/admin/reconciliation/cases/${encodeURIComponent(caseNo)}/dispositions`,
         {
@@ -86,6 +87,7 @@ const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: R
             causeCode,
             disposition: kind,
             findingNote,
+            ...(isOther ? { otherCause: otherCause.trim() } : {}),
             ...rowFacts(row),
           }),
         },
@@ -112,6 +114,7 @@ const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: R
         <h3 className="mb-1 text-sm font-semibold text-adm-t1">{HOLD_TITLE[kind]}</h3>
         <p className="mb-3 font-mono text-[11px] text-adm-t3">{caseNo}</p>
 
+        <label className="mb-1 block text-[11px] text-adm-t3">Cause</label>
         <div className="space-y-1.5">
           {causes.map((c) => (
             <label
@@ -140,13 +143,14 @@ const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: R
 
         {isOther && (
           <div className="mt-3">
-            <label className="mb-1 block text-[11px] text-adm-t3">Describe the cause (required for Other)</label>
-            <textarea
-              value={otherReason}
-              onChange={(e) => setOtherReason(e.target.value)}
-              rows={2}
-              className="w-full rounded border border-adm-border bg-adm-bg p-2 text-xs text-adm-t1"
+            <label className="mb-1 block text-[11px] text-adm-t3">Other cause (required)</label>
+            <input
+              type="text"
+              value={otherCause}
+              onChange={(e) => setOtherCause(e.target.value)}
+              className="w-full rounded border border-adm-border bg-adm-bg px-2 py-1.5 text-xs text-adm-t1"
             />
+            <p className="mt-1 text-[11px] text-adm-t3">Name the cause in one line — shown in place of "Other" on lists, approvals and audit.</p>
           </div>
         )}
 
@@ -158,6 +162,7 @@ const ReconciliationHoldModal = ({ open, caseNo, row, kind, onClose, onDone }: R
             rows={3}
             className="w-full rounded border border-adm-border bg-adm-bg p-2 text-xs text-adm-t1"
           />
+          <p className="mt-1 text-[11px] text-adm-t3">What was checked, the evidence, and the conclusion — the approver and auditors read this.</p>
         </div>
 
         <p className="mt-3 rounded border border-adm-amber/30 bg-adm-amber/10 p-2 text-[11px] text-adm-t2">

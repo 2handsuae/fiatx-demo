@@ -118,6 +118,8 @@ interface AdjustHandoff {
   reasonCode?: string;
   direction?: 'REDUCE' | 'INCREASE';
   directionNote: string;
+  // 刚记下的调查说明——锁定视图（改记族）只读展示，并原样作为开单的 reasonInternal 沿用。
+  findingNote: string;
   row: FlowComparisonRow;
 }
 
@@ -130,6 +132,7 @@ const buildAdjustLocked = (handoff: AdjustHandoff, currentCaseNo: string): Adjus
     reasonCode: handoff.reasonCode,
     direction: handoff.direction,
     directionNote: handoff.directionNote,
+    findingNote: handoff.findingNote,
     toCandidatesUrl: handoff.family === 'REATTRIBUTE' && ap
       ? `/admin/reconciliation/cases/${encodeURIComponent(currentCaseNo)}/reattribution-candidates?side=${ap.reattributionSide}&amount=${ap.amountMinor}`
       : undefined,
@@ -318,7 +321,7 @@ const ReconciliationCasesDetailPage = () => {
       if (!ap) return;
       setCreatePrefill(prefillFromRow(row, ap));
       setAdjustLocked(buildAdjustLocked(
-        { dispositionNo: result.dispositionNo, family: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION', direction: undefined, directionNote: directionNoteFor(row.matchType), row },
+        { dispositionNo: result.dispositionNo, family: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION', direction: undefined, directionNote: directionNoteFor(row.matchType), findingNote, row },
         kase.caseNo,
       ));
       // Task 8 交接④（Task 7 评审修复漏的兄弟缺口）：定性已经落库，锁定视图弹层已经

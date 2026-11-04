@@ -552,7 +552,6 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
         relatedOrderNo: originalDeposit.depositNo,
         dispositionNo: disposition.dispositionNo,         // 定性联动：开单成功即回填并锁死该定性
         reasonInternal: 'e2e：这笔钱是 dave 的，被记到了 carol 名下',
-        reasonCustomer: '账户更正划转',
       } as any,
       makeActor('E2E_OPS_CREATOR_A', 'OPS_OFFICER'),
     );
