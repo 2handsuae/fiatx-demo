@@ -5,14 +5,15 @@ import * as path from 'path';
 import { createClient as tbCreateClient } from 'tigerbeetle-node';
 import { generateReferenceNo } from '../src/common/utils/no-generator.util';
 import { ensureBaseSeeded } from './seed.base';
-import { ensureTbAccountRegistry, provisionTbAccounts } from './seed-tb.helper';
+import { ensureTbAccountRegistry, ensureWalletCashAccount, provisionTbAccounts } from './seed-tb.helper';
 import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
-import { assertNetwork } from '../src/config/manifests/networks.manifest';
+import { assertNetwork, type NetworkCode } from '../src/config/manifests/networks.manifest';
 import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
-import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA, cashAccountCodeFor } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { systemAccountCodesFor } from '../src/modules/asset-treasury/assets/asset-provisioning.service';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
-import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
+import { TB_LEDGERS, ledgerForNetwork } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
+import { AccountFlowProjectorService } from '../src/modules/clearing-settle/reconciliation/projector/account-flow-projector.service';
 import { CustomerLifecycle } from '../src/modules/identity/constants/customer-lifecycle.constant';
 import {
   RESTRICTION_CAUSE_POLICY,
@@ -88,7 +89,7 @@ export async function seedBusiness(
   await seedComplaints(prisma);
   // Final: push all registry rows (system + customer) into TigerBeetle.
   await provisionTbAccounts(prisma);
-  // Firm capital bootstrap: DR FIRM_CASH / CR FIRM_EQUITY per currency.
+  // Firm capital bootstrap: DR 公司现金·运营 (F_OPS wallet cash account) / CR FIRM_EQUITY per currency.
   await seedCapitalInjection(prisma);
   // LP desk layer（战役乙波一 Task 9，spec §7/§9）：两档案 + 一张 SUCCESS 历史兑换单——
   // needs seedCapitalInjection 的公司起始余额（卖出腿要扣 FIRM_EQUITY AED，注资在前才不会
@@ -196,31 +197,46 @@ async function seedAssets(prisma: PrismaClient): Promise<void> {
 
 // ─────────────────────────────────────────────────────────────
 // ①b Platform wallet rows — 4 vault × network slots (7 rows), keyed by network not asset
+// 戊波一：每个公司钱包一个现金户（50 类）——钱包行 upsert 完立即开户（注册表行 + TB 账户），
+// 注资 / LP / 付款三段种子记账都落在这些户上，不再有按币种聚合的公司资产户。
 // ─────────────────────────────────────────────────────────────
 async function seedPlatformWallets(prisma: PrismaClient): Promise<void> {
-  for (const slot of platformWalletSlots()) {
-    const net = NETWORKS[slot.network];
-    const walletNo = buildDeterministicNo('WA', slot.vaultCode, slot.network);
-    const isChain = net.kind === 'CHAIN';
-    const data = {
-      ownerType: 'PLATFORM',
-      ownerId: null,
-      ownerNo: 'PLATFORM',
-      vaultCode: slot.vaultCode,
-      walletRole: slot.vaultCode,
-      network: slot.network,
-      address: isChain ? fakeTronAddress(`PLATFORM|${slot.vaultCode}|${slot.network}`) : null,
-      iban: isChain ? null : buildSystemPoolIban(slot.vaultCode, 'AED'),
-      custodianRef: `${net.custodian.toLowerCase()}-vault-${slot.vaultCode.toLowerCase()}`,
-      status: 'ACTIVE',
-    };
-    const row = await prisma.wallet.upsert({ where: { walletNo }, update: data, create: { walletNo, ...data } });
-    await writeSeedAudit(prisma, {
-      action: 'CUSTODIAN_WALLET_SEEDED', subjectType: 'WALLET', subjectNo: row.walletNo, actorNo: 'RELEASE',
-      afterData: { vaultCode: row.vaultCode, network: row.network, address: row.address, iban: row.iban, custodianRef: row.custodianRef, status: row.status },
-    });
+  const tbAddress = process.env.TB_ADDRESS;
+  if (!tbAddress) {
+    // 同 provisionTbAccounts：不 graceful skip——没有现金户，后面注资 / LP / 付款三段种子无处记账，失败点会落在很远的下游。
+    throw new Error(
+      'TB_ADDRESS 未设置，无法给平台钱包开现金户。修法：确认调用方显式传 TB_ADDRESS（见 scripts/reset-stack.sh）。',
+    );
   }
-  console.log('Seeded 7 platform wallet address rows (vault × network).');
+  const tbClient = tbCreateClient({ cluster_id: 0n, replica_addresses: [tbAddress] });
+  try {
+    for (const slot of platformWalletSlots()) {
+      const net = NETWORKS[slot.network];
+      const walletNo = buildDeterministicNo('WA', slot.vaultCode, slot.network);
+      const isChain = net.kind === 'CHAIN';
+      const data = {
+        ownerType: 'PLATFORM',
+        ownerId: null,
+        ownerNo: 'PLATFORM',
+        vaultCode: slot.vaultCode,
+        walletRole: slot.vaultCode,
+        network: slot.network,
+        address: isChain ? fakeTronAddress(`PLATFORM|${slot.vaultCode}|${slot.network}`) : null,
+        iban: isChain ? null : buildSystemPoolIban(slot.vaultCode, 'AED'),
+        custodianRef: `${net.custodian.toLowerCase()}-vault-${slot.vaultCode.toLowerCase()}`,
+        status: 'ACTIVE',
+      };
+      const row = await prisma.wallet.upsert({ where: { walletNo }, update: data, create: { walletNo, ...data } });
+      await writeSeedAudit(prisma, {
+        action: 'CUSTODIAN_WALLET_SEEDED', subjectType: 'WALLET', subjectNo: row.walletNo, actorNo: 'RELEASE',
+        afterData: { vaultCode: row.vaultCode, network: row.network, address: row.address, iban: row.iban, custodianRef: row.custodianRef, status: row.status },
+      });
+      await ensureWalletCashAccount(prisma, tbClient, row);
+    }
+  } finally {
+    tbClient.destroy();
+  }
+  console.log('Seeded 7 platform wallet address rows (vault × network) + 7 company cash accounts.');
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2198,7 +2214,7 @@ async function seedComplaints(prisma: PrismaClient): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Capital injection — DR FIRM_CASH / CR FIRM_EQUITY per currency
+// Capital injection — DR 公司现金·运营 / CR FIRM_EQUITY per currency（戊波一：借方是 F_OPS 钱包的现金户，不再是聚合户）
 // ─────────────────────────────────────────────────────────────
 
 const SEED_FIRM_CAPITAL: Record<string, string> = {
@@ -2210,11 +2226,11 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
   const tbAddress = process.env.TB_ADDRESS;
   if (!tbAddress) {
     // 同 provisionTbAccounts：不 graceful skip。少了这笔注资，公司户从 0 起步，
-    // 付完款即为负——而四条 COA 恒等式对「差额」依然成立，所以只有负余额断言会红，
-    // 且红在很远的下游。2026-08-31 的假红事故就是这么来的。
+    // 现金户又带「贷不超借」标志位——后面的 LP 卖出腿 / 供应商付款会被 TigerBeetle 拒掉，
+    // 失败点落在很远的下游（2026-08-31 的假红事故就是这么来的）。
     throw new Error(
       'TB_ADDRESS 未设置，无法做资本注入。seed 不做 graceful skip——' +
-        '缺这笔注资会让公司户从 0 起步、后续 verify:coa 负余额断言在很远处才报错。' +
+        '缺这笔注资会让公司现金户从 0 起步、后续 LP / 付款腿被账本拒绝，失败点离根因很远。' +
         '修法：确认调用方显式传 TB_ADDRESS（见 scripts/reset-stack.sh），或先 `stack.sh up` 让 .env 落地。',
     );
   }
@@ -2234,7 +2250,7 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
     });
 
     const transfers: any[] = [];
-    const evidenceRows: Array<{ asset: { currency: string; network: string }; transferId: bigint; amount: bigint; firmAssetId: string; firmOpsId: string }> = [];
+    const evidenceRows: Array<{ asset: { currency: string; network: string }; transferId: bigint; amount: bigint; cashId: string; equityId: string }> = [];
     for (const asset of assets) {
       const rawAmount = SEED_FIRM_CAPITAL[asset.currency];
       if (!rawAmount) continue;
@@ -2243,17 +2259,15 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
       const scale = BigInt(10 ** asset.decimals);
       const amount = BigInt(rawAmount) * scale;
 
-      // Resolve FIRM_CASH and FIRM_EQUITY account ids from registry
-      const firmAssetReg = await (prisma as any).tbAccountRegistry.findFirst({
-        where: { code: TB_ACCOUNT_CODES.FIRM_CASH, ledger, ownerType: 'SYSTEM' },
-        select: { tbAccountId: true },
-      });
-      const firmOpsReg = await (prisma as any).tbAccountRegistry.findFirst({
+      // 借方：运营户钱包（F_OPS × 该币种网络）的现金户；贷方：该币种的 FIRM_EQUITY。
+      const opsWallet = await findLpDeskPlatformWallet(prisma, 'F_OPS', asset.network);
+      const cashReg = await findWalletCashAccount(prisma, opsWallet);
+      const equityReg = await (prisma as any).tbAccountRegistry.findFirst({
         where: { code: TB_ACCOUNT_CODES.FIRM_EQUITY, ledger, ownerType: 'SYSTEM' },
         select: { tbAccountId: true },
       });
 
-      if (!firmAssetReg || !firmOpsReg) {
+      if (!equityReg) {
         console.log(`  ⚠ Missing registry entries for capital injection (${asset.currency}), skipping`);
         continue;
       }
@@ -2262,8 +2276,8 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
 
       transfers.push({
         id: transferId,
-        debit_account_id: BigInt('0x' + firmAssetReg.tbAccountId),  // DR FIRM_CASH
-        credit_account_id: BigInt('0x' + firmOpsReg.tbAccountId),   // CR FIRM_EQUITY
+        debit_account_id: BigInt('0x' + cashReg.tbAccountId),   // DR 公司现金·运营
+        credit_account_id: BigInt('0x' + equityReg.tbAccountId), // CR FIRM_EQUITY
         amount,
         pending_id: 0n,
         user_data_128: 0n,
@@ -2276,7 +2290,7 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
         timestamp: 0n,
       });
 
-      evidenceRows.push({ asset, transferId, amount, firmAssetId: firmAssetReg.tbAccountId, firmOpsId: firmOpsReg.tbAccountId });
+      evidenceRows.push({ asset, transferId, amount, cashId: cashReg.tbAccountId, equityId: equityReg.tbAccountId });
     }
 
     if (transfers.length === 0) {
@@ -2291,7 +2305,8 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
       (e: any) => e.status !== TB_TRANSFER_EXISTS && e.status !== TB_DEV_OK,
     );
     if (realErrors.length > 0) {
-      console.log(`  ⚠ Capital injection had ${realErrors.length} errors: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
+      // 账户带不得为负的标志位后，被拒的注资不能只打一行警告：账本没记而下面的凭证 / 流水照写，就是账实不一致。
+      throw new Error(`Capital injection rejected by TigerBeetle: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
     }
 
     const existed = errors.filter((e: any) => e.status === TB_TRANSFER_EXISTS).length;
@@ -2299,33 +2314,19 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
 
     // 平账二期搭车②(BACKLOG「资本注入少一行流水凭证」)：注资写进凭证与流水投影，
     // 对账页上运营户从此显示真实起点(此前只有 TB 转账、流水里查不到，外部余额页显示负数)。
-    // 种子路径直写两表(与账户注册表同款、不经 Nest)；upsert 幂等；FIRM_CASH 是聚合科目，
-    // 引擎读侧本就丢弃聚合腿，walletRef 挂运营户行只为可追溯。
+    // 种子路径直写凭证行(与账户注册表同款、不经 Nest)，流水两行一律走投影器(writeSeedEvidence)；upsert 幂等。
     for (const r of evidenceRows) {
-      const opsWallet = await (prisma as any).wallet.findFirst({ where: { vaultCode: 'F_OPS', network: r.asset.network, ownerType: 'PLATFORM' }, select: { id: true } });
-      if (!opsWallet) throw new Error(`注资凭证：找不到 ${r.asset.network} 上的运营户地址行——seedPlatformWallets 是否先跑？`);
       const tbTransferId = bigintToHex(r.transferId);
       const now = new Date();
-      const shared = {
-        sourceType: 'SEED_CAPITAL', sourceNo: r.asset.currency, eventCode: 'CAPITAL_INJECTION',
+      await writeSeedEvidence(prisma, {
+        tbTransferId, sourceType: 'SEED_CAPITAL', sourceNo: r.asset.currency, eventCode: 'CAPITAL_INJECTION',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY],
+        debitTbAccountId: r.cashId, creditTbAccountId: r.equityId,
         amount: new Prisma.Decimal(r.amount.toString()), assetCode: r.asset.currency, transferType: 'POSTED',
-        isExternalCrossing: true, externalRef: `SEED-CAPITAL-${r.asset.currency}`, effectiveDate: now.toISOString().slice(0, 10),
-      };
-      await (prisma as any).tbTransferEvidence.upsert({
-        where: { tbTransferId }, update: {},
-        create: {
-          tbTransferId, ...shared, debitCode: 'A.FIRM_CASH', creditCode: 'E.FIRM_EQUITY',
-          debitTbAccountId: r.firmAssetId, creditTbAccountId: r.firmOpsId,
-          traceId: `SEED_CAPITAL_${r.asset.currency}`, actorType: 'SYSTEM', actorId: 'RELEASE', memo: '公司注资(随版本装载)',
-          debitWalletRef: opsWallet.id, creditWalletRef: opsWallet.id, createdAt: now,
-        },
+        externalRef: `SEED-CAPITAL-${r.asset.currency}`, effectiveDate: now.toISOString().slice(0, 10),
+        traceId: `SEED_CAPITAL_${r.asset.currency}`, actorType: 'SYSTEM', actorId: 'RELEASE', memo: '公司注资(随版本装载)',
+        createdAt: now,
       });
-      for (const [tbAccountId, direction] of [[r.firmAssetId, 'OUT'], [r.firmOpsId, 'IN']] as const) {
-        await (prisma as any).accountFlow.upsert({
-          where: { tbTransferId_tbAccountId: { tbTransferId, tbAccountId } }, update: {},
-          create: { tbTransferId, tbAccountId, walletRef: opsWallet.id, direction, ...shared, createdAt: now },
-        });
-      }
     }
     console.log(`  ✔ Capital injection evidence: ${evidenceRows.length} evidence row(s) + ${evidenceRows.length * 2} flow row(s)`);
   } finally {
@@ -2344,7 +2345,7 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
 // tigerbeetle-node，服务直调铺数走不通；手写镜像，逐行对齐
 // lp-exchange-workflow.service.ts 的真实记账/回单形态：AccountingService.executeTransfer
 // 每次调用内部都会原子写 1 条 tbTransferEvidence + 2 条 accountFlow
-// （AccountFlowProjectorService.persist，debit→OUT / credit→IN）——三腿 84/85/86 各一次，
+// （AccountFlowProjectorService.persist）——三腿 84/85/86 各一次，
 // 3 条 evidence + 6 行 accountFlow 镜像。托管回单（external_statement_lines /
 // external_balances）不铺：seedCapitalInjection 模板本身也不写它，且 recon:demo 铺场
 // 脚本每次都会把外部账单从 account_flows 重铸一遍（simulated-custodian-statement.service.ts
@@ -2371,6 +2372,45 @@ async function findLpDeskSystemAccount(prisma: PrismaClient, code: number, ledge
     throw new Error(`seedLpDesk: 找不到系统科目注册行 code=${code} ledger=${ledger}——provisionTbAccounts 是否先跑？`);
   }
   return reg;
+}
+
+/** 钱包现金户查找（戊波一）：(1|50, 钱包所在网络的账本, 'WALLET', wallet.id)——与 AccountingService.resolveCashAccountId 同一个四元组。
+ *  种子走裸 PrismaClient 拿不到该 Nest 服务，按注册表直读；开户不在这里（平台钱包在 seedPlatformWallets、Henry 钱包在
+ *  seedStatementHistoryLegs），找不到就抛——不回落到任何聚合户。 */
+async function findWalletCashAccount(
+  prisma: PrismaClient,
+  wallet: { id: string; walletNo: string; ownerType: string; network: string },
+): Promise<{ tbAccountId: string }> {
+  const reg = await (prisma as any).tbAccountRegistry.findFirst({
+    where: {
+      code: cashAccountCodeFor(wallet.ownerType),
+      ledger: ledgerForNetwork(wallet.network as NetworkCode),
+      ownerType: 'WALLET',
+      ownerUuid: wallet.id,
+    },
+    select: { tbAccountId: true },
+  });
+  if (!reg) {
+    throw new Error(`seed: 找不到钱包 ${wallet.walletNo} 的现金户注册行——开户是否先跑（seedPlatformWallets / Henry 钱包）？`);
+  }
+  return reg;
+}
+
+const seedFlowProjector = new AccountFlowProjectorService();
+
+type SeedEvidenceRow = {
+  tbTransferId: string; sourceType: string; sourceNo: string; eventCode: string;
+  debitCode: string; creditCode: string; debitTbAccountId: string; creditTbAccountId: string;
+  amount: Prisma.Decimal; assetCode: string; transferType: string; externalRef: string | null; effectiveDate: string;
+  traceId: string; actorType: string; actorId: string; memo: string; createdAt: Date;
+};
+
+/** 种子路径的凭证 + 流水：凭证行手写（裸 PrismaClient，不经 Nest），流水两行一律走 AccountFlowProjectorService.persist——
+ *  方向与钱包归属由投影器按当前规则出，种子不再手写 direction / walletRef（戊波一 R14），投影规则变了种子行自动跟着变。
+ *  不传 debitWalletRef / creditWalletRef / isExternalCrossing（取默认）。upsert 幂等（同 seedCapitalInjection 起的先例）。 */
+async function writeSeedEvidence(prisma: PrismaClient, row: SeedEvidenceRow): Promise<void> {
+  await (prisma as any).tbTransferEvidence.upsert({ where: { tbTransferId: row.tbTransferId }, update: {}, create: row });
+  await seedFlowProjector.persist(prisma as any, row);
 }
 
 const TB_TRANSFER_EXISTS_LP = 46; // CreateTransferStatus.exists（同 seedCapitalInjection）
@@ -2742,37 +2782,40 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
   console.log(`Seeded 1 LP exchange (${exchangeNo}, SUCCESS) + 1 APPROVED exchange approval case + 3 funds orders (legs 1/2/3, all CLEARED).`);
 
   // ── 账本分录（84→85→86）+ 六行 accountFlow 镜像 ──────────────────────────
+  // 戊波一·附录 B「LP 兑换」波一列：
+  //   84 卖出腿出款确认   借 FIRM_EQUITY(AED) ／ 贷 公司现金·sellFrom(运营 AED)
+  //   85 LP 发货到前厅     借 公司现金·buyVia(LP 前厅 USDT) ／ 贷 FIRM_EQUITY(USDT)
+  //   86 验收入库          借 公司现金·buyTo(运营 USDT) ／ 贷 公司现金·buyVia(LP 前厅 USDT)
+  // 现金户带「贷不超借」标志位，三腿必须按因果顺序记（84 先扣运营 AED、85 先入前厅、86 才从前厅转出）——下面 legs 的顺序即此序。
   const aedLedger = TB_LEDGERS[aedAsset.currency as keyof typeof TB_LEDGERS];
   const usdtLedger = TB_LEDGERS[usdtAsset.currency as keyof typeof TB_LEDGERS];
-  const [firmOpsAed, firmAssetAed, firmAssetUsdt, firmLiqUsdt, firmOpsUsdt] = await Promise.all([
+  const [equityAed, equityUsdt, cashSellFrom, cashBuyVia, cashBuyTo] = await Promise.all([
     findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_EQUITY, aedLedger),
-    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_CASH, aedLedger),
-    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_CASH, usdtLedger),
-    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_LIQ, usdtLedger),
     findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_EQUITY, usdtLedger),
+    findWalletCashAccount(prisma, sellFrom),
+    findWalletCashAccount(prisma, buyVia),
+    findWalletCashAccount(prisma, buyTo),
   ]);
 
   const toMinor = (major: string, decimals: number): bigint => BigInt(major) * (10n ** BigInt(decimals));
 
-  // 逐行对齐 lp-exchange-workflow.service.ts 的 postSellLeg/postBuyLeg/postAcceptLeg 三次
-  // executeTransfer 调用（evidence() 私有方法的借贷科目/walletRef 组合）。
   const legs = [
     {
-      eventCode: 'LP_EXCHANGE_PAY', ledger: aedLedger, debitReg: firmOpsAed, creditReg: firmAssetAed,
-      debitCoa: 'E.FIRM_EQUITY', creditCoa: 'A.FIRM_CASH', amount: toMinor(SELL_AMOUNT, aedAsset.decimals), assetCode: 'AED',
-      debitWalletRef: sellFrom.id as string, creditWalletRef: sellFrom.id as string, externalRef: leg1Ref,
+      eventCode: 'LP_EXCHANGE_PAY', ledger: aedLedger, debitReg: equityAed, creditReg: cashSellFrom,
+      debitCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY], creditCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH],
+      amount: toMinor(SELL_AMOUNT, aedAsset.decimals), assetCode: 'AED', externalRef: leg1Ref,
       code: TB_TRANSFER_CODES.LP_EXCHANGE_PAY, memo: `LP exchange ${exchangeNo} sell leg (paid to LP ${falcon.lpNo})`, at: executedAt,
     },
     {
-      eventCode: 'LP_EXCHANGE_RECEIVE', ledger: usdtLedger, debitReg: firmAssetUsdt, creditReg: firmLiqUsdt,
-      debitCoa: 'A.FIRM_CASH', creditCoa: 'E.FIRM_LIQ', amount: toMinor(BUY_AMOUNT, usdtAsset.decimals), assetCode: 'USDT',
-      debitWalletRef: buyVia.id as string, creditWalletRef: buyVia.id as string, externalRef: leg2TxHash,
+      eventCode: 'LP_EXCHANGE_RECEIVE', ledger: usdtLedger, debitReg: cashBuyVia, creditReg: equityUsdt,
+      debitCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH], creditCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY],
+      amount: toMinor(BUY_AMOUNT, usdtAsset.decimals), assetCode: 'USDT', externalRef: leg2TxHash,
       code: TB_TRANSFER_CODES.LP_EXCHANGE_RECEIVE, memo: `LP exchange ${exchangeNo} buy leg (received from LP ${falcon.lpNo})`, at: deliveredAt,
     },
     {
-      eventCode: 'LP_EXCHANGE_ACCEPT', ledger: usdtLedger, debitReg: firmLiqUsdt, creditReg: firmOpsUsdt,
-      debitCoa: 'E.FIRM_LIQ', creditCoa: 'E.FIRM_EQUITY', amount: toMinor(BUY_AMOUNT, usdtAsset.decimals), assetCode: 'USDT',
-      debitWalletRef: buyVia.id as string, creditWalletRef: buyTo.id as string, externalRef: leg3TxHash,
+      eventCode: 'LP_EXCHANGE_ACCEPT', ledger: usdtLedger, debitReg: cashBuyTo, creditReg: cashBuyVia,
+      debitCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH], creditCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH],
+      amount: toMinor(BUY_AMOUNT, usdtAsset.decimals), assetCode: 'USDT', externalRef: leg3TxHash,
       code: TB_TRANSFER_CODES.LP_EXCHANGE_ACCEPT, memo: `LP exchange ${exchangeNo} acceptance transfer (front desk → operating)`, at: settledAt,
     },
   ];
@@ -2799,7 +2842,8 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     const errors = await client.createTransfers(transfers);
     const realErrors = errors.filter((e: any) => e.status !== TB_TRANSFER_EXISTS_LP && e.status !== TB_DEV_OK_LP);
     if (realErrors.length > 0) {
-      console.log(`  ⚠ LP exchange seed had ${realErrors.length} transfer errors: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
+      // 带标志位的账户上，被拒的腿不能只打一行警告再照写凭证——账本没记而凭证 / 流水有，就是账实不一致。
+      throw new Error(`LP exchange seed rejected by TigerBeetle: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
     }
 
     // Evidence/flow 写入不看 TB「已存在」状态，统一走 upsert（同 seedCapitalInjection：
@@ -2808,33 +2852,17 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     let flowRows = 0;
     for (let i = 0; i < legs.length; i += 1) {
       const leg = legs[i];
-      const tbTransferId = bigintToHex(transferIds[i]);
-      const effectiveDate = toBusinessDate(leg.at);
-      const shared = {
+      await writeSeedEvidence(prisma, {
+        tbTransferId: bigintToHex(transferIds[i]),
         sourceType: 'LP_EXCHANGE', sourceNo: exchangeNo, eventCode: leg.eventCode,
+        debitCode: leg.debitCoa, creditCode: leg.creditCoa,
+        debitTbAccountId: leg.debitReg.tbAccountId, creditTbAccountId: leg.creditReg.tbAccountId,
         amount: new Prisma.Decimal(leg.amount.toString()), assetCode: leg.assetCode, transferType: 'POSTED',
-        isExternalCrossing: true, externalRef: leg.externalRef, effectiveDate,
-      };
-      await (prisma as any).tbTransferEvidence.upsert({
-        where: { tbTransferId }, update: {},
-        create: {
-          tbTransferId, ...shared, debitCode: leg.debitCoa, creditCode: leg.creditCoa,
-          debitTbAccountId: leg.debitReg.tbAccountId, creditTbAccountId: leg.creditReg.tbAccountId,
-          traceId, actorType: 'SYSTEM', actorId: 'LP_EXCHANGE_WORKFLOW', memo: leg.memo,
-          debitWalletRef: leg.debitWalletRef, creditWalletRef: leg.creditWalletRef, createdAt: leg.at,
-        },
+        externalRef: leg.externalRef, effectiveDate: toBusinessDate(leg.at),
+        traceId, actorType: 'SYSTEM', actorId: 'LP_EXCHANGE_WORKFLOW', memo: leg.memo, createdAt: leg.at,
       });
       evidenceRows += 1;
-      for (const [tbAccountId, walletRef, direction] of [
-        [leg.debitReg.tbAccountId, leg.debitWalletRef, 'OUT'],
-        [leg.creditReg.tbAccountId, leg.creditWalletRef, 'IN'],
-      ] as const) {
-        await (prisma as any).accountFlow.upsert({
-          where: { tbTransferId_tbAccountId: { tbTransferId, tbAccountId } }, update: {},
-          create: { tbTransferId, tbAccountId, walletRef, direction, ...shared, createdAt: leg.at },
-        });
-        flowRows += 1;
-      }
+      flowRows += 2;
     }
     console.log(`  ✔ LP exchange evidence: ${evidenceRows} evidence row(s) + ${flowRows} flow row(s)`);
   } finally {
@@ -3454,11 +3482,12 @@ async function seedCompanyFunding(prisma: PrismaClient): Promise<void> {
 
   console.log(`Seeded 1 vendor payment (${payNo}, SUCCESS) + 1 APPROVED payment approval case + 1 funds order (CLEARED).`);
 
-  // ── 账本一条（87）：DR FIRM_EQUITY / CR FIRM_CASH，AED ledger ──────────────
+  // ── 账本一条（87）：DR EXPENSE_BANK_CUSTODY / CR 公司现金·fromWallet（运营 AED），AED ledger ──────────────
+  // 戊波一·附录 B「支出」波一列：出款回单确认 借 银行与托管费用 ／ 贷 公司现金·运营（此前借 FIRM_EQUITY）。
   const aedLedger = TB_LEDGERS[aedAsset.currency as keyof typeof TB_LEDGERS];
-  const [firmOpsAed, firmAssetAed] = await Promise.all([
-    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_EQUITY, aedLedger),
-    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_CASH, aedLedger),
+  const [expenseBankCustodyAed, cashFromWallet] = await Promise.all([
+    findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, aedLedger),
+    findWalletCashAccount(prisma, fromWallet),
   ]);
   const amountMinor = BigInt(payAmount) * (10n ** BigInt(aedAsset.decimals));
 
@@ -3474,8 +3503,8 @@ async function seedCompanyFunding(prisma: PrismaClient): Promise<void> {
     const transferId = deterministicTransferId('SEED_VENDOR_PAYMENT', 'AED', 'VENDOR_PAYMENT', 0);
     const transfers = [{
       id: transferId,
-      debit_account_id: BigInt('0x' + firmOpsAed.tbAccountId),   // DR FIRM_EQUITY
-      credit_account_id: BigInt('0x' + firmAssetAed.tbAccountId), // CR FIRM_CASH
+      debit_account_id: BigInt('0x' + expenseBankCustodyAed.tbAccountId), // DR EXPENSE_BANK_CUSTODY
+      credit_account_id: BigInt('0x' + cashFromWallet.tbAccountId),        // CR 公司现金·运营 AED
       amount: amountMinor,
       pending_id: 0n, user_data_128: 0n, user_data_64: 0n, user_data_32: 0, timeout: 0,
       ledger: aedLedger, code: TB_TRANSFER_CODES.VENDOR_PAYMENT, flags: 0, timestamp: 0n,
@@ -3483,32 +3512,21 @@ async function seedCompanyFunding(prisma: PrismaClient): Promise<void> {
     const errors = await client.createTransfers(transfers);
     const realErrors = errors.filter((e: any) => e.status !== TB_TRANSFER_EXISTS_LP && e.status !== TB_DEV_OK_LP);
     if (realErrors.length > 0) {
-      console.log(`  ⚠ Vendor payment seed had ${realErrors.length} transfer errors: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
+      // 带标志位的账户上，被拒的付款不能只打一行警告再照写凭证——账本没记而凭证 / 流水有，就是账实不一致。
+      throw new Error(`Vendor payment seed rejected by TigerBeetle: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
     }
 
-    const tbTransferId = bigintToHex(transferId);
-    const shared = {
+    await writeSeedEvidence(prisma, {
+      tbTransferId: bigintToHex(transferId),
       sourceType: 'VENDOR_PAYMENT', sourceNo: payNo, eventCode: 'VENDOR_PAYMENT',
+      debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH],
+      debitTbAccountId: expenseBankCustodyAed.tbAccountId, creditTbAccountId: cashFromWallet.tbAccountId,
       amount: new Prisma.Decimal(amountMinor.toString()), assetCode: aedAsset.currency, transferType: 'POSTED',
-      isExternalCrossing: true, externalRef: payRef, effectiveDate,
-    };
-    await (prisma as any).tbTransferEvidence.upsert({
-      where: { tbTransferId }, update: {},
-      create: {
-        tbTransferId, ...shared, debitCode: 'E.FIRM_EQUITY', creditCode: 'A.FIRM_CASH',
-        debitTbAccountId: firmOpsAed.tbAccountId, creditTbAccountId: firmAssetAed.tbAccountId,
-        traceId: payTraceId, actorType: 'SYSTEM', actorId: 'VENDOR_PAYMENT_WORKFLOW',
-        memo: `Vendor payment ${payNo} confirmed (paid to ${vendor.name})`,
-        debitWalletRef: fromWallet.id, creditWalletRef: fromWallet.id, createdAt: payAt,
-      },
+      externalRef: payRef, effectiveDate,
+      traceId: payTraceId, actorType: 'SYSTEM', actorId: 'VENDOR_PAYMENT_WORKFLOW',
+      memo: `Vendor payment ${payNo} confirmed (paid to ${vendor.name})`, createdAt: payAt,
     });
-    for (const [tbAccountId, direction] of [[firmOpsAed.tbAccountId, 'OUT'], [firmAssetAed.tbAccountId, 'IN']] as const) {
-      await (prisma as any).accountFlow.upsert({
-        where: { tbTransferId_tbAccountId: { tbTransferId, tbAccountId } }, update: {},
-        create: { tbTransferId, tbAccountId, walletRef: fromWallet.id, direction, ...shared, createdAt: payAt },
-      });
-    }
-    console.log(`  ✔ Vendor payment evidence: 1 evidence row + 2 flow row(s) (code 87, DR E.FIRM_EQUITY / CR A.FIRM_CASH, AED ${payAmountFormatted}).`);
+    console.log(`  ✔ Vendor payment evidence: 1 evidence row + 2 flow row(s) (code 87, DR X.EXPENSE_BANK_CUSTODY / CR A.FIRM_CASH, AED ${payAmountFormatted}).`);
   } finally {
     client.destroy();
   }
@@ -3521,25 +3539,30 @@ async function seedCompanyFunding(prisma: PrismaClient): Promise<void> {
 // 历史月账单全空。Henry（demo_acme）是唯一「ACTIVE + 零腿 + 零便签 + 不在 demo:all 花名册」的演员。
 //
 // 工艺 = LP 种子先例三件套（seedLpDesk）：TB createTransfers 真写（verify:coa 直读 TB，不写必红）+
-// tbTransferEvidence 回拨 createdAt（月结单按 evidence.createdAt 归月）+ accountFlow 镜像（debit→OUT /
-// credit→IN）。事件码 / 借贷科目逐腿抄自真实 workflow 的 AccountingService 调用：
-//   充值   deposit-workflow.executeDepositAccounting  STEP_1 DR CLIENT_CASH / CR DEPOSIT_SUSPENSE（码 1）
+// tbTransferEvidence 回拨 createdAt（月结单按 evidence.createdAt 归月）+ 流水镜像（走投影器，不手写方向）。
+// 事件码 / 借贷科目逐腿抄自真实 workflow 的 AccountingService 调用（戊波一等价迁移：借贷方向不变，
+// 只把原先的聚合「客户资产」户换成 Henry 自己钱包的现金户）：
+//   充值   deposit-workflow.executeDepositAccounting  STEP_1 DR 客户现金 / CR DEPOSIT_SUSPENSE（码 1）
 //                                                      STEP_2 DR DEPOSIT_SUSPENSE / CR CLIENT_PAYABLE（码 2）
 //          ——STEP_1 必须有：只铺 STEP_2 会让客户暂扣户为负（verify:coa 负余额断言唯一探针）。
 //   兑换   swap-leg-plan FIAT_TO_CRYPTO 的客户侧三腿：SWAP_SELL_CLIENT（码 30，from=AED）/
 //          SWAP_BUY_CLIENT（码 34，to=USDT 毛额）/ SWAP_FEE_CLIENT（码 35，to=USDT 费）
 //   提现   withdraw-workflow 的 POST 终态：WITHDRAW_NET_POST（码 11）/ WITHDRAW_FEE_POST（码 14）
-//          DR CLIENT_PAYABLE / CR CLIENT_CASH（真流程是 pending→post，终态等价于一笔 posted）。
+//          DR CLIENT_PAYABLE / CR 客户现金（真流程是 pending→post，终态等价于一笔 posted）。
 //
-// 只铺客户域（CLIENT_PAYABLE / DEPOSIT_SUSPENSE ↔ CLIENT_CASH），**不铺公司侧对手腿**（SWAP_SELL_FIRM /
+// 现金户落点：AED 账本 → Henry 的 C_VIBAN（AED_ZAND）钱包现金户；USDT 账本 → Henry 的 C_DEP（TRON）钱包现金户。
+// 现金户带「贷不超借」标志位，腿必须按因果顺序记（先充值进现金，才有兑换卖出 / 提现的贷记）——下面 legs 的顺序即此序。
+//
+// 只铺客户域（CLIENT_PAYABLE / DEPOSIT_SUSPENSE ↔ 客户现金户），**不铺公司侧对手腿**（SWAP_SELL_FIRM /
 // SWAP_SELL_SET_TO_OPS / SWAP_BUY_OPS_TO_ASSET / SWAP_FEE_FIRM / WITHDRAW_FEE_FIRM）：公司侧会挪动
 // F_OPS / F_SET / INCOME_* 余额，而那些数是 baseline.md / script.md 场景 31/32（NLA、运营户水位）钉死的
-// 演示数字——月结单只读客户 CLIENT_PAYABLE 户，公司侧腿对它没有任何贡献。两恒等式（客户：CLIENT_CASH =
-// Σ(PAYABLE+SUSPENSE)；公司：FIRM_CASH = Σ 权益）按账本各自守恒，本节只动前者，后者零变化。
+// 演示数字——月结单只读客户 CLIENT_PAYABLE 户，公司侧腿对它没有任何贡献。两恒等式（客户：Σ(1) =
+// Σ(100)+Σ(101)；公司：Σ(50)+Σ(300..302) = Σ(200)+Σ(210..212)）按账本各自守恒，本节只动前者，后者零变化。
 //
-// walletRef=null / isExternalCrossing=false：Henry 没有任何钱包行（客户钱包由 demo-lib.ensureSetup 为花名册
-// 客户建，Henry 不在内），也不应为这几笔历史账凭空造钱包（verify:demo-data R5 要求客户钱包全员有 DEMO_SEED
-// 审计）。无钱包即不进 recon 的钱包桶（recon-demo.planWallets 按 wallets 表逐钱包拉流水），自洽不出破口。
+// Henry 的钱包（戊波一，业主 2026-11-06 裁定 7）：现金户是「每个钱包一户」，账要有地方记，Henry 就得有钱包。
+// 本节按 demo-lib.ensureSetup 客户钱包段的同一形态给他 upsert C_DEP + C_VIBAN 两行、写 CUSTOMER_DEPOSIT_ADDRESS_SEEDED
+// 审计（actor DEMO_SEED——verify:demo-data R5 要求客户钱包全员有）、各开一个现金户。他的「无活订单」仍成立：
+// 钱包只是账的落点，不是订单——充值 / 提现没有订单行，兑换只有下面那行极薄的壳。
 //
 // 只给兑换铺一行极薄的 swap_transactions 壳（SUCCESS、无资金单）：月结单的兑换行标题
 // （CustomerStatementService.presentGroup）要按 swapNo 反查 fromAssetCode/toAssetCode，缺行就是 "Swap ? → ?"。
@@ -3564,6 +3587,51 @@ function businessMonthBefore(month: string, n: number): string {
 function businessMonthDayAt(month: string, day: number, plusMinutes = 0): Date {
   const d = String(day).padStart(2, '0');
   return new Date(new Date(`${month}-${d}T08:00:00.000Z`).getTime() + plusMinutes * 60_000);
+}
+
+/** Henry 的钱包标签：与 scripts/demo-lib.ts 的 SIM 同值（本文件不能 import demo-lib——它 import 时就跑 requireStackEnv）。
+ *  钱包号 / 地址 / IBAN 的推导逐字对齐 demo-lib.ensureSetup 的客户钱包段，两处造出的行同形。 */
+const SEED_WALLET_TAG = 'DEMO';
+
+/** 给 Henry 铺 C_DEP（TRON）+ C_VIBAN（AED_ZAND）两个钱包、写 DEMO_SEED 审计、开各自的现金户。 */
+async function seedHenryWallets(
+  prisma: PrismaClient,
+  tbClient: ReturnType<typeof tbCreateClient>,
+  henry: { id: string; customerNo: string },
+) {
+  const depNo = buildDeterministicNo('WA', SEED_WALLET_TAG, 'C_DEP', henry.customerNo);
+  const depAddress = fakeTronAddress(depNo);
+  const dep = await prisma.wallet.upsert({
+    where: { walletNo: depNo }, update: {},
+    create: {
+      walletNo: depNo, ownerType: 'CUSTOMER', ownerId: henry.id, ownerNo: henry.customerNo,
+      vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON',
+      address: depAddress, custodianRef: `hextrust-demo-${henry.customerNo}`, status: 'ACTIVE',
+    },
+  });
+  await writeSeedAudit(prisma, {
+    action: 'CUSTOMER_DEPOSIT_ADDRESS_SEEDED', subjectType: 'WALLET', subjectNo: depNo, actorNo: 'DEMO_SEED', ownerCustomerNo: henry.customerNo,
+    afterData: { network: 'TRON', walletRole: 'C_DEP', address: depAddress },
+  });
+
+  const vibanNo = buildDeterministicNo('WA', SEED_WALLET_TAG, 'C_VIBAN', henry.customerNo);
+  const vibanIban = `AE07086${createHash('sha256').update(vibanNo).digest('hex').replace(/\D/g, '').padEnd(16, '0').slice(0, 16)}`;
+  const viban = await prisma.wallet.upsert({
+    where: { walletNo: vibanNo }, update: {},
+    create: {
+      walletNo: vibanNo, ownerType: 'CUSTOMER', ownerId: henry.id, ownerNo: henry.customerNo,
+      vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_VIBAN', network: 'AED_ZAND',
+      iban: vibanIban, custodianRef: `zand-demo-${henry.customerNo}`, status: 'ACTIVE',
+    },
+  });
+  await writeSeedAudit(prisma, {
+    action: 'CUSTOMER_DEPOSIT_ADDRESS_SEEDED', subjectType: 'WALLET', subjectNo: vibanNo, actorNo: 'DEMO_SEED', ownerCustomerNo: henry.customerNo,
+    afterData: { network: 'AED_ZAND', walletRole: 'C_VIBAN', iban: vibanIban },
+  });
+
+  await ensureWalletCashAccount(prisma, tbClient, dep);
+  await ensureWalletCashAccount(prisma, tbClient, viban);
+  return { dep, viban };
 }
 
 async function seedStatementHistoryLegs(prisma: PrismaClient): Promise<void> {
@@ -3615,7 +3683,8 @@ async function seedStatementHistoryLegs(prisma: PrismaClient): Promise<void> {
     throw new Error('seedStatementHistoryLegs: 四个历史订单号撞了（4 位确定性后缀）——换 seed 段');
   }
 
-  // ── 账户：Henry 客户户（CLIENT_PAYABLE / DEPOSIT_SUSPENSE）+ 系统 CLIENT_CASH ──
+  // ── 账户：Henry 客户户（CLIENT_PAYABLE / DEPOSIT_SUSPENSE）+ 他两个钱包的现金户 ──
+  // 现金户要等钱包开出来才有（见下方 TB 段的 seedHenryWallets），所以这里只备「取客户户」的函数与槽位表。
   const customerAcct = async (code: number, ledger: number): Promise<{ tbAccountId: string }> => {
     const reg = await (prisma as any).tbAccountRegistry.findFirst({
       where: { code, ledger, ownerType: 'CUSTOMER', ownerUuid: henry.id }, select: { tbAccountId: true },
@@ -3623,24 +3692,12 @@ async function seedStatementHistoryLegs(prisma: PrismaClient): Promise<void> {
     if (!reg) throw new Error(`seedStatementHistoryLegs: 找不到 Henry 客户科目 code=${code} ledger=${ledger}——seedCustomers/provisionTbAccounts 是否先跑？`);
     return reg;
   };
-  const acct = {
-    [aedLedger]: {
-      payable: await customerAcct(TB_ACCOUNT_CODES.CLIENT_PAYABLE, aedLedger),
-      suspense: await customerAcct(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, aedLedger),
-      clientAsset: await findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.CLIENT_CASH, aedLedger),
-    },
-    [usdtLedger]: {
-      payable: await customerAcct(TB_ACCOUNT_CODES.CLIENT_PAYABLE, usdtLedger),
-      suspense: await customerAcct(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, usdtLedger),
-      clientAsset: await findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.CLIENT_CASH, usdtLedger),
-    },
-  };
 
-  type Slot = 'payable' | 'suspense' | 'clientAsset';
+  type Slot = 'payable' | 'suspense' | 'cash';
   const SLOT_CODE: Record<Slot, number> = {
     payable: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
     suspense: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
-    clientAsset: TB_ACCOUNT_CODES.CLIENT_CASH,
+    cash: TB_ACCOUNT_CODES.CLIENT_CASH,
   };
   type HistLeg = {
     sourceType: 'DEPOSIT' | 'SWAP' | 'WITHDRAWAL'; sourceNo: string; eventCode: string; code: number;
@@ -3651,7 +3708,7 @@ async function seedStatementHistoryLegs(prisma: PrismaClient): Promise<void> {
     const amount = toMinor(amountMajor, aedAsset.decimals);
     const base = { sourceType: 'DEPOSIT' as const, sourceNo, ledger: aedLedger, assetCode: aedAsset.currency, amount, actorId: 'SYSTEM' };
     return [
-      { ...base, eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE', code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE, debit: 'clientAsset', credit: 'suspense',
+      { ...base, eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE', code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE, debit: 'cash', credit: 'suspense',
         memo: 'Payin confirmed, funds in compliance hold (CLIENT_CASH→DEPOSIT_SUSPENSE)', at: businessMonthDayAt(month, day, 0) },
       { ...base, eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE', code: TB_TRANSFER_CODES.DEPOSIT_SUSPENSE_TO_PAYABLE, debit: 'suspense', credit: 'payable',
         memo: 'Compliance approved, funds credited to client payable', at: businessMonthDayAt(month, day, 30) },
@@ -3664,20 +3721,20 @@ async function seedStatementHistoryLegs(prisma: PrismaClient): Promise<void> {
     ...depositLegs(depositBNo, DEPOSIT_B, lastMonth, 2),
     // 兑换（FIAT_TO_CRYPTO 客户侧三腿；evidence.actorId=SWAP_SETTLEMENT，memo 同真实 `swap leg <eventCode>`）
     { sourceType: 'SWAP', sourceNo: swapNo, eventCode: 'SWAP_SELL_CLIENT', code: TB_TRANSFER_CODES.SWAP_SELL_CLIENT, ledger: aedLedger,
-      assetCode: aedAsset.currency, debit: 'payable', credit: 'clientAsset', amount: toMinor(SWAP_SELL, aedAsset.decimals),
+      assetCode: aedAsset.currency, debit: 'payable', credit: 'cash', amount: toMinor(SWAP_SELL, aedAsset.decimals),
       actorId: 'SWAP_SETTLEMENT', memo: 'swap leg SWAP_SELL_CLIENT', at: swapAt(0) },
     { sourceType: 'SWAP', sourceNo: swapNo, eventCode: 'SWAP_BUY_CLIENT', code: TB_TRANSFER_CODES.SWAP_BUY_CLIENT, ledger: usdtLedger,
-      assetCode: usdtAsset.currency, debit: 'clientAsset', credit: 'payable', amount: toMinor(swapGrossUsdt, usdtAsset.decimals),
+      assetCode: usdtAsset.currency, debit: 'cash', credit: 'payable', amount: toMinor(swapGrossUsdt, usdtAsset.decimals),
       actorId: 'SWAP_SETTLEMENT', memo: 'swap leg SWAP_BUY_CLIENT', at: swapAt(5) },
     { sourceType: 'SWAP', sourceNo: swapNo, eventCode: 'SWAP_FEE_CLIENT', code: TB_TRANSFER_CODES.SWAP_FEE_CLIENT, ledger: usdtLedger,
-      assetCode: usdtAsset.currency, debit: 'payable', credit: 'clientAsset', amount: toMinor(SWAP_FEE, usdtAsset.decimals),
+      assetCode: usdtAsset.currency, debit: 'payable', credit: 'cash', amount: toMinor(SWAP_FEE, usdtAsset.decimals),
       actorId: 'SWAP_SETTLEMENT', memo: 'swap leg SWAP_FEE_CLIENT', at: swapAt(6) },
     // 提现（POST 终态：净额腿 + 费腿，DR CLIENT_PAYABLE / CR CLIENT_CASH）
     { sourceType: 'WITHDRAWAL', sourceNo: withdrawNo, eventCode: 'WITHDRAW_NET_POST', code: TB_TRANSFER_CODES.WITHDRAW_NET_POST, ledger: aedLedger,
-      assetCode: aedAsset.currency, debit: 'payable', credit: 'clientAsset', amount: toMinor(WITHDRAW_NET, aedAsset.decimals),
+      assetCode: aedAsset.currency, debit: 'payable', credit: 'cash', amount: toMinor(WITHDRAW_NET, aedAsset.decimals),
       actorId: 'WITHDRAW_WORKFLOW', memo: 'Payout confirmed: POST net pending transfer → CLIENT_CASH', at: withdrawAt(0) },
     { sourceType: 'WITHDRAWAL', sourceNo: withdrawNo, eventCode: 'WITHDRAW_FEE_POST', code: TB_TRANSFER_CODES.WITHDRAW_FEE_POST, ledger: aedLedger,
-      assetCode: aedAsset.currency, debit: 'payable', credit: 'clientAsset', amount: toMinor(WITHDRAW_FEE, aedAsset.decimals),
+      assetCode: aedAsset.currency, debit: 'payable', credit: 'cash', amount: toMinor(WITHDRAW_FEE, aedAsset.decimals),
       actorId: 'WITHDRAW_WORKFLOW', memo: 'Payout confirmed: POST fee pending transfer → CLIENT_CASH', at: withdrawAt(1) },
   ];
 
@@ -3700,7 +3757,7 @@ async function seedStatementHistoryLegs(prisma: PrismaClient): Promise<void> {
     },
   });
 
-  // ── ② TB 真写（一批 9 笔）──────────────────────────────────────────────
+  // ── ② 钱包 + 现金户，再 TB 真写（一批 9 笔）──────────────────────────────
   let client: ReturnType<typeof tbCreateClient>;
   try {
     client = tbCreateClient({ cluster_id: 0n, replica_addresses: [tbAddress] });
@@ -3708,6 +3765,21 @@ async function seedStatementHistoryLegs(prisma: PrismaClient): Promise<void> {
     throw new Error(`seedStatementHistoryLegs: 连不上 TigerBeetle（${err.message}）——Henry 历史腿不能静默跳过`);
   }
   try {
+    const henryWallets = await seedHenryWallets(prisma, client, henry);
+    // AED 账本的现金落 vIBAN 钱包的现金户，USDT 账本的现金落充值地址钱包的现金户。
+    const acct = {
+      [aedLedger]: {
+        payable: await customerAcct(TB_ACCOUNT_CODES.CLIENT_PAYABLE, aedLedger),
+        suspense: await customerAcct(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, aedLedger),
+        cash: await findWalletCashAccount(prisma, henryWallets.viban),
+      },
+      [usdtLedger]: {
+        payable: await customerAcct(TB_ACCOUNT_CODES.CLIENT_PAYABLE, usdtLedger),
+        suspense: await customerAcct(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, usdtLedger),
+        cash: await findWalletCashAccount(prisma, henryWallets.dep),
+      },
+    };
+
     const transferIds = legs.map((l) => deterministicTransferId(l.sourceType, l.sourceNo, l.eventCode, 0));
     const transfers = legs.map((l, i) => ({
       id: transferIds[i],
@@ -3724,40 +3796,24 @@ async function seedStatementHistoryLegs(prisma: PrismaClient): Promise<void> {
       throw new Error(`seedStatementHistoryLegs: TB 写账失败 ${JSON.stringify(realErrors, (_, v) => (typeof v === 'bigint' ? v.toString() : v))}`);
     }
 
-    // ── ③ evidence（createdAt 回拨）+ accountFlow 镜像 ──────────────────────
+    // ── ③ evidence（createdAt 回拨）+ 流水（走投影器）──────────────────────
     let evidenceRows = 0;
     let flowRows = 0;
     for (let i = 0; i < legs.length; i += 1) {
       const l = legs[i];
-      const tbTransferId = bigintToHex(transferIds[i]);
       const debitAcct = acct[l.ledger][l.debit];
       const creditAcct = acct[l.ledger][l.credit];
-      const shared = {
+      await writeSeedEvidence(prisma, {
+        tbTransferId: bigintToHex(transferIds[i]),
         sourceType: l.sourceType, sourceNo: l.sourceNo, eventCode: l.eventCode,
+        debitCode: TB_CODE_TO_COA[SLOT_CODE[l.debit]], creditCode: TB_CODE_TO_COA[SLOT_CODE[l.credit]],
+        debitTbAccountId: debitAcct.tbAccountId, creditTbAccountId: creditAcct.tbAccountId,
         amount: new Prisma.Decimal(l.amount.toString()), assetCode: l.assetCode, transferType: 'POSTED',
-        isExternalCrossing: false, externalRef: null as string | null, effectiveDate: toBusinessDate(l.at),
-      };
-      await (prisma as any).tbTransferEvidence.upsert({
-        where: { tbTransferId }, update: {},
-        create: {
-          tbTransferId, ...shared,
-          debitCode: TB_CODE_TO_COA[SLOT_CODE[l.debit]], creditCode: TB_CODE_TO_COA[SLOT_CODE[l.credit]],
-          debitTbAccountId: debitAcct.tbAccountId, creditTbAccountId: creditAcct.tbAccountId,
-          traceId: l.sourceNo, actorType: 'SYSTEM', actorId: l.actorId, memo: l.memo,
-          debitWalletRef: null, creditWalletRef: null, createdAt: l.at,
-        },
+        externalRef: null, effectiveDate: toBusinessDate(l.at),
+        traceId: l.sourceNo, actorType: 'SYSTEM', actorId: l.actorId, memo: l.memo, createdAt: l.at,
       });
       evidenceRows += 1;
-      for (const [tbAccountId, direction] of [
-        [debitAcct.tbAccountId, 'OUT'],
-        [creditAcct.tbAccountId, 'IN'],
-      ] as const) {
-        await (prisma as any).accountFlow.upsert({
-          where: { tbTransferId_tbAccountId: { tbTransferId, tbAccountId } }, update: {},
-          create: { tbTransferId, tbAccountId, walletRef: null, direction, ...shared, createdAt: l.at },
-        });
-        flowRows += 1;
-      }
+      flowRows += 2;
     }
     console.log(
       `Seeded Henry (${henry.customerNo}) statement history: ${legs.length} TB transfers, ${evidenceRows} evidence row(s) + ${flowRows} flow row(s) ` +

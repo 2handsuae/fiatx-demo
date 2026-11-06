@@ -49,6 +49,7 @@ import * as path from 'node:path';
 import type { INestApplicationContext } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Prisma } from '@prisma/client';
+import { createClient as tbCreateClient } from 'tigerbeetle-node';
 import { fakeChainTxHash, fakeBankRef } from '../src/common/utils/fake-external-refs.util';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
@@ -76,7 +77,7 @@ import { SwapWorkflowService } from '../src/modules/trading/swap-transactions/sw
 import { WithdrawQuoteService } from '../src/modules/trading/withdrawal-fee-level/withdraw-quote.service';
 import { WithdrawTransactionsService } from '../src/modules/trading/withdraw-transactions/withdraw-transactions.service';
 import { WithdrawWorkflowService } from '../src/modules/trading/withdraw-transactions/withdraw-workflow.service';
-import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.helper';
+import { ensureTbAccountRegistry, ensureWalletCashAccount, provisionTbAccounts } from '../prisma/seed-tb.helper';
 import { writeSeedAudit } from '../prisma/seed-audit.helper';
 import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
 
@@ -341,6 +342,21 @@ async function bumpFee(prisma: any, model: 'swapFeeLevel' | 'withdrawalFeeLevel'
   await prisma[model].update({ where: { levelCode }, data: { tiersJson, configHash } });
 }
 
+/** 钱包行建好后立即开它的现金户（戊波一 §2.3）：直接建的钱包行不经 WalletsService 的开户钩子，所以这里补——
+ *  用的是 seed-tb.helper 的 ensureWalletCashAccount（与业务种子同一个函数）。TB 连接随用随关，不跨整段 setup 持有。
+ *  TB_ADDRESS 由文件头 requireStackEnv({ requireTb: true }) 保证存在。 */
+async function openWalletCashAccount(
+  prisma: any,
+  wallet: { id: string; walletNo: string; ownerType: string; ownerNo: string; vaultCode: string; walletRole: string; network: string },
+): Promise<void> {
+  const tb = tbCreateClient({ cluster_id: 0n, replica_addresses: [process.env.TB_ADDRESS!] });
+  try {
+    await ensureWalletCashAccount(prisma, tb, wallet);
+  } finally {
+    tb.destroy();
+  }
+}
+
 // ── stage 1: setup (idempotent) ──────────────────────────────────────────────
 export async function ensureSetup(ctx: DemoCtx): Promise<void> {
   console.log('═══ demo:setup — fees + wallets + TB accounts ═══');
@@ -389,7 +405,7 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
 
     // C_DEP（TRON 收款地址）
     const depNo = buildDeterministicNo('WA', SIM, 'C_DEP', c.customerNo);
-    await ctx.prisma.wallet.upsert({
+    const depWallet = await ctx.prisma.wallet.upsert({
       where: { walletNo: depNo }, update: {},
       create: {
         walletNo: depNo, ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
@@ -401,11 +417,12 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
       action: 'CUSTOMER_DEPOSIT_ADDRESS_SEEDED', subjectType: 'WALLET', subjectNo: depNo, actorNo: 'DEMO_SEED', ownerCustomerNo: c.customerNo,
       afterData: { network: 'TRON', walletRole: 'C_DEP', address: fakeTronAddress(depNo) },
     });
+    await openWalletCashAccount(ctx.prisma, depWallet);
 
     // C_VIBAN（AED_ZAND 虚拟账号）
     const vibanNo = buildDeterministicNo('WA', SIM, 'C_VIBAN', c.customerNo);
     const vibanIban = `AE07086${createHash('sha256').update(vibanNo).digest('hex').replace(/\D/g, '').padEnd(16, '0').slice(0, 16)}`;
-    await ctx.prisma.wallet.upsert({
+    const vibanWallet = await ctx.prisma.wallet.upsert({
       where: { walletNo: vibanNo }, update: {},
       create: {
         walletNo: vibanNo, ownerType: 'CUSTOMER', ownerId: c.id, ownerNo: c.customerNo,
@@ -417,6 +434,7 @@ export async function ensureSetup(ctx: DemoCtx): Promise<void> {
       action: 'CUSTOMER_DEPOSIT_ADDRESS_SEEDED', subjectType: 'WALLET', subjectNo: vibanNo, actorNo: 'DEMO_SEED', ownerCustomerNo: c.customerNo,
       afterData: { network: 'AED_ZAND', walletRole: 'C_VIBAN', iban: vibanIban },
     });
+    await openWalletCashAccount(ctx.prisma, vibanWallet);
 
     // Registered fiat withdrawal address (BANK/ACTIVE) — the 2026-07-11
     // trading-start precondition gate (deposit-workflow.service.ts
@@ -1541,26 +1559,33 @@ export async function verifyEndState(
   ok(`花名册 ${DEMO_ROSTER.length} 笔逐条符合预期`, pass);
 
   // 2. COA invariants: CLIENT and FIRM balance per ledger (real-time 1:1 model proof)
-  //    CLIENT: CLIENT_CASH == Σ(CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per ledger
-  //    FIRM:   FIRM_CASH == Σ(FIRM_EQUITY + FIRM_SET + FIRM_LIQ + INCOME_SWAP_FEE + INCOME_WITHDRAW_FEE + INCOME_OTHER) per ledger
-  //    (asset accounts are debit-normal; liabilities/equity are credit-normal)
+  //    戊波一·总纲附录 A「天平」（现金户按钱包开，按码求和即得合计）：
+  //    CLIENT: Σ(CLIENT_CASH) == Σ(CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per ledger
+  //    FIRM:   Σ(FIRM_CASH + EXPENSE_BANK_CUSTODY + EXPENSE_RECON_LOSS + EXPENSE_OTHER)
+  //              == Σ(FIRM_EQUITY + INCOME_SWAP_FEE + INCOME_WITHDRAW_FEE + INCOME_OTHER) per ledger
+  //            （退役中的 201 / 203 在码表删除前余额恒 0，并入右边不影响，T12 删码时一并去掉）
+  //    (asset + expense accounts are debit-normal; liabilities/equity/income are credit-normal)
   const coaMap = await buildCoaBalanceMap(ctx);
   const LEDGER_NAMES: Record<number, string> = { [TB_LEDGERS.AED]: 'AED', [TB_LEDGERS.USDT]: 'USDT' };
   const coaRows: Array<{ label: string; ok: boolean; detail: string }> = [];
   for (const [ledger, m] of coaMap) {
     const name = LEDGER_NAMES[ledger] ?? `ledger${ledger}`;
-    const clientAsset = m.get(TB_ACCOUNT_CODES.CLIENT_CASH) ?? 0n;
-    const clientLiab = (m.get(TB_ACCOUNT_CODES.CLIENT_PAYABLE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE) ?? 0n);
-    const clientLabel = `COA CLIENT(${name}): CLIENT_CASH == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)`;
+    const sum = (...codes: number[]) => codes.reduce((acc, c) => acc + (m.get(c) ?? 0n), 0n);
+    const clientAsset = sum(TB_ACCOUNT_CODES.CLIENT_CASH);
+    const clientLiab = sum(TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE);
+    const clientLabel = `COA CLIENT(${name}): Σ(CLIENT_CASH) == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)`;
     const clientOk = clientAsset === clientLiab;
     const clientDetail = `${clientAsset} == ${clientLiab}`;
     ok(clientLabel, clientOk, clientDetail);
     coaRows.push({ label: clientLabel, ok: clientOk, detail: clientDetail });
-    const firmAsset = m.get(TB_ACCOUNT_CODES.FIRM_CASH) ?? 0n;
-    const firmEquity = (m.get(TB_ACCOUNT_CODES.FIRM_EQUITY) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_SET) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_LIQ) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_SWAP_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_OTHER) ?? 0n);
-    const firmLabel = `COA FIRM(${name}): FIRM_CASH == Σ(FIRM_EQUITY+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)`;
-    const firmOk = firmAsset === firmEquity;
-    const firmDetail = `${firmAsset} == ${firmEquity}`;
+    const firmLeft = sum(TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, TB_ACCOUNT_CODES.EXPENSE_OTHER);
+    const firmRight = sum(
+      TB_ACCOUNT_CODES.FIRM_EQUITY, TB_ACCOUNT_CODES.FIRM_SET, TB_ACCOUNT_CODES.FIRM_LIQ,
+      TB_ACCOUNT_CODES.INCOME_SWAP_FEE, TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, TB_ACCOUNT_CODES.INCOME_OTHER,
+    );
+    const firmLabel = `COA FIRM(${name}): Σ(FIRM_CASH+EXPENSE_*) == Σ(FIRM_EQUITY+INCOME_*)`;
+    const firmOk = firmLeft === firmRight;
+    const firmDetail = `${firmLeft} == ${firmRight}`;
     ok(firmLabel, firmOk, firmDetail);
     coaRows.push({ label: firmLabel, ok: firmOk, detail: firmDetail });
   }
