@@ -1,11 +1,11 @@
 # 戊波二 · 新账本才有的能力 · 骨架
 
-> 总纲：`2026-11-06-campaign-e-ledger-by-location-charter.md` §3 波二「新账本才有的能力」；波一 spec：`2026-11-06-campaign-e-wave1-ledger-foundation-spec.md`
+> 总纲：`2026-11-06-campaign-e-ledger-by-location-charter.md` §3 波二「新账本才有的能力」；波一 spec：`2026-11-06-campaign-e-wave1-ledger-foundation-spec.md`（已归档至 `archive/superpowers/specs/`，plan 同名在 `archive/superpowers/plans/`）
 > 本文件只是**骨架**——链总纲 + 承接波一 + 已定事实 + 待定岔口，**不展开波二 spec**（项目总纲 §6：展开是波二新会话读总纲 + 本骨架后跟业主脑暴的活，波一收尾会话不代做）。
 
 ## 承接波一（波一收尾任务填写）
 
-- 合并基线：**波一未合并**（收尾会话不合）。分支 `claude/campaign-e-wave1-4a558e`（worktree `.claude/worktrees/campaign-e-wave1-4a558e`），任务 12 终点 `a35a04f1`，其上两个收尾提交（Sumsub 两支 e2e 夹具对齐 `84970d02` + 收尾 docs）；基点 `0cef9af5`（= 波一开工时 main），共 23 个提交。合并时要做：快进 → build → `stack.sh reset main`（schema 动过：新迁移删 `account_flows.isExternalCrossing`、凭证表 `debitWalletRef / creditWalletRef` 两列 + 2 索引）→ 重启后端 + `db:base:sync`。验证物证见 `checkups/2026-11-06-campaign-e-wave1-evidence/README.md`（客户侧 diff 为空、转账码抽核表、e2e 前后对照、截图）。
+- 合并基线：**已合 main，ff `1e8af37b`（2026-11-06，25 个提交；基点 `0cef9af5`，任务 12 终点 `a35a04f1`，其后 Sumsub 两支 e2e 夹具对齐 `84970d02`、收尾 docs、终审修复 `0e3b2836`、v8-recon 一句对齐）**；`git log main -1` 在 `1e8af37b` 之后即可开工。合并后主目录已做：build → `stack.sh reset main`（schema 动过：新迁移删 `account_flows.isExternalCrossing`、凭证表 `debitWalletRef / creditWalletRef` 两列 + 2 索引）→ `up main` → `db:base:sync` → `demo:all` 花名册 35/35、asserts 5/5 → `verify:coa` 87 户全 ≥ 0，全绿。验证物证见 `checkups/2026-11-06-campaign-e-wave1-evidence/README.md`（客户侧 diff 为空、转账码抽核表、e2e 前后对照、截图）。
 - 实际交付（含全部订正）：
   - **科目与开户**：码表 v3 十一码 + 类别函数（`isDebitNormalCode` / `accountFlagsFor` / `cashAccountName`）；注册表 `WALLET` 归属 + 唯一四元组；标志位按类别（借方户贷不得超借、贷方户借不得超贷）；**取现金户只经 `AccountingService.resolveCashAccountId(walletId, ledger, tx?)`**；开户 `WalletCashAccountService.ensureForWallet`。订正：开户**挪到「开客户收款地址」流程**（`CustomerDepositWalletService.createOrReturn` 在 →ACTIVE 之后），不放 `WalletsService`——铁律③压过 spec §2.3 的文件位置（R11）；归属→科目码 / 网络→ledger 各收成单一 helper（R12）。
   - **七单 + 调账单接线**（码一个没改号）：兑换四腿含反向（30–38，T4）、充值五条弧（1–9 / 20，T5）、提现（10–17，T6）、划转 / LP / 注资 / 支出（70 / 81–87，T7）。订正：POST 行**保留 `eventCode` / `memo`**，不只传 `externalRef`——onBounce / onReturnAfterSuccess / 付款核对都按 `WITHDRAW_*_POST` 反查凭证（R21）；提现锁定（10 / 13）建单时就经 `resolveCustomer` 解出源钱包（R22）；e2e 夹具改走真实充值形状预充（R15）。

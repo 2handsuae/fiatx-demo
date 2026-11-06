@@ -8,7 +8,7 @@
 
 **Tech Stack:** NestJS + Prisma（SQLite）+ tigerbeetle-node 0.17.3（`AccountFlags.debits_must_not_exceed_credits=2`、`credits_must_not_exceed_debits=4`）；jest；React 管理台（admin-web）。
 
-**Spec:** `doc-final/superpowers/specs/2026-11-06-campaign-e-wave1-ledger-foundation-spec.md`（分录以总纲 `2026-11-06-campaign-e-ledger-by-location-charter.md` 附录 B「波一」列为准，科目表附录 A）
+**Spec:** `doc-final/archive/superpowers/specs/2026-11-06-campaign-e-wave1-ledger-foundation-spec.md`（已随合并归档）（分录以总纲 `2026-11-06-campaign-e-ledger-by-location-charter.md` 附录 B「波一」列为准，科目表附录 A）
 
 ## Global Constraints
 
