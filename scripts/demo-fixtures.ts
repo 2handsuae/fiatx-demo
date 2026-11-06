@@ -44,7 +44,7 @@ export const DEMO_STUCK_SWAP_REF_PREFIX = 'DEMO-STUCK-SWAP-';
  *   Pass3 的 toMinor 单侧 ×10^decimals 换算——故此处 line.amount 存分即可被 amountOk 认领。
  *
  * `book` 只是 ExternalBalance / statement line 上的存储字段，不参与 delta 计算——钱包 kind 由
- * balanceChecker 从 account_flows 的 code 自证（CUSTOMER 100/101 vs FIRM 200-203）。仍按钱包
+ * balanceChecker 按钱包归属取现金户（CUSTOMER → 1 / PLATFORM → 50）自证。仍按钱包
  * 真实归属（客户钱包=CLIENT，平台钱包=FIRM）写对，供 case/快照展示口径一致。
  */
 export async function injectStuckExternalMirror(

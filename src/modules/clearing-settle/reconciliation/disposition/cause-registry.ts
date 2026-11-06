@@ -205,7 +205,7 @@ interface WriteOffFacts extends RowFacts {
 export function resolveWriteOff(facts: WriteOffFacts): {
   reasonCode: 'UNEXPLAINED_WRITE_OFF' | 'UNEXPLAINED_CLIENT_LOSS'; family: 'WRITE_OFF'; direction: 'REDUCE' | 'INCREASE'; amountMinor: string;
 } {
-  // 平账二期：客户池另立成因码（分录同为借应付 / 贷资产池，但审批文案、客户可见标签、守卫都不同）
+  // 平账二期：客户池另立成因码（分录同为借应付 / 贷该钱包的客户现金户，但审批文案、客户可见标签、守卫都不同）
   const reasonCode = facts.book === 'FIRM' ? 'UNEXPLAINED_WRITE_OFF' : 'UNEXPLAINED_CLIENT_LOSS';
   const abs = (s: string | undefined) => (s ?? '0').replace(/^-/, '');
   if (facts.matchType === 'AMOUNT_MISMATCH') {

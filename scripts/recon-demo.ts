@@ -92,10 +92,12 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
 import { WalletBalanceCheckerService } from '../src/modules/clearing-settle/reconciliation/engine/v2/wallet-balance-checker.service';
+import { RECON_ADJUSTMENT_SOURCE_TYPE } from '../src/modules/clearing-settle/reconciliation/disposition/adjustment-rules';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
+import { bigintToHex } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { endOfBusinessDate, startOfBusinessDate, toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
@@ -377,13 +379,14 @@ async function clearWalletDemo(prisma: PrismaService): Promise<{
 
 // ── Phase 1: walk account_flows, build per-wallet mirror data ───────────
 //
-// For each wallet that has statement-visible flows, derive:
+// For each wallet, derive from its cash account:
 //   - balance via the same engine the recon uses (so PASS is guaranteed)
 //   - statement rows = the external lines we will write
 //   - book ('CUSTOMER' | 'FIRM') from the WalletBalanceCheckerService
 interface WalletPlan {
   walletRef: string;
   walletKind: 'CUSTOMER' | 'FIRM';
+  walletRole: string;   // C_DEP | C_VIBAN | F_OPS | F_SET | F_FEE | F_LIQ —— 场景选钱包按角色排除（F_LIQ 前厅）
   book: 'CLIENT' | 'FIRM';
   currency: string;
   internalTotal: bigint;
@@ -408,37 +411,25 @@ async function planWallets(
   cutoff: Date,
 ): Promise<WalletPlan[]> {
   // Single source of truth so external and internal can NEVER drift:
-  //   closingBalance     ← balanceChecker.internal.total = TB net for this wallet
-  //   statement_lines    ← every POSTED account_flow row landing on this wallet
-  //                        AND on one of the wallet's "owned" TB account codes
-  //                        (CUSTOMER → CLIENT_PAYABLE/DEPOSIT_SUSPENSE;
-  //                         FIRM     → FIRM_EQUITY/SET/INCOME_SWAP_FEE/
-  //                         INCOME_WITHDRAW_FEE/INCOME_OTHER, plus retired
-  //                         202/204（203 已于 2026-09-29 战役乙复活）kept so
-  //                         pre-COA-v2 history still mirrors).
-  //                        Aggregate codes (CLIENT_CASH=1 / FIRM_CASH=50)
-  //                        are filtered out — matches WalletBalanceChecker.
+  //   closingBalance     ← balanceChecker.internal.total = TB net of the wallet's cash account
+  //   statement_lines    ← every POSTED account_flow row on the wallet's own cash account
+  //                        (CUSTOMER → code 1 客户现金 / FIRM → code 50 公司现金,
+  //                         one account per wallet),
+  //                        EXCLUDING 调账行 (sourceType = RECON_ADJUSTMENT).
   //
-  // Direction semantic (verified empirically against Alice's CU2601019430
-  // CLIENT_PAYABLE postings — image-1 evidence):
+  // 戊波一 T11：账本按"钱所在的位置"重立，钱包的现金户就是托管方真正看得见的那一条账——
+  // 外部对账单从这个户的流水原样重铸。调账行只进余额、不进对账单（外部系统没有这笔），
+  // 与匹配器的纳入条件逐字同口径（wallet-flow-matcher.service.ts）。
+  //
+  // Direction semantic: account_flows.direction 是"钱进这个户 = IN"（投影按行所在账户类别翻，
+  // 现金户是借方户，借方行 = IN）——
   //   account_flows.direction='IN'  ⇒ external statement IN  (balance UP)
   //   account_flows.direction='OUT' ⇒ external statement OUT (balance DOWN)
-  // The TB accounts in scope (CLIENT_PAYABLE/SUSPENSE = LIABILITY,
-  // FIRM_EQUITY/SET/INCOME_*/retired-202/204（203 已于 2026-09-29 战役乙复活）=
-  // EQUITY) are ALL credit-normal
-  // right-side-of-BS accounts → same single rule for both books, no
-  // role/event override.
-  //
-  // 戊波一 T10：逐行「跨外部」标记过滤已随该标记退役而删除（T11 把本步读取改成按钱包现金户读）。
-  // 账本内部的重分类（如 DEPOSIT_SUSPENSE_TO_PAYABLE）也计入钱包的 TB 净额，
-  // 不过滤才有 Σ(IN − OUT) = TB 净额。
+  // 客户 / 公司两本账同一条规则，不按角色或事件覆盖。
   //
   // Result: closing = opening(0) + Σ(IN − OUT) = TB net, by construction,
-  // for every wallet.
-  // COA v2 (2026-08-13): 收入段 210/211/212;202/204 已废弃且无兼容层(demo 随时 reset)。
-  // 203 FIRM_LIQ 已于 2026-09-29 战役乙复活为 LP 在途验收户,回到 FIRM_CODES。
-  const FIRM_CODES = new Set<number>([200, 201, 203, 210, 211, 212]);
-  const CUSTOMER_CODES = new Set<number>([100, 101]);
+  // for every wallet (no adjustments posted yet; once adjustments exist the closing
+  // keeps carrying them, which is exactly what makes a post-adjustment wallet pass).
   const assetRows = (await (prisma as any).asset.findMany({ select: { code: true, network: true } })) as Array<{ code: string; network: string }>;
   const assetsByNetwork = new Map<string, Array<{ code: string }>>();
   for (const a of assetRows) {
@@ -457,20 +448,21 @@ async function planWallets(
     for (const a of assetsByNetwork.get(w.network) ?? []) {
       const currency = a.code;
       const isFirm = w.ownerType !== 'CUSTOMER';
-      const ownedCodes = isFirm ? FIRM_CODES : CUSTOMER_CODES;
 
-      // Step 1 — pull every POSTED account_flow on this walletRef up to cutoff.
-      // 戊波一 T10 删掉了逐行「跨外部」标记过滤；T11 改成按钱包的现金户读——
-      // 外部系统（Zand 法币 / HexTrust 加密）真正看得见的只有现金户上的行。
-      const rawFlows = (await (prisma as any).accountFlow.findMany({
+      // Step 1 — the wallet's cash account (code 1 / 50, one per wallet), then every POSTED
+      // row on it up to cutoff, adjustment rows excluded. 按户取（tbAccountId 等值），不再按
+      // walletRef 标签捞、也不再靠注册表码集二次过滤。
+      const cash = await balanceChecker.resolveCashAccount(w.id);
+      if (!cash) throw new Error(`钱包 ${w.id} 没有现金户 —— 种子是否完整？`);
+      const flows = (await (prisma as any).accountFlow.findMany({
         where: {
-          walletRef: w.id,
+          tbAccountId: cash.tbAccountId,
           transferType: 'POSTED',
+          sourceType: { not: RECON_ADJUSTMENT_SOURCE_TYPE },
           createdAt: { lte: cutoff },
         },
         select: {
           id: true,
-          tbAccountId: true,
           direction: true,
           amount: true,
           externalRef: true,
@@ -479,41 +471,13 @@ async function planWallets(
         orderBy: { createdAt: 'asc' },
       })) as Array<{
         id: string;
-        tbAccountId: string;
         direction: string;
         amount: Prisma.Decimal;
         externalRef: string | null;
         createdAt: Date;
       }>;
 
-      // Step 2 — resolve tbAccountId → code, drop aggregate legs (code 1/50)
-      // and keep only rows posting to the wallet's "owned" TB accounts.
-      //
-      // tb_account_registry stores tbAccountId in 32-char padded form
-      // ('0886e84...'), but account_flows.tbAccountId can be either 32-char
-      // padded or 31-char unpadded ('886e84...') depending on the writer.
-      // Pad both sides to 32 chars before joining so F_SET / F_FEE / etc.
-      // flows don't silently drop on a string mismatch.
-      const padTbId = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
-      const tbAccountIds = Array.from(
-        new Set(rawFlows.map((f) => padTbId(f.tbAccountId))),
-      );
-      const regs = tbAccountIds.length
-        ? (await (prisma as any).tbAccountRegistry.findMany({
-            where: { tbAccountId: { in: tbAccountIds } },
-            select: { tbAccountId: true, code: true },
-          })) as Array<{ tbAccountId: string; code: number }>
-        : [];
-      const codeById = new Map<string, number>(
-        regs.map((r) => [padTbId(r.tbAccountId), r.code]),
-      );
-
-      const flows = rawFlows.filter((f) => {
-        const code = codeById.get(padTbId(f.tbAccountId));
-        return code !== undefined && ownedCodes.has(code);
-      });
-
-      // Step 3 — balance from the engine's own check. closingBalance below
+      // Step 2 — balance from the engine's own check. closingBalance below
       // will equal bal.internal.total ⇒ drift is structurally 0.
       const bal = await balanceChecker.checkBalance({
         walletRef: w.id,
@@ -524,6 +488,7 @@ async function planWallets(
       plans.push({
         walletRef: w.id,
         walletKind: isFirm ? 'FIRM' : 'CUSTOMER',
+        walletRole: w.walletRole,
         book: isFirm ? 'FIRM' : 'CLIENT',
         currency,
         internalTotal: bal.internal.total,
@@ -911,12 +876,13 @@ async function injectScenarios(
   // 场景 ⑩ · 查无果（spec §5）：公司池一条外部行金额改 7 分 + 同步压收盘——
   // 「翻遍凭证也对不上」的小额差，答案键成因就是 UNEXPLAINED。放公司池是刻意的：
   // 下一轮核销上线时公司池核销 = 一笔分录进损益即结案，这条素材直接复用。
-  // 排除 E.FIRM_LIQ（战役乙波一 T11 R17 撞车检查实测坐实）：F_LIQ 是 LP 兑换单的
-  // 在途验收户，完稿态（SUCCESS）余额必归零；若被选中背这笔「查无果」小额差，会
+  // 排除 F_LIQ 前厅钱包（战役乙波一 T11 R17 撞车检查实测坐实；戊波一起所有公司钱包的助记码
+  // 同为 A.FIRM_CASH，不能再按助记码排除，改按钱包角色）：F_LIQ 是 LP 兑换单的
+  // 在途验收钱包，完稿态（SUCCESS）余额必归零；若被选中背这笔「查无果」小额差，会
   // 与 LP 兑换单「终态平」的演示叙事撞车——同一钱包里混进一条解释不了的差额，
   // 观众会误以为是 LP 流程本身漏了账，而它其实是⑩场景刻意注入的破口素材。
   const firmUnexplainedPlan = firmCandidates.find(
-    (p) => p.walletRef !== firmHedgedPlan.walletRef && p.lines.length > 0 && p.coaCode !== 'E.FIRM_LIQ',
+    (p) => p.walletRef !== firmHedgedPlan.walletRef && p.lines.length > 0 && p.walletRole !== 'F_LIQ',
   );
   if (!firmUnexplainedPlan) {
     throw new Error('场景 ⑩ 需要第二个带外部行的干净公司钱包——现有公司钱包要么被 ⑪⑫ 占用要么无流水。');
@@ -955,7 +921,7 @@ async function injectScenarios(
 
   // Helper: shift the wallet's closingBalance by `delta` (signed) to keep
   // it consistent with the intended residual. Direction sign convention:
-  //   customer/firm wallet (credit-normal): IN means balance up, OUT down.
+  //   customer/firm wallet cash account: IN means balance up, OUT down.
   async function bumpClosing(plan: WalletPlan, delta: Prisma.Decimal): Promise<string> {
     const source = sourceFor(plan.currency);
     const eb = await (prisma as any).externalBalance.findUnique({
@@ -1102,7 +1068,9 @@ async function injectScenarios(
       where: { customerNo: slotShowcaseB.ownerNo! }, select: { id: true },
     });
     if (!owner) throw new Error(`找不到展示位乙钱包的客户：${slotShowcaseB.ownerNo}`);
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: dupLedger, ownerType: 'SYSTEM' });
+    // 戊波一：借方是展示位乙这只钱包自己的现金户（一钱包一户，只经 resolveCashAccountId 取），
+    // 不再是全账本一个的 SYSTEM 聚合户——重复入账就是"这只钱包的现金户上多了一笔"。
+    const dupCashAccountId = await accounting.resolveCashAccountId(slotShowcaseB.walletRef, dupLedger);
     const suspenseId    = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: dupLedger, ownerType: 'CUSTOMER', ownerUuid: owner.id });
     const payableId     = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: dupLedger, ownerType: 'CUSTOMER', ownerUuid: owner.id });
     // 铁律⑥：展示位乙这一屏，⑦ 那一行的 sourceNo 是真实 DEP 号（原单据自带）；
@@ -1116,7 +1084,7 @@ async function injectScenarios(
     const dupAmount = BigInt(lDup.amount.toFixed(0));
 
     await accounting.executeTransfer({
-      debitAccountId: clientAssetId, creditAccountId: suspenseId, amount: dupAmount, ledger: dupLedger,
+      debitAccountId: dupCashAccountId, creditAccountId: suspenseId, amount: dupAmount, ledger: dupLedger,
       code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
       evidence: {
         sourceType: 'DEPOSIT', sourceNo: dupSourceNo, eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
@@ -1193,10 +1161,12 @@ async function injectScenarios(
     // 所以只按 `{ sourceNo, walletRef }` 查会命中多行，`orderBy: createdAt desc` 挑到的
     // 是最晚落库的 STEP_2 的某一行，而不是这笔充值的入账腿。必须再加 direction:'IN'
     // 锁定「钱进钱包」的那一行——即 planWallets / 匹配器视为这笔充值的内部证据的那一行。
-    // （戊波一 T10：逐行「跨外部」标记退役，原先靠它划界的条件已删；T11 把这个查询改成按钱包现金户 + 方向取。）
+    // （戊波一 T11：逐行「跨外部」标记已退役，改按钱包现金户 + 方向取：STEP_1 借的就是这只现金户，
+    //   借方行 = IN；STEP_2 不碰现金户，没有这个户上的行。）
+    const dupCashHex = bigintToHex(dupCashAccountId);
     const dupFlow = (await (prisma as any).accountFlow.findFirst({
       where: {
-        sourceNo: dupSourceNo, walletRef: slotShowcaseB.walletRef,
+        sourceNo: dupSourceNo, tbAccountId: dupCashHex,
         direction: 'IN',
       },
       select: { id: true },

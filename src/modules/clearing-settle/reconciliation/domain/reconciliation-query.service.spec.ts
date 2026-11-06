@@ -14,7 +14,7 @@ import { REASON_SPECS } from '../disposition/adjustment-rules';
 // 同一套 mock 上现构一个真 builder（同 T2 buildSvc 手法），既有断言零改动。
 function mkSvc(
   prisma: any,
-  opts: { flowMatcher?: any; explainedDifferences?: any; accounting?: any } = {},
+  opts: { flowMatcher?: any; explainedDifferences?: any; accounting?: any; balanceChecker?: any } = {},
 ) {
   const flowMatcher = opts.flowMatcher ?? {
     matchFlows: jest.fn().mockResolvedValue({
@@ -30,7 +30,14 @@ function mkSvc(
   const accounting = opts.accounting ?? {
     getCustomerAvailableBalance: jest.fn(async () => ({ available: 0n })),
   };
-  const flowComparisonBuilder = new FlowComparisonBuilder(prisma, flowMatcher as any, explainedDifferences as any);
+  // 戊波一 T11：builder 现经检查器取案子钱包的现金户号（再交给匹配器按户读）。默认给一个现金户号；
+  // 想验"案子钱包不是钱包（未归属外部账户）→ 没有现金户"的用例传 resolveCashAccount → null。
+  const balanceChecker = opts.balanceChecker ?? {
+    resolveCashAccount: jest.fn().mockResolvedValue({
+      walletKind: 'CUSTOMER', coaCode: 'A.CLIENT_CASH', ownerNo: 'CU-X', tbAccountId: 'cafe0000000000000000000000000001',
+    }),
+  };
+  const flowComparisonBuilder = new FlowComparisonBuilder(prisma, flowMatcher as any, explainedDifferences as any, balanceChecker as any);
   return new ReconciliationQueryService(prisma, accounting, flowComparisonBuilder);
 }
 
@@ -169,6 +176,58 @@ describe('getCase — flowComparison (T3)', () => {
     expect(result.flowSummary).toEqual({ matched: 1, orphanInternal: 1, orphanExternal: 1, mismatch: 1 });
   });
 
+  // 戊波一 T11：案件页逐行对照与引擎读同一个户——builder 取案子钱包的现金户交给匹配器，
+  // 自己取行时同样排除调账行（调账行只进余额、不进对照）。
+  function mkFlowPrisma() {
+    return {
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
+      externalBalance: { findMany: jest.fn().mockResolvedValue([{ accountRef: 'ACC-X' }]) },
+      externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
+      accountFlow: { findMany: jest.fn().mockResolvedValue(internalFlows) },
+      wallet: { findUnique: jest.fn().mockResolvedValue(null) },
+      reconciliationRun: { findUnique: jest.fn().mockResolvedValue({ id: 'run-fc', runNo: 'REC-FC' }), findFirst: jest.fn().mockResolvedValue(null) },
+      asset: { findUnique: jest.fn().mockResolvedValue({ decimals: 2 }) },
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([]) },
+      reconciliationDisposition: { findMany: jest.fn().mockResolvedValue([]) },
+      internalTransfer: { findMany: jest.fn().mockResolvedValue([]) },
+      incident: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+  }
+  const emptyMatch = { matched: [], orphanInternal: [], orphanExternal: [], mismatch: [] };
+
+  it('hands the case wallet cash account to the matcher and reads its own rows without RECON_ADJUSTMENT', async () => {
+    const prisma = mkFlowPrisma();
+    const flowMatcher = { matchFlows: jest.fn().mockResolvedValue(emptyMatch) };
+    const balanceChecker = {
+      resolveCashAccount: jest.fn().mockResolvedValue({
+        walletKind: 'CUSTOMER', coaCode: 'A.CLIENT_CASH', ownerNo: 'CU-X', tbAccountId: 'c0de0000000000000000000000000001',
+      }),
+    };
+    const svc = mkSvc(prisma, { flowMatcher, balanceChecker });
+    await svc.getCase(kase.caseNo);
+
+    expect(balanceChecker.resolveCashAccount).toHaveBeenCalledWith('walletX');
+    expect(flowMatcher.matchFlows).toHaveBeenCalledWith(
+      expect.objectContaining({ walletRef: 'walletX', cashTbAccountId: 'c0de0000000000000000000000000001' }),
+    );
+    expect(prisma.accountFlow.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ walletRef: 'walletX', sourceType: { not: 'RECON_ADJUSTMENT' } }),
+      }),
+    );
+  });
+
+  it('case walletRef is not a wallet (unattributed external account) → matcher gets no cash account, page still builds', async () => {
+    const prisma = mkFlowPrisma();
+    const flowMatcher = { matchFlows: jest.fn().mockResolvedValue({ ...emptyMatch, orphanExternal: [{ externalLineId: 'ext-3', amount: '75', direction: 'IN', externalRef: 'REF-3' }] }) };
+    const balanceChecker = { resolveCashAccount: jest.fn().mockResolvedValue(null) };
+    const svc = mkSvc(prisma, { flowMatcher, balanceChecker });
+    const result: any = await svc.getCase(kase.caseNo);
+
+    expect(flowMatcher.matchFlows).toHaveBeenCalledWith(expect.objectContaining({ cashTbAccountId: null }));
+    expect(result.flowComparison.map((r: any) => r.matchType)).toEqual(['ORPHAN_EXTERNAL']);
+  });
+
   it('returns empty flowComparison for XREF synthetic-wallet cases', async () => {
     const prisma = {
       reconciliationCase: {
@@ -213,7 +272,7 @@ describe('getRun — walletNo on accountStatusTable rows (T6 snapshot source)', 
 
   function mkSnapshotRow(walletRef: string) {
     return {
-      walletRef, assetCode: 'AED', book: 'CUSTOMER', coaCode: 'L.CLIENT_PAYABLE', ownerNo: 'CU-X', bucket: 'MATCHED',
+      walletRef, assetCode: 'AED', book: 'CUSTOMER', coaCode: 'A.CLIENT_CASH', ownerNo: 'CU-X', bucket: 'MATCHED',
       internalTotal: new Prisma.Decimal(100), externalClosing: new Prisma.Decimal(100), deltaAmount: new Prisma.Decimal(0),
       inTransitAmount: new Prisma.Decimal(0), matchedCount: 1, orphanInternal: 0, orphanExternal: 0, mismatchCount: 0,
       inTransitCount: 0, caseNo: null,
@@ -672,14 +731,14 @@ describe('getRun — reads reconciliationRunWallet snapshot rows (T6)', () => {
   it('getRun：从 reconciliationRunWallet 快照表读钱包表，不再调 balanceChecker/matcher；summary 直接用 run 行的四桶计数+三元组', async () => {
     const snapshotRows = [
       {
-        walletRef: 'walletA', assetCode: 'AED', book: 'CUSTOMER', coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
+        walletRef: 'walletA', assetCode: 'AED', book: 'CUSTOMER', coaCode: 'A.CLIENT_CASH',
         ownerNo: 'CU-1', bucket: 'MATCHED',
         internalTotal: new Prisma.Decimal(1000), externalClosing: new Prisma.Decimal(1000), deltaAmount: new Prisma.Decimal(0),
         inTransitAmount: new Prisma.Decimal(0), matchedCount: 2, orphanInternal: 0, orphanExternal: 0, mismatchCount: 0,
         inTransitCount: 0, caseNo: null,
       },
       {
-        walletRef: 'walletB', assetCode: 'AED', book: 'CUSTOMER', coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
+        walletRef: 'walletB', assetCode: 'AED', book: 'CUSTOMER', coaCode: 'A.CLIENT_CASH',
         ownerNo: 'CU-2', bucket: 'COMPENSATING',
         internalTotal: new Prisma.Decimal(500), externalClosing: new Prisma.Decimal(500), deltaAmount: new Prisma.Decimal(0),
         inTransitAmount: new Prisma.Decimal(0), matchedCount: 0, orphanInternal: 0, orphanExternal: 1, mismatchCount: 0,

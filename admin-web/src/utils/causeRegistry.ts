@@ -56,7 +56,6 @@ export const MATCH_LABEL: Record<FlowMatchType, string> = {
 // 原码放 title（既给了兜底文本，也给了可核对的原始值）。Task 15：导出给 Cases 列表页
 // 复用（同一份映射，不重抄）。
 export const COA_PHRASE: Record<string, string> = {
-  'L.CLIENT_PAYABLE': 'Client payable',
-  'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE': 'Client payable + Deposit suspense',
-  'E.FIRM_EQUITY': 'Firm operating',
+  'A.CLIENT_CASH': 'Client cash',
+  'A.FIRM_CASH': 'Company cash',
 };

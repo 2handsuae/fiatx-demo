@@ -6,6 +6,8 @@ import {
   ExternalStatementLineInput,
 } from '../engine/v2/wallet-flow-matcher.service';
 import { effectiveCutoffFilter } from '../engine/v2/effective-cutoff';
+import { WalletBalanceCheckerService } from '../engine/v2/wallet-balance-checker.service';
+import { RECON_ADJUSTMENT_SOURCE_TYPE } from '../disposition/adjustment-rules';
 import {
   ExplainedDifferenceService,
   explainedBy,
@@ -34,6 +36,8 @@ export class FlowComparisonBuilder {
     private readonly prisma: PrismaService,
     private readonly walletFlowMatcher: WalletFlowMatcherService,
     private readonly explainedDifferences: ExplainedDifferenceService,
+    // 取案子钱包的现金户——与对账引擎读的是同一个户（resolveCashAccount 是两边共用的唯一入口）。
+    private readonly balanceChecker: WalletBalanceCheckerService,
   ) {}
 
   async build(
@@ -82,9 +86,12 @@ export class FlowComparisonBuilder {
     }));
     const extById = new Map(externalRowsRaw.map((r) => [r.id, r]));
 
+    // 内部侧 = 案子钱包现金户上的行（walletRef 标签只打在现金户的行上），排除调账行——与匹配器
+    // 同一纳入条件：调账行只进余额、不进逐行对照（这里是配对结果的取行来源，两处口径不许各管各的）。
     const internalRows = (await this.prisma.accountFlow.findMany({
       where: {
         walletRef: kase.walletRef,
+        sourceType: { not: RECON_ADJUSTMENT_SOURCE_TYPE },
         ...effectiveCutoffFilter(cutoff),
       },
       select: {
@@ -120,8 +127,10 @@ export class FlowComparisonBuilder {
       where: { code: kase.assetCode },
       select: { decimals: true },
     })) as { decimals: number } | null;
+    const cashAccount = await this.balanceChecker.resolveCashAccount(kase.walletRef);
     const matcher = await this.walletFlowMatcher.matchFlows({
       walletRef: kase.walletRef,
+      cashTbAccountId: cashAccount?.tbAccountId ?? null,
       externalLines,
       cutoff,
       decimals: assetForDecimals?.decimals ?? 0,

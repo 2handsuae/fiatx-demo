@@ -1,28 +1,30 @@
 // Phase B / T7: WalletFlowMatcherService unit tests (TDD).
 //
-// Matches the per-wallet internal source-of-truth (account_flows where
-// walletRef=?) against external statement lines
-// for the same wallet, using ref-equality first and amount/time-window fuzzy
-// fallback.
+// Matches the per-wallet internal source-of-truth (account_flows rows on the
+// wallet's own cash account) against external statement lines for the same
+// wallet, using ref-equality first and amount/time-window fuzzy fallback.
+// 戊波一 T11：纳入 = 钱包现金户上 POSTED 的行，**排除 sourceType = RECON_ADJUSTMENT**
+// （调账行只进余额不进匹配）；不再按 walletRef 标签 / 注册表码集过滤。
 
 import { Prisma } from '@prisma/client';
 import { WalletFlowMatcherService } from './wallet-flow-matcher.service';
 
 const D = (n: string | number) => new Prisma.Decimal(n);
 
-// Default tbAccountId every flow falls back to when the fixture doesn't set
-// one. The registry mock maps it to code=100 (CLIENT_PAYABLE) so flows pass
-// the matcher's owned-code filter unless a fixture overrides tbAccountId to
-// 'tb-aggregate' (mapped to code=1 / CLIENT_CASH — aggregate leg, excluded).
-const DEFAULT_TB_OWNED = 'tb-owned';
-const DEFAULT_TB_AGGREGATE = 'tb-aggregate';
+// 真实形状：现金户号 32 位补零十六进制。夹具不写 tbAccountId 时默认落在 CASH（本钱包的现金户）；
+// OTHER 代表同一钱包标签之外的别的户（应付 / 别的钱包的现金户）。
+const CASH = 'cafe0000000000000000000000000001';
+const OTHER = 'beef0000000000000000000000000002';
 
 function makePrismaMock(flows: any[]) {
   return {
     accountFlow: {
       findMany: jest.fn(async ({ where }: any) => {
         return flows.filter((f) => {
-          if (where.walletRef && f.walletRef !== where.walletRef) return false;
+          // 按户取：必须按现金户号查，不是按 walletRef 标签。
+          if ((f.tbAccountId ?? CASH) !== where.tbAccountId) return false;
+          if (where.transferType && (f.transferType ?? 'POSTED') !== where.transferType) return false;
+          if (where.sourceType?.not !== undefined && (f.sourceType ?? 'DEPOSIT') === where.sourceType.not) return false;
           const eff = (x: any) => x.effectiveDate ?? x.createdAt.toISOString().slice(0, 10);
           if (where.OR) {
             // 忠实复刻 effectiveCutoffFilter 的三支（同 wallet-balance-checker 那份）。
@@ -38,24 +40,8 @@ function makePrismaMock(flows: any[]) {
           return true;
         }).map((f) => ({
           ...f,
-          tbAccountId: f.tbAccountId ?? DEFAULT_TB_OWNED,
           amount: new Prisma.Decimal(f.amount),
         }));
-      }),
-    },
-    tbAccountRegistry: {
-      findMany: jest.fn(async ({ where }: any) => {
-        // Service queries with 32-char padded ids (padTbId); match against
-        // the padded form here too, same as the real registry join.
-        const pad = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
-        const ids: string[] = where.tbAccountId?.in ?? [];
-        const rows: Array<{ tbAccountId: string; code: number }> = [];
-        for (const id of ids) {
-          if (id === pad(DEFAULT_TB_OWNED)) rows.push({ tbAccountId: id, code: 100 });   // CLIENT_PAYABLE (owned)
-          else if (id === pad(DEFAULT_TB_AGGREGATE)) rows.push({ tbAccountId: id, code: 1 }); // CLIENT_CASH (aggregate)
-          // any other id → no registry row → matcher should skip the flow
-        }
-        return rows;
       }),
     },
   };
@@ -80,7 +66,6 @@ describe('WalletFlowMatcherService', () => {
     const prisma = makePrismaMock([
       {
         id: 'flow-1',
-        walletRef: 'w-cust',
         direction: 'IN',
         amount: 1000,
         externalRef: '0xabc',
@@ -91,6 +76,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
+      cashTbAccountId: CASH,
       externalLines: [
         { id: 'ext-1', direction: 'IN', amount: D(1000), externalRef: '0xabc', datetime: new Date('2026-06-26T10:00:30Z') },
       ],
@@ -108,7 +94,6 @@ describe('WalletFlowMatcherService', () => {
     const prisma = makePrismaMock([
       {
         id: 'flow-2',
-        walletRef: 'w-cust',
         direction: 'IN',
         amount: 500,
         externalRef: '0xdef',
@@ -119,6 +104,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
+      cashTbAccountId: CASH,
       externalLines: [],
       cutoff,
       decimals: 0,
@@ -139,6 +125,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
+      cashTbAccountId: CASH,
       externalLines: [
         { id: 'ext-2', direction: 'IN', amount: D(2000), externalRef: '0xzzz', datetime: new Date('2026-06-26T12:00:00Z') },
       ],
@@ -158,7 +145,6 @@ describe('WalletFlowMatcherService', () => {
     const prisma = makePrismaMock([
       {
         id: 'flow-3',
-        walletRef: 'w-cust',
         direction: 'IN',
         amount: 100,
         externalRef: '0xsame',
@@ -169,6 +155,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
+      cashTbAccountId: CASH,
       externalLines: [
         { id: 'ext-3', direction: 'IN', amount: D(101), externalRef: '0xsame', datetime: new Date('2026-06-26T10:00:30Z') },
       ],
@@ -190,7 +177,6 @@ describe('WalletFlowMatcherService', () => {
     const prisma = makePrismaMock([
       {
         id: 'flow-4',
-        walletRef: 'w-cust',
         direction: 'IN',
         amount: 750,
         externalRef: null,
@@ -201,6 +187,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
+      cashTbAccountId: CASH,
       externalLines: [
         { id: 'ext-4', direction: 'IN', amount: D(750), externalRef: null, datetime: new Date('2026-06-26T10:30:00Z') },
       ],
@@ -216,7 +203,6 @@ describe('WalletFlowMatcherService', () => {
     const prisma = makePrismaMock([
       {
         id: 'flow-5',
-        walletRef: 'w-cust',
         direction: 'IN',
         amount: 750,
         externalRef: null,
@@ -227,6 +213,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
+      cashTbAccountId: CASH,
       externalLines: [
         // 2 hours later → outside default 60-min window
         { id: 'ext-5', direction: 'IN', amount: D(750), externalRef: null, datetime: new Date('2026-06-26T12:00:00Z') },
@@ -240,69 +227,130 @@ describe('WalletFlowMatcherService', () => {
     expect(result.orphanExternal).toHaveLength(1);
   });
 
-  it('excludes flows landing on aggregate codes (1/50) — same slice as balanceChecker', async () => {
-    // Aggregate leg (e.g. CLIENT_CASH=1 / FIRM_CASH=50) shares the walletRef
-    // for traceability but does not belong to the wallet's external statement.
-    // The matcher must drop these before matching, otherwise pass mode produces
-    // bogus orphanInternal entries that the recon engine cannot reconcile.
+  it('a cash-account deposit row with direction IN matches an external IN line', async () => {
+    // 戊波一：现金户上的行方向 = 钱进这个户。充值落地 = 现金户借方行 = IN，
+    // 与托管对账单上的 IN 行同向，直接配上。
     const prisma = makePrismaMock([
       {
-        id: 'flow-agg',
-        walletRef: 'w-cust',
+        id: 'flow-dep',
         direction: 'IN',
-        amount: 1000,
-        externalRef: '0xaggregate',
-        eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
+        amount: 2500,
+        externalRef: '0xdeposit',
+        eventCode: 'DEPOSIT_CONFIRMED',
+        sourceType: 'DEPOSIT',
         createdAt: new Date('2026-06-26T10:00:00Z'),
-        tbAccountId: DEFAULT_TB_AGGREGATE, // → registry code=1 (CLIENT_CASH)
       },
     ]);
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
+      cashTbAccountId: CASH,
+      externalLines: [
+        { id: 'ext-dep', direction: 'IN', amount: D(2500), externalRef: '0xdeposit', datetime: new Date('2026-06-26T10:00:20Z') },
+      ],
+      cutoff,
+      decimals: 0,
+    });
+    expect(result.matched).toEqual([{ internalFlowId: 'flow-dep', externalLineId: 'ext-dep', via: 'ref' }]);
+    expect(result.orphanInternal).toHaveLength(0);
+    expect(result.orphanExternal).toHaveLength(0);
+  });
+
+  it('only rows on the wallet cash account are candidates — rows on any other account are ignored', async () => {
+    // 应付 / 暂挂 / 别的钱包的现金户上的行，托管对账单不认识，不得变成孤儿。
+    const prisma = makePrismaMock([
+      { id: 'flow-payable', direction: 'IN', amount: 1000, externalRef: '0xp', eventCode: 'DEPOSIT_CONFIRMED',
+        createdAt: new Date('2026-06-26T10:00:00Z'), tbAccountId: OTHER },
+      { id: 'flow-cash', direction: 'IN', amount: 1000, externalRef: '0xp', eventCode: 'DEPOSIT_CONFIRMED',
+        createdAt: new Date('2026-06-26T10:00:00Z') },
+    ]);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
+    const result = await svc.matchFlows({
+      walletRef: 'w-cust',
+      cashTbAccountId: CASH,
       externalLines: [],
       cutoff,
       decimals: 0,
     });
-    // Aggregate-code flow must not surface as orphan_internal — the external
-    // statement only mirrors owned-account activity (PAYABLE/SUSPENSE/firm-equity).
-    expect(result.orphanInternal).toHaveLength(0);
+    expect(result.orphanInternal.map((o) => o.internalFlowId)).toEqual(['flow-cash']);
+  });
+
+  it('rows with sourceType RECON_ADJUSTMENT are excluded from candidates (they count in the balance, not in matching)', async () => {
+    const prisma = makePrismaMock([
+      { id: 'flow-adj', direction: 'OUT', amount: 300, externalRef: null, eventCode: 'RECON_ADJUSTMENT_POSTED',
+        sourceType: 'RECON_ADJUSTMENT', createdAt: new Date('2026-06-26T11:00:00Z') },
+      // 同一户上的普通行照常进池——排除的是调账行，不是整户
+      { id: 'flow-normal', direction: 'IN', amount: 900, externalRef: '0xn', eventCode: 'DEPOSIT_CONFIRMED',
+        sourceType: 'DEPOSIT', createdAt: new Date('2026-06-26T10:00:00Z') },
+    ]);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
+    const result = await svc.matchFlows({
+      walletRef: 'w-cust',
+      cashTbAccountId: CASH,
+      externalLines: [],
+      cutoff,
+      decimals: 0,
+    });
+    expect(result.orphanInternal.map((o) => o.internalFlowId)).toEqual(['flow-normal']);
     expect(result.matched).toHaveLength(0);
   });
 
-  it('excludes flows whose tbAccountId is not in the registry (defensive)', async () => {
-    // If TB registry can't classify the leg (orphan account / stale data /
-    // leading-zero padding mismatch between flows and registry), the matcher
-    // must skip the flow rather than treat it as evidence. Same defensive
-    // rule WalletBalanceChecker applies (`if (!reg) continue;`).
+  it('an adjustment row is never fuzzy-matched onto a same-amount external line', async () => {
+    // 调账行若进池，会按"金额+方向+时窗"误配到同额的外部行上，把真差异抹平。
     const prisma = makePrismaMock([
-      {
-        id: 'flow-unknown',
-        walletRef: 'w-cust',
-        direction: 'IN',
-        amount: 1000,
-        externalRef: '0xunknown',
-        eventCode: 'WITHDRAW_FEE_POST',
-        createdAt: new Date('2026-06-26T10:00:00Z'),
-        tbAccountId: 'tb-not-in-registry',
-      },
+      { id: 'flow-adj2', direction: 'OUT', amount: 300, externalRef: null, eventCode: 'RECON_ADJUSTMENT_POSTED',
+        sourceType: 'RECON_ADJUSTMENT', createdAt: new Date('2026-06-26T10:00:00Z') },
     ]);
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
-      externalLines: [],
+      cashTbAccountId: CASH,
+      externalLines: [
+        { id: 'ext-300', direction: 'OUT', amount: D(300), externalRef: null, datetime: new Date('2026-06-26T10:00:10Z') },
+      ],
       cutoff,
       decimals: 0,
     });
-    expect(result.orphanInternal).toHaveLength(0);
     expect(result.matched).toHaveLength(0);
+    expect(result.orphanExternal).toHaveLength(1);
+  });
+
+  it('PENDING transfers are not on any statement yet → not candidates', async () => {
+    const prisma = makePrismaMock([
+      { id: 'flow-pending', direction: 'OUT', amount: 100, externalRef: null, eventCode: 'WITHDRAW_LOCK',
+        transferType: 'PENDING', createdAt: new Date('2026-06-26T10:00:00Z') },
+    ]);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
+    const result = await svc.matchFlows({
+      walletRef: 'w-cust', cashTbAccountId: CASH, externalLines: [], cutoff, decimals: 0,
+    });
+    expect(result.orphanInternal).toHaveLength(0);
+  });
+
+  it('no cash account (walletRef is not a wallet — unattributed external account) → no internal side, lines stay orphans', async () => {
+    const prisma = makePrismaMock([
+      { id: 'flow-x', direction: 'IN', amount: 100, externalRef: '0xx', eventCode: 'DEPOSIT_CONFIRMED',
+        createdAt: new Date('2026-06-26T10:00:00Z') },
+    ]);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
+    const result = await svc.matchFlows({
+      walletRef: 'EXT-ACCT-1',
+      cashTbAccountId: null,
+      externalLines: [
+        { id: 'ext-x', direction: 'IN', amount: D(100), externalRef: '0xx', datetime: new Date('2026-06-26T10:00:10Z') },
+      ],
+      cutoff,
+      decimals: 0,
+    });
+    expect(prisma.accountFlow.findMany).not.toHaveBeenCalled();
+    expect(result.orphanInternal).toHaveLength(0);
+    expect(result.orphanExternal).toHaveLength(1);
   });
 
   it('back-valued internal flow (effectiveDate < cutoff day) enters the candidate pool', async () => {
     const prisma = makePrismaMock([
       {
         id: 'flow-bv',
-        walletRef: 'w-cust',
         direction: 'IN',
         amount: 700,
         externalRef: '0xbv',
@@ -312,7 +360,7 @@ describe('WalletFlowMatcherService', () => {
       },
     ]);
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
-    const result = await svc.matchFlows({ walletRef: 'w-cust', externalLines: [], cutoff, decimals: 0 });
+    const result = await svc.matchFlows({ walletRef: 'w-cust', cashTbAccountId: CASH, externalLines: [], cutoff, decimals: 0 });
     expect(result.orphanInternal).toHaveLength(1);
   });
 
@@ -336,7 +384,7 @@ describe('WalletFlowMatcherService', () => {
         ]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xabc')], cutoff: now, decimals: 0 });
+      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, externalLines: [extLine('IN', 100, '0xabc')], cutoff: now, decimals: 0 });
       expect(res.inTransit).toHaveLength(1);
       expect(res.inTransit[0].fundsOrderNo).toBe('FO-9');
       expect(res.orphanExternal).toHaveLength(0);
@@ -347,7 +395,7 @@ describe('WalletFlowMatcherService', () => {
         findNonTerminalByWallet: jest.fn().mockResolvedValue([]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xabc')], cutoff: now, decimals: 0 });
+      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, externalLines: [extLine('IN', 100, '0xabc')], cutoff: now, decimals: 0 });
       expect(res.orphanExternal).toHaveLength(1);
       expect(res.inTransit).toHaveLength(0);
     });
@@ -367,7 +415,7 @@ describe('WalletFlowMatcherService', () => {
         ]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xabc', now)], cutoff: now, decimals: 0 });
+      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, externalLines: [extLine('IN', 100, '0xabc', now)], cutoff: now, decimals: 0 });
       expect(res.inTransit).toHaveLength(0);
       expect(res.orphanExternal).toHaveLength(1);
     });
@@ -394,7 +442,7 @@ describe('WalletFlowMatcherService', () => {
         ]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 300, '0xhit', now)], cutoff: now, decimals: 0 });
+      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, externalLines: [extLine('IN', 300, '0xhit', now)], cutoff: now, decimals: 0 });
       expect(res.inTransit).toHaveLength(1);
       expect(res.inTransit[0].fundsOrderNo).toBe('FO-REFHIT');
     });
@@ -419,6 +467,7 @@ describe('WalletFlowMatcherService', () => {
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
       const res = await matcher.matchFlows({
         walletRef: 'W1',
+        cashTbAccountId: CASH,
         externalLines: [extLine('IN', 200, null, now)],
         cutoff: now,
         decimals: 0,
@@ -447,6 +496,7 @@ describe('WalletFlowMatcherService', () => {
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
       const result = await matcher.matchFlows({
         walletRef: 'w',
+        cashTbAccountId: CASH,
         externalLines: [extLine('OUT', 49800, '0xr')], // 分
         cutoff, decimals: 2,
       } as any);
@@ -470,6 +520,7 @@ describe('WalletFlowMatcherService', () => {
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
       const result = await matcher.matchFlows({
         walletRef: 'w',
+        cashTbAccountId: CASH,
         externalLines: [extLine('IN', 3000000, '0xu')], // 分
         cutoff, decimals: 6,
       } as any);
@@ -493,6 +544,7 @@ describe('WalletFlowMatcherService', () => {
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
       const result = await matcher.matchFlows({
         walletRef: 'w',
+        cashTbAccountId: CASH,
         externalLines: [extLine('OUT', 438056, '0xr')], // 分
         cutoff, decimals: 2,
       } as any);
@@ -512,7 +564,7 @@ describe('WalletFlowMatcherService', () => {
         ]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', externalLines: [extLine('IN', 100, '0xts', at)], cutoff: now, decimals: 0 });
+      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, externalLines: [extLine('IN', 100, '0xts', at)], cutoff: now, decimals: 0 });
       expect(res.inTransit).toHaveLength(1);
       expect(res.inTransit[0].externalTimestamp).toEqual(at);
     });

@@ -2,7 +2,8 @@
 //
 // Phase B / T7: per-wallet reconciliation orchestrator. Replaces the V8
 // five-formula identity check with a 1:1 wallet-level comparison:
-//   1. Internal-identity pre-gate (sum L per ledger == sum A per ledger).
+//   1. Internal-identity pre-gate (戊波一：每个账本两条天平——客户本 Σ现金 = Σ应付+暂挂；
+//      公司本 Σ现金+Σ开支 = Σ权益+Σ收入).
 //      If broken → status='INTERNAL_BREAK', no per-wallet checks (signal
 //      that the ledger itself has lost integrity — fix that first).
 //   2. For each wallet present in ExternalBalance @ cutoff:
@@ -30,7 +31,6 @@ import {
 } from '../engine/v2/wallet-flow-matcher.service';
 import {
   TB_ACCOUNT_CODES,
-  TB_CODE_TO_COA,
   isDebitNormalCode,
 } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TigerBeetleService } from '../../../accounting/tigerbeetle/tigerbeetle.service';
@@ -360,17 +360,14 @@ export class WalletReconRunService {
       cutoff,
     });
 
-    // 2a'. Enrich UNKNOWN — when the checker can't classify (firm wallet
-    // whose flows landed only on aggregate FIRM_CASH legs, or a fresh
-    // wallet with zero activity), look up walletRole + ownerType + ownerNo
-    // from the wallet table so the case row gets meaningful coaCode/book/
-    // owner instead of empty strings + 'CUSTOMER' book.
-    const enriched = await this.enrichIfUnknown(walletRef, balanceCheck);
+    // 案子与快照的 book / coaCode / ownerNo 一律取检查器给的现金户信息（钱包一户，没有"认不出"的档）。
+    const book: 'CUSTOMER' | 'FIRM' = balanceCheck.walletKind === 'FIRM' ? 'FIRM' : 'CUSTOMER';
 
-    // 2b. Flow match
+    // 2b. Flow match —— 读的是检查器算余额的同一个现金户（只差一条：匹配不含调账行）
     const externalLines = await this.fetchExternalLinesForWallet(walletRef, bal.accountRef, cutoff);
     const matcherResult = await this.flowMatcher.matchFlows({
       walletRef,
+      cashTbAccountId: balanceCheck.cashTbAccountId,
       externalLines,
       cutoff,
       decimals,
@@ -425,10 +422,10 @@ export class WalletReconRunService {
         assetId,
         assetCode: currency,
         currency: assetCurrency,
-        book: enriched.book,
+        book,
         walletRef,
-        coaCode: enriched.coaCode,
-        ownerNo: enriched.ownerNo,
+        coaCode: balanceCheck.coaCode,
+        ownerNo: balanceCheck.ownerNo,
         delta: balanceCheck.delta,
         tbAmount: balanceCheck.internal.total,
         actualExternal: balanceCheck.external,
@@ -449,9 +446,9 @@ export class WalletReconRunService {
       runId,
       walletRef,
       assetCode: currency,
-      book: enriched.book,
-      coaCode: enriched.coaCode,
-      ownerNo: enriched.ownerNo,
+      book,
+      coaCode: balanceCheck.coaCode,
+      ownerNo: balanceCheck.ownerNo,
       bucket,
       internalTotal: new Prisma.Decimal(balanceCheck.internal.total.toString()),
       externalClosing: new Prisma.Decimal(balanceCheck.external.toString()),
@@ -625,13 +622,16 @@ export class WalletReconRunService {
 
   // ── Internal-identity pre-gate ────────────────────────────────────────────
   /**
-   * Verify L sums equal A sums per ledger by reading TigerBeetle directly.
-   * Mirror of `scripts/verify-realtime-coa.ts`: per-account balance =
-   *   asset (debit-normal):    debits_posted − credits_posted
-   *   L / E (credit-normal):   credits_posted − debits_posted
-   * Then per ledger:
-   *   sum(CLIENT_CASH) == sum(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)
-   *   sum(FIRM_CASH)   == sum(FIRM_EQUITY+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)
+   * Verify the two books balance per ledger by reading TigerBeetle directly
+   * (mirror of `scripts/verify-realtime-coa.ts`). Per-account balance follows
+   * the account class (`isDebitNormalCode`):
+   *   debit-normal (1 / 50 / 300–302):   debits_posted − credits_posted
+   *   credit-normal (100 / 101 / 200 / 210–212): credits_posted − debits_posted
+   * Then per ledger (戊波一·总纲附录 A 两条天平):
+   *   客户本  Σ(1 客户现金)               == Σ(100 客户应付) + Σ(101 充值暂扣)
+   *   公司本  Σ(50 公司现金) + Σ(300..302 开支) == Σ(200 公司权益) + Σ(210..212 收入)
+   * 开支是借方户，和现金一样放在天平左边——付银行费 / 核销损失 = 借开支 / 贷现金：
+   * 现金少 X、开支多 X，左边合计不变，权益那边没动。
    *
    * `cutoff` is intentionally NOT honored here — TB doesn't expose historical
    * snapshots without account-history reads, and Phase B treats identity as
@@ -665,48 +665,51 @@ export class WalletReconRunService {
     }
 
     interface LedgerSums {
-      clientAsset: bigint;
-      clientLiab: bigint;
-      firmAsset: bigint;
-      firmEquity: bigint;
+      clientCash: bigint;   // Σ(1)
+      clientLiab: bigint;   // Σ(100) + Σ(101)
+      firmLeft: bigint;     // Σ(50) + Σ(300..302)
+      firmRight: bigint;    // Σ(200) + Σ(210..212)
     }
     const sums = new Map<number, LedgerSums>();
     for (const r of registry) {
       const key = BigInt('0x' + r.tbAccountId).toString();
       const bal = balById.get(key) ?? 0n;
-      const s = sums.get(r.ledger) ?? { clientAsset: 0n, clientLiab: 0n, firmAsset: 0n, firmEquity: 0n };
-      if (r.code === TB_ACCOUNT_CODES.CLIENT_CASH) s.clientAsset += bal;
+      const s = sums.get(r.ledger) ?? { clientCash: 0n, clientLiab: 0n, firmLeft: 0n, firmRight: 0n };
+      if (r.code === TB_ACCOUNT_CODES.CLIENT_CASH) s.clientCash += bal;
       else if (r.code === TB_ACCOUNT_CODES.CLIENT_PAYABLE || r.code === TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE) s.clientLiab += bal;
-      else if (r.code === TB_ACCOUNT_CODES.FIRM_CASH) s.firmAsset += bal;
+      else if (
+        r.code === TB_ACCOUNT_CODES.FIRM_CASH ||
+        r.code === TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY ||
+        r.code === TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS ||
+        r.code === TB_ACCOUNT_CODES.EXPENSE_OTHER
+      ) s.firmLeft += bal;
       else if (
         r.code === TB_ACCOUNT_CODES.FIRM_EQUITY ||
-        r.code === TB_ACCOUNT_CODES.FIRM_SET ||
-        r.code === TB_ACCOUNT_CODES.FIRM_LIQ ||
         r.code === TB_ACCOUNT_CODES.INCOME_SWAP_FEE ||
         r.code === TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE ||
         r.code === TB_ACCOUNT_CODES.INCOME_OTHER
-      ) s.firmEquity += bal;
+      ) s.firmRight += bal;
       sums.set(r.ledger, s);
     }
 
     const breaks: InternalIdentityResult['breaks'] = [];
     for (const [ledger, s] of sums) {
-      if (s.clientAsset !== s.clientLiab) {
+      if (s.clientCash !== s.clientLiab) {
         breaks.push({
           ledger,
           side: 'CLIENT',
-          asset: s.clientAsset.toString(),
+          asset: s.clientCash.toString(),
           liab: s.clientLiab.toString(),
-          delta: (s.clientAsset - s.clientLiab).toString(),
+          delta: (s.clientCash - s.clientLiab).toString(),
         });
       }
-      if (s.firmAsset !== s.firmEquity) {
+      if (s.firmLeft !== s.firmRight) {
         breaks.push({
           ledger,
           side: 'FIRM',
-          asset: s.firmAsset.toString(),
-          liab: s.firmEquity.toString(),
-          delta: (s.firmAsset - s.firmEquity).toString(),
+          asset: s.firmLeft.toString(),
+          liab: s.firmRight.toString(),
+          delta: (s.firmLeft - s.firmRight).toString(),
         });
       }
     }
@@ -769,54 +772,6 @@ export class WalletReconRunService {
    * prior set. (Audit trail of which run found what is recoverable via
    * lineItem.foundByRunId joined back to ReconciliationRun.)
    */
-
-  /**
-   * When balanceChecker returns walletKind=UNKNOWN (firm wallet whose flows
-   * only landed on aggregate FIRM_CASH legs, or a fresh wallet with no
-   * activity), it can't classify the wallet — coaCode comes back '' and
-   * ownerNo comes back null. Look up the wallet row and derive sensible
-   * defaults from walletRole + ownerType + ownerNo so case rows aren't
-   * written with empty strings.
-   */
-  private static readonly COA_BY_ROLE: Record<string, string> = {
-    F_OPS:   'E.FIRM_EQUITY',
-    F_SET:   'E.FIRM_SET',
-    F_LIQ:   'E.FIRM_LIQ', // LP 在途验收户（乙波一复活）
-    F_FEE:   'E.INCOME_SWAP_FEE+E.INCOME_WITHDRAW_FEE+E.INCOME_OTHER',
-    C_DEP:   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
-    C_VIBAN: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
-    C_CMA:   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE',
-  };
-
-  private async enrichIfUnknown(
-    walletRef: string,
-    balanceCheck: WalletBalanceCheckResult,
-  ): Promise<{ book: 'CUSTOMER' | 'FIRM'; coaCode: string; ownerNo: string | null }> {
-    if (balanceCheck.walletKind !== 'UNKNOWN') {
-      return {
-        book: balanceCheck.walletKind === 'FIRM' ? 'FIRM' : 'CUSTOMER',
-        coaCode: balanceCheck.coaCode,
-        ownerNo: balanceCheck.ownerNo,
-      };
-    }
-    const wallet = (await this.prisma.wallet.findUnique({
-      where: { id: walletRef },
-      select: { walletRole: true, ownerType: true, ownerNo: true },
-    })) as { walletRole: string | null; ownerType: string | null; ownerNo: string | null } | null;
-    if (!wallet) {
-      // Defensive: walletRef points at no wallet row — fall back to raw
-      // balanceCheck values so the case still writes (shouldn't happen in
-      // normal flow now that XREF synthetic refs are gone).
-      return { book: 'CUSTOMER', coaCode: balanceCheck.coaCode, ownerNo: balanceCheck.ownerNo };
-    }
-    const isFirm = wallet.ownerType !== 'CUSTOMER';
-    const role = wallet.walletRole ?? '';
-    return {
-      book: isFirm ? 'FIRM' : 'CUSTOMER',
-      coaCode: WalletReconRunService.COA_BY_ROLE[role] ?? balanceCheck.coaCode,
-      ownerNo: wallet.ownerNo ?? balanceCheck.ownerNo,
-    };
-  }
 
   protected async upsertCaseForWallet(input: {
     runId: string;

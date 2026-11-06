@@ -14,7 +14,7 @@ describe('SimulatedCustodianStatementService（平账二期 Task 6）', () => {
         create: jest.fn(async (args: any) => { creates.push(args); return {}; }),
       },
     };
-    const balanceChecker: any = { checkBalance: jest.fn(async () => ({ internal: { total: 2_992_500_000n }, coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE', ownerNo: 'CU1' })) };
+    const balanceChecker: any = { checkBalance: jest.fn(async () => ({ internal: { total: 2_992_500_000n }, coaCode: 'A.CLIENT_CASH', ownerNo: 'CU1' })) };
     return { svc: new SimulatedCustodianStatementService(prisma, balanceChecker), prisma, upserts, updates, creates, balanceChecker };
   };
   const at = new Date('2026-09-05T10:00:00.000Z');
@@ -33,7 +33,7 @@ describe('SimulatedCustodianStatementService（平账二期 Task 6）', () => {
     const { svc, updates, creates, balanceChecker } = make();
     await svc.recordLegMovement({ fundsOrderNo: 'FO1', fromWalletId: 'w-ops', toWalletId: 'w-cust', assetCode: 'USDT-TRON', assetType: 'CRYPTO', amountMinor: 7_500_000n, externalRef: '0xleg1', at, description: 'sim' });
     expect(updates[0].data.closingBalance.toString()).toBe('99992500000');
-    expect(creates[0].data).toMatchObject({ source: 'HEXTRUST', accountRef: 'w-cust', currency: 'USDT-TRON', book: 'CLIENT', cutoffDate: '2026-09-05', walletRef: 'w-cust', coaCode: 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE', ownerNo: 'CU1' });
+    expect(creates[0].data).toMatchObject({ source: 'HEXTRUST', accountRef: 'w-cust', currency: 'USDT-TRON', book: 'CLIENT', cutoffDate: '2026-09-05', walletRef: 'w-cust', coaCode: 'A.CLIENT_CASH', ownerNo: 'CU1' });
     expect(creates[0].data.closingBalance.toString()).toBe('3000000000');
     expect(balanceChecker.checkBalance).toHaveBeenCalledWith({ walletRef: 'w-cust', externalClosing: 0n, cutoff: at });
   });
