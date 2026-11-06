@@ -3,8 +3,8 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AccountingService } from './accounting.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
-import { TB_ACCOUNT_CODES, cashAccountName } from './constants/tb-account-codes.constant';
-import { TB_LEDGERS } from './constants/tb-ledgers.constant';
+import { cashAccountCodeFor, cashAccountName } from './constants/tb-account-codes.constant';
+import { ledgerForNetwork } from './constants/tb-ledgers.constant';
 import { currencyForNetwork } from '../../../config/manifests/assets.manifest';
 import { NetworkCode } from '../../../config/manifests/networks.manifest';
 
@@ -12,7 +12,7 @@ import { NetworkCode } from '../../../config/manifests/networks.manifest';
 export interface WalletCashAccountInput {
   id: string;
   walletNo: string;
-  /** 'PLATFORM' | 'CUSTOMER'：CUSTOMER → 1 客户现金，其余 → 50 公司现金 */
+  /** 'PLATFORM' | 'CUSTOMER'(→ cashAccountCodeFor)；Prisma 的 Wallet 行里是 string，故不收窄成字面量 */
   ownerType: string;
   ownerNo: string;
   vaultCode: string;
@@ -34,9 +34,9 @@ export class WalletCashAccountService {
   ) {}
 
   async ensureForWallet(wallet: WalletCashAccountInput, tx?: Prisma.TransactionClient): Promise<void> {
-    const code = wallet.ownerType === 'CUSTOMER' ? TB_ACCOUNT_CODES.CLIENT_CASH : TB_ACCOUNT_CODES.FIRM_CASH;
+    const code = cashAccountCodeFor(wallet.ownerType);
     const assetCurrency = currencyForNetwork(wallet.network as NetworkCode);
-    const ledger = TB_LEDGERS[assetCurrency as keyof typeof TB_LEDGERS];
+    const ledger = ledgerForNetwork(wallet.network as NetworkCode);
 
     const existing = await this.registry.resolve({ code, ledger, ownerType: 'WALLET', ownerUuid: wallet.id }, tx);
     if (existing) return;

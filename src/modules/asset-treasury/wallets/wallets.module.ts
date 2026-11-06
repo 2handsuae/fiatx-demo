@@ -13,7 +13,8 @@ import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.modu
 
 @Module({
   // 站6：一期拆除后交易前置门迁 CustomerAccessService——本模块改引 CustomersModule。
-  // 戊波一：钱包 ACTIVE 时开现金户（WalletCashAccountService 住 TigerBeetleModule，后者只依赖 PrismaModule，无环）。
+  // 戊波一：开客户收款地址的流程（CustomerDepositWalletService）在钱包 ACTIVE 时开现金户，需要 WalletCashAccountService；
+  // 它住 TigerBeetleModule，后者只依赖 PrismaModule，无环。WalletsService 本身不碰记账。
   imports: [PrismaModule, AuditLogsModule, CustomersModule, TigerBeetleModule],
   controllers: [WalletsController, CustomerDepositWalletController],
   providers: [

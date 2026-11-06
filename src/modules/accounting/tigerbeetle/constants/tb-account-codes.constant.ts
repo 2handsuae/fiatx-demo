@@ -130,6 +130,18 @@ export const accountFlagsFor = (code: number): number =>
     : AccountFlags.debits_must_not_exceed_credits;
 
 /**
+ * 钱包归属 → 现金户科目码：客户钱包(CUSTOMER)→ 1 客户现金，平台钱包(PLATFORM)→ 50 公司现金。
+ * 全仓「这个钱包的现金户是哪个码」只认这一处(解析 / 开户 / 种子共用)；未知归属直接抛，不回落到任何一类。
+ */
+export const cashAccountCodeFor = (
+  walletOwnerType: string,
+): typeof TB_ACCOUNT_CODES.CLIENT_CASH | typeof TB_ACCOUNT_CODES.FIRM_CASH => {
+  if (walletOwnerType === 'CUSTOMER') return TB_ACCOUNT_CODES.CLIENT_CASH;
+  if (walletOwnerType === 'PLATFORM') return TB_ACCOUNT_CODES.FIRM_CASH;
+  throw new Error(`No cash account code for wallet ownerType ${walletOwnerType}`);
+};
+
+/**
  * 现金户户名 = `类名 · 钱包名`(现金类 1 / 50 的户名,开户时写入注册表 description)。
  *   平台钱包:`Company Cash · <vault 标签> · <网络>`      例 Company Cash · Company Operations · AED_ZAND
  *   客户钱包:`Client Cash · <客户号> · <vIBAN | Deposit address>`

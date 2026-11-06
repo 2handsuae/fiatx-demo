@@ -2,12 +2,10 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { WalletsService, WALLET_STATUS_TRANSITIONS } from './wallets.service';
 import { PrismaService } from '../../../core/prisma/prisma.service';
-import { WalletCashAccountService } from '../../accounting/tigerbeetle/wallet-cash-account.service';
 
 const prismaMock = {
   wallet: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
 };
-const walletCashMock = { ensureForWallet: jest.fn() };
 
 describe('WalletsService（波一 · 地址行）', () => {
   let service: WalletsService;
@@ -15,11 +13,7 @@ describe('WalletsService（波一 · 地址行）', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
-      providers: [
-        WalletsService,
-        { provide: PrismaService, useValue: prismaMock },
-        { provide: WalletCashAccountService, useValue: walletCashMock },
-      ],
+      providers: [WalletsService, { provide: PrismaService, useValue: prismaMock }],
     }).compile();
     service = module.get(WalletsService);
   });
@@ -56,43 +50,6 @@ describe('WalletsService（波一 · 地址行）', () => {
       expect(row.walletNo).toMatch(/^WA\d{12}$/);
       expect(row.ownerId).toBeNull();
       expect(row.network).toBe('TRON');
-    });
-  });
-
-  // 戊波一 §2.3：钱包到 ACTIVE 才有现金户。两个建 ACTIVE 的口子（直接建 ACTIVE / CREATING→ACTIVE）都开户，同一事务。
-  describe('现金户开户钩子', () => {
-    const base = { ownerType: 'CUSTOMER' as const, ownerId: 'c1', ownerNo: 'CU001', vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON' };
-
-    it('createWalletRecord 以 ACTIVE 建行 → 用建出的行与同一 tx 调 ensureForWallet', async () => {
-      prismaMock.wallet.create.mockImplementation(async ({ data }: any) => ({ id: 'w-new', ...data }));
-      const tx: any = { wallet: { create: prismaMock.wallet.create } };
-      const row: any = await service.createWalletRecord({ ...base, status: 'ACTIVE' }, tx);
-      expect(walletCashMock.ensureForWallet).toHaveBeenCalledTimes(1);
-      expect(walletCashMock.ensureForWallet).toHaveBeenCalledWith(row, tx);
-      expect(row.id).toBe('w-new');
-    });
-
-    it('createWalletRecord 以 CREATING 建行 → 不开户', async () => {
-      prismaMock.wallet.create.mockImplementation(async ({ data }: any) => ({ id: 'w-new', ...data }));
-      await service.createWalletRecord({ ...base, status: 'CREATING' });
-      expect(walletCashMock.ensureForWallet).not.toHaveBeenCalled();
-    });
-
-    it('transitionStatus CREATING → ACTIVE → 用更新后的行（含 custodian 回写的地址）与 tx 调 ensureForWallet', async () => {
-      prismaMock.wallet.findFirst.mockResolvedValue({ id: 'w1', walletNo: 'WA1', status: 'CREATING' });
-      prismaMock.wallet.update.mockImplementation(async ({ data }: any) => ({ id: 'w1', walletNo: 'WA1', ownerType: 'CUSTOMER', ...data }));
-      const tx: any = { wallet: { findFirst: prismaMock.wallet.findFirst, update: prismaMock.wallet.update } };
-      const row: any = await service.transitionStatus('WA1', 'CREATING', 'ACTIVE', { address: 'Tabc' }, tx);
-      expect(walletCashMock.ensureForWallet).toHaveBeenCalledTimes(1);
-      expect(walletCashMock.ensureForWallet).toHaveBeenCalledWith(row, tx);
-      expect(row.address).toBe('Tabc');
-    });
-
-    it('transitionStatus CREATING → FAILED → 不开户', async () => {
-      prismaMock.wallet.findFirst.mockResolvedValue({ id: 'w1', walletNo: 'WA1', status: 'CREATING' });
-      prismaMock.wallet.update.mockImplementation(async ({ data }: any) => ({ id: 'w1', walletNo: 'WA1', ...data }));
-      await service.transitionStatus('WA1', 'CREATING', 'FAILED');
-      expect(walletCashMock.ensureForWallet).not.toHaveBeenCalled();
     });
   });
 

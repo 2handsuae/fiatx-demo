@@ -151,7 +151,9 @@ describe('Ledger non-negative flags (e2e, 戊波一 T2)', () => {
     const over = available + 500n;
     const before = await accounting.lookupBalance(suspenseId);
 
-    // 暂扣在借方位置：TB 先查借方户的 debits_must_not_exceed_credits。贷方对手户 302 无贷方侧约束。
+    // 暂扣在借方位置：TB 先查借方户的 debits_must_not_exceed_credits，命中即返回 exceeds_credits(54)。
+    // 注意贷方对手户 302 自己带 flag 4（credits_must_not_exceed_debits）：它的借方余额一般盖不住这笔金额，
+    // 贷方侧本也会报 exceeds_debits(55)。本断言成立，只因 TB 的结果优先级是「借方户 exceeds_credits 先于贷方户 exceeds_debits」。
     const attempt = accounting.executeTransfer({
       debitAccountId: suspenseId,
       creditAccountId: expenseOtherId,

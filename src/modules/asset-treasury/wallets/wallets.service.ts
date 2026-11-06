@@ -1,10 +1,9 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
-import { Prisma, Wallet } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { assertNetwork } from '../../../config/manifests/networks.manifest';
 import { VAULTS, isVaultCode } from '../../../config/manifests/vaults.manifest';
-import { WalletCashAccountService } from '../../accounting/tigerbeetle/wallet-cash-account.service';
 
 /** 钱包行状态迁移表（法二）。只有"开地址"那一小段生命周期；ACTIVE / FAILED 都是终态。
  *  DISABLED / FROZEN 已退役——客户侧停入金靠 V2 限制账（"限制是人的属性"），平台侧从不停（spec §4）。 */
@@ -29,10 +28,7 @@ export interface CreateWalletRecordInput {
 
 @Injectable()
 export class WalletsService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly walletCashAccounts: WalletCashAccountService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   // ─── L1 Pure Domain Methods ────────────────────────────────────────────
 
@@ -50,11 +46,10 @@ export class WalletsService {
       throw new BadRequestException(`Vault ${vault.code} is ${vault.ownerType}-owned, got ownerType ${dto.ownerType}`);
     }
 
-    let row: Wallet | undefined;
     for (let attempt = 0; attempt < 3; attempt++) {
       const walletNo = generateReferenceNo('WA');
       try {
-        row = await db.wallet.create({
+        return await db.wallet.create({
           data: {
             walletNo,
             ownerType: dto.ownerType,
@@ -69,7 +64,6 @@ export class WalletsService {
             custodianRef: dto.custodianRef ?? null,
           },
         });
-        break;
       } catch (e) {
         if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
           if (attempt === 2) throw new ConflictException('Failed to generate unique walletNo after 3 attempts');
@@ -78,10 +72,7 @@ export class WalletsService {
         throw e;
       }
     }
-    if (!row) throw new ConflictException('Failed to generate unique walletNo after 3 attempts');
-    // 钱包一到 ACTIVE 就开现金户（戊波一 §2.3）；CREATING 建行的开户延到 transitionStatus(→ACTIVE)。
-    if (dto.status === 'ACTIVE') await this.walletCashAccounts.ensureForWallet(row, tx);
-    return row;
+    throw new ConflictException('Failed to generate unique walletNo after 3 attempts');
   }
 
   async transitionStatus(walletNo: string, from: string, to: string, extra?: Record<string, any>, tx?: Prisma.TransactionClient) {
@@ -95,9 +86,7 @@ export class WalletsService {
     if (wallet.status !== from) {
       throw new ConflictException(`Wallet ${walletNo} is ${wallet.status}, expected ${from}`);
     }
-    const updated = await db.wallet.update({ where: { id: wallet.id }, data: { status: to, ...(extra ?? {}) } });
-    if (to === 'ACTIVE') await this.walletCashAccounts.ensureForWallet(updated, tx);
-    return updated;
+    return db.wallet.update({ where: { id: wallet.id }, data: { status: to, ...(extra ?? {}) } });
   }
 
   async findByWalletNo(walletNo: string, tx?: Prisma.TransactionClient) {

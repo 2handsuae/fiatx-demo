@@ -8,6 +8,7 @@ import { CUSTODIAN_ADAPTER, CustodianAdapter } from './custodian-adapter.interfa
 import { WalletStatus } from './dto/wallet.dto';
 import { WalletsService } from './wallets.service';
 import { WalletQueryService } from './wallet-query.service';
+import { WalletCashAccountService } from '../../accounting/tigerbeetle/wallet-cash-account.service';
 import { customerRoleForNetworkKind } from './system-wallet.util';
 import { CustomerAccessService } from '../../identity/customers/customer-access.service';
 import { assertNetwork } from '../../../config/manifests/networks.manifest';
@@ -25,6 +26,7 @@ export class CustomerDepositWalletService {
     private readonly queryService: WalletQueryService,
     @Inject(CUSTODIAN_ADAPTER) private readonly custodianAdapter: CustodianAdapter,
     private readonly customerAccess: CustomerAccessService,
+    private readonly walletCashAccounts: WalletCashAccountService,
   ) {}
 
   async createOrReturn(customerId: string, networkCode: string) {
@@ -89,11 +91,14 @@ export class CustomerDepositWalletService {
         network: network.code,
         ownerNo: customer.customerNo,
       });
-      await this.walletsService.transitionStatus(wallet.walletNo, 'CREATING', 'ACTIVE', {
+      const activated = await this.walletsService.transitionStatus(wallet.walletNo, 'CREATING', 'ACTIVE', {
         custodianRef: result.custodianRef,
         address: result.address ?? null,
         iban: result.iban ?? null,
       });
+      // 钱包一到 ACTIVE 就开它的现金户（戊波一 §2.3）：没到 ACTIVE 没有现金户，记账找不到即抛。
+      // 跨主体协作放在流程里做（铁律③），不放进 WalletsService。上面的迁移没开事务，这里同样不套事务。
+      await this.walletCashAccounts.ensureForWallet(activated);
 
       await this.auditLogsService.recordByActor(
         {

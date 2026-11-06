@@ -1,8 +1,8 @@
 import { PrismaClient } from '@prisma/client';
 import { createHash } from 'crypto';
 import { createClient as tbCreateClient, CreateAccountStatus } from 'tigerbeetle-node';
-import { TB_ACCOUNT_CODES, accountFlagsFor, cashAccountName } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
-import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
+import { accountFlagsFor, cashAccountCodeFor, cashAccountName } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { ledgerForNetwork } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { currencyForNetwork } from '../src/config/manifests/assets.manifest';
 import type { NetworkCode } from '../src/config/manifests/networks.manifest';
 
@@ -75,7 +75,7 @@ export async function ensureTbAccountRegistry(
 export type EnsureWalletCashAccountInput = {
   id: string;
   walletNo: string;
-  /** 'PLATFORM' | 'CUSTOMER'：CUSTOMER → 1 客户现金，其余 → 50 公司现金 */
+  /** 'PLATFORM' | 'CUSTOMER'(→ cashAccountCodeFor) */
   ownerType: string;
   ownerNo: string;
   vaultCode: string;
@@ -94,9 +94,9 @@ export async function ensureWalletCashAccount(
   tbClient: ReturnType<typeof tbCreateClient>,
   wallet: EnsureWalletCashAccountInput,
 ): Promise<string> {
-  const code = wallet.ownerType === 'CUSTOMER' ? TB_ACCOUNT_CODES.CLIENT_CASH : TB_ACCOUNT_CODES.FIRM_CASH;
+  const code = cashAccountCodeFor(wallet.ownerType);
   const assetCurrency = currencyForNetwork(wallet.network as NetworkCode);
-  const ledger = TB_LEDGERS[assetCurrency as keyof typeof TB_LEDGERS];
+  const ledger = ledgerForNetwork(wallet.network as NetworkCode);
   const flags = accountFlagsFor(code);
 
   const tbAccountId = await ensureTbAccountRegistry(prisma, {

@@ -7,7 +7,7 @@ import { TbAccountRegistryService } from './tb-account-registry.service';
 import { TbEvidenceService } from './tb-evidence.service';
 import { deterministicTransferId, bigintToHex, bigintToRegistryHex, hexToBigint } from './utils/tb-id.util';
 import { CreateTbAccountParams, EvidenceParams, TbBalanceResult, CustomerAvailableBalance, ExecutePendingTransferParams, PostOrVoidPendingTransferParams } from './types/accounting.types';
-import { TB_ACCOUNT_CODES, accountFlagsFor } from './constants/tb-account-codes.constant';
+import { TB_ACCOUNT_CODES, accountFlagsFor, cashAccountCodeFor } from './constants/tb-account-codes.constant';
 import { TB_LEDGERS } from './constants/tb-ledgers.constant';
 import { id as tbId, CreateAccountStatus, CreateTransferStatus, TransferFlags } from 'tigerbeetle-node';
 
@@ -433,7 +433,7 @@ export class AccountingService {
         message: `Wallet ${walletId} not found — cannot resolve its cash account`,
       });
     }
-    const code = wallet.ownerType === 'CUSTOMER' ? TB_ACCOUNT_CODES.CLIENT_CASH : TB_ACCOUNT_CODES.FIRM_CASH;
+    const code = cashAccountCodeFor(wallet.ownerType);
     return this.resolveTbAccountId({ code, ledger, ownerType: 'WALLET', ownerUuid: walletId }, tx);
   }
 

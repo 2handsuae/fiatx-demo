@@ -11,8 +11,10 @@ import {
   isDebitNormalCode,
   isCashCode,
   accountFlagsFor,
+  cashAccountCodeFor,
   cashAccountName,
 } from './tb-account-codes.constant';
+import { ledgerForNetwork } from './tb-ledgers.constant';
 import { systemAccountCodesFor } from '../../../asset-treasury/assets/asset-provisioning.service';
 
 describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
@@ -89,6 +91,18 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
     expect(accountFlagsFor(100)).toBe(2);
     expect(accountFlagsFor(200)).toBe(2);
     expect(accountFlagsFor(212)).toBe(2);
+  });
+
+  it('cashAccountCodeFor: CUSTOMER → 1，PLATFORM → 50，未知归属抛错（不回落到任何一类）', () => {
+    expect(cashAccountCodeFor('CUSTOMER')).toBe(1);
+    expect(cashAccountCodeFor('PLATFORM')).toBe(50);
+    expect(() => cashAccountCodeFor('LP')).toThrow(/No cash account code for wallet ownerType LP/);
+    expect(() => cashAccountCodeFor('')).toThrow();
+  });
+
+  it('ledgerForNetwork: TRON → USDT 账本 2，AED_ZAND → AED 账本 1', () => {
+    expect(ledgerForNetwork('TRON')).toBe(2);
+    expect(ledgerForNetwork('AED_ZAND')).toBe(1);
   });
 
   it('cashAccountName: 平台钱包 = 公司现金 · vault 标签 · 网络；客户钱包 = 客户现金 · 客户号 · 角色', () => {
