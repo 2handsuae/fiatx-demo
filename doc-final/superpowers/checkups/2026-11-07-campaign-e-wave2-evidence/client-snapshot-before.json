@@ -1,0 +1,2278 @@
+{
+  "CU2601010403": {
+    "balances": {
+      "AED": {
+        "ledger": "650000",
+        "held": "0",
+        "available": "650000"
+      },
+      "USDT": {
+        "ledger": "400000000",
+        "held": "0",
+        "available": "400000000"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 2,
+        "currentBalance": "650000",
+        "decimals": 2,
+        "rows": [
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · bank transfer",
+            "subtitle": "DEP261107######",
+            "amount": "150000",
+            "feeAmount": null,
+            "balanceAfter": "650000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · bank transfer",
+            "subtitle": "DEP261107######",
+            "amount": "500000",
+            "feeAmount": null,
+            "balanceAfter": "500000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          }
+        ]
+      },
+      "USDT": {
+        "total": 1,
+        "currentBalance": "400000000",
+        "decimals": 6,
+        "rows": [
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · crypto",
+            "subtitle": "DEP261107######",
+            "amount": "400000000",
+            "feeAmount": null,
+            "balanceAfter": "400000000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "monthlyStatements": [
+      {
+        "statementNo": "STM-CU2601010403-202606",
+        "periodMonth": "2026-06",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601010403-202607",
+        "periodMonth": "2026-07",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601010403-202608",
+        "periodMonth": "2026-08",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601010403-202609",
+        "periodMonth": "2026-09",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601010403-202610",
+        "periodMonth": "2026-10",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      }
+    ],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "6500.00",
+        "locked": "0.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "400.000000",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  },
+  "CU2601010448": {
+    "balances": {
+      "AED": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      },
+      "USDT": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 2,
+        "rows": []
+      },
+      "USDT": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 6,
+        "rows": []
+      }
+    },
+    "monthlyStatements": [],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "0.00",
+        "locked": "0.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "0.000000",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  },
+  "CU2601010484": {
+    "balances": {
+      "AED": {
+        "ledger": "200000",
+        "held": "60000",
+        "available": "140000"
+      },
+      "USDT": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 1,
+        "currentBalance": "200000",
+        "decimals": 2,
+        "rows": [
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · bank transfer",
+            "subtitle": "DEP261107######",
+            "amount": "200000",
+            "feeAmount": null,
+            "balanceAfter": "200000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          }
+        ]
+      },
+      "USDT": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 6,
+        "rows": []
+      }
+    },
+    "monthlyStatements": [
+      {
+        "statementNo": "STM-CU2601010484-202606",
+        "periodMonth": "2026-06",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601010484-202607",
+        "periodMonth": "2026-07",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601010484-202608",
+        "periodMonth": "2026-08",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601010484-202609",
+        "periodMonth": "2026-09",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601010484-202610",
+        "periodMonth": "2026-10",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      }
+    ],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "1400.00",
+        "locked": "600.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "0.000000",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  },
+  "CU2601012576": {
+    "balances": {
+      "AED": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      },
+      "USDT": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 2,
+        "rows": []
+      },
+      "USDT": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 6,
+        "rows": []
+      }
+    },
+    "monthlyStatements": [
+      {
+        "statementNo": "STM-CU2601012576-202606",
+        "periodMonth": "2026-06",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601012576-202607",
+        "periodMonth": "2026-07",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601012576-202608",
+        "periodMonth": "2026-08",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601012576-202609",
+        "periodMonth": "2026-09",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601012576-202610",
+        "periodMonth": "2026-10",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      }
+    ],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "0.00",
+        "locked": "0.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "0.000000",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  },
+  "CU2601012635": {
+    "balances": {
+      "AED": {
+        "ledger": "4495000",
+        "held": "0",
+        "available": "4495000"
+      },
+      "USDT": {
+        "ledger": "2709049000",
+        "held": "0",
+        "available": "2709049000"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 4,
+        "currentBalance": "4495000",
+        "decimals": 2,
+        "rows": [
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · bank transfer",
+            "subtitle": "DEP2601017605",
+            "amount": "1000000",
+            "feeAmount": null,
+            "balanceAfter": "6000000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP2601017605"
+              }
+            ]
+          },
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · bank transfer",
+            "subtitle": "DEP2601014127",
+            "amount": "5000000",
+            "feeAmount": null,
+            "balanceAfter": "5000000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP2601014127"
+              }
+            ]
+          },
+          {
+            "kind": "SWAP",
+            "title": "Swap AED → USDT",
+            "subtitle": "SWP2601010349",
+            "amount": "-1000000",
+            "feeAmount": null,
+            "balanceAfter": "5000000",
+            "refs": [
+              {
+                "sourceType": "SWAP",
+                "sourceNo": "SWP2601010349"
+              }
+            ]
+          },
+          {
+            "kind": "WITHDRAWAL",
+            "title": "Withdrawal to bank account",
+            "subtitle": "WDR2601019900",
+            "amount": "-505000",
+            "feeAmount": "5000",
+            "balanceAfter": "4495000",
+            "refs": [
+              {
+                "sourceType": "WITHDRAWAL",
+                "sourceNo": "WDR2601019900"
+              },
+              {
+                "sourceType": "WITHDRAWAL",
+                "sourceNo": "WDR2601019900"
+              }
+            ]
+          }
+        ]
+      },
+      "USDT": {
+        "total": 1,
+        "currentBalance": "2709049000",
+        "decimals": 6,
+        "rows": [
+          {
+            "kind": "SWAP",
+            "title": "Swap AED → USDT",
+            "subtitle": "SWP2601010349",
+            "amount": "2709049000",
+            "feeAmount": "3000000",
+            "balanceAfter": "2709049000",
+            "refs": [
+              {
+                "sourceType": "SWAP",
+                "sourceNo": "SWP2601010349"
+              },
+              {
+                "sourceType": "SWAP",
+                "sourceNo": "SWP2601010349"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "monthlyStatements": [
+      {
+        "statementNo": "STM-CU2601012635-202606",
+        "periodMonth": "2026-06",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601012635-202607",
+        "periodMonth": "2026-07",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601012635-202608",
+        "periodMonth": "2026-08",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601012635-202609",
+        "periodMonth": "2026-09",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "5000000",
+            "rows": [
+              {
+                "kind": "DEPOSIT",
+                "title": "Deposit · bank transfer",
+                "subtitle": "DEP2601014127",
+                "amount": "5000000",
+                "feeAmount": null,
+                "balanceAfter": "5000000",
+                "refs": [
+                  {
+                    "sourceType": "DEPOSIT",
+                    "sourceNo": "DEP2601014127"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601012635-202610",
+        "periodMonth": "2026-10",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "5000000",
+            "closingBalance": "4495000",
+            "rows": [
+              {
+                "kind": "DEPOSIT",
+                "title": "Deposit · bank transfer",
+                "subtitle": "DEP2601017605",
+                "amount": "1000000",
+                "feeAmount": null,
+                "balanceAfter": "6000000",
+                "refs": [
+                  {
+                    "sourceType": "DEPOSIT",
+                    "sourceNo": "DEP2601017605"
+                  }
+                ]
+              },
+              {
+                "kind": "SWAP",
+                "title": "Swap AED → USDT",
+                "subtitle": "SWP2601010349",
+                "amount": "-1000000",
+                "feeAmount": null,
+                "balanceAfter": "5000000",
+                "refs": [
+                  {
+                    "sourceType": "SWAP",
+                    "sourceNo": "SWP2601010349"
+                  }
+                ]
+              },
+              {
+                "kind": "WITHDRAWAL",
+                "title": "Withdrawal to bank account",
+                "subtitle": "WDR2601019900",
+                "amount": "-505000",
+                "feeAmount": "5000",
+                "balanceAfter": "4495000",
+                "refs": [
+                  {
+                    "sourceType": "WITHDRAWAL",
+                    "sourceNo": "WDR2601019900"
+                  },
+                  {
+                    "sourceType": "WITHDRAWAL",
+                    "sourceNo": "WDR2601019900"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "2709049000",
+            "rows": [
+              {
+                "kind": "SWAP",
+                "title": "Swap AED → USDT",
+                "subtitle": "SWP2601010349",
+                "amount": "2709049000",
+                "feeAmount": "3000000",
+                "balanceAfter": "2709049000",
+                "refs": [
+                  {
+                    "sourceType": "SWAP",
+                    "sourceNo": "SWP2601010349"
+                  },
+                  {
+                    "sourceType": "SWAP",
+                    "sourceNo": "SWP2601010349"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "44950.00",
+        "locked": "0.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "2709.049000",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  },
+  "CU2601014100": {
+    "balances": {
+      "AED": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      },
+      "USDT": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 2,
+        "rows": []
+      },
+      "USDT": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 6,
+        "rows": []
+      }
+    },
+    "monthlyStatements": [],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "0.00",
+        "locked": "0.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "0.000000",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  },
+  "CU2601014381": {
+    "balances": {
+      "AED": {
+        "ledger": "480000",
+        "held": "150000",
+        "available": "330000"
+      },
+      "USDT": {
+        "ledger": "212656912",
+        "held": "0",
+        "available": "212656912"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 3,
+        "currentBalance": "480000",
+        "decimals": 2,
+        "rows": [
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · bank transfer",
+            "subtitle": "DEP261107######",
+            "amount": "650000",
+            "feeAmount": null,
+            "balanceAfter": "650000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "SWAP",
+            "title": "Swap AED → USDT",
+            "subtitle": "SWP261107######",
+            "amount": "-80000",
+            "feeAmount": null,
+            "balanceAfter": "570000",
+            "refs": [
+              {
+                "sourceType": "SWAP",
+                "sourceNo": "SWP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "WITHDRAWAL",
+            "title": "Withdrawal to bank account",
+            "subtitle": "WDR261107######",
+            "amount": "-90000",
+            "feeAmount": "200",
+            "balanceAfter": "480000",
+            "refs": [
+              {
+                "sourceType": "WITHDRAWAL",
+                "sourceNo": "WDR261107######"
+              },
+              {
+                "sourceType": "WITHDRAWAL",
+                "sourceNo": "WDR261107######"
+              }
+            ]
+          }
+        ]
+      },
+      "USDT": {
+        "total": 3,
+        "currentBalance": "212656912",
+        "decimals": 6,
+        "rows": [
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · crypto",
+            "subtitle": "DEP261107######",
+            "amount": "1200000000",
+            "feeAmount": null,
+            "balanceAfter": "1200000000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "SWAP",
+            "title": "Swap AED → USDT",
+            "subtitle": "SWP261107######",
+            "amount": "212656912",
+            "feeAmount": "3000000",
+            "balanceAfter": "1412656912",
+            "refs": [
+              {
+                "sourceType": "SWAP",
+                "sourceNo": "SWP261107######"
+              },
+              {
+                "sourceType": "SWAP",
+                "sourceNo": "SWP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "WITHDRAWAL",
+            "title": "Withdrawal · crypto",
+            "subtitle": "WDR261107######",
+            "amount": "-1200000000",
+            "feeAmount": "11000000",
+            "balanceAfter": "212656912",
+            "refs": [
+              {
+                "sourceType": "WITHDRAWAL",
+                "sourceNo": "WDR261107######"
+              },
+              {
+                "sourceType": "WITHDRAWAL",
+                "sourceNo": "WDR261107######"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "monthlyStatements": [
+      {
+        "statementNo": "STM-CU2601014381-202606",
+        "periodMonth": "2026-06",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601014381-202607",
+        "periodMonth": "2026-07",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601014381-202608",
+        "periodMonth": "2026-08",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601014381-202609",
+        "periodMonth": "2026-09",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601014381-202610",
+        "periodMonth": "2026-10",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      }
+    ],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "3300.00",
+        "locked": "1500.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "212.656912",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  },
+  "CU2601015606": {
+    "balances": {
+      "AED": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      },
+      "USDT": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 2,
+        "rows": []
+      },
+      "USDT": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 6,
+        "rows": []
+      }
+    },
+    "monthlyStatements": [
+      {
+        "statementNo": "STM-CU2601015606-202606",
+        "periodMonth": "2026-06",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601015606-202607",
+        "periodMonth": "2026-07",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601015606-202608",
+        "periodMonth": "2026-08",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601015606-202609",
+        "periodMonth": "2026-09",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601015606-202610",
+        "periodMonth": "2026-10",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      }
+    ],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "0.00",
+        "locked": "0.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "0.000000",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  },
+  "CU2601016170": {
+    "balances": {
+      "AED": {
+        "ledger": "520000",
+        "held": "0",
+        "available": "520000"
+      },
+      "USDT": {
+        "ledger": "350000000",
+        "held": "0",
+        "available": "350000000"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 2,
+        "currentBalance": "520000",
+        "decimals": 2,
+        "rows": [
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · bank transfer",
+            "subtitle": "DEP261107######",
+            "amount": "120000",
+            "feeAmount": null,
+            "balanceAfter": "520000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · bank transfer",
+            "subtitle": "DEP261107######",
+            "amount": "400000",
+            "feeAmount": null,
+            "balanceAfter": "400000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          }
+        ]
+      },
+      "USDT": {
+        "total": 1,
+        "currentBalance": "350000000",
+        "decimals": 6,
+        "rows": [
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · crypto",
+            "subtitle": "DEP261107######",
+            "amount": "350000000",
+            "feeAmount": null,
+            "balanceAfter": "350000000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "monthlyStatements": [
+      {
+        "statementNo": "STM-CU2601016170-202606",
+        "periodMonth": "2026-06",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601016170-202607",
+        "periodMonth": "2026-07",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601016170-202608",
+        "periodMonth": "2026-08",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601016170-202609",
+        "periodMonth": "2026-09",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601016170-202610",
+        "periodMonth": "2026-10",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      }
+    ],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "5200.00",
+        "locked": "0.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "350.000000",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  },
+  "CU2601017562": {
+    "balances": {
+      "AED": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      },
+      "USDT": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 2,
+        "rows": []
+      },
+      "USDT": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 6,
+        "rows": []
+      }
+    },
+    "monthlyStatements": [
+      {
+        "statementNo": "STM-CU2601017562-202606",
+        "periodMonth": "2026-06",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601017562-202607",
+        "periodMonth": "2026-07",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601017562-202608",
+        "periodMonth": "2026-08",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601017562-202609",
+        "periodMonth": "2026-09",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601017562-202610",
+        "periodMonth": "2026-10",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      }
+    ],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "0.00",
+        "locked": "0.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "0.000000",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  },
+  "CU2601017625": {
+    "balances": {
+      "AED": {
+        "ledger": "25710000",
+        "held": "25000000",
+        "available": "710000"
+      },
+      "USDT": {
+        "ledger": "1829914899",
+        "held": "0",
+        "available": "1829914899"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 2,
+        "currentBalance": "25710000",
+        "decimals": 2,
+        "rows": [
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · bank transfer",
+            "subtitle": "DEP261107######",
+            "amount": "26000000",
+            "feeAmount": null,
+            "balanceAfter": "26000000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "SWAP",
+            "title": "Swap AED → USDT",
+            "subtitle": "SWP261107######",
+            "amount": "-290000",
+            "feeAmount": null,
+            "balanceAfter": "25710000",
+            "refs": [
+              {
+                "sourceType": "SWAP",
+                "sourceNo": "SWP261107######"
+              }
+            ]
+          }
+        ]
+      },
+      "USDT": {
+        "total": 3,
+        "currentBalance": "1829914899",
+        "decimals": 6,
+        "rows": [
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · crypto",
+            "subtitle": "DEP261107######",
+            "amount": "1200000000",
+            "feeAmount": null,
+            "balanceAfter": "1200000000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "SWAP",
+            "title": "Swap AED → USDT",
+            "subtitle": "SWP261107######",
+            "amount": "779914899",
+            "feeAmount": "5000000",
+            "balanceAfter": "1979914899",
+            "refs": [
+              {
+                "sourceType": "SWAP",
+                "sourceNo": "SWP261107######"
+              },
+              {
+                "sourceType": "SWAP",
+                "sourceNo": "SWP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "WITHDRAWAL",
+            "title": "Withdrawal · crypto",
+            "subtitle": "WDR261107######",
+            "amount": "-150000000",
+            "feeAmount": "6000000",
+            "balanceAfter": "1829914899",
+            "refs": [
+              {
+                "sourceType": "WITHDRAWAL",
+                "sourceNo": "WDR261107######"
+              },
+              {
+                "sourceType": "WITHDRAWAL",
+                "sourceNo": "WDR261107######"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "monthlyStatements": [
+      {
+        "statementNo": "STM-CU2601017625-202606",
+        "periodMonth": "2026-06",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601017625-202607",
+        "periodMonth": "2026-07",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601017625-202608",
+        "periodMonth": "2026-08",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601017625-202609",
+        "periodMonth": "2026-09",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601017625-202610",
+        "periodMonth": "2026-10",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      }
+    ],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "7100.00",
+        "locked": "250000.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "1829.914899",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  },
+  "CU2601018265": {
+    "balances": {
+      "AED": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      },
+      "USDT": {
+        "ledger": "0",
+        "held": "0",
+        "available": "0"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 2,
+        "rows": []
+      },
+      "USDT": {
+        "total": 0,
+        "currentBalance": "0",
+        "decimals": 6,
+        "rows": []
+      }
+    },
+    "monthlyStatements": [
+      {
+        "statementNo": "STM-CU2601018265-202606",
+        "periodMonth": "2026-06",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601018265-202607",
+        "periodMonth": "2026-07",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601018265-202608",
+        "periodMonth": "2026-08",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601018265-202609",
+        "periodMonth": "2026-09",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601018265-202610",
+        "periodMonth": "2026-10",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      }
+    ],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "0.00",
+        "locked": "0.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "0.000000",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  },
+  "CU2601019430": {
+    "balances": {
+      "AED": {
+        "ledger": "389065",
+        "held": "230000",
+        "available": "159065"
+      },
+      "USDT": {
+        "ledger": "2700000000",
+        "held": "0",
+        "available": "2700000000"
+      }
+    },
+    "statementRows": {
+      "AED": {
+        "total": 2,
+        "currentBalance": "389065",
+        "decimals": 2,
+        "rows": [
+          {
+            "kind": "SWAP",
+            "title": "Swap USDT → AED",
+            "subtitle": "SWP261107######",
+            "amount": "509065",
+            "feeAmount": "2000",
+            "balanceAfter": "509065",
+            "refs": [
+              {
+                "sourceType": "SWAP",
+                "sourceNo": "SWP261107######"
+              },
+              {
+                "sourceType": "SWAP",
+                "sourceNo": "SWP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "WITHDRAWAL",
+            "title": "Withdrawal to bank account",
+            "subtitle": "WDR261107######",
+            "amount": "-120000",
+            "feeAmount": "5000",
+            "balanceAfter": "389065",
+            "refs": [
+              {
+                "sourceType": "WITHDRAWAL",
+                "sourceNo": "WDR261107######"
+              },
+              {
+                "sourceType": "WITHDRAWAL",
+                "sourceNo": "WDR261107######"
+              }
+            ]
+          }
+        ]
+      },
+      "USDT": {
+        "total": 5,
+        "currentBalance": "2700000000",
+        "decimals": 6,
+        "rows": [
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · crypto",
+            "subtitle": "DEP261107######",
+            "amount": "1100000000",
+            "feeAmount": null,
+            "balanceAfter": "5600000000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · crypto",
+            "subtitle": "DEP261107######",
+            "amount": "1500000000",
+            "feeAmount": null,
+            "balanceAfter": "4500000000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "DEPOSIT",
+            "title": "Deposit · crypto",
+            "subtitle": "DEP261107######",
+            "amount": "3000000000",
+            "feeAmount": null,
+            "balanceAfter": "3000000000",
+            "refs": [
+              {
+                "sourceType": "DEPOSIT",
+                "sourceNo": "DEP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "SWAP",
+            "title": "Swap USDT → AED",
+            "subtitle": "SWP261107######",
+            "amount": "-1400000000",
+            "feeAmount": null,
+            "balanceAfter": "4200000000",
+            "refs": [
+              {
+                "sourceType": "SWAP",
+                "sourceNo": "SWP261107######"
+              }
+            ]
+          },
+          {
+            "kind": "WITHDRAWAL",
+            "title": "Withdrawal · crypto",
+            "subtitle": "WDR261107######",
+            "amount": "-1500000000",
+            "feeAmount": "11000000",
+            "balanceAfter": "2700000000",
+            "refs": [
+              {
+                "sourceType": "WITHDRAWAL",
+                "sourceNo": "WDR261107######"
+              },
+              {
+                "sourceType": "WITHDRAWAL",
+                "sourceNo": "WDR261107######"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "monthlyStatements": [
+      {
+        "statementNo": "STM-CU2601019430-202606",
+        "periodMonth": "2026-06",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601019430-202607",
+        "periodMonth": "2026-07",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601019430-202608",
+        "periodMonth": "2026-08",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601019430-202609",
+        "periodMonth": "2026-09",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      },
+      {
+        "statementNo": "STM-CU2601019430-202610",
+        "periodMonth": "2026-10",
+        "sections": [
+          {
+            "assetCode": "AED",
+            "isFiat": true,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          },
+          {
+            "assetCode": "USDT",
+            "isFiat": false,
+            "openingBalance": "0",
+            "closingBalance": "0",
+            "rows": []
+          }
+        ]
+      }
+    ],
+    "portfolio": [
+      {
+        "assetCode": "AED",
+        "assetType": "FIAT",
+        "currency": "AED",
+        "available": "1590.65",
+        "locked": "2300.00",
+        "decimals": 2
+      },
+      {
+        "assetCode": "USDT-TRON",
+        "assetType": "CRYPTO",
+        "currency": "USDT",
+        "available": "2700.000000",
+        "locked": "0.000000",
+        "decimals": 6
+      }
+    ]
+  }
+}
