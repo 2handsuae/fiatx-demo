@@ -649,7 +649,7 @@ bash scripts/stack.sh reset self && bash scripts/stack.sh up self && bash script
 
 **账实证据**（走查后，self 栈，2026-09-30）：
 
-- `bash scripts/on-stack.sh self verify:coa` — 退出码 `0`，关键行：`✓ ledger 1 CLIENT 恒等 34107565` / `✓ ledger 1 FIRM 恒等 99870335` / `✓ ledger 2 CLIENT 恒等 8201620811` / `✓ ledger 2 FIRM 恒等 114035428189` / `✓ 负余额检查 通过 (87 个科目全部 ≥ 0)` / `ALL INVARIANTS PASS`（注资落账后时点；`ledger 1 FIRM` 从场景 31 收尾的 69620335 涨到 99620335，涨幅精确等于注资额 30000000 分=300,000.00 AED（戊波一起该数较此多 250,000——开支户并入左边，关键行已改为推导值 99870335、涨幅不变；USDT 两数与科目数 87 的口径同场景 31 订正，均未重走场景 32 复读，走查以 `verify:coa` 实际打印为准）；CLIENT 两数同上条按 Henry 种子余额订正为推导值 34107565 / 7101620811，2026-09-30 实走原读数为 29612565 / 4392571811）。
+- `bash scripts/on-stack.sh self verify:coa` — 退出码 `0`，关键行：`✓ ledger 1 CLIENT 恒等 34107565` / `✓ ledger 1 FIRM 恒等 99870335` / `✓ ledger 2 CLIENT 恒等 8201620811` / `✓ ledger 2 FIRM 恒等 114035428189` / `✓ 负余额检查 通过 (87 个科目全部 ≥ 0)` / `ALL INVARIANTS PASS`（注资落账后时点；`ledger 1 FIRM` 从场景 31 收尾的 69620335 涨到 99620335，涨幅精确等于注资额 30000000 分=300,000.00 AED（戊波一起该数较此多 250,000——开支户并入左边，关键行已改为推导值 99870335、涨幅不变；USDT 两数与科目数 87 的口径同场景 31 订正，均未重走场景 32 复读，走查以 `verify:coa` 实际打印为准）；CLIENT 两数同上条订正：AED 一数 34107565 按 Henry 种子余额推导，USDT 一数 8201620811 取 `demo:all` 后实测（对手方波二的 USDT 展品另行抬高了它），与上面关键行一致；2026-09-30 实走原读数为 29612565 / 4392571811）。
 - 终态 `GET /admin/prudential/status`：`breached=false`、`nlaAedMinor=141475225`、`floorAedMinor=120000000`、`headroomAedMinor=21475225`（AED 1,414,752.25 / 1,200,000.00 / 214,752.25），与看板逐位一致。
 - 两起事故终态：`INC260930508979`（本场景新登记的审慎事故）与 `INC260930949208`（场景 31 的未授权转出事故）均 `status=CLOSED`。
 - 两张报送单终态：`FIL260930300016`（`PRUDENTIAL_BREACH_NOTICE`，本场景开）与 `FIL260930017382`（`CLIENT_MONEY_DISCREPANCY`，场景 31 开）均 `status=SUBMITTED`。

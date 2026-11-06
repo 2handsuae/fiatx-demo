@@ -1703,7 +1703,7 @@ model ReconciliationCase {
   // Phase B locator — pinpoints which physical wallet / COA bucket / owner this case belongs to
   // (T7 wallet-level engine fills these; legacy V8_FORMULA cases leave them null).
   walletRef                 String?
-  coaCode                   String?  // 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE' | 'E.FIRM_EQUITY' | ...
+  coaCode                   String?  // 'A.CLIENT_CASH' | 'A.FIRM_CASH'
   ownerNo                   String?
   // T1 idempotency tracking — wallet-level engine reuses one case per (walletRef, businessDate)
   // across reruns. firstSeenRunId pins the run that opened it; lastUpdatedRunId moves forward each

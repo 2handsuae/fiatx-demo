@@ -12,15 +12,15 @@
 | `client-snapshot.diff` | `diff before after` 的输出：**0 行（空文件）**；两份 sha256 同为 `c0195e645571dfda…`。Henry 多出的两个钱包行不在这四个接口里，故无差异 |
 | `client-snapshot-control.md` | T0 的对照组记录：代码不变时两次独立重铺快照逐字相同；订单号随机尾号的遮罩裁定（R8 / R9）与三项失效验证 |
 | `verify-coa-failure-validation.md` | T3 的失效验证：往客户现金户记一笔无对手借方，`verify:coa` 恒等式必须红 |
-| `evidence-by-transfer-code.md` | **转账码抽核表**：1–21、30–38、70、80–87 每码一条（凭证号 → TB 实记借 / 贷科目码 → 附录 B），322 次比对 0 处不符；没有行的码逐码交代原因 |
+| `evidence-by-transfer-code.md` | **转账码抽核表**：1–21、30–38、70、80–87 每码一条（凭证号 → TB 实记借 / 贷科目码 → 附录 B）；287 行 evidence = 产品行 240 + e2e 夹具行 47（单列、不计），产品行 275 次比对（每行核借贷对；附录 B 点名钱包角色的 49 次再核角色；码 80 逐行）0 处不符、0 个无期望码；没有行的码逐码交代原因 |
 | `evidence-raw-phaseA.json` / `evidence-raw-phaseB.json` | 抽核表的原始行（evidence 行 + TigerBeetle 里取回的真实转账 / 账户），取样后栈已重铺，靠这两份可逐字复现表格 |
-| `a4-evidence.js` / `a4-table.js` | 取样脚本（库 + TB → 原始行）与成表脚本（原始行 → 表 + 与附录 B 比对）；用法与失效验证见抽核表末尾 |
+| `a4-evidence.js` / `a4-table.js` | 取样脚本（库 + TB → 原始行；页满即抛错的截断防护未重跑）与成表脚本（原始行 → 表 + 与附录 B 逐行比对，红时退出码 1）；用法与失效验证见抽核表末尾 |
 | `t8-company-funds-dashboard.png`、`t8-ledger-accounts.png` | T8：公司资金看板与账本科目页（现金户进科目页、数字同源） |
 | `t9-reattribution-detail.png` | T9：改记调账单详情页多出的现金对一行 |
 | `t11-cases-list.png`、`t11-case-customer.png`、`t11-case-company.png` | T11：对账引擎迁到现金户后的案件列表 / 客户案 / 公司案 |
-| `t12-ledger-accounts.png`、`t12-account-flows.png` | T12：现金户户名按模式（`Client Cash · CU… · vIBAN – AED`）；流水页户名不截断 |
+| `t12-ledger-accounts.png`、`t12-account-flows.png` | T12：账本科目页 Owner=WALLET 过滤，**一屏露出全部 21 个钱包现金户（14 客户 + 7 公司；页脚「Showing 21 / 21」）**，户名按模式（`Client Cash · CU… · vIBAN – AED`）；流水页户名不截断 |
 | `t13-company-funds-dashboard.png` | 收尾走查：公司资金看板，Operating AED 946,089.35 / USDT 113,999.428189，NLA 1,364,752.25（与账本公司现金·运营同源） |
-| `t13-ledger-accounts.png`、`t13-ledger-accounts-wallet-owner.png` | 账本科目页：全部 87 户第 1 页（客户现金户按钱包列出）；Owner=WALLET 过滤后 21 户（14 客户 + 7 公司现金户，户名按模式） |
+| `t13-ledger-accounts.png`、`t13-ledger-accounts-wallet-owner.png` | 账本科目页：全部 87 户第 1 页（客户现金户按钱包列出）；Owner=WALLET 过滤后页头 21 户。`…-wallet-owner.png` 受视口所限只露出前 17 行（页脚仍是「Showing 21 / 21」），**「14 客户 + 7 公司 = 21 个现金户」的可见证据是 `t12-ledger-accounts.png`**，不是这张 |
 | `t13-transfer-evidence.png` | 凭证页：102 笔，借贷列显示新助记码（`A.FIRM_CASH` / `E.INCOME_WITHDRAW_FEE` / `L.CLIENT_PAYABLE` / `A.CLIENT_CASH`） |
 | `t13-account-flows.png` | 账本流水页：204 行；公司手续费钱包现金户收费行 = IN，客户应付 / 客户现金出账行 = OUT |
 | `t13-recon-run-pass-detail.png` | `recon:demo:pass` 跑批详情：PASS — 21 wallets checked: all matched，案件 0 |
@@ -50,7 +50,7 @@
 ## 3. 走查截图读后记录（Read 过每一张）
 
 - 公司资金看板：Operating AED 946,089.35、USDT 113,999.428189（阈值条绿）；NLA 1,364,752.25 / 底线 1,200,000 / 余量 164,752.25；LP 在途 0；结算在途 0。数字与账本「公司现金·运营」户同源（T8 证 F_OPS AED 现金户 = 946,089.35）。
-- 账本科目页：「Ledger Accounts · 87 accounts」；第 1 页每个客户钱包一行现金户，户名 `Client Cash · CU… · vIBAN – AED` / `… · Deposit address – USDT`；暂扣户 `Client Deposits Held – Pending Release`。过滤 Owner=WALLET：21 户，含 `Company Cash · Company Liquidity · AED_ZAND – AED`、`Company Cash · Company Fees · AED_ZAND – AED` 等公司现金户。
+- 账本科目页：「Ledger Accounts · 87 accounts」；第 1 页每个客户钱包一行现金户，户名 `Client Cash · CU… · vIBAN – AED` / `… · Deposit address – USDT`；暂扣户 `Client Deposits Held – Pending Release`。过滤 Owner=WALLET：页头 21 户（14 客户 + 7 公司现金户的全貌见 `t12-ledger-accounts.png`；`t13-ledger-accounts-wallet-owner.png` 视口只露出前 17 行，含 `Company Cash · Company Liquidity · AED_ZAND – AED`、`Company Cash · Company Fees · AED_ZAND – AED` 等）。
 - 凭证页：102 笔，借 / 贷列是新助记码；提现手续费 `A.FIRM_CASH → E.INCOME_WITHDRAW_FEE`，应付 / 现金出账 `L.CLIENT_PAYABLE → A.CLIENT_CASH`。
 - 流水页：204 行；`Company Cash · Company Fees · TRON – USDT` 收费行 IN（余额 36.000000），`Withdrawal Fee Income` IN；`Payable to Clients` OUT；`Client Cash · CU… · Deposit address` OUT——方向按类别投影。
 - 对账 pass 详情：绿色横幅「PASS — 21 wallets checked: all matched」；21 / 21 / 0 / 0 / 0；案件流 0 / 0 / 0；钱包表每行 MATCHED。

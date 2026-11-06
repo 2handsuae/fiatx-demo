@@ -44,7 +44,7 @@ export class TbEvidenceService {
     private readonly flowProjector?: AccountFlowProjectorService,
   ) {}
 
-  /** 过账后类别感知余额（分，字符串）。资产借正、负债/权益贷正。TB 不可用则返回 null。 */
+  /** 过账后类别感知余额（分，字符串）。借正科目（现金 / 费用：A.* / X.*）借减贷，贷正科目（负债 / 权益 / 收入：L.* / E.*）贷减借。TB 不可用则返回 null。 */
   private async postedBalanceAfter(
     tbAccountId: string | null | undefined,
     coaCode: string,
@@ -536,7 +536,7 @@ export class TbEvidenceService {
       // Drop rows that hit a registry entry owned by someone else (the
       // aggregate-account legs are SYSTEM-owned, not this customer).
       if (reg.ownerType === 'CUSTOMER' && reg.ownerNo !== ownerNo) return false;
-      // For a customer wallet, drop SYSTEM-owned account legs (CLIENT_CASH etc).
+      // For a customer wallet, drop SYSTEM-owned account legs (firm-side equity / income / expense accounts: FIRM_EQUITY, INCOME_*, EXPENSE_*).
       if (wallet?.ownerType === 'CUSTOMER' && reg.ownerType === 'SYSTEM') return false;
       return true;
     });

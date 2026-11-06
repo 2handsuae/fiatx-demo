@@ -342,7 +342,7 @@ async function bumpFee(prisma: any, model: 'swapFeeLevel' | 'withdrawalFeeLevel'
   await prisma[model].update({ where: { levelCode }, data: { tiersJson, configHash } });
 }
 
-/** 钱包行建好后立即开它的现金户（戊波一 §2.3）：直接建的钱包行不经 WalletsService 的开户钩子，所以这里补——
+/** 钱包行建好后立即开它的现金户（戊波一 §2.3）：直接建的钱包行不经开户钩子（钩子在 CustomerDepositWalletService.createOrReturn，R11），所以这里补——
  *  用的是 seed-tb.helper 的 ensureWalletCashAccount（与业务种子同一个函数）。TB 连接随用随关，不跨整段 setup 持有。
  *  TB_ADDRESS 由文件头 requireStackEnv({ requireTb: true }) 保证存在。 */
 async function openWalletCashAccount(

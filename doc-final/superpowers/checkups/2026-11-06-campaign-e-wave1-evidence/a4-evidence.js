@@ -67,7 +67,10 @@ const FLAG = { 1: 'linked', 2: 'pending', 4: 'post_pending', 8: 'void_pending' }
     const acc = BigInt('0x' + r.tb.debitAcc);
     const key = r.tb.debitAcc;
     if (!accsDone.has(key)) {
-      const list = await client.getAccountTransfers({ account_id: acc, user_data_128: 0n, user_data_64: 0n, user_data_32: 0, code: 0, timestamp_min: 0n, timestamp_max: 0n, limit: 1000, flags: AccountFilterFlags.debits | AccountFilterFlags.credits });
+      const LIMIT = 1000;
+      const list = await client.getAccountTransfers({ account_id: acc, user_data_128: 0n, user_data_64: 0n, user_data_32: 0, code: 0, timestamp_min: 0n, timestamp_max: 0n, limit: LIMIT, flags: AccountFilterFlags.debits | AccountFilterFlags.credits });
+      // a full page means the account may have more transfers than we saw: a void beyond the page would be reported "not found" — refuse rather than lie
+      if (list.length >= LIMIT) throw new Error(`getAccountTransfers(${key}) returned ${list.length} = LIMIT ${LIMIT}: result may be truncated; raise LIMIT or paginate by timestamp_min before trusting openStage.found=false`);
       const byPending = new Map();
       for (const t of list) if (t.pending_id !== 0n) byPending.set(t.pending_id.toString(16).padStart(32, '0'), t);
       accsDone.set(key, byPending);
