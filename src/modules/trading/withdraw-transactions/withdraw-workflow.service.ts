@@ -224,19 +224,20 @@ export class WithdrawWorkflowService implements OnModuleInit {
     private readonly trRules: MockTrRulesService,
   ) {}
 
-  // Phase B helper: resolve the platform's F_FEE wallet id for an asset, used
-  // as creditWalletRef on FIRM-side fee rows. Returns null on miss (best-effort
-  // — the evidence row still records correctly, recon just can't pair by wallet).
-  private async resolveFirmFeeWalletRef(assetId: string): Promise<string | null> {
-    try {
-      const wallet = await this.systemWalletResolver.resolve(assetId, 'F_FEE');
-      return wallet?.id ?? null;
-    } catch (err) {
-      this.logger.warn(
-        `F_FEE wallet not found for asset ${assetId}: ${(err as Error).message}`,
+  /**
+   * 戊波一:这笔提现的钱从哪只客户钱包出——客户现金户(A.CLIENT_CASH,一钱包一户)的开户依据,
+   * 现金户只经 AccountingService.resolveCashAccountId 取(三域同一入口,不回落到任何聚合户)。
+   * 出款源钱包在出款阶段才绑到单上(ensureSourceWalletBound),所以退汇类分录(码 17)读 fromWalletId;
+   * 单上没绑 = 钱不知从哪只钱包出,记账失败即流程失败。
+   */
+  private sourceWalletId(w: any): string {
+    const walletId: string | null = w.fromWalletId ?? null;
+    if (!walletId) {
+      throw new BadRequestException(
+        `Withdrawal ${w.withdrawNo} has no source wallet bound — cannot resolve its cash account`,
       );
-      return null;
     }
+    return walletId;
   }
 
   onModuleInit() {
@@ -558,7 +559,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
           });
 
           // TB: create 2 pending transfers — lock customer balance
-          // Real-time 1:1 model: both net and fee lock into CLIENT_CASH (no crypto/fiat branch).
+          // 戊波一(附录 B 码 10 / 13):net 与 fee 两笔都 借 应付·客户 / 贷 现金·出款源钱包(A.CLIENT_CASH,一钱包一户),
+          // 无 crypto / fiat 分支;现金户只经 resolveCashAccountId 取。post / void 只带待决转账 id,自动落在这两只账户上。
           const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
           if (ledger && ownerType === 'CUSTOMER') {
             const clientPayableId = await this.accountingService.resolveTbAccountId({
@@ -567,22 +569,18 @@ export class WithdrawWorkflowService implements OnModuleInit {
               ownerType: 'CUSTOMER',
               ownerUuid: userId,
             }, tx);
-            const clientAssetId = await this.accountingService.resolveTbAccountId({
-              code: TB_ACCOUNT_CODES.CLIENT_CASH,
-              ledger,
-              ownerType: 'SYSTEM',
-            }, tx);
+            // 建单时单上的 fromWalletId 还没绑(出款阶段 ensureSourceWalletBound 才绑),所以按它同一条规则
+            // (客户自有钱包:crypto → C_DEP / fiat → C_VIBAN,同网络,最早的 ACTIVE 行)现取;在建单事务的 tx 里查。
+            const sourceWallet = await this.systemWalletResolver.resolveCustomer(
+              assetId,
+              asset.type === 'CRYPTO' ? 'C_DEP' : 'C_VIBAN',
+              userId,
+              tx,
+            );
+            const clientAssetId = await this.accountingService.resolveCashAccountId(sourceWallet.id, ledger, tx);
 
             const netBigint = this.decimalToBigint(netAmount, asset.decimals);
             const feeBigint = this.decimalToBigint(quoteFeeAmount, asset.decimals);
-
-            // Phase B per-physical-wallet recon: the customer's source wallet
-            // (vIBAN / C_OUT crypto wallet) is on the withdrawal record. Both legs
-            // of a pending lock sit on the same wallet — pending is a pre-occupation,
-            // not yet a real external crossing (the crossing happens on POST). At
-            // create-time fromWalletId is often null (orchestrator binds it later);
-            // that's fine — LOCK rows simply carry null and don't fail recon.
-            const walletRef: string | null = record.fromWalletId ?? null;
 
             const evidenceBase = {
               sourceType: 'WITHDRAWAL',
@@ -593,15 +591,10 @@ export class WithdrawWorkflowService implements OnModuleInit {
               traceId,
               actorType: ownerType,
               actorId: userId,
-              // Phase B: LOCK rows are pure ledger pre-occupation — same wallet on
-              // both legs, no external statement entry, not a real-world crossing.
-              debitWalletRef: walletRef,
-              creditWalletRef: walletRef,
               externalRef: null,
-              isExternalCrossing: false,
             };
 
-            // Pending #1: net amount CLIENT_PAYABLE → CLIENT_CASH (pending)
+            // Pending #1: net amount CLIENT_PAYABLE → CLIENT_CASH·源钱包 (pending)
             const { tbTransferId: pendingNetId } = await this.accountingService.executePendingTransfer({
               debitAccountId: clientPayableId,
               creditAccountId: clientAssetId,
@@ -619,9 +612,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
             tbPendingNetBigint = pendingNetId;
             netBigintForVoid = netBigint;
 
-            // Pending #2: fee amount CLIENT_PAYABLE → CLIENT_CASH (pending).
+            // Pending #2: fee amount CLIENT_PAYABLE → CLIENT_CASH·源钱包 (pending).
             // Posted on payout success (revenue recognised); voided on fail/cancel.
-            // Firm-side fee collect (DR FIRM_CASH / CR INCOME_WITHDRAW_FEE) fires separately on finalize.
+            // Firm-side fee collect (DR 现金·F_FEE 钱包 / CR INCOME_WITHDRAW_FEE) fires separately on finalize.
             let pendingFeeId: bigint | undefined;
             if (feeBigint > 0n) {
               const result = await this.accountingService.executePendingTransfer({
@@ -1131,19 +1124,12 @@ export class WithdrawWorkflowService implements OnModuleInit {
   // ── Finalization: per-leg TB POST driven by funds_order.status.changed ──
 
   /**
-   * Phase B per-physical-wallet recon reference pair, shared across POST_NET,
-   * POST_FEE and FEE_FIRM evidence so the recon engine can match a withdrawal's
-   * legs by wallet + external ref.
-   *   walletRef    = the customer's source wallet (vIBAN / C_OUT) bound at payout.
-   *   externalRef  = the real-world crossing identifier (chain txHash / bank ref),
-   *                  owned by the funds_order (read via resolveExternalRef).
+   * 对账配对键:POST_NET / POST_FEE / FEE_FIRM 三条证据共用同一个 externalRef(真实穿越的标识:
+   * 链上 txHash / 银行参考号,归 funds_order,CONFIRMED 时按类型铸,读 resolveExternalRef)。
+   * 戊波一:钱包落点由账户本身表达(现金户一钱包一户),不再另带钱包标签。
    */
-  // walletRef 仍取客户源钱包;externalRef 归 funds_order(CONFIRMED 时按类型铸)。
-  private recognitionRefs(w: any, fo: any): { walletRef: string | null; externalRef: string | null } {
-    return {
-      walletRef: w.fromWalletId ?? null,
-      externalRef: fo ? this.fundsOrders.resolveExternalRef(fo) : null,
-    };
+  private externalRefOf(fo: any): string | null {
+    return fo ? this.fundsOrders.resolveExternalRef(fo) : null;
   }
 
   /**
@@ -1167,9 +1153,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
     const decimals = w.asset?.decimals ?? 8;
     const fo = await this.fundsOrders.findById(fundsOrderId);
-    const { walletRef, externalRef } = this.recognitionRefs(w, fo);
+    const externalRef = this.externalRefOf(fo);
 
-    // POST pending transfer #1: net amount (CLIENT_PAYABLE → CLIENT_CASH, real-time 1:1)
+    // POST pending transfer #1: net amount (CLIENT_PAYABLE → CLIENT_CASH·源钱包, real-time 1:1;账户已在锁定时定下)
     if (w.tbPendingNetId) {
       const pendingNetBigint = hexToBigint(w.tbPendingNetId);
       const netBigint = this.decimalToBigint(w.netAmount, decimals);
@@ -1187,25 +1173,17 @@ export class WithdrawWorkflowService implements OnModuleInit {
           actorType: 'SYSTEM',
           actorId: 'WITHDRAW_WORKFLOW',
           memo: 'Payout confirmed: POST net pending transfer → CLIENT_CASH',
-          // Phase B: outbound real-world recognition. Both legs sit on the
-          // customer's source wallet; the external crossing is the on-chain /
-          // bank-statement entry identified by externalRef.
-          debitWalletRef: walletRef,
-          creditWalletRef: walletRef,
+          // 真实穿越的标识(链上 txHash / 银行参考号)
           externalRef,
-          isExternalCrossing: true,
         },
       });
       // postPendingTransfer only flips transferType — it doesn't write a new evidence
-      // row or carry Phase B fields. Enrich the LOCK row so it now records the POST
-      // event semantics (new eventCode + walletRef/externalRef/crossing).
+      // row. Enrich the LOCK row so it now records the POST event semantics
+      // (new eventCode + externalRef).
       await this.tbEvidenceService.enrichForPost(w.tbPendingNetId, {
         eventCode: 'WITHDRAW_NET_POST',
         memo: 'Payout confirmed: POST net pending transfer → CLIENT_CASH',
-        debitWalletRef: walletRef,
-        creditWalletRef: walletRef,
         externalRef,
-        isExternalCrossing: true,
         ...(effectiveDate && { effectiveDate }),
       });
     }
@@ -1234,9 +1212,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
 
   /**
    * Fee leg CONFIRMED (legSeq 2). POST the client-side fee pending transfer
-   * (CLIENT_PAYABLE → CLIENT_CASH) AND collect the firm-side fee (FIRM_CASH →
-   * INCOME_WITHDRAW_FEE), then CLEAR the leg. Fail-closed: aborts BEFORE any post if the
-   * firm-fee ledger cannot resolve — the leg stays CONFIRMED for operator repair,
+   * (CLIENT_PAYABLE → CLIENT_CASH·源钱包) AND collect the firm-side fee (现金·F_FEE 钱包 →
+   * INCOME_WITHDRAW_FEE,码 16), then CLEAR the leg. Fail-closed: aborts BEFORE any post if the
+   * firm-fee ledger or the F_FEE wallet's cash account cannot resolve — the leg stays CONFIRMED for operator repair,
    * so the customer is never charged a fee the firm can't book.
    *
    * Order guard (Task 6): the fee leg must never settle before the payout
@@ -1308,9 +1286,14 @@ export class WithdrawWorkflowService implements OnModuleInit {
         return;
       }
 
-      const { walletRef, externalRef } = this.recognitionRefs(w, fo);
+      const externalRef = this.externalRefOf(fo);
 
-      // POST pending transfer #2: client-side fee (CLIENT_PAYABLE → CLIENT_CASH, real-time 1:1)
+      // 公司侧收费(附录 B 码 16)的借方 = F_FEE 钱包的现金户(A.FIRM_CASH,一钱包一户)。先于客户侧费腿的 POST 解析:
+      // F_FEE 钱包 / 现金户取不到就抛(不回落聚合户),此时客户侧费还没落账——「客户不会被收一笔公司记不了的费」这条不变式不破。
+      const firmFeeWallet = await this.systemWalletResolver.resolve(w.assetId, 'F_FEE');
+      const firmFeeCashId = await this.accountingService.resolveCashAccountId(firmFeeWallet.id, ledger);
+
+      // POST pending transfer #2: client-side fee (CLIENT_PAYABLE → CLIENT_CASH·源钱包, real-time 1:1;账户已在锁定时定下)
       if (w.tbPendingFeeId) {
         const pendingFeeBigint = hexToBigint(w.tbPendingFeeId);
         await this.accountingService.postPendingTransfer({
@@ -1327,44 +1310,28 @@ export class WithdrawWorkflowService implements OnModuleInit {
             actorType: 'SYSTEM',
             actorId: 'WITHDRAW_WORKFLOW',
             memo: 'Payout confirmed: POST fee pending transfer → CLIENT_CASH',
-            // Phase B: client-side fee leg of the cross-wallet same-ref pair —
-            // FEE_POST and FEE_FIRM share externalRef so recon can match them.
-            debitWalletRef: walletRef,
-            creditWalletRef: walletRef,
+            // FEE_POST 与 FEE_FIRM 共用同一个 externalRef,对账按它把两条费腿配回去。
             externalRef,
-            isExternalCrossing: true,
           },
         });
         // Same as NET_POST: enrich the LOCK_FEE row to record FEE_POST semantics.
         await this.tbEvidenceService.enrichForPost(w.tbPendingFeeId, {
           eventCode: 'WITHDRAW_FEE_POST',
           memo: 'Payout confirmed: POST fee pending transfer → CLIENT_CASH',
-          debitWalletRef: walletRef,
-          creditWalletRef: walletRef,
           externalRef,
-          isExternalCrossing: true,
           ...(effectiveDate && { effectiveDate }),
         });
       }
 
-      // Firm-side fee collect: DR FIRM_CASH / CR INCOME_WITHDRAW_FEE (direct transfer, same ledger as asset)
-      const firmAssetId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.FIRM_CASH,
-        ledger,
-        ownerType: 'SYSTEM',
-      });
+      // 公司侧收费:借 现金·F_FEE 钱包(上面已解析)/ 贷 提现费收入(direct transfer, same ledger as asset)
       const firmFeeId = await this.accountingService.resolveTbAccountId({
         code: TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE,
         ledger,
         ownerType: 'SYSTEM',
       });
 
-      // Phase B: FIRM_CASH is the aggregate pool (no physical wallet);
-      // INCOME_WITHDRAW_FEE is the platform's F_FEE wallet for this asset.
-      const firmFeeWalletRef = await this.resolveFirmFeeWalletRef(w.assetId);
-
       await this.accountingService.executeTransfer({
-        debitAccountId: firmAssetId,
+        debitAccountId: firmFeeCashId,
         creditAccountId: firmFeeId,
         amount: feeBigint,
         ledger,
@@ -1379,15 +1346,9 @@ export class WithdrawWorkflowService implements OnModuleInit {
           traceId: w.traceId || w.id,
           actorType: 'SYSTEM',
           actorId: 'WITHDRAW_WORKFLOW',
-          memo: 'Firm-side fee collect: FIRM_CASH → INCOME_WITHDRAW_FEE',
-          // Phase B firm-side fee leg of the cross-wallet same-ref pair.
-          // debitWalletRef is null — FIRM_CASH is aggregate, has no physical wallet.
-          // creditWalletRef points at the platform's F_FEE wallet so recon can
-          // tie this row to the matching FEE_POST row by externalRef.
-          debitWalletRef: null,
-          creditWalletRef: firmFeeWalletRef,
+          memo: 'Firm-side fee collect: F_FEE wallet cash → INCOME_WITHDRAW_FEE',
+          // 与 FEE_POST 同一个 externalRef,对账据此把两条费腿配回去。
           externalRef,
-          isExternalCrossing: true,
           ...(effectiveDate && { effectiveDate }),
         },
       });
@@ -1748,7 +1709,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
    * Admin-initiated bounce (Task 7): the payout net leg already POSTed (money
    * actually left) but the bank/network returned it afterwards (dead IBAN,
    * closed account, downstream sanctions hit, etc.). Reverses the net amount
-   * back into the customer's balance — DR CLIENT_CASH / CR CLIENT_PAYABLE —
+   * back into the customer's balance — DR CLIENT_CASH·出款源钱包 / CR CLIENT_PAYABLE —
    * then flips PAYOUT_PENDING → RETURNED (terminal).
    *
    * Guards:
@@ -1793,11 +1754,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
     const netBigint = this.decimalToBigint(w.netAmount, decimals);
     const ledger = TB_LEDGERS[w.asset.currency as keyof typeof TB_LEDGERS];
 
-    const clientAssetId = await this.accountingService.resolveTbAccountId({
-      code: TB_ACCOUNT_CODES.CLIENT_CASH,
-      ledger,
-      ownerType: 'SYSTEM',
-    });
+    // 附录 B 码 17:借 现金·出款源钱包(A.CLIENT_CASH,一钱包一户)/ 贷 应付·客户
+    const clientAssetId = await this.accountingService.resolveCashAccountId(this.sourceWalletId(w), ledger);
     const clientPayableId = await this.accountingService.resolveTbAccountId({
       code: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
       ledger,
@@ -1808,7 +1766,6 @@ export class WithdrawWorkflowService implements OnModuleInit {
     const principalLegs = await this.fundsOrders.findByParent({ withdrawTransactionId: withdrawId }, { legSeq: PAYOUT_LEG_SEQ });
     const principalLeg = principalLegs[principalLegs.length - 1];
     const externalRef = principalLeg ? this.fundsOrders.resolveExternalRef(principalLeg) : null;
-    const walletRef = w.fromWalletId ?? null;
 
     await this.accountingService.executeTransfer({
       debitAccountId: clientAssetId,
@@ -1827,10 +1784,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         actorType: actorCtx.actorType,
         actorId: actorCtx.actorNo,
         memo: `Payout bounced by bank/network — reason: ${reason}`,
-        debitWalletRef: walletRef,
-        creditWalletRef: walletRef,
         externalRef,
-        isExternalCrossing: true,
       },
     });
 
@@ -2072,7 +2026,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
   }
 
   /**
-   * SUCCESS 之后的退回：与 onBounce 同一笔重记分录（DR CLIENT_CASH / CR CLIENT_PAYABLE，净额），
+   * SUCCESS 之后的退回：与 onBounce 同一笔重记分录（DR CLIENT_CASH·出款源钱包 / CR CLIENT_PAYABLE，净额），
    * 但 ① 不碰费腿——SUCCESS 时费腿早已结清，手续费不退；② externalRef / effectiveDate 用账单行的，
    * 让重跑案子那天的对账按参考号把这条流水认回去。先账后状态。
    */
@@ -2090,7 +2044,8 @@ export class WithdrawWorkflowService implements OnModuleInit {
     const decimals = w.asset?.decimals ?? 8;
     const netBigint = this.decimalToBigint(w.netAmount, decimals);
     const ledger = TB_LEDGERS[w.asset.currency as keyof typeof TB_LEDGERS];
-    const clientAssetId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger, ownerType: 'SYSTEM' });
+    // 附录 B 码 17:借 现金·出款源钱包(A.CLIENT_CASH,一钱包一户)/ 贷 应付·客户
+    const clientAssetId = await this.accountingService.resolveCashAccountId(this.sourceWalletId(w), ledger);
     const clientPayableId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: w.ownerId });
     await this.accountingService.executeTransfer({
       debitAccountId: clientAssetId, creditAccountId: clientPayableId, amount: netBigint, ledger, code: TB_TRANSFER_CODES.WITHDRAW_BOUNCE_REENTRY,
@@ -2099,8 +2054,7 @@ export class WithdrawWorkflowService implements OnModuleInit {
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
         assetCurrency: w.asset?.currency || '', traceId: w.traceId || w.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
         memo: `Payout returned by bank after SUCCESS — statement line ${line.externalRef ?? line.externalLineId} (recon case ${line.caseNo ?? '-'}); fee retained`,
-        debitWalletRef: w.fromWalletId ?? null, creditWalletRef: w.fromWalletId ?? null,
-        externalRef: line.externalRef, isExternalCrossing: true, effectiveDate: line.businessDate,
+        externalRef: line.externalRef, effectiveDate: line.businessDate,
       },
     });
     const returnedRow = await this.withdrawService.updateStatus(w.id, { action: WithdrawTransactionAction.RETURN, reason: `Returned by bank per approval ${event.approvalNo}` }, this.systemCtx);

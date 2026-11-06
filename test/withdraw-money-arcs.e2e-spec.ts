@@ -22,11 +22,13 @@ import { WithdrawalAddressService } from '../src/modules/asset-treasury/withdraw
 import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
 import { FundsOrderStatus } from '../src/modules/funds-orders/dto/funds-order.dto';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
+import { WalletCashAccountService } from '../src/modules/accounting/tigerbeetle/wallet-cash-account.service';
+import { SystemWalletResolver } from '../src/modules/funds-layer/domain/system-wallet-resolver.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
-import { hexToBigint } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
+import { bigintToHex, hexToBigint } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../src/modules/governance/approvals/constants/approval.constants';
 import { SUMSUB_TXN_CLIENT } from '../src/modules/sumsub-shared/sumsub-txn-client.interface';
@@ -73,6 +75,9 @@ import { fakeTronAddress } from '../src/common/utils/tron-address.util';
  * - The approval decided-cascade (ApprovalsService.approve/reject → …) is the
  *   same eventually-consistent chain deposit-money-arcs documents — `waitUntil()`
  *   polls after every approve()/reject() call.
+ * - 戊波一:现金类账户一钱包一户。客户进钱按真实充值的形状(码 1 借客户源钱包现金户 / 贷暂扣,再码 2 暂扣 → 应付),
+ *   提现锁定 / 落账 / 作废 / 退汇都落在这只钱包的现金户上,公司收费(码 16)借 F_FEE 钱包的现金户;
+ *   取户只经 AccountingService.resolveCashAccountId,断言按附录 B「提现」表的助记码与真实账户 id。
  */
 describe('Withdraw money arcs (e2e, Task 12)', () => {
   jest.setTimeout(60000);
@@ -175,10 +180,10 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
       address: registeredCryptoAddress,
     });
 
-    // Pre-fund the customer's CLIENT_PAYABLE balance (real TB transfer, DEPOSIT_SUSPENSE
-    // → CLIENT_PAYABLE — same leg a real deposit's Step 2 posts). Deterministic
-    // sourceNo → idempotent across repeated suite runs (TB transfer id collision
-    // is treated as success, not double-funded).
+    // Pre-fund the customer in the real deposit shape (real TB transfers: customer
+    // source-wallet cash → DEPOSIT_SUSPENSE, then DEPOSIT_SUSPENSE → CLIENT_PAYABLE).
+    // Deterministic sourceNo → idempotent across repeated suite runs (TB transfer id
+    // collision is treated as success, not double-funded).
     await fundCustomer(fiatAssetId, 'AED', '1000000');
     await fundCustomer(cryptoAssetId, 'USDT', '1000000');
   });
@@ -205,7 +210,10 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     const existing = await (prisma as any).wallet.findFirst({
       where: { ownerType: 'CUSTOMER', ownerId: customerId, network: opts.network, walletRole: opts.walletRole, status: 'ACTIVE' },
     });
-    if (existing) return existing.id;
+    if (existing) {
+      await app.get(WalletCashAccountService).ensureForWallet(existing); // 幂等:已开过户则直接返回
+      return existing.id;
+    }
     const created = await (prisma as any).wallet.create({
       data: {
         walletNo: `WA-E2E-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -214,6 +222,9 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
         address: opts.address ?? null, iban: opts.iban ?? null, status: 'ACTIVE',
       },
     });
+    // 戊波一:每个钱包一个现金户——运行时钱包在开地址流程里开户,这里直接 prisma.create 的夹具要补上,
+    // 否则提现建单的锁定(贷客户现金户)解析不到账户。
+    await app.get(WalletCashAccountService).ensureForWallet(created);
     return created.id;
   }
 
@@ -236,15 +247,43 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     });
   }
 
-  /** Real TB transfer (DEPOSIT_SUSPENSE → CLIENT_PAYABLE) — same leg a real
-   *  deposit's Step 2 posts. Deterministic sourceNo (fixed per currency) makes
-   *  this idempotent across repeated suite runs. */
+  /** 客户进钱的那只钱包:按提现出款源钱包同一条规则(crypto → C_DEP、fiat → C_VIBAN,同网络,最早的 ACTIVE 行)取。 */
+  async function sourceWalletIdFor(assetId: string, currency: string): Promise<string> {
+    const wallet = await app.get(SystemWalletResolver).resolveCustomer(assetId, currency === 'AED' ? 'C_VIBAN' : 'C_DEP', customerId);
+    return wallet.id;
+  }
+
+  /** 按真实充值的形状给客户进钱(戊波一):先 码1 借客户源钱包现金户 / 贷暂扣(钱到了钱包),再 码2 借暂扣 / 贷应付(放行入账)。
+   *  sourceNo 固定,重跑同一个库不重复进钱(TB 转账 id 撞号当成功,不重复进)。 */
   async function fundCustomer(assetId: string, currency: string, amount: string): Promise<void> {
     const asset = await (prisma as any).asset.findUnique({ where: { id: assetId } });
     const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];
     const amountBigint = decimalToBigint(amount, asset.decimals);
+    const cashId = await accounting.resolveCashAccountId(await sourceWalletIdFor(assetId, currency), ledger);
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
+    const common = {
+      sourceType: 'DEPOSIT',
+      sourceNo: `E2E-WITHDRAW-ARCS-FUND-${currency}`,
+      assetCurrency: currency,
+      traceId: `e2e-withdraw-arcs-fund-${currency}`,
+      actorType: 'SYSTEM',
+      actorId: 'E2E_HARNESS',
+      memo: 'e2e fixture: pre-fund customer balance for withdraw money-arc tests',
+    };
+    await accounting.executeTransfer({
+      debitAccountId: cashId,
+      creditAccountId: suspenseId,
+      amount: amountBigint,
+      ledger,
+      code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
+      evidence: {
+        ...common,
+        eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
+        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
+      },
+    });
     await accounting.executeTransfer({
       debitAccountId: suspenseId,
       creditAccountId: payableId,
@@ -252,19 +291,25 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
       ledger,
       code: TB_TRANSFER_CODES.DEPOSIT_SUSPENSE_TO_PAYABLE,
       evidence: {
-        sourceType: 'DEPOSIT',
-        sourceNo: `E2E-WITHDRAW-ARCS-FUND-${currency}`,
+        ...common,
         eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE',
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
-        assetCurrency: currency,
-        traceId: `e2e-withdraw-arcs-fund-${currency}`,
-        actorType: 'SYSTEM',
-        actorId: 'E2E_HARNESS',
-        memo: 'e2e fixture: pre-fund customer balance for withdraw money-arc tests',
-        isExternalCrossing: false,
       },
     });
+  }
+
+  /** 现金户已落账净额(资产类:借增贷减)——断言「钱从哪只钱包出 / 费进哪只钱包」。 */
+  async function cashPosted(walletId: string, ledger: number): Promise<bigint> {
+    const balance = await accounting.lookupBalance(await accounting.resolveCashAccountId(walletId, ledger));
+    return balance.debitsPosted - balance.creditsPosted;
+  }
+
+  /** 每个 eventCode 的 [借方科目, 贷方科目] 助记码必须与附录 B「提现」表一致(且一个 eventCode 恰好一行)。 */
+  function expectEvidencePairs(evidence: any[], expected: Record<string, [string, string]>): void {
+    const got: Record<string, [string, string]> = {};
+    for (const e of evidence) got[e.eventCode] = [e.debitCode, e.creditCode];
+    expect(got).toEqual(expected);
   }
 
   async function createQuote(assetId: string, assetCode: string, amount: string) {
@@ -388,7 +433,6 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
    */
   async function manuallyPostFeeLeg(w: any, feeLeg: any): Promise<void> {
     const feeBigint = decimalToBigint(String(w.feeAmount), w.asset.decimals);
-    const walletRef = w.fromWalletId ?? null;
     await accounting.postPendingTransfer({
       pendingTransferId: hexToBigint(w.tbPendingFeeId),
       amount: feeBigint,
@@ -407,10 +451,7 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     await tbEvidence.enrichForPost(w.tbPendingFeeId, {
       eventCode: 'WITHDRAW_FEE_POST',
       memo: 'e2e fixture: manual fee post to exercise bounce fee-retained branch',
-      debitWalletRef: walletRef,
-      creditWalletRef: walletRef,
       externalRef: null,
-      isExternalCrossing: true,
     });
     await (prisma as any).fundsOrder.update({ where: { id: feeLeg.id }, data: { status: FundsOrderStatus.CONFIRMED } });
   }
@@ -419,11 +460,19 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
 
   it('1. happy crypto: approved → PAYOUT_PENDING → both legs post → SUCCESS (fee leg CLEARED, settlement invariant holds)', async () => {
     const amount = '500';
+    const usdtLedger = TB_LEDGERS.USDT;
+    const srcWalletId = await sourceWalletIdFor(cryptoAssetId, 'USDT');
+    const feeWalletId = (await app.get(SystemWalletResolver).resolve(cryptoAssetId, 'F_FEE')).id;
+    const srcCashBefore = await cashPosted(srcWalletId, usdtLedger);
+    const feeCashBefore = await cashPosted(feeWalletId, usdtLedger);
+
     const w = await createWithdrawal({ assetId: cryptoAssetId, assetCode: cryptoCode, amount, toAddress: registeredCryptoAddress });
     expect(w.status).toBe(WithdrawTransactionStatus.COMPLIANCE_PENDING);
 
     await workflow.applyKytVerdict(w.id, { verdict: 'approved' });
     expect(await statusOf(w.id)).toBe(WithdrawTransactionStatus.PAYOUT_PENDING);
+    // 建单时现取的源钱包 = 出款阶段绑到单上的钱包(同一条规则),锁定与退回落在同一只钱包
+    expect((await withdrawService.findOneInternal(w.id)).fromWalletId).toBe(srcWalletId);
 
     const [payoutLeg] = await fundsOrders.findByParent({ withdrawTransactionId: w.id }, { legSeq: 1 });
     const [feeLeg] = await fundsOrders.findByParent({ withdrawTransactionId: w.id }, { legSeq: 2 });
@@ -445,6 +494,25 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
     expect(codes).toContain('WITHDRAW_NET_POST');
     expect(codes).toContain('WITHDRAW_FEE_POST');
     expect(codes).toContain('WITHDRAW_FEE_FIRM');
+
+    // 戊波一·附录 B「提现·出款确认」:本金 / 费落账同一只客户源钱包现金户(码 10→11、13→14),公司收费借 F_FEE 钱包现金户(码 16)
+    expectEvidencePairs(evidence, {
+      WITHDRAW_NET_POST: ['L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
+      WITHDRAW_FEE_POST: ['L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
+      WITHDRAW_FEE_FIRM: ['A.FIRM_CASH', 'E.INCOME_WITHDRAW_FEE'],
+    });
+    const srcCashHex = bigintToHex(await accounting.resolveCashAccountId(srcWalletId, usdtLedger));
+    const feeCashHex = bigintToHex(await accounting.resolveCashAccountId(feeWalletId, usdtLedger));
+    const byEvent = (code: string) => evidence.find((e: any) => e.eventCode === code);
+    expect(byEvent('WITHDRAW_NET_POST').creditTbAccountId).toBe(srcCashHex);
+    expect(byEvent('WITHDRAW_FEE_POST').creditTbAccountId).toBe(srcCashHex);
+    expect(byEvent('WITHDRAW_FEE_FIRM').debitTbAccountId).toBe(feeCashHex);
+
+    // 余额落点:源钱包现金户少了 本金+费 = 申请额,F_FEE 钱包现金户多了费
+    const done = await withdrawService.findOneInternal(w.id);
+    const feeBigint = decimalToBigint(String(done.feeAmount), cryptoDecimals);
+    expect(await cashPosted(srcWalletId, usdtLedger)).toBe(srcCashBefore - decimalToBigint(amount, cryptoDecimals));
+    expect(await cashPosted(feeWalletId, usdtLedger)).toBe(feeCashBefore + feeBigint);
 
     const actions = await auditActionsFor(w.id);
     expect(actions).toContain('WITHDRAW_PAYOUT_COMPLETED');
@@ -475,6 +543,15 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
 
     const after = await availableBalance('AED');
     expect(after.available).toBe(before.available); // fully restored — net+fee both released
+
+    // 戊波一·附录 B「提现·出款失败」:锁定的两笔(码 10 / 13)借 应付 / 贷 客户 vIBAN 钱包现金户,作废(码 12 / 15)落同一对账户
+    const lockRows = await tbEvidence.findBySource('WITHDRAWAL', w.withdrawNo);
+    expectEvidencePairs(lockRows, {
+      WITHDRAW_LOCK_NET: ['L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
+      WITHDRAW_LOCK_FEE: ['L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
+    });
+    const vibanCashHex = bigintToHex(await accounting.resolveCashAccountId(await sourceWalletIdFor(fiatAssetId, 'AED'), TB_LEDGERS.AED));
+    for (const r of lockRows) expect(r.creditTbAccountId).toBe(vibanCashHex);
   });
 
   it('3. fee leg FAILED×3 → STUCK flag + still PAYOUT_PENDING → repair (fresh attempt) → SUCCESS', async () => {
@@ -631,6 +708,13 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
 
     const evidence = await tbEvidence.findBySource('WITHDRAWAL', w.withdrawNo);
     expect(evidence.map((e: any) => e.eventCode)).toContain('WITHDRAW_BOUNCE_REENTRY');
+    // 戊波一·附录 B「出款后被银行退回」:借 现金·出款源钱包(vIBAN)/ 贷 应付,费不退——借方就是这只 vIBAN 钱包的现金户
+    const bounceRow = evidence.find((e: any) => e.eventCode === 'WITHDRAW_BOUNCE_REENTRY');
+    expect(bounceRow.debitCode).toBe('A.CLIENT_CASH');
+    expect(bounceRow.creditCode).toBe('L.CLIENT_PAYABLE');
+    expect(bounceRow.debitTbAccountId).toBe(
+      bigintToHex(await accounting.resolveCashAccountId(await sourceWalletIdFor(fiatAssetId, 'AED'), TB_LEDGERS.AED)),
+    );
 
     const bouncedAudit = await auditRowsFor(w.id, AuditActions.WITHDRAW_BOUNCED);
     expect(bouncedAudit).toHaveLength(1);

@@ -104,6 +104,8 @@ describe('WithdrawTransactionsService', () => {
           provide: AccountingService,
           useValue: {
             resolveTbAccountId: jest.fn().mockResolvedValue(BigInt(1)),
+            // 戊波一:现金户只经这个入口取(钱包 id → 该钱包的 A.CLIENT_CASH 户)
+            resolveCashAccountId: jest.fn().mockResolvedValue(BigInt(7)),
             executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: BigInt(1) }),
             executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: BigInt(2) }),
             voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
@@ -133,7 +135,8 @@ describe('WithdrawTransactionsService', () => {
       {} as any, // fundsOrders
       {} as any, // approvalsService
       {} as any, // binanceRateProvider
-      {} as any, // systemWalletResolver
+      // 戊波一:建单时 fromWalletId 未绑,锁定按出款源钱包同一规则现取客户钱包(现金户的开户依据)
+      { resolveCustomer: jest.fn().mockResolvedValue({ id: 'wallet-cust-src' }) } as any, // systemWalletResolver
       {} as any, // tbEvidenceService
       { evaluate: jest.fn(() => Promise.resolve({ grossAedValue: null, aedRate: null, rateFetchedAt: null, rateFetchFailed: false })) } as any, // limitGateService
       {} as any, // limitRulesService
@@ -1601,7 +1604,7 @@ describe('WithdrawTransactionsService', () => {
       withdrawQuoteService.consumeQuote.mockResolvedValue({ id: 'wq-tb', status: 'USED' });
     }
 
-    it('net pending uses CLIENT_CASH as credit target with WITHDRAW_NET_PENDING code (crypto)', async () => {
+    it('net pending credits the source wallet cash account (A.CLIENT_CASH) with WITHDRAW_NET_PENDING code (crypto)', async () => {
       arrangeCreateAsset('CRYPTO');
       const accountingService = module.get<AccountingService>(AccountingService);
 
@@ -1612,9 +1615,19 @@ describe('WithdrawTransactionsService', () => {
       expect(netCall).toBeDefined();
       expect(netCall[0].code).toBe(TB_TRANSFER_CODES.WITHDRAW_NET_PENDING);
       expect(netCall[0].evidence.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
+      // 戊波一:贷方 = 客户源钱包的现金户(经 resolveCashAccountId),不是聚合 CLIENT_CASH
+      expect(netCall[0].creditAccountId).toBe(BigInt(7));
+      expect(accountingService.resolveCashAccountId).toHaveBeenCalledWith('wallet-cust-src', expect.any(Number), expect.anything());
+      expect(accountingService.resolveTbAccountId).not.toHaveBeenCalledWith(
+        expect.objectContaining({ code: TB_ACCOUNT_CODES.CLIENT_CASH }),
+        expect.anything(),
+      );
+      expect(netCall[0].evidence).not.toHaveProperty('debitWalletRef');
+      expect(netCall[0].evidence).not.toHaveProperty('creditWalletRef');
+      expect(netCall[0].evidence).not.toHaveProperty('isExternalCrossing');
     });
 
-    it('fee pending uses CLIENT_CASH as credit target with WITHDRAW_FEE_PENDING code (crypto)', async () => {
+    it('fee pending credits the same source wallet cash account (A.CLIENT_CASH) with WITHDRAW_FEE_PENDING code (crypto)', async () => {
       arrangeCreateAsset('CRYPTO');
       const accountingService = module.get<AccountingService>(AccountingService);
 
@@ -1625,18 +1638,23 @@ describe('WithdrawTransactionsService', () => {
       expect(feeCall).toBeDefined();
       expect(feeCall[0].code).toBe(TB_TRANSFER_CODES.WITHDRAW_FEE_PENDING);
       expect(feeCall[0].evidence.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
+      expect(feeCall[0].creditAccountId).toBe(BigInt(7));
     });
 
-    it('net and fee pending both use CLIENT_CASH (fiat — no branch)', async () => {
+    it('net and fee pending both credit the source wallet cash account (fiat — vIBAN wallet, AED ledger, no branch)', async () => {
       arrangeCreateAsset('FIAT');
       const accountingService = module.get<AccountingService>(AccountingService);
 
       await workflow.createWithdrawal({ assetId: 'asset-tb-1', amount: 110, quoteId: 'wq-tb' } as any, 'user-tb');
 
       const calls = (accountingService.executePendingTransfer as jest.Mock).mock.calls;
+      expect(calls).toHaveLength(2);
       for (const call of calls) {
         expect(call[0].evidence.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
+        expect(call[0].creditAccountId).toBe(BigInt(7));
       }
+      // 法币 → vIBAN 钱包(C_VIBAN),AED 账本 1
+      expect(accountingService.resolveCashAccountId).toHaveBeenCalledWith('wallet-cust-src', 1, expect.anything());
     });
   });
 

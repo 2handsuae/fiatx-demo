@@ -1902,6 +1902,8 @@ function buildFeeWorkflow(overrides: {
     postPendingTransfer: jest.fn().mockResolvedValue(undefined),
     executeTransfer: jest.fn().mockResolvedValue(undefined),
     resolveTbAccountId: jest.fn().mockResolvedValue('tb-acct-1'),
+    // 戊波一:公司侧收费借方 = F_FEE 钱包现金户
+    resolveCashAccountId: jest.fn().mockResolvedValue('tb-cash-f-fee'),
     voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
     ...overrides.accountingService,
   };
@@ -2006,6 +2008,9 @@ describe('WithdrawWorkflowService — Task 6: fee-leg order guard', () => {
     // 回捞 settled the deferred fee leg: POST + firm-fee collect + CLEAR.
     expect(accountingService.postPendingTransfer).toHaveBeenCalled();
     expect(accountingService.executeTransfer).toHaveBeenCalled();
+    // 戊波一:公司侧收费借 F_FEE 钱包(buildFeeWorkflow 的 systemWalletResolver.resolve → wallet-f-fee)的现金户
+    expect(accountingService.resolveCashAccountId).toHaveBeenCalledWith('wallet-f-fee', 2);
+    expect(accountingService.executeTransfer).toHaveBeenCalledWith(expect.objectContaining({ debitAccountId: 'tb-cash-f-fee' }));
     expect(fundsOrders.advance).toHaveBeenCalledWith('fo-fee-1', 'CLEAR', 'SYSTEM');
     expect(withdrawService.resetFeeSettleAttempts).toHaveBeenCalledWith(feeWithdrawal.id);
   });
@@ -2248,6 +2253,8 @@ function buildBounceWorkflow(overrides: {
   const accountingService = {
     executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 9n }),
     resolveTbAccountId: jest.fn().mockResolvedValue(1n),
+    // 戊波一:退汇重入借方 = 出款源钱包的现金户
+    resolveCashAccountId: jest.fn().mockResolvedValue(1n),
     voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
     ...overrides.accountingService,
   };
@@ -2343,9 +2350,9 @@ describe('WithdrawWorkflowService.onBounce (Task 7: RETURNED bounce entry)', () 
       { id: 'fo-principal-1', txHash: '0xabc', asset: bounceWithdrawal.asset },
     ]);
     fundsOrders.resolveExternalRef.mockReturnValue('0xabc');
-    accountingService.resolveTbAccountId.mockImplementation(async (params: any) =>
-      params.code === TB_ACCOUNT_CODES.CLIENT_CASH ? 111n : 222n,
-    );
+    // 戊波一:借方 = 出款源钱包(fromWalletId)的现金户,只经 resolveCashAccountId 取;贷方 = 客户应付
+    accountingService.resolveCashAccountId.mockResolvedValue(111n);
+    accountingService.resolveTbAccountId.mockResolvedValue(222n);
 
     const callOrder: string[] = [];
     accountingService.executeTransfer.mockImplementation(async () => {
@@ -2371,14 +2378,20 @@ describe('WithdrawWorkflowService.onBounce (Task 7: RETURNED bounce entry)', () 
           eventCode: 'WITHDRAW_BOUNCE_REENTRY',
           debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
           creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
-          debitWalletRef: bounceWithdrawal.fromWalletId,
-          creditWalletRef: bounceWithdrawal.fromWalletId,
           externalRef: '0xabc',
-          isExternalCrossing: true,
           memo: expect.stringContaining(reason),
         }),
       }),
     );
+    expect(accountingService.resolveCashAccountId).toHaveBeenCalledWith(bounceWithdrawal.fromWalletId, 2);
+    expect(accountingService.resolveTbAccountId).toHaveBeenCalledWith(
+      { code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: 2, ownerType: 'CUSTOMER', ownerUuid: bounceWithdrawal.ownerId },
+    );
+    expect(accountingService.resolveTbAccountId).not.toHaveBeenCalledWith(expect.objectContaining({ code: TB_ACCOUNT_CODES.CLIENT_CASH }));
+    const bounceEvidence = accountingService.executeTransfer.mock.calls[0][0].evidence;
+    expect(bounceEvidence).not.toHaveProperty('debitWalletRef');
+    expect(bounceEvidence).not.toHaveProperty('creditWalletRef');
+    expect(bounceEvidence).not.toHaveProperty('isExternalCrossing');
 
     expect(withdrawService.updateStatus).toHaveBeenCalledWith(
       bounceWithdrawal.id,
@@ -2400,6 +2413,16 @@ describe('WithdrawWorkflowService.onBounce (Task 7: RETURNED bounce entry)', () 
       }),
       expect.anything(),
     );
+  });
+
+  it('no source wallet bound → fails before any entry (no fallback to an aggregate), status untouched', async () => {
+    const { workflow, withdrawService, accountingService } = buildBounceWorkflow();
+    withdrawService.findOneInternal.mockResolvedValue({ ...bounceWithdrawal, fromWalletId: null });
+
+    await expect(workflow.onBounce(bounceWithdrawal.id, 'bank returned funds')).rejects.toThrow(/source wallet/);
+
+    expect(accountingService.executeTransfer).not.toHaveBeenCalled();
+    expect(withdrawService.updateStatus).not.toHaveBeenCalled();
   });
 
   it('double bounce: second call is rejected because the first already flipped status to RETURNED', async () => {
@@ -3484,6 +3507,7 @@ describe('WithdrawWorkflowService — 平账 B 批③：退回认领', () => {
     };
     accountingService = {
       resolveTbAccountId: jest.fn(),
+      resolveCashAccountId: jest.fn(),
       executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: BigInt(1) }),
       voidPendingTransferBestEffort: jest.fn().mockResolvedValue(true),
     };
@@ -3549,13 +3573,21 @@ describe('WithdrawWorkflowService — 平账 B 批③：退回认领', () => {
     withdrawService.findOneInternal.mockResolvedValue({ ...w, returnExternalLineId: 'line-3' });
     supplementEvidence.describeLine.mockResolvedValue({ externalLineId: 'line-3', externalRef: 'PAYRET-1', businessDate: '2026-09-01', amountMinor: '90000', direction: 'IN', caseNo: 'REC3' });
     prisma.tbTransferEvidence.findMany.mockResolvedValue([{ eventCode: 'WITHDRAW_NET_POST' }]);
-    accountingService.resolveTbAccountId.mockResolvedValueOnce(1n).mockResolvedValueOnce(100n);
+    accountingService.resolveCashAccountId.mockResolvedValueOnce(1n);
+    accountingService.resolveTbAccountId.mockResolvedValueOnce(100n);
     withdrawService.updateStatus.mockResolvedValue({ ...w, status: 'RETURNED' });
     await workflow.onReturnClaimDecided({ decision: 'APPROVED', entityRef: 'WDR1', approvalId: 'ap3', approvalNo: 'APR3' } as any);
     const call = accountingService.executeTransfer.mock.calls[0][0];
     expect(call.code).toBe(TB_TRANSFER_CODES.WITHDRAW_BOUNCE_REENTRY);
     expect(call.amount).toBe(90000n);
-    expect(call.evidence).toMatchObject({ externalRef: 'PAYRET-1', effectiveDate: '2026-09-01', isExternalCrossing: true });
+    // 戊波一(附录 B 码 17):借 现金·出款源钱包(w9)/ 贷 应付·客户
+    expect(accountingService.resolveCashAccountId).toHaveBeenCalledWith('w9', 1);
+    expect(call.debitAccountId).toBe(1n);
+    expect(call.creditAccountId).toBe(100n);
+    expect(call.evidence).toMatchObject({ debitCode: 'A.CLIENT_CASH', creditCode: 'L.CLIENT_PAYABLE', externalRef: 'PAYRET-1', effectiveDate: '2026-09-01' });
+    expect(call.evidence).not.toHaveProperty('debitWalletRef');
+    expect(call.evidence).not.toHaveProperty('creditWalletRef');
+    expect(call.evidence).not.toHaveProperty('isExternalCrossing');
     expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
     expect(withdrawService.updateStatus).toHaveBeenCalledWith('wd1', expect.objectContaining({ action: WithdrawTransactionAction.RETURN }), expect.anything());
   });
@@ -3692,9 +3724,12 @@ describe('WithdrawWorkflowService.createWithdrawal — 波五 Task 4：创建即
     };
     const accountingService = {
       resolveTbAccountId: jest.fn(() => Promise.resolve(1n)),
+      resolveCashAccountId: jest.fn(() => Promise.resolve(2n)),
       executePendingTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 1n })),
       voidPendingTransferBestEffort: jest.fn(() => Promise.resolve()),
     };
+    // 戊波一:建单时 fromWalletId 未绑,锁定按出款源钱包同一规则现取客户钱包
+    const systemWalletResolver = { resolveCustomer: jest.fn(() => Promise.resolve({ id: 'wallet-c-dep-1' })) };
     const withdrawQuoteService = {
       getActiveQuoteOrThrow: jest.fn(() => Promise.resolve(quote)),
       consumeQuote: jest.fn(() => Promise.resolve({})),
@@ -3738,7 +3773,7 @@ describe('WithdrawWorkflowService.createWithdrawal — 波五 Task 4：创建即
       $transaction: jest.fn((cb: any) => cb({ asset: { findUnique: jest.fn(() => Promise.resolve(asset)) } })),
     };
 
-    return { auditLogsService, accountingService, withdrawQuoteService, withdrawService, eventEmitter, customerAccessService, l1Gate, limitGateService, prisma };
+    return { auditLogsService, accountingService, systemWalletResolver, withdrawQuoteService, withdrawService, eventEmitter, customerAccessService, l1Gate, limitGateService, prisma };
   }
 
   function makeService(mocks: ReturnType<typeof buildFoldMocks>) {
@@ -3752,7 +3787,7 @@ describe('WithdrawWorkflowService.createWithdrawal — 波五 Task 4：创建即
       {} as any, // fundsOrders
       {} as any, // approvalsService
       {} as any, // binanceRateProvider
-      {} as any, // systemWalletResolver
+      mocks.systemWalletResolver as any,
       {} as any, // tbEvidenceService
       mocks.limitGateService as any,
       {} as any, // limitRulesService
@@ -3881,13 +3916,14 @@ describe('WithdrawWorkflowService.createWithdrawal — 对手方波二：建单�
       { recordByActor: jest.fn(() => Promise.resolve()), recordSystem: jest.fn(() => Promise.resolve()) } as any,
       {
         resolveTbAccountId: jest.fn(() => Promise.resolve(1n)),
+        resolveCashAccountId: jest.fn(() => Promise.resolve(2n)),
         executePendingTransfer: jest.fn(() => Promise.resolve({ tbTransferId: 1n })),
         voidPendingTransferBestEffort: jest.fn(() => Promise.resolve()),
       } as any,
       {} as any, // fundsOrders
       {} as any, // approvalsService
       {} as any, // binanceRateProvider
-      {} as any, // systemWalletResolver
+      { resolveCustomer: jest.fn(() => Promise.resolve({ id: 'wallet-c-dep-1' })) } as any, // systemWalletResolver
       {} as any, // tbEvidenceService
       { evaluate: jest.fn(() => Promise.resolve({ grossAedValue: null, aedRate: null, rateFetchedAt: null, rateFetchFailed: false })) } as any, // limitGateService
       {} as any, // limitRulesService

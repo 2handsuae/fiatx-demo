@@ -2,15 +2,17 @@
 /**
  * withdraw-fee-income.service.spec.ts
  *
- * Real-time 1:1 T5: Asserts that:
- * (a) WithdrawWorkflowService.createWithdrawal locks fee pending into CLIENT_CASH (not FEE_INCOME / FEE_RECEIVABLE)
+ * Real-time 1:1 T5 + 戊波一(附录 B 提现): Asserts that:
+ * (a) WithdrawWorkflowService.createWithdrawal locks net + fee pending against the customer's source
+ *     wallet cash account (A.CLIENT_CASH 一钱包一户, resolveCashAccountId — never the aggregate, never FEE_INCOME / FEE_RECEIVABLE)
  * (b) the funds_order-driven per-leg handlers post the net leg (onPayoutLegConfirmed)
  *     and the fee leg (onFeeLegConfirmed) with creditCode = CLIENT_CASH, then execute
- *     firm-side collect DR FIRM_CASH / CR INCOME_WITHDRAW_FEE — mirroring the legacy
+ *     firm-side collect DR 现金·F_FEE 钱包 (A.FIRM_CASH) / CR INCOME_WITHDRAW_FEE — mirroring the legacy
  *     handlePayoutConfirmed / finalizeWithdrawal, now split across legSeq 1 + 2.
  */
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { Prisma } from '@prisma/client';
 import { FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 
@@ -52,8 +54,6 @@ function makeWithdrawRecord(overrides: Record<string, any> = {}) {
 function buildServiceMocks() {
   const resolveMap: Record<number, bigint> = {
     [TB_ACCOUNT_CODES.CLIENT_PAYABLE]: 10n,
-    [TB_ACCOUNT_CODES.CLIENT_CASH]: 20n,
-    [TB_ACCOUNT_CODES.FIRM_CASH]: 50n,
     [TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE]: 202n,
   };
 
@@ -64,6 +64,8 @@ function buildServiceMocks() {
     resolveTbAccountId: jest.fn(({ code }: { code: number }) =>
       Promise.resolve(resolveMap[code] ?? 99n),
     ),
+    // 戊波一:现金户只经这个入口取(钱包 id → 该钱包的 A.CLIENT_CASH 户)
+    resolveCashAccountId: jest.fn((_walletId: string, _ledger: number, _tx?: any) => Promise.resolve(20n)),
     executePendingTransfer: jest.fn(() => Promise.resolve(makeTx())),
     executeTransfer: jest.fn(() => Promise.resolve({ tbTransferId: counter++ })),
     voidPendingTransferBestEffort: jest.fn(() => Promise.resolve()),
@@ -148,6 +150,13 @@ function buildServiceMocks() {
     }),
   };
 
+  // 戊波一:建单时 fromWalletId 还没绑(出款阶段 ensureSourceWalletBound 才绑),锁定按同一条规则现取客户源钱包
+  const systemWalletResolver = {
+    resolveCustomer: jest.fn((_assetId: string, _role: string, _ownerId: string, _tx?: any) =>
+      Promise.resolve({ id: 'wallet-c-dep-1' }),
+    ),
+  };
+
   return {
     accountingService,
     withdrawQuoteService,
@@ -155,6 +164,7 @@ function buildServiceMocks() {
     eventEmitter,
     prisma,
     withdrawService,
+    systemWalletResolver,
   };
 }
 
@@ -172,7 +182,7 @@ function makeWorkflowForCreate(mocks: ReturnType<typeof buildServiceMocks>) {
     {} as any, // fundsOrders
     {} as any, // approvalsService
     {} as any, // binanceRateProvider
-    {} as any, // systemWalletResolver
+    mocks.systemWalletResolver as any,
     {} as any, // tbEvidenceService
     { evaluate: jest.fn(() => Promise.resolve({ grossAedValue: null, aedRate: null, rateFetchedAt: null, rateFetchFailed: false })) } as any, // limitGateService
     {} as any, // limitRulesService
@@ -187,63 +197,59 @@ function makeWorkflowForCreate(mocks: ReturnType<typeof buildServiceMocks>) {
   );
 }
 
-describe('WithdrawWorkflowService.createWithdrawal — T5 fee account (real-time 1:1)', () => {
-  it('locks fee pending to CLIENT_CASH, not FEE_INCOME or FEE_RECEIVABLE', async () => {
+describe('WithdrawWorkflowService.createWithdrawal — T5 fee account (real-time 1:1) + 戊波一 现金户', () => {
+  const createDto = { assetId: 'asset-usdt', amount: 10, toAddress: '0xABCD', network: 'ETH', quoteId: 'q-1' } as any;
+
+  it('locks net + fee against the source wallet cash account (resolveCashAccountId), not the CLIENT_CASH aggregate, FEE_INCOME or FEE_RECEIVABLE', async () => {
     const mocks = buildServiceMocks();
     const service = makeWorkflowForCreate(mocks);
 
-    await service.createWithdrawal(
-      {
-        assetId: 'asset-usdt',
-        amount: 10,
-        toAddress: '0xABCD',
-        network: 'ETH',
-        quoteId: 'q-1',
-      } as any,
-      'cust-1',
-      'CUSTOMER',
-    );
+    await service.createWithdrawal(createDto, 'cust-1', 'CUSTOMER');
+
+    // 建单时 fromWalletId 未绑:按 ensureSourceWalletBound 同一规则现取客户源钱包(USDT = crypto → C_DEP),且在建单事务的 tx 里查(SQLite 单连接)
+    expect(mocks.systemWalletResolver.resolveCustomer).toHaveBeenCalledWith('asset-usdt', 'C_DEP', 'cust-1', expect.anything());
+    // 现金户 = 该钱包的户,只经 resolveCashAccountId 取(USDT 账本 2)
+    expect(mocks.accountingService.resolveCashAccountId).toHaveBeenCalledWith('wallet-c-dep-1', 2, expect.anything());
 
     const resolveCalls = (mocks.accountingService.resolveTbAccountId.mock.calls as any[][]).map(
       (c) => c[0].code,
     );
-
-    // Both net and fee must resolve CLIENT_CASH (not FEE_INCOME or old CLIENT_CUSTODY/CLIENT_BANK)
-    expect(resolveCalls).toContain(TB_ACCOUNT_CODES.CLIENT_CASH);
-
-    // Must NOT resolve FEE_INCOME (code no longer exists in new COA)
+    // 聚合 CLIENT_CASH(code 1)不再经手写元组解析
+    expect(resolveCalls).not.toContain(TB_ACCOUNT_CODES.CLIENT_CASH);
+    // 借方仍是客户应付
+    expect(resolveCalls).toContain(TB_ACCOUNT_CODES.CLIENT_PAYABLE);
     // Must NOT resolve FEE_RECEIVABLE (code 120, removed)
     expect(resolveCalls).not.toContain(120);
   });
 
-  it('executePendingTransfer calls use CLIENT_CASH credit code for both net and fee', async () => {
+  it('executePendingTransfer: net + fee both DR 应付 / CR 钱包现金户 (codes 10 / 13), evidence labels A.CLIENT_CASH, no wallet-tag fields', async () => {
     const mocks = buildServiceMocks();
     const service = makeWorkflowForCreate(mocks);
 
-    await service.createWithdrawal(
-      {
-        assetId: 'asset-usdt',
-        amount: 10,
-        toAddress: '0xABCD',
-        network: 'ETH',
-        quoteId: 'q-1',
-      } as any,
-      'cust-1',
-      'CUSTOMER',
-    );
+    await service.createWithdrawal(createDto, 'cust-1', 'CUSTOMER');
 
     const pendingCalls = mocks.accountingService.executePendingTransfer.mock.calls as any[][];
+    expect(pendingCalls).toHaveLength(2);
     const creditCodes = pendingCalls.map((c) => c[0]?.evidence?.creditCode).filter(Boolean);
 
     // All credit codes should be CLIENT_CASH
     expect(creditCodes.every((code) => code === TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH])).toBe(true);
     // Specifically: 'A.CLIENT_CASH'
     expect(creditCodes).toContain(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
+    for (const [arg] of pendingCalls) {
+      expect(arg.debitAccountId).toBe(10n); // L.CLIENT_PAYABLE
+      expect(arg.creditAccountId).toBe(20n); // 钱包现金户(resolveCashAccountId mock)
+      expect(arg.evidence.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
+    }
+    expect(pendingCalls.map((c) => c[0].code).sort((a, b) => a - b)).toEqual([
+      TB_TRANSFER_CODES.WITHDRAW_NET_PENDING,
+      TB_TRANSFER_CODES.WITHDRAW_FEE_PENDING,
+    ]);
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// TEST B: WithdrawWorkflowService.handlePayoutConfirmed — post fee → CLIENT_CASH + INCOME_WITHDRAW_FEE collect
+// TEST B: WithdrawWorkflowService.handlePayoutConfirmed — post fee → CLIENT_CASH + INCOME_WITHDRAW_FEE collect(借 F_FEE 钱包现金户)
 // ═══════════════════════════════════════════════════════════════════
 
 function buildWorkflowMocks() {
@@ -253,11 +259,14 @@ function buildWorkflowMocks() {
     voidPendingTransferBestEffort: jest.fn(() => Promise.resolve()),
     resolveTbAccountId: jest.fn((args: { code: number }) => {
       const map: Record<number, bigint> = {
-        [TB_ACCOUNT_CODES.FIRM_CASH]: 50n,
         [TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE]: 202n,
       };
       return Promise.resolve(map[args.code] ?? 99n);
     }),
+    // 戊波一:公司侧收费借方 = F_FEE 钱包的现金户(50 公司现金),只经 resolveCashAccountId 取
+    resolveCashAccountId: jest.fn((walletId: string, _ledger: number) =>
+      Promise.resolve(walletId === 'wallet-f-fee-1' ? 5001n : 9999n),
+    ),
   };
 
   const auditLogsService = {
@@ -305,7 +314,7 @@ function buildWorkflowMocks() {
   };
   const approvalsService = { completeApproval: jest.fn(() => Promise.resolve({})) };
   const binanceRateProvider = {};
-  // Phase B: resolves the platform F_FEE wallet for creditWalletRef on FIRM rows.
+  // 戊波一:取平台 F_FEE 钱包——公司侧收费(码 16)借它的现金户
   const systemWalletResolver = { resolve: jest.fn(() => Promise.resolve({ id: 'wallet-f-fee-1' })) };
   // Phase B: post-promote enrichment — promotes a LOCK row's eventCode/walletRef/externalRef
   // to its POST semantics after postPendingTransfer flips transferType.
@@ -365,7 +374,7 @@ function makeWorkflowForLegs(mocks: ReturnType<typeof buildWorkflowMocks>) {
 }
 
 describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () => {
-  it('posts fee pending with creditCode = CLIENT_CASH (not FEE_INCOME), then executes FIRM_CASH→INCOME_WITHDRAW_FEE', async () => {
+  it('posts fee pending with creditCode = CLIENT_CASH (not FEE_INCOME), then executes F_FEE wallet cash → INCOME_WITHDRAW_FEE', async () => {
     const mocks = buildWorkflowMocks();
     const service = makeWorkflowForLegs(mocks);
 
@@ -389,12 +398,20 @@ describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () 
     // Must NOT contain FEE_INCOME or FEE_RECEIVABLE
     expect(creditCodes).not.toContain('120');
 
-    // Firm-side fee collect: executeTransfer called DR FIRM_CASH / CR INCOME_WITHDRAW_FEE
+    // Firm-side fee collect: executeTransfer called DR 现金·F_FEE 钱包 / CR INCOME_WITHDRAW_FEE(码 16)
     const execCalls = mocks.accountingService.executeTransfer.mock.calls as any[][];
     expect(execCalls.length).toBeGreaterThanOrEqual(1);
     const firmCall = execCalls[0][0];
+    expect(firmCall.code).toBe(TB_TRANSFER_CODES.WITHDRAW_FEE_FIRM);
     expect(firmCall?.evidence?.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH]);
     expect(firmCall?.evidence?.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE]);
+    // 借方 = F_FEE 钱包(平台费钱包 wallet-f-fee-1)的现金户,而不是聚合 FIRM_CASH
+    expect(mocks.systemWalletResolver.resolve).toHaveBeenCalledWith('asset-usdt', 'F_FEE');
+    expect(mocks.accountingService.resolveCashAccountId).toHaveBeenCalledWith('wallet-f-fee-1', 2);
+    expect(firmCall.debitAccountId).toBe(5001n);
+    expect(firmCall.creditAccountId).toBe(202n);
+    const resolveCodes = (mocks.accountingService.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code);
+    expect(resolveCodes).not.toContain(TB_ACCOUNT_CODES.FIRM_CASH);
 
     // Each leg CLEARs its own funds order.
     expect(mocks.fundsOrders.advance).toHaveBeenCalledTimes(2);
@@ -402,14 +419,14 @@ describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () 
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// TEST C: Phase B per-physical-wallet recon fields on withdraw flow
+// TEST C: externalRef 配对 + 戊波一(钱包落点由现金户本身表达,证据不再带钱包标签 / 外部穿越标记)
 // ═══════════════════════════════════════════════════════════════════
 
-describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet same-ref fee pair)', () => {
+describe('WithdrawWorkflowService — 费腿配对(同一 externalRef)+ 现金户落点', () => {
   function buildPhaseBMocks() {
     const m = buildWorkflowMocks();
     // Override withdraw record to carry fromWalletId + txHash so we can assert
-    // that walletRef + externalRef thread through correctly.
+    // that externalRef threads through correctly.
     const recordWithWallet = makeWithdrawRecord({
       fromWalletId: 'wallet-c-out-1',
       fromWalletNo: 'WA-CLI-001',
@@ -453,7 +470,9 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
     await (service as any).onFeeLegConfirmed('wd-1', 'fo-fee-1');
   }
 
-  it('POST rows carry walletRef + externalRef + crossing=true', async () => {
+  const NO_WALLET_TAGS = ['debitWalletRef', 'creditWalletRef', 'isExternalCrossing'] as const;
+
+  it('POST rows carry externalRef and no wallet-tag / crossing fields', async () => {
     const mocks = buildPhaseBMocks();
     const service = makeService(mocks);
 
@@ -464,37 +483,34 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
 
     // POST_NET evidence
     const netEvidence = postCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_NET_POST')?.[0]?.evidence;
-    expect(netEvidence).toMatchObject({
-      debitWalletRef: 'wallet-c-out-1',
-      creditWalletRef: 'wallet-c-out-1',
-      externalRef: '0xabc123dead',
-      isExternalCrossing: true,
-    });
-
+    expect(netEvidence).toMatchObject({ externalRef: '0xabc123dead' });
     // POST_FEE evidence
     const feeEvidence = postCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_POST')?.[0]?.evidence;
-    expect(feeEvidence).toMatchObject({
-      debitWalletRef: 'wallet-c-out-1',
-      creditWalletRef: 'wallet-c-out-1',
-      externalRef: '0xabc123dead',
-      isExternalCrossing: true,
-    });
+    expect(feeEvidence).toMatchObject({ externalRef: '0xabc123dead' });
+
+    for (const ev of [netEvidence, feeEvidence]) {
+      for (const k of NO_WALLET_TAGS) expect(ev).not.toHaveProperty(k);
+    }
+    // 两阶段:post 只带待决转账 id,账户在锁定时就定了——post 阶段不再解析任何账户
+    expect(mocks.accountingService.resolveCashAccountId).not.toHaveBeenCalledWith('wallet-c-out-1', expect.anything());
   });
 
-  it('FEE_FIRM debits aggregate (null wallet) and credits F_FEE wallet, shares externalRef with FEE_POST', async () => {
+  it('FEE_FIRM debits the F_FEE wallet cash account, credits INCOME_WITHDRAW_FEE, shares externalRef with FEE_POST', async () => {
     const mocks = buildPhaseBMocks();
     const service = makeService(mocks);
 
     await confirmBothLegs(service);
 
     const execCalls = mocks.accountingService.executeTransfer.mock.calls as any[][];
-    const firmEvidence = execCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_FIRM')?.[0]?.evidence;
+    const firmArg = execCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_FIRM')?.[0];
+    const firmEvidence = firmArg?.evidence;
     expect(firmEvidence).toMatchObject({
-      debitWalletRef: null,                   // FIRM_CASH is aggregate, no physical wallet
-      creditWalletRef: 'wallet-f-fee-1',      // F_FEE platform wallet (from SystemWalletResolver mock)
+      debitCode: 'A.FIRM_CASH',
+      creditCode: 'E.INCOME_WITHDRAW_FEE',
       externalRef: '0xabc123dead',
-      isExternalCrossing: true,
     });
+    for (const k of NO_WALLET_TAGS) expect(firmEvidence).not.toHaveProperty(k);
+    expect(firmArg.debitAccountId).toBe(5001n); // wallet-f-fee-1 的现金户
 
     // CRITICAL: FEE_POST and FEE_FIRM share the EXACT same externalRef.
     const postCalls = mocks.accountingService.postPendingTransfer.mock.calls as any[][];
@@ -524,9 +540,11 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
     const postCalls = mocks.accountingService.postPendingTransfer.mock.calls as any[][];
     const netEv = postCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_NET_POST')?.[0]?.evidence;
     expect(netEv.externalRef).toBe('BANK-REF-XYZ');
+    // 法币账本 1:F_FEE 现金户在 AED 账本上取
+    expect(mocks.accountingService.resolveCashAccountId).toHaveBeenCalledWith('wallet-f-fee-1', 1);
   });
 
-  it('enrichForPost promotes LOCK rows to POST eventCode + walletRef + externalRef + crossing=true', async () => {
+  it('enrichForPost promotes LOCK rows to POST eventCode + externalRef (no wallet-tag / crossing fields)', async () => {
     const mocks = buildPhaseBMocks();
     const service = makeService(mocks);
 
@@ -538,26 +556,18 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
 
     // NET enrichment targets the net pending id
     const netEnrich = enrichCalls.find(c => c[0] === '0000000000000001')?.[1];
-    expect(netEnrich).toMatchObject({
-      eventCode: 'WITHDRAW_NET_POST',
-      debitWalletRef: 'wallet-c-out-1',
-      creditWalletRef: 'wallet-c-out-1',
-      externalRef: '0xabc123dead',
-      isExternalCrossing: true,
-    });
+    expect(netEnrich).toMatchObject({ eventCode: 'WITHDRAW_NET_POST', externalRef: '0xabc123dead' });
 
     // FEE enrichment targets the fee pending id
     const feeEnrich = enrichCalls.find(c => c[0] === '0000000000000002')?.[1];
-    expect(feeEnrich).toMatchObject({
-      eventCode: 'WITHDRAW_FEE_POST',
-      debitWalletRef: 'wallet-c-out-1',
-      creditWalletRef: 'wallet-c-out-1',
-      externalRef: '0xabc123dead',
-      isExternalCrossing: true,
-    });
+    expect(feeEnrich).toMatchObject({ eventCode: 'WITHDRAW_FEE_POST', externalRef: '0xabc123dead' });
+
+    for (const e of [netEnrich, feeEnrich]) {
+      for (const k of NO_WALLET_TAGS) expect(e).not.toHaveProperty(k);
+    }
   });
 
-  it('F_FEE wallet miss returns null creditWalletRef but evidence still posts (best-effort)', async () => {
+  it('F_FEE wallet missing → no fallback to an aggregate: the fee leg posts nothing (client side included), stays un-CLEARed (记账失败 = 流程失败)', async () => {
     const mocks = buildPhaseBMocks();
     mocks.systemWalletResolver.resolve = jest.fn(() => Promise.reject(new Error('SYSTEM_WALLET_NOT_FOUND')));
     const service = makeService(mocks);
@@ -565,19 +575,22 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
     await confirmBothLegs(service);
 
     const execCalls = mocks.accountingService.executeTransfer.mock.calls as any[][];
-    const firmEvidence = execCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_FIRM')?.[0]?.evidence;
-    expect(firmEvidence.creditWalletRef).toBeNull();
-    // externalRef must still be set so it pairs with FEE_POST
-    expect(firmEvidence.externalRef).toBe('0xabc123dead');
+    expect(execCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_FIRM')).toBeUndefined();
+    // 公司侧解析先于客户侧费腿 POST:客户侧费也没落账(只有本金腿 POST 了一次),不会出现客户被收费而公司记不了
+    const postCalls = mocks.accountingService.postPendingTransfer.mock.calls as any[][];
+    expect(postCalls.map(c => c[0]?.evidence?.eventCode)).toEqual(['WITHDRAW_NET_POST']);
+    // 费腿没 CLEAR(只有本金腿 CLEAR 了一次),失败计数 +1
+    expect(mocks.fundsOrders.advance).toHaveBeenCalledTimes(1);
+    expect(mocks.withdrawService.incrementFeeSettleAttempts).toHaveBeenCalledWith('wd-1');
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// TEST D: Phase B fields on the LOCK pending rows at create()
+// TEST D: LOCK pending rows at create()
 // ═══════════════════════════════════════════════════════════════════
 
-describe('WithdrawWorkflowService.createWithdrawal — T2b Phase B LOCK rows', () => {
-  it('LOCK_NET + LOCK_FEE pendings carry walletRef=null externalRef=null crossing=false at create time', async () => {
+describe('WithdrawWorkflowService.createWithdrawal — LOCK rows', () => {
+  it('LOCK_NET + LOCK_FEE pendings carry externalRef=null and no wallet-tag / crossing fields', async () => {
     const mocks = buildServiceMocks();
     const service = makeWorkflowForCreate(mocks);
 
@@ -594,18 +607,12 @@ describe('WithdrawWorkflowService.createWithdrawal — T2b Phase B LOCK rows', (
     const codes = lockEvidence.map(e => e.eventCode).sort();
     expect(codes).toEqual(['WITHDRAW_LOCK_FEE', 'WITHDRAW_LOCK_NET']);
 
-    // Every LOCK evidence row: externalRef null, isExternalCrossing false.
-    // walletRef tracks record.fromWalletId — null at create time in this test
-    // (orchestrator binds source wallet later), which is the expected behaviour.
+    // Every LOCK evidence row: externalRef null;钱包落点由锁定贷方的现金户本身表达,不再有钱包标签 / 外部穿越标记
     for (const ev of lockEvidence) {
-      expect(ev).toMatchObject({
-        externalRef: null,
-        isExternalCrossing: false,
-      });
-      // walletRef may be null in this test; the contract is it equals
-      // record.fromWalletId — which is null here because makeWithdrawRecord
-      // sets fromWalletId: null.
-      expect(ev.debitWalletRef).toBe(ev.creditWalletRef);
+      expect(ev).toMatchObject({ externalRef: null });
+      expect(ev).not.toHaveProperty('debitWalletRef');
+      expect(ev).not.toHaveProperty('creditWalletRef');
+      expect(ev).not.toHaveProperty('isExternalCrossing');
     }
   });
 });

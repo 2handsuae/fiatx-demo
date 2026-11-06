@@ -19,17 +19,19 @@ export const TB_TRANSFER_CODES = {
   DEPOSIT_SEIZE_POST: 9,    // 落账(post):同上
 
   // ── 提现(10–19)──
-  WITHDRAW_NET_PENDING: 10, // 客户侧锁定:DR CLIENT_PAYABLE / CR CLIENT_CASH (pending)
-  WITHDRAW_NET_POST: 11,    // 外部确认:post
-  WITHDRAW_NET_VOID: 12,    // 取消/失败:void
-  WITHDRAW_FEE_PENDING: 13, // 客户侧费锁定:DR CLIENT_PAYABLE / CR CLIENT_CASH (pending)
-  WITHDRAW_FEE_POST: 14,    // post
-  WITHDRAW_FEE_VOID: 15,    // void
+  // 戊波一(附录 B):现金类一钱包一户。「现金·出款源钱包」= 这笔提现从哪只客户钱包出的客户现金户(A.CLIENT_CASH),
+  // 锁定 / 落账 / 作废 / 退回都落同一只钱包,取户同一个入口(resolveCashAccountId)。
+  WITHDRAW_NET_PENDING: 10, // 建单锁定本金(pending):DR 应付(L.CLIENT_PAYABLE) / CR 现金·出款源钱包(A.CLIENT_CASH)
+  WITHDRAW_NET_POST: 11,    // 出款确认,本金落账(post):同上,对方 = 客户外部地址
+  WITHDRAW_NET_VOID: 12,    // 出款失败 / 取消,本金作废(void):同上
+  WITHDRAW_FEE_PENDING: 13, // 建单锁定费(pending):DR 应付(L.CLIENT_PAYABLE) / CR 现金·出款源钱包(A.CLIENT_CASH)
+  WITHDRAW_FEE_POST: 14,    // 出款确认,费落账(post):同上
+  WITHDRAW_FEE_VOID: 15,    // 出款失败 / 取消,费作废(void):同上
   // 名字保留:'FEE_FIRM' 表达的是「费→公司侧」这个动作,不指向任何科目名,COA v2 后依然准确
   // (对比码 4 原名 DEPOSIT_CONFISCATE_FIRM_FEE 直接写死了退役科目名,故随科目改名)。
-  WITHDRAW_FEE_FIRM: 16,    // 公司侧收费:DR FIRM_CASH / CR INCOME_WITHDRAW_FEE(211)
+  WITHDRAW_FEE_FIRM: 16,    // 费落账后公司侧收费:DR 现金·公司 F_FEE 钱包(A.FIRM_CASH) / CR 提现费收入(E.INCOME_WITHDRAW_FEE,211)
   // 退汇(PAYOUT_PENDING→RETURNED，Task 7)：净额腿已 POST 后银行/链上退回,重入账反向单腿
-  // (DR CLIENT_CASH / CR CLIENT_PAYABLE)。手续费不退(留归公司)。
+  // (DR 现金·出款源钱包(A.CLIENT_CASH) / CR 应付(L.CLIENT_PAYABLE))。手续费不退(留归公司)。
   WITHDRAW_BOUNCE_REENTRY: 17,
 
   // ── 充值·上缴续段(20–29)：充值段 5–9 已满,续挪此──
