@@ -236,8 +236,8 @@ test/sla.e2e-spec.ts                         # 私库
 | `liquidity_providers` | **2** | `LPP2601010183`（Falcon Liquidity FZE，ACTIVE，`approvalNo=APR2601015507`）／`LPP2601017193`（Dune OTC DMCC，SUSPENDED，无 approvalNo） |
 | `lp_exchanges` | **1** | `LPX2601016429`（挂 Falcon，卖 50,000 AED 买 13,600 USDT，SUCCESS，`approvalNo=APR2601015999`） |
 | `funds_orders`（`lpExchangeId` 非空） | **3** | `FDO2601017173`（腿1卖出，AED 50,000，CLEARED，`referenceNo=ZB20260101043095EE71`）／`FDO2601017269`（腿2买入，USDT 13,600，CLEARED，`txHash=0x2000fe...`）／`FDO2601015607`（腿3验收，USDT 13,600，CLEARED，`txHash=0x50ac04...`） |
-| `tb_transfer_evidence`（`sourceType='LP_EXCHANGE'`） | **3** | 84/85/86 各一条，`sourceNo=LPX2601016429` |
-| `account_flows`（`sourceType='LP_EXCHANGE'`） | **6** | 三腿各 2 行（方向按每行所属户的类别判：借方户〔现金 / 开支〕借记 = IN、贷记 = OUT，贷方户〔应付 / 权益 / 收入〕贷记 = IN、借记 = OUT；戊波一起，实测 IN 3 / OUT 3），逐行对齐 `AccountFlowProjectorService` 的真实投影行为——**这是「六行回单」在库里的实际形态**；托管回单（`external_statement_lines`/`external_balances`）不预铺，见下方 F_LIQ 对账直比判据 |
+| `tb_transfer_evidence`（`sourceType='LP_EXCHANGE'`） | **4** | 84/88/85/86 各一条（戊波二起：卖出腿后加 88 `LP_EXCHANGE_RECEIVABLE` 挂应收、85 改贷应收 LP；原 3），`sourceNo=LPX2601016429` |
+| `account_flows`（`sourceType='LP_EXCHANGE'`） | **8** | 四笔各 2 行（方向按每行所属户的类别判：借方户〔现金 / 开支 / 应收〕借记 = IN、贷记 = OUT，贷方户〔应付 / 权益 / 收入〕贷记 = IN、借记 = OUT；戊波二起，实测 IN 4 / OUT 4；原 6 行 IN 3 / OUT 3），其中带钱包标签的仍是 4 行（F_OPS 2、F_LIQ 2），记在公司权益与应收 LP 户上的另 4 行不带钱包标签，逐行对齐 `AccountFlowProjectorService` 的真实投影行为——**这是「八行回单」在库里的实际形态**；托管回单（`external_statement_lines`/`external_balances`）不预铺，见下方 F_LIQ 对账直比判据 |
 | `approval_cases`（`approvalNo` 属本任务两值） | **2** | `APR2601015507`（`LP_PROFILE_APPROVAL`，entityRef=`LPP2601010183`，APPROVED）／`APR2601015999`（`LP_EXCHANGE_APPROVAL`，entityRef=`LPX2601016429`，APPROVED）——评审 R15 补种，替换此前无案背书的占位号 |
 | `approval_steps`（属上两案） | **2** | 各一条 stepNo=1，status=APPROVED，`decidedByRole=CFO`，`decidedByUserNo=ADM2501010010` |
 
@@ -454,7 +454,7 @@ sqlite3 "$DB" "select action,actorType,actorNo,count(*) from audit_log_events wh
 | Pearl Clean 待批 | `approval_cases` 里 `entityRef='VEN2601015134'` 的 `VENDOR_APPROVAL` 恰一张 `APR2601017676`、`status='PENDING'`；其 `approval_steps` 第 1 步 `PENDING`、候选角色 `CFO`（第 40 幕由 CFO 现场批） |
 | 准入审批单分布 | `LP_PROFILE_APPROVAL` APPROVED ×2；`VENDOR_APPROVAL` APPROVED ×1 + PENDING ×1；`VENDOR_MATERIAL_APPROVAL` APPROVED ×2（CFO→高管两步） |
 
-**与前文的订正关系**：「战役乙波一 LP 地基种子断言」节的 `liquidity_providers | 2` 行作废（现为 3）；该节其余行（`lp_exchanges` 1／三条 `funds_orders`／`tb_transfer_evidence` 3／`account_flows` 6／两张 APPROVED 审批单／F_LIQ·F_OPS 余额）**照旧有效**——本波不动账本。「战役甲波四」节的 `outsourcing_vendors | 3` 行同样作废（现为 4）。
+**与前文的订正关系**：「战役乙波一 LP 地基种子断言」节的 `liquidity_providers | 2` 行作废（现为 3）；该节其余行（`lp_exchanges` 1／三条 `funds_orders`／两张 APPROVED 审批单／F_LIQ·F_OPS 余额）在甲波六**照旧有效**——该波不动账本；但 `tb_transfer_evidence` 3／`account_flows` 6 两行已被**戊波二**订正为 4／8（见该节两行；该节“实测口径”段里打印的 `3 evidence row(s) + 6 flow row(s)` 是 2026-09-29 当日的历史输出，现为 `4 evidence row(s) + 8 flow row(s)`）。「战役甲波四」节的 `outsourcing_vendors | 3` 行同样作废（现为 4）。
 
 可复现命令（全部在 2026-10-29 实跑过，输出与上表逐项相符；`demo:all` 前后各一遍）：
 
