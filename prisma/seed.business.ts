@@ -5,7 +5,7 @@ import * as path from 'path';
 import { createClient as tbCreateClient } from 'tigerbeetle-node';
 import { generateReferenceNo } from '../src/common/utils/no-generator.util';
 import { ensureBaseSeeded } from './seed.base';
-import { ensureTbAccountRegistry, ensureWalletCashAccount, provisionTbAccounts } from './seed-tb.helper';
+import { ensureLpReceivableAccounts, ensureTbAccountRegistry, ensureWalletCashAccount, provisionTbAccounts } from './seed-tb.helper';
 import { DEFAULT_ASSETS } from '../src/config/manifests/assets.manifest';
 import { assertNetwork, type NetworkCode } from '../src/config/manifests/networks.manifest';
 import { buildDeterministicNo } from '../src/common/utils/no-generator.util';
@@ -2512,6 +2512,19 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
     });
   }
   const falcon = lpRows['falcon-liquidity-fze'];
+
+  // 戊波二：LP 档案走过 →ACTIVE 就有应收户（码 51，AED + USDT 各一）——Falcon（ACTIVE）与 Dune（SUSPENDED，批准过后被停用）各 2 户，
+  // Sable Crest（PENDING_ASSESSMENT）从没 ACTIVE 过，不开。种子直写档案行不经 LpProfileWorkflowService，所以这里补
+  // （同 ensureWalletCashAccount 在钱包行之后补现金户）；LP 行晚于 provisionTbAccounts，开户函数自己立即建 TB 账户。
+  const receivableTb = tbCreateClient({ cluster_id: 0n, replica_addresses: [tbAddress] });
+  try {
+    for (const sample of LP_PROFILE_SEEDS) {
+      if (sample.status === 'PENDING_ASSESSMENT') continue;
+      await ensureLpReceivableAccounts(prisma, receivableTb, lpRows[sample.seedKey]);
+    }
+  } finally {
+    receivableTb.destroy();
+  }
   // 地址簿登记时间锚在 Falcon 准入批准之后（固定时刻，来自旅程时间表）
   const falconApprovalDecidedAt = new Date(pddJourney('falcon-liquidity-fze').approval!.decided![0]);
 
@@ -3556,8 +3569,8 @@ async function seedCompanyFunding(prisma: PrismaClient): Promise<void> {
 // 只铺客户域（CLIENT_PAYABLE / DEPOSIT_SUSPENSE ↔ 客户现金户），**不铺公司侧对手腿**（SWAP_SELL_FIRM /
 // SWAP_SELL_SET_TO_OPS / SWAP_BUY_OPS_TO_ASSET / SWAP_FEE_FIRM / WITHDRAW_FEE_FIRM）：公司侧会挪动
 // F_OPS / F_SET / INCOME_* 余额，而那些数是 baseline.md / script.md 场景 31/32（NLA、运营户水位）钉死的
-// 演示数字——月结单只读客户 CLIENT_PAYABLE 户，公司侧腿对它没有任何贡献。两恒等式（客户：Σ(1) =
-// Σ(100)+Σ(101)；公司：Σ(50)+Σ(300..302) = Σ(200)+Σ(210..212)）按账本各自守恒，本节只动前者，后者零变化。
+// 演示数字——月结单只读客户 CLIENT_PAYABLE 户，公司侧腿对它没有任何贡献。两恒等式（客户：Σ(1)+Σ(2) =
+// Σ(100)+Σ(101)；公司：Σ(50)+Σ(51)+Σ(300..302) = Σ(200)+Σ(210..212)）按账本各自守恒，本节只动前者，后者零变化。
 //
 // Henry 的钱包（戊波一，业主 2026-11-06 裁定 7）：现金户是「每个钱包一户」，账要有地方记，Henry 就得有钱包。
 // 本节按 demo-lib.ensureSetup 客户钱包段的同一形态给他 upsert C_DEP + C_VIBAN 两行、写 CUSTOMER_DEPOSIT_ADDRESS_SEEDED

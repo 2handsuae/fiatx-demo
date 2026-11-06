@@ -13,6 +13,7 @@ import { LpProfileService } from './lp-profile.service';
 import { LpProfileWorkflowService } from './lp-profile-workflow.service';
 import { LpProfileApprovalService } from './lp-profile-approval.service';
 import { LpProfileHighRiskApprovalService } from './lp-profile-high-risk-approval.service';
+import { LpReceivableAccountService } from './lp-receivable-account.service';
 import { LpProfileController } from './lp-profile.controller';
 import { LpExchangeService } from './lp-exchange.service';
 import { LpExchangeWorkflowService } from './lp-exchange-workflow.service';
@@ -41,6 +42,8 @@ import { MockTravelRuleAdapter } from '../../sumsub-shared/travel-rule/mock-trav
   controllers: [LpProfileController, LpExchangeController, LpPayoutAddressController],
   providers: [
     LpProfileService, LpProfileWorkflowService, LpProfileApprovalService, LpProfileHighRiskApprovalService,
+    // 戊波二：LP 档案 →ACTIVE 后开应收户（码 51）——LP 主体自己的开户责任，档案 workflow 调它
+    LpReceivableAccountService,
     LpExchangeService, LpExchangeWorkflowService, LpExchangeApprovalService,
     // LP 两步准入 Task 3：地址簿登记即筛——复用对手方套件，同一 DI token 自行 provide（第四个 provide 点）
     // Task 4：地址登记审批（CFO 单步）+ workflow（审批裁决 / 撤回 / 启停退 / ⚡筛查覆写）+ 端点

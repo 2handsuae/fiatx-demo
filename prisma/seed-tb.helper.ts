@@ -1,8 +1,14 @@
 import { PrismaClient } from '@prisma/client';
 import { createHash } from 'crypto';
 import { createClient as tbCreateClient, CreateAccountStatus } from 'tigerbeetle-node';
-import { accountFlagsFor, cashAccountCodeFor, cashAccountName } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
-import { ledgerForNetwork } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
+import {
+  accountFlagsFor,
+  cashAccountName,
+  TB_ACCOUNT_CODES,
+  TB_ACCOUNT_NAMES,
+  walletAccountCodesFor,
+} from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { ledgerForNetwork, TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { currencyForNetwork } from '../src/config/manifests/assets.manifest';
 import type { NetworkCode } from '../src/config/manifests/networks.manifest';
 
@@ -84,9 +90,9 @@ export type EnsureWalletCashAccountInput = {
 };
 
 /**
- * 种子 / 演示脚本版的「钱包现金户开户」（戊波一 §2.3，与 WalletCashAccountService.ensureForWallet 同语义）：
- * 写 (1|50, 钱包所在网络的币种 ledger, 'WALLET', wallet.id) 注册表行（户名进 description、flags 按类别），
- * 并立即在 `tbClient` 上建出对应 TB 账户（"已存在"视为成功）。返回 tbAccountId。
+ * 种子 / 演示脚本版的「钱包户开户」（戊波一 §2.3，与 WalletCashAccountService.ensureForWallet 同语义；戊波二加码 2）：
+ * 按 `walletAccountCodesFor`（客户钱包 1 + 2、平台钱包 50）写 (code, 钱包所在网络的币种 ledger, 'WALLET', wallet.id) 注册表行
+ * （户名进 description、flags 按类别），并立即在 `tbClient` 上建出对应 TB 账户（"已存在"视为成功）。返回现金户（码 1 / 50）的 tbAccountId。
  * 与 ensureTbAccountRegistry 同形：有注册行就复用其 id；TB 侧 createAccounts 幂等，所以重跑安全。
  */
 export async function ensureWalletCashAccount(
@@ -94,48 +100,99 @@ export async function ensureWalletCashAccount(
   tbClient: ReturnType<typeof tbCreateClient>,
   wallet: EnsureWalletCashAccountInput,
 ): Promise<string> {
-  const code = cashAccountCodeFor(wallet.ownerType);
   const assetCurrency = currencyForNetwork(wallet.network as NetworkCode);
   const ledger = ledgerForNetwork(wallet.network as NetworkCode);
-  const flags = accountFlagsFor(code);
 
-  const tbAccountId = await ensureTbAccountRegistry(prisma, {
-    code,
-    ledger,
-    ownerType: 'WALLET',
-    ownerUuid: wallet.id,
-    ownerNo: wallet.walletNo,
-    assetCode: assetCurrency,
-    description: cashAccountName(code, wallet),
-    flags,
-  });
+  const opened: Array<{ code: number; tbAccountId: string }> = [];
+  for (const code of walletAccountCodesFor(wallet.ownerType)) {
+    const tbAccountId = await ensureTbAccountRegistry(prisma, {
+      code,
+      ledger,
+      ownerType: 'WALLET',
+      ownerUuid: wallet.id,
+      ownerNo: wallet.walletNo,
+      assetCode: assetCurrency,
+      description: cashAccountName(code, wallet),
+      flags: accountFlagsFor(code),
+    });
+    opened.push({ code, tbAccountId });
+  }
 
-  const errors = await tbClient.createAccounts([
-    {
-      id: BigInt('0x' + tbAccountId),
+  await createSeedTbAccounts(
+    tbClient,
+    'WALLET',
+    opened.map(({ code, tbAccountId }) => ({ tbAccountId, code, ledger, ownerUuid: wallet.id })),
+    `ensureWalletCashAccount(${wallet.walletNo})`,
+  );
+  return opened[0].tbAccountId;
+}
+
+export type EnsureLpReceivableAccountsInput = {
+  id: string;
+  lpNo: string;
+  name: string;
+};
+
+/**
+ * 种子版的「LP 应收户开户」（戊波二，与 LpReceivableAccountService.ensureForLp 同语义）：
+ * 每个 ledger（AED + USDT）一户 (51, ledger, 'LP', lp.id)，ownerNo = lpNo，户名 `Due from LP · <LP 名称>`，flags 按借方户；
+ * 注册表行与 TB 账户同步建出。LP 行在 provisionTbAccounts 之后才铺，所以不能等它统一建户，这里立即建（同 ensureWalletCashAccount）。
+ */
+export async function ensureLpReceivableAccounts(
+  prisma: PrismaClient,
+  tbClient: ReturnType<typeof tbCreateClient>,
+  lp: EnsureLpReceivableAccountsInput,
+): Promise<void> {
+  const code = TB_ACCOUNT_CODES.LP_RECEIVABLE;
+  const opened: Array<{ tbAccountId: string; code: number; ledger: number; ownerUuid: string }> = [];
+  for (const [currency, ledger] of Object.entries(TB_LEDGERS)) {
+    const tbAccountId = await ensureTbAccountRegistry(prisma, {
+      code,
+      ledger,
+      ownerType: 'LP',
+      ownerUuid: lp.id,
+      ownerNo: lp.lpNo,
+      assetCode: currency,
+      description: `${TB_ACCOUNT_NAMES[code]} · ${lp.name}`,
+      flags: accountFlagsFor(code),
+    });
+    opened.push({ tbAccountId, code, ledger, ownerUuid: lp.id });
+  }
+  await createSeedTbAccounts(tbClient, 'LP', opened, `ensureLpReceivableAccounts(${lp.lpNo})`);
+}
+
+/** 种子开户共用：把已写好注册表行的账户在 TB 上建出来（一批；"已存在"视为成功），其余错误抛。user_data_32 = 3 是 WALLET 归属、2 是 LP 归属（同 AccountingService.createAccounts）。 */
+async function createSeedTbAccounts(
+  tbClient: ReturnType<typeof tbCreateClient>,
+  ownerKind: 'WALLET' | 'LP',
+  accounts: Array<{ tbAccountId: string; code: number; ledger: number; ownerUuid: string }>,
+  label: string,
+): Promise<void> {
+  const errors = await tbClient.createAccounts(
+    accounts.map((a) => ({
+      id: BigInt('0x' + a.tbAccountId),
       debits_pending: 0n,
       credits_pending: 0n,
       debits_posted: 0n,
       credits_posted: 0n,
-      user_data_128: BigInt('0x' + wallet.id.replace(/-/g, '')),
+      user_data_128: BigInt('0x' + a.ownerUuid.replace(/-/g, '')),
       user_data_64: 0n,
-      user_data_32: 3,
+      user_data_32: ownerKind === 'WALLET' ? 3 : 2,
       reserved: 0,
-      ledger,
-      code,
-      flags,
+      ledger: a.ledger,
+      code: a.code,
+      flags: accountFlagsFor(a.code),
       timestamp: 0n,
-    },
-  ]);
+    })),
+  );
   const realErrors = errors.filter(
     (e: any) => e.status !== CreateAccountStatus.exists && e.status !== CreateAccountStatus.created,
   );
   if (realErrors.length > 0) {
     throw new Error(
-      `ensureWalletCashAccount(${wallet.walletNo}) TB createAccounts failed: ${JSON.stringify(realErrors, (_, v) => (typeof v === 'bigint' ? v.toString() : v))}`,
+      `${label} TB createAccounts failed: ${JSON.stringify(realErrors, (_, v) => (typeof v === 'bigint' ? v.toString() : v))}`,
     );
   }
-  return tbAccountId;
 }
 
 /**

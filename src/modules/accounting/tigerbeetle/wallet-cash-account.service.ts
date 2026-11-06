@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { AccountingService } from './accounting.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
-import { cashAccountCodeFor, cashAccountName } from './constants/tb-account-codes.constant';
+import { cashAccountName, walletAccountCodesFor } from './constants/tb-account-codes.constant';
 import { ledgerForNetwork } from './constants/tb-ledgers.constant';
 import { currencyForNetwork } from '../../../config/manifests/assets.manifest';
 import { NetworkCode } from '../../../config/manifests/networks.manifest';
@@ -21,10 +21,11 @@ export interface WalletCashAccountInput {
 }
 
 /**
- * 钱包 ACTIVE → 开它的现金户（戊波一 §2.3）。每个钱包一户：
- *   客户钱包 → 1（Client Cash）、平台钱包 → 50（Company Cash）；ledger 按钱包所在网络对应的资产。
+ * 钱包 ACTIVE → 开它名下的户（戊波一 §2.3；戊波二加码 2）。
+ *   客户钱包 → 1（Client Cash）+ 2（Custody Shortfall，托管短缺待补）、平台钱包 → 50（Company Cash）；
+ *   ledger 按钱包所在网络对应的资产。开哪几个码只认 `walletAccountCodesFor`。
  * 四元组 = (code, ledger, 'WALLET', wallet.id)，ownerNo = walletNo，户名写进注册表 description。
- * 取户走 `AccountingService.resolveCashAccountId`，不要在记账处自己拼这个四元组。
+ * 取户走 `AccountingService.resolveCashAccountId`（码 1 / 50）或 `resolveTbAccountId`（码 2），不要在记账处自己拼这个四元组。
  */
 @Injectable()
 export class WalletCashAccountService {
@@ -34,25 +35,26 @@ export class WalletCashAccountService {
   ) {}
 
   async ensureForWallet(wallet: WalletCashAccountInput, tx?: Prisma.TransactionClient): Promise<void> {
-    const code = cashAccountCodeFor(wallet.ownerType);
     const assetCurrency = currencyForNetwork(wallet.network as NetworkCode);
     const ledger = ledgerForNetwork(wallet.network as NetworkCode);
 
-    const existing = await this.registry.resolve({ code, ledger, ownerType: 'WALLET', ownerUuid: wallet.id }, tx);
-    if (existing) return;
+    const missing: Array<1 | 2 | 50> = [];
+    for (const code of walletAccountCodesFor(wallet.ownerType)) {
+      const existing = await this.registry.resolve({ code, ledger, ownerType: 'WALLET', ownerUuid: wallet.id }, tx);
+      if (!existing) missing.push(code);
+    }
+    if (missing.length === 0) return;
 
     await this.accounting.createAccounts(
-      [
-        {
-          code,
-          ledger,
-          ownerType: 'WALLET',
-          ownerUuid: wallet.id,
-          ownerNo: wallet.walletNo,
-          assetCurrency,
-          description: cashAccountName(code, wallet),
-        },
-      ],
+      missing.map((code) => ({
+        code,
+        ledger,
+        ownerType: 'WALLET' as const,
+        ownerUuid: wallet.id,
+        ownerNo: wallet.walletNo,
+        assetCurrency,
+        description: cashAccountName(code, wallet),
+      })),
       tx,
     );
   }

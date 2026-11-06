@@ -1,7 +1,7 @@
 // Phase B / T7: WalletReconRunService unit tests (TDD).
 //
 // Orchestrates the per-wallet engine:
-//   1. Internal-identity pre-gate (客户本 Σ现金 == Σ应付+暂挂；公司本 Σ现金+Σ开支 == Σ权益+Σ收入)
+//   1. Internal-identity pre-gate (客户本 Σ现金+Σ短缺待补 == Σ应付+暂挂；公司本 Σ现金+Σ应收LP+Σ开支 == Σ权益+Σ收入)
 //   2. Per-wallet balance + flow checks (T6 + flow matcher)
 //   3. Cross-wallet same-externalRef invariant (e.g. WITHDRAW_FEE_POST +
 //      WITHDRAW_FEE_FIRM must have equal amounts)
@@ -984,6 +984,34 @@ describe('戊波一 T11：对账引擎改读现金户', () => {
       expect(r.balanced).toBe(false);
       expect(r.breaks).toEqual([
         expect.objectContaining({ ledger: 2, side: 'CLIENT', asset: '300', liab: '250', delta: '50' }),
+      ]);
+    });
+
+    // 戊波二：客户本左边加码 2（托管短缺待补），公司本左边加码 51（应收 LP）。下面三例不桩 computeInternalIdentity：
+    // 加了 2 / 51 才平的账，漏掉任一码就会判破（两码都是借方户，余额 = 借 − 贷）。
+    it('戊波二：客户本 Σ(1)+Σ(2) == Σ(100)+Σ(101)、公司本 Σ(50)+Σ(51)+Σ(300..302) == Σ(200)+Σ(210..212)，平', async () => {
+      const r = await run([
+        // 客户本：现金 100 + 短缺待补 40 = 应付 130 + 暂挂 10
+        acct(1, 1, 100n, 0n), acct(2, 1, 40n, 0n), acct(100, 1, 0n, 130n), acct(101, 1, 0n, 10n),
+        // 公司本：现金 70 + 应收 LP 30 + 银行费 5 = 权益 100 + 兑换费收入 5
+        acct(50, 1, 70n, 0n), acct(51, 1, 30n, 0n), acct(300, 1, 5n, 0n), acct(200, 1, 0n, 100n), acct(210, 1, 0n, 5n),
+      ]);
+      expect(r).toEqual({ balanced: true, breaks: [] });
+    });
+
+    it('戊波二：码 2 有余额而应付 / 暂挂没跟上 → CLIENT 破，差额 = 码 2 余额', async () => {
+      const r = await run([acct(1, 1, 100n, 0n), acct(2, 1, 40n, 0n), acct(100, 1, 0n, 100n)]);
+      expect(r.balanced).toBe(false);
+      expect(r.breaks).toEqual([
+        expect.objectContaining({ ledger: 1, side: 'CLIENT', asset: '140', liab: '100', delta: '40' }),
+      ]);
+    });
+
+    it('戊波二：码 51 有余额而权益 / 收入没跟上 → FIRM 破，差额 = 码 51 余额', async () => {
+      const r = await run([acct(50, 1, 70n, 0n), acct(51, 1, 30n, 0n), acct(200, 1, 0n, 70n)]);
+      expect(r.balanced).toBe(false);
+      expect(r.breaks).toEqual([
+        expect.objectContaining({ ledger: 1, side: 'FIRM', asset: '100', liab: '70', delta: '30' }),
       ]);
     });
   });

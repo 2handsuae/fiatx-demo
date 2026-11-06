@@ -107,8 +107,10 @@ function buildDeps() {
     store: jest.fn(async () => ({ docNo: 'DOC260101000001' })),
     listByOwner: jest.fn(async () => [{ docNo: 'DOC260101000001', docType: 'AML_POLICY' }]),
   };
-  const svc = new LpProfileWorkflowService(profiles, approvals as any, dueDiligence as any, documents as any);
-  return { svc, profiles, prisma, rows, audits, approvals, dueDiligence, documents };
+  // 戊波二：→ACTIVE 之后开应收户（码 51）。开户本身的行为在 lp-receivable-account.service.spec.ts，这里只验「哪两条边之后调、调谁」
+  const lpReceivables = { ensureForLp: jest.fn(async () => undefined) };
+  const svc = new LpProfileWorkflowService(profiles, approvals as any, dueDiligence as any, documents as any, lpReceivables as any);
+  return { svc, profiles, prisma, rows, audits, approvals, dueDiligence, documents, lpReceivables };
 }
 type Deps = ReturnType<typeof buildDeps>;
 
@@ -461,6 +463,28 @@ describe('LpProfileWorkflowService.onDecided — 两种审批类型同一处理'
     expect(deps.audits[0].input).toMatchObject({ approvalNo: 'APR-LP-1', causationId: 'causation-id-1' });
   });
 
+  it.each(BOTH)('APPROVED（%s）→ ACTIVE 之后开该 LP 的应收户（ensureForLp 以 LP id 调一次，晚于状态落库）', async (actionType) => {
+    const deps = buildDeps();
+    const lpNo = await seedLp(deps, LpProfileStatus.PENDING_APPROVAL);
+
+    await deps.svc.onDecided(makeDecidedEvent(lpNo, { decision: 'APPROVED', actionType }));
+
+    expect(deps.lpReceivables.ensureForLp).toHaveBeenCalledTimes(1);
+    expect(deps.lpReceivables.ensureForLp).toHaveBeenCalledWith(deps.rows.get(lpNo).id);
+    expect(deps.prisma.liquidityProvider.update.mock.invocationCallOrder[0]).toBeLessThan(
+      deps.lpReceivables.ensureForLp.mock.invocationCallOrder[0],
+    );
+  });
+
+  it.each(['DECLINED', 'EXPIRED', 'CANCELLED'] as const)('%s 不开应收户（没进 ACTIVE）', async (decision) => {
+    const deps = buildDeps();
+    const lpNo = await seedLp(deps, LpProfileStatus.PENDING_APPROVAL);
+
+    await deps.svc.onDecided(makeDecidedEvent(lpNo, { decision, decisionReason: null }));
+
+    expect(deps.lpReceivables.ensureForLp).not.toHaveBeenCalled();
+  });
+
   it.each(BOTH)('DECLINED（%s）→ REJECTED，reason 取 decisionReason', async (actionType) => {
     const deps = buildDeps();
     const lpNo = await seedLp(deps, LpProfileStatus.PENDING_APPROVAL);
@@ -590,6 +614,16 @@ describe('LpProfileWorkflowService.suspend / reactivate', () => {
     const result = await deps.svc.reactivate(lpNo, { reason: 'Back in good standing' }, treasury);
     expect(result).toEqual({ lpNo, status: LpProfileStatus.ACTIVE });
     expect(deps.audits.map((a) => a.input.action)).toEqual(['LP_PROFILE_REACTIVATED']);
+    // 戊波二：复活也是 →ACTIVE 的边，调一次开户（已存在的 ledger 由开户服务自己跳过）
+    expect(deps.lpReceivables.ensureForLp).toHaveBeenCalledTimes(1);
+    expect(deps.lpReceivables.ensureForLp).toHaveBeenCalledWith(deps.rows.get(lpNo).id);
+  });
+
+  it('suspend 不碰应收户（应收挂着不动，停用只是不再做新单）', async () => {
+    const deps = buildDeps();
+    const lpNo = await seedLp(deps, LpProfileStatus.ACTIVE);
+    await deps.svc.suspend(lpNo, { reason: 'Underperforming this quarter' }, treasury);
+    expect(deps.lpReceivables.ensureForLp).not.toHaveBeenCalled();
   });
 
   // 启停各自钉死出发态：迁移表是共享的，`PENDING_APPROVAL → ACTIVE` 是审批批准那条边（LP_PROFILE_APPROVED 要 approvalNo + causation），
@@ -605,6 +639,7 @@ describe('LpProfileWorkflowService.suspend / reactivate', () => {
 
     expect(deps.rows.get(lpNo).status).toBe(status);
     expect(deps.audits).toEqual([]);
+    expect(deps.lpReceivables.ensureForLp).not.toHaveBeenCalled(); // 被拒的复活不开户
   });
 
   it('reactivate 未知 lpNo → 404', async () => {

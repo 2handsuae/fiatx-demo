@@ -1559,9 +1559,9 @@ export async function verifyEndState(
   ok(`花名册 ${DEMO_ROSTER.length} 笔逐条符合预期`, pass);
 
   // 2. COA invariants: CLIENT and FIRM balance per ledger (real-time 1:1 model proof)
-  //    戊波一·总纲附录 A「天平」（现金户按钱包开，按码求和即得合计）：
-  //    CLIENT: Σ(CLIENT_CASH) == Σ(CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per ledger
-  //    FIRM:   Σ(FIRM_CASH + EXPENSE_BANK_CUSTODY + EXPENSE_RECON_LOSS + EXPENSE_OTHER)
+  //    戊波一·总纲附录 A「天平」（现金户按钱包开，按码求和即得合计）；戊波二加 CLIENT_SHORTFALL（客户本）与 LP_RECEIVABLE（公司本）：
+  //    CLIENT: Σ(CLIENT_CASH + CLIENT_SHORTFALL) == Σ(CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per ledger
+  //    FIRM:   Σ(FIRM_CASH + LP_RECEIVABLE + EXPENSE_BANK_CUSTODY + EXPENSE_RECON_LOSS + EXPENSE_OTHER)
   //              == Σ(FIRM_EQUITY + INCOME_SWAP_FEE + INCOME_WITHDRAW_FEE + INCOME_OTHER) per ledger
   //    (asset + expense accounts are debit-normal; liabilities/equity/income are credit-normal)
   const coaMap = await buildCoaBalanceMap(ctx);
@@ -1570,19 +1570,19 @@ export async function verifyEndState(
   for (const [ledger, m] of coaMap) {
     const name = LEDGER_NAMES[ledger] ?? `ledger${ledger}`;
     const sum = (...codes: number[]) => codes.reduce((acc, c) => acc + (m.get(c) ?? 0n), 0n);
-    const clientAsset = sum(TB_ACCOUNT_CODES.CLIENT_CASH);
+    const clientAsset = sum(TB_ACCOUNT_CODES.CLIENT_CASH, TB_ACCOUNT_CODES.CLIENT_SHORTFALL);
     const clientLiab = sum(TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE);
-    const clientLabel = `COA CLIENT(${name}): Σ(CLIENT_CASH) == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)`;
+    const clientLabel = `COA CLIENT(${name}): Σ(CLIENT_CASH+CLIENT_SHORTFALL) == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)`;
     const clientOk = clientAsset === clientLiab;
     const clientDetail = `${clientAsset} == ${clientLiab}`;
     ok(clientLabel, clientOk, clientDetail);
     coaRows.push({ label: clientLabel, ok: clientOk, detail: clientDetail });
-    const firmLeft = sum(TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, TB_ACCOUNT_CODES.EXPENSE_OTHER);
+    const firmLeft = sum(TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.LP_RECEIVABLE, TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, TB_ACCOUNT_CODES.EXPENSE_OTHER);
     const firmRight = sum(
       TB_ACCOUNT_CODES.FIRM_EQUITY,
       TB_ACCOUNT_CODES.INCOME_SWAP_FEE, TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, TB_ACCOUNT_CODES.INCOME_OTHER,
     );
-    const firmLabel = `COA FIRM(${name}): Σ(FIRM_CASH+EXPENSE_*) == Σ(FIRM_EQUITY+INCOME_*)`;
+    const firmLabel = `COA FIRM(${name}): Σ(FIRM_CASH+LP_RECEIVABLE+EXPENSE_*) == Σ(FIRM_EQUITY+INCOME_*)`;
     const firmOk = firmLeft === firmRight;
     const firmDetail = `${firmLeft} == ${firmRight}`;
     ok(firmLabel, firmOk, firmDetail);

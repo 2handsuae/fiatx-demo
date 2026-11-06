@@ -627,11 +627,11 @@ export class WalletReconRunService {
    * the account class (`isDebitNormalCode`):
    *   debit-normal (1 / 50 / 300–302):   debits_posted − credits_posted
    *   credit-normal (100 / 101 / 200 / 210–212): credits_posted − debits_posted
-   * Then per ledger (戊波一·总纲附录 A 两条天平):
-   *   客户本  Σ(1 客户现金)               == Σ(100 客户应付) + Σ(101 充值暂扣)
-   *   公司本  Σ(50 公司现金) + Σ(300..302 开支) == Σ(200 公司权益) + Σ(210..212 收入)
+   * Then per ledger (戊波一·总纲附录 A 两条天平；戊波二加 2 / 51):
+   *   客户本  Σ(1 客户现金) + Σ(2 托管短缺待补)                    == Σ(100 客户应付) + Σ(101 充值暂扣)
+   *   公司本  Σ(50 公司现金) + Σ(51 应收 LP) + Σ(300..302 开支)   == Σ(200 公司权益) + Σ(210..212 收入)
    * 开支是借方户，和现金一样放在天平左边——付银行费 / 核销损失 = 借开支 / 贷现金：
-   * 现金少 X、开支多 X，左边合计不变，权益那边没动。
+   * 现金少 X、开支多 X，左边合计不变，权益那边没动。短缺待补（客户本）与应收 LP（公司本）同理是借方资产，也放左边。
    *
    * `cutoff` is intentionally NOT honored here — TB doesn't expose historical
    * snapshots without account-history reads, and Phase B treats identity as
@@ -665,20 +665,21 @@ export class WalletReconRunService {
     }
 
     interface LedgerSums {
-      clientCash: bigint;   // Σ(1)
+      clientLeft: bigint;   // Σ(1) + Σ(2)
       clientLiab: bigint;   // Σ(100) + Σ(101)
-      firmLeft: bigint;     // Σ(50) + Σ(300..302)
+      firmLeft: bigint;     // Σ(50) + Σ(51) + Σ(300..302)
       firmRight: bigint;    // Σ(200) + Σ(210..212)
     }
     const sums = new Map<number, LedgerSums>();
     for (const r of registry) {
       const key = BigInt('0x' + r.tbAccountId).toString();
       const bal = balById.get(key) ?? 0n;
-      const s = sums.get(r.ledger) ?? { clientCash: 0n, clientLiab: 0n, firmLeft: 0n, firmRight: 0n };
-      if (r.code === TB_ACCOUNT_CODES.CLIENT_CASH) s.clientCash += bal;
+      const s = sums.get(r.ledger) ?? { clientLeft: 0n, clientLiab: 0n, firmLeft: 0n, firmRight: 0n };
+      if (r.code === TB_ACCOUNT_CODES.CLIENT_CASH || r.code === TB_ACCOUNT_CODES.CLIENT_SHORTFALL) s.clientLeft += bal;
       else if (r.code === TB_ACCOUNT_CODES.CLIENT_PAYABLE || r.code === TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE) s.clientLiab += bal;
       else if (
         r.code === TB_ACCOUNT_CODES.FIRM_CASH ||
+        r.code === TB_ACCOUNT_CODES.LP_RECEIVABLE ||
         r.code === TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY ||
         r.code === TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS ||
         r.code === TB_ACCOUNT_CODES.EXPENSE_OTHER
@@ -694,13 +695,13 @@ export class WalletReconRunService {
 
     const breaks: InternalIdentityResult['breaks'] = [];
     for (const [ledger, s] of sums) {
-      if (s.clientCash !== s.clientLiab) {
+      if (s.clientLeft !== s.clientLiab) {
         breaks.push({
           ledger,
           side: 'CLIENT',
-          asset: s.clientCash.toString(),
+          asset: s.clientLeft.toString(),
           liab: s.clientLiab.toString(),
-          delta: (s.clientCash - s.clientLiab).toString(),
+          delta: (s.clientLeft - s.clientLiab).toString(),
         });
       }
       if (s.firmLeft !== s.firmRight) {

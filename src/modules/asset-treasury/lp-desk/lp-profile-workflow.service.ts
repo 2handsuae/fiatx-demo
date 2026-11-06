@@ -2,8 +2,9 @@
 // 甲波六 T4：LP 准入改成「先评估后审批」——金库提交申请表（出生 PENDING_ASSESSMENT，同时开尽调评估壳，**不开审批单**）→
 // 合规官在尽调评估里逐名筛查 / 定档 / 下结论（退回补料 / 不通过 / 通过并送审）→ 送审时才按风险档开审批单
 // （低 / 中 CFO 单步 LP_PROFILE_APPROVAL；高 CFO→高管 LP_PROFILE_HIGH_RISK_APPROVAL）→ 批准 ACTIVE。
-// 铁律③各管各的：本文件只调 LpProfileService / DueDiligenceService / DocumentsService 的公开方法与 ApprovalsService 正门，
+// 铁律③各管各的：本文件只调 LpProfileService / DueDiligenceService / DocumentsService / LpReceivableAccountService 的公开方法与 ApprovalsService 正门，
 // 不直写任何表；档案审计全收档案服务，评估审计全收尽调服务，文件审计全收文件服务，本文件零审计写入。
+// 戊波二：两条 →ACTIVE 的边（审批批准 onDecided、金库复活 reactivate）之后，调 LpReceivableAccountService 开该 LP 的应收户（码 51，AED + USDT）。
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { LiquidityProvider } from '@prisma/client';
@@ -17,6 +18,7 @@ import { DD_TARGET_TYPES } from '../../governance/compliance-office/due-diligenc
 import { DueDiligenceService, DueDiligenceView, SendableInput } from '../../governance/compliance-office/due-diligence.service';
 import { ConcludeAssessmentDto, RecordScreeningDto, SaveAssessmentDto } from '../../governance/compliance-office/dto/due-diligence.dto';
 import { LpProfileService } from './lp-profile.service';
+import { LpReceivableAccountService } from './lp-receivable-account.service';
 import {
   CreateLpProfileDto,
   LpProfileStatus,
@@ -37,6 +39,7 @@ export class LpProfileWorkflowService {
     private readonly approvals: ApprovalsService,
     private readonly dueDiligence: DueDiligenceService,
     private readonly documents: DocumentsService,
+    private readonly lpReceivables: LpReceivableAccountService,
   ) {}
 
   // ── 申请（金库提，合规官评估）─────────────────────────────────────────
@@ -168,6 +171,7 @@ export class LpProfileWorkflowService {
       throw new BadRequestException(`Only a SUSPENDED liquidity provider can be reactivated (status=${row.status}).`);
     }
     const updated = await this.profiles.transition(lpNo, LpProfileStatus.ACTIVE, {}, { actor, reason: dto.reason });
+    await this.lpReceivables.ensureForLp(updated.id);
     return { lpNo, status: updated.status as string };
   }
 
@@ -178,7 +182,8 @@ export class LpProfileWorkflowService {
     if (event.actionType !== ApprovalActionTypes.LP_PROFILE_APPROVAL && event.actionType !== ApprovalActionTypes.LP_PROFILE_HIGH_RISK_APPROVAL) return;
     const audit = { approvalNo: event.approvalNo, causationId: event.approvalId };
     if (event.decision === 'APPROVED') {
-      await this.profiles.transition(event.entityRef, LpProfileStatus.ACTIVE, {}, audit);
+      const approved = await this.profiles.transition(event.entityRef, LpProfileStatus.ACTIVE, {}, audit);
+      await this.lpReceivables.ensureForLp(approved.id);
       return;
     }
     if (event.decision === 'CANCELLED') {

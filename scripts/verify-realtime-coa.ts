@@ -26,20 +26,21 @@ async function main() {
         inLedger.filter(pred).reduce((s: bigint, r: any) => s + (balById.get(BigInt('0x' + r.tbAccountId).toString()) ?? 0n), 0n);
 
       // 戊波一·总纲附录 A「天平」：现金户按钱包开（每个客户钱包 / 公司钱包一户），按码求和即得合计，按币种（ledger）各算各的。
-      //   客户本：Σ(1) == Σ(100) + Σ(101)
-      //   公司本：Σ(50) + Σ(300..302) == Σ(200) + Σ(210..212)
+      // 戊波二加 2（托管短缺待补，客户本）与 51（应收 LP，公司本）——都是借方资产，放天平左边。
+      //   客户本：Σ(1) + Σ(2) == Σ(100) + Σ(101)
+      //   公司本：Σ(50) + Σ(51) + Σ(300..302) == Σ(200) + Σ(210..212)
       const sumCodes = (codes: number[]) => sumBal((r) => codes.includes(r.code));
-      const clientAsset = sumCodes([TB_ACCOUNT_CODES.CLIENT_CASH]);
+      const clientAsset = sumCodes([TB_ACCOUNT_CODES.CLIENT_CASH, TB_ACCOUNT_CODES.CLIENT_SHORTFALL]);
       const clientLiab = sumCodes([TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE]);
-      const firmLeft = sumCodes([TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, TB_ACCOUNT_CODES.EXPENSE_OTHER]);
+      const firmLeft = sumCodes([TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.LP_RECEIVABLE, TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, TB_ACCOUNT_CODES.EXPENSE_OTHER]);
       const firmRight = sumCodes([
         TB_ACCOUNT_CODES.FIRM_EQUITY,
         TB_ACCOUNT_CODES.INCOME_SWAP_FEE, TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, TB_ACCOUNT_CODES.INCOME_OTHER,
       ]);
 
-      if (clientAsset !== clientLiab) { failures++; console.log(`✗ ledger ${ledger} CLIENT: Σ(1)=${clientAsset} Σ(100)+Σ(101)=${clientLiab}`); }
+      if (clientAsset !== clientLiab) { failures++; console.log(`✗ ledger ${ledger} CLIENT: Σ(1)+Σ(2)=${clientAsset} Σ(100)+Σ(101)=${clientLiab}`); }
       else console.log(`✓ ledger ${ledger} CLIENT 恒等 ${clientAsset}`);
-      if (firmLeft !== firmRight) { failures++; console.log(`✗ ledger ${ledger} FIRM: Σ(50)+Σ(300..302)=${firmLeft} Σ(200)+Σ(210..212)=${firmRight}`); }
+      if (firmLeft !== firmRight) { failures++; console.log(`✗ ledger ${ledger} FIRM: Σ(50)+Σ(51)+Σ(300..302)=${firmLeft} Σ(200)+Σ(210..212)=${firmRight}`); }
       else console.log(`✓ ledger ${ledger} FIRM 恒等 ${firmLeft}`);
     }
     // 负余额断言:任何科目(class-aware 口径)余额都不得为负。
