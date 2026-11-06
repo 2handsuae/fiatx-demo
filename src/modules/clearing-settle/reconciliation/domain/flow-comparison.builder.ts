@@ -86,25 +86,29 @@ export class FlowComparisonBuilder {
     }));
     const extById = new Map(externalRowsRaw.map((r) => [r.id, r]));
 
-    // 内部侧 = 案子钱包现金户上的行（walletRef 标签只打在现金户的行上），排除调账行——与匹配器
-    // 同一纳入条件：调账行只进余额、不进逐行对照（这里是配对结果的取行来源，两处口径不许各管各的）。
-    const internalRows = (await this.prisma.accountFlow.findMany({
-      where: {
-        walletRef: kase.walletRef,
-        sourceType: { not: RECON_ADJUSTMENT_SOURCE_TYPE },
-        ...effectiveCutoffFilter(cutoff),
-      },
-      select: {
-        id: true,
-        direction: true,
-        amount: true,
-        externalRef: true,
-        eventCode: true,
-        sourceType: true,
-        sourceNo: true,
-        createdAt: true,
-      },
-    })) as Array<{
+    // 内部侧 = 案子钱包现金户上的行，排除调账行——与匹配器同一纳入条件（都按现金户 tbAccountId 取行）：
+    // 调账行只进余额、不进逐行对照（这里是配对结果的取行来源，两处口径不许各管各的）。
+    // 案子的 walletRef 不是钱包行（未归属的外部账户）→ 没有现金户 → 内部侧为空，与匹配器的 null 路径一致。
+    const cashAccount = await this.balanceChecker.resolveCashAccount(kase.walletRef);
+    const internalRows = (cashAccount
+      ? await this.prisma.accountFlow.findMany({
+        where: {
+          tbAccountId: cashAccount.tbAccountId,
+          sourceType: { not: RECON_ADJUSTMENT_SOURCE_TYPE },
+          ...effectiveCutoffFilter(cutoff),
+        },
+        select: {
+          id: true,
+          direction: true,
+          amount: true,
+          externalRef: true,
+          eventCode: true,
+          sourceType: true,
+          sourceNo: true,
+          createdAt: true,
+        },
+      })
+      : []) as Array<{
       id: string;
       direction: string;
       amount: Prisma.Decimal;
@@ -127,7 +131,6 @@ export class FlowComparisonBuilder {
       where: { code: kase.assetCode },
       select: { decimals: true },
     })) as { decimals: number } | null;
-    const cashAccount = await this.balanceChecker.resolveCashAccount(kase.walletRef);
     const matcher = await this.walletFlowMatcher.matchFlows({
       walletRef: kase.walletRef,
       cashTbAccountId: cashAccount?.tbAccountId ?? null,

@@ -65,6 +65,11 @@ import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.
  *     evidence shape, not an invented shortcut. 戊波一：现金类一钱包一户，Step 1 的
  *     借方是钱包自己的现金户（只经 resolveCashAccountId 取），夹具钱包开户靠
  *     WalletCashAccountService.ensureForWallet。
+ *   - 现金户本身就是托管里的那一格：它上面的每条流水都算「穿越」（旧的跨外部标记已退役），
+ *     引擎会拿它去配外部对账单行。所以场景 1-8 的**铺底入账各配一条同参考号、同金额的外部行**
+ *     （真实世界里一笔到账本来就有银行回单），配得上就不产生差异行，唯一的差额是各场景刻意
+ *     造的那一个；场景 1 / 8 里那笔「重复入账」没有银行行，是一条真差异行，靠开单时的
+ *     explainedFlowId 锚住才算被解释；场景 9 整笔都没有银行行。
  *   - The "break" is a real `external_balances` row whose closingBalance
  *     deliberately disagrees with the wallet's real internal total (computed via
  *     the funding transfers above) — exactly what an external bank/chain
@@ -269,6 +274,9 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
    *  +amount；PAYABLE ends at +amount, SUSPENSE nets to 0 across the two steps. */
   async function fundCustomerWallet(opts: {
     walletId: string; ownerId: string; assetId: string; ledger: number; currency: string; amount: bigint; tag: string;
+    /** Step 1 的外部参考号——引擎按它与同参考号的外部对账单行配对（调用方另用 createExternalLine 补那条行）。
+     *  不传 = 这笔入账没有对应的银行行（重复入账 / 凭空入账的差异行）。 */
+    externalRef?: string;
     /** 分录的业务生效日（默认跟随写入时刻）。场景 9 需要把铺底流水放到一个**过去**的
      *  业务日上，才能让「截止日在过去、调账单今天才写」这个真实形状跑起来。 */
     effectiveDate?: string;
@@ -303,6 +311,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         actorType: 'SYSTEM',
         actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund customer balance for recon-adjustment money-arc tests (Step 1)',
+        externalRef: opts.externalRef ?? null,
         ...(opts.effectiveDate ? { effectiveDate: opts.effectiveDate } : {}),
       },
     });
@@ -337,6 +346,8 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
    *  Same deterministic-transfer-id caution as fundCustomerWallet. */
   async function fundFirmWallet(opts: {
     walletId: string; ledger: number; currency: string; amount: bigint; tag: string;
+    /** 外部参考号——同 fundCustomerWallet：引擎按它与同参考号的外部行配对。 */
+    externalRef?: string;
   }): Promise<void> {
     const sourceNo = `E2E-RECON-ADJ-FIRMFUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
     const walletCashId = await accounting.resolveCashAccountId(opts.walletId, opts.ledger);
@@ -359,7 +370,25 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         actorType: 'SYSTEM',
         actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund firm wallet cash (capital-injection shape)',
+        externalRef: opts.externalRef ?? null,
       },
+    });
+  }
+
+  /** 外部对账单行——subAccount 盖成钱包 id（run 的 fetchExternalLinesForWallet 按它圈定本钱包的行）；
+   *  datetime 取 now，远早于 CUTOFF。铺底入账的银行回单就是用它补的。 */
+  async function createExternalLine(opts: {
+    walletId: string; currency: string; book: 'CLIENT' | 'FIRM';
+    direction: 'IN' | 'OUT'; amount: bigint; externalRef: string;
+  }): Promise<{ id: string }> {
+    return (prisma as any).externalStatementLine.create({
+      data: {
+        source: 'ZAND', accountRef: opts.walletId, subAccount: opts.walletId,
+        book: opts.book, currency: opts.currency, direction: opts.direction, amount: opts.amount.toString(),
+        externalRef: opts.externalRef, datetime: new Date(), description: 'Incoming',
+        dedupKey: `E2E-ADJ-${randomUUID()}`,
+      },
+      select: { id: true },
     });
   }
 
@@ -384,6 +413,14 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
       where: { walletRef: walletId, status: 'OPEN' },
     });
     return kase;
+  }
+
+  /** 案子上那条「我有外无」差异行的内部流水 id——调账单开单时用 explainedFlowId 锚住它，才算「已解释」。 */
+  async function orphanInternalFlowId(caseId: string): Promise<string> {
+    const items = await (prisma as any).reconciliationLineItem.findMany({ where: { caseId } });
+    const orphan = items.find((l: any) => l.matchStatus === 'ORPHAN_INTERNAL');
+    expect(orphan).toBeTruthy();
+    return orphan.internalSourceId;
   }
 
   async function latestApprovalCase(actionType: string, entityRef: string) {
@@ -481,11 +518,14 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     });
 
     const X1 = 20000n; // AED 200.00, posted TWICE below (simulated duplicate deposit entry)
-    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger, currency: aedCode, amount: X1, tag: 'C1-A' });
+    const REF1 = `E2E-ADJ-C1-${randomUUID().slice(0, 8)}`;
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger, currency: aedCode, amount: X1, tag: 'C1-A', externalRef: REF1 });
+    // 第二笔是重复入账：银行那边没有它的回单（不传 externalRef），是案子上一条真的「我有外无」差异行。
     await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger, currency: aedCode, amount: X1, tag: 'C1-B' });
     // internal.total for this wallet is now 2×X1 = 40000 (two "deposits" landed).
 
-    // External bank statement only ever saw ONE legitimate deposit — X1.
+    // External bank statement only ever saw ONE legitimate deposit — X1（那一笔的回单行配上第一笔入账）.
+    await createExternalLine({ walletId: wallet.id, currency: aedCode, book: 'CLIENT', direction: 'IN', amount: X1, externalRef: REF1 });
     await upsertExternalBalance({ walletId: wallet.id, currency: aedCode, book: 'CLIENT', closingBalance: X1 });
 
     const run1 = await walletRecon.run({ cutoff: CUTOFF });
@@ -504,6 +544,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         direction: 'REDUCE',
         amount: '20000',
         effectiveDate: TODAY,
+        explainedFlowId: await orphanInternalFlowId(kase.id), // 锚在那条重复入账的差异行上
         reasonInternal: 'e2e: 重复入账撤销 fixture',
       } as any,
       makeActor('E2E_OPS_CREATOR_C1', 'OPS_OFFICER'),
@@ -593,7 +634,9 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     const FUNDED = 30000n;   // 我们账上记着的
     const REALLY = 45000n;   // 外部实际有的 —— 我们少记了 15000（一笔提现扣了客户的钱但实际没出去）
-    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger, currency: aedCode, amount: FUNDED, tag: 'C2' });
+    const REF2 = `E2E-ADJ-C2-${randomUUID().slice(0, 8)}`;
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger, currency: aedCode, amount: FUNDED, tag: 'C2', externalRef: REF2 });
+    await createExternalLine({ walletId: wallet.id, currency: aedCode, book: 'CLIENT', direction: 'IN', amount: FUNDED, externalRef: REF2 });
     await upsertExternalBalance({ walletId: wallet.id, currency: aedCode, book: 'CLIENT', closingBalance: REALLY });
 
     expect((await walletRecon.run({ cutoff: CUTOFF })).status).toBe('BREAK');
@@ -650,7 +693,9 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     const FUNDED = 5000n;
     const REALLY = 7000n; // 银行多给了 2000 —— 利息，归公司（decisions.md 2026-08-28）
-    await fundFirmWallet({ walletId: wallet.id, ledger, currency: aedCode, amount: FUNDED, tag: 'F3' });
+    const REF3 = `E2E-ADJ-F3-${randomUUID().slice(0, 8)}`;
+    await fundFirmWallet({ walletId: wallet.id, ledger, currency: aedCode, amount: FUNDED, tag: 'F3', externalRef: REF3 });
+    await createExternalLine({ walletId: wallet.id, currency: aedCode, book: 'FIRM', direction: 'IN', amount: FUNDED, externalRef: REF3 });
     await upsertExternalBalance({ walletId: wallet.id, currency: aedCode, book: 'FIRM', closingBalance: REALLY });
 
     expect((await walletRecon.run({ cutoff: CUTOFF })).status).toBe('BREAK');
@@ -790,7 +835,11 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     });
 
     const X = 5_000_000n; // 5.000000 USDT（6 位精度）
-    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: usdt.id, ledger, currency: usdt.code, amount: X * 2n, tag: 'C8' });
+    const REF8 = `E2E-ADJ-C8-${randomUUID().slice(0, 8)}`;
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: usdt.id, ledger, currency: usdt.code, amount: X, tag: 'C8-A', externalRef: REF8 });
+    await createExternalLine({ walletId: wallet.id, currency: usdt.code, book: 'CLIENT', direction: 'IN', amount: X, externalRef: REF8 });
+    // 第二笔是重复入账（场景 1 同款）：没有银行回单，是案子上那条「我有外无」差异行。
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: usdt.id, ledger, currency: usdt.code, amount: X, tag: 'C8-B' });
     // 外部只有一半 —— 内部记多了 X
     await upsertExternalBalance({ walletId: wallet.id, currency: usdt.code, book: 'CLIENT', closingBalance: X });
 
@@ -806,6 +855,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         direction: 'REDUCE',
         amount: X.toString(),
         effectiveDate: TODAY,
+        explainedFlowId: await orphanInternalFlowId(kase.id), // 锚在那条重复入账的差异行上
         reasonInternal: 'e2e: 加密币重复入账撤销',
       } as any,
       makeActor('E2E_OPS_CREATOR_C8', 'OPS_OFFICER'),
@@ -884,7 +934,9 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     const FUNDED = 7000n;
     const REALLY = 5000n; // 银行扣了 2000 账管费/电汇费 —— 外部实际比我们记的少，公司承担（decisions.md 2026-08-28）
-    await fundFirmWallet({ walletId: wallet.id, ledger, currency: aedCode, amount: FUNDED, tag: 'F7' });
+    const REF7 = `E2E-ADJ-F7-${randomUUID().slice(0, 8)}`;
+    await fundFirmWallet({ walletId: wallet.id, ledger, currency: aedCode, amount: FUNDED, tag: 'F7', externalRef: REF7 });
+    await createExternalLine({ walletId: wallet.id, currency: aedCode, book: 'FIRM', direction: 'IN', amount: FUNDED, externalRef: REF7 });
     await upsertExternalBalance({ walletId: wallet.id, currency: aedCode, book: 'FIRM', closingBalance: REALLY });
 
     expect((await walletRecon.run({ cutoff: CUTOFF })).status).toBe('BREAK');
@@ -992,9 +1044,12 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   //     额外卡 `createdAt <= cutoff`，把所有回填挡在外面：调账单落了账、重跑对账
   //     内部余额一分没动、差额永远归不了零。
   //
-  //   绕开点 B（流水异常）：1-8 号的铺底流水没有对应的外部对账单行（外部只给了一个
-  //     期末余额），于是钱包上根本没有差异行，anomalyCount 恒 0，永远碰不到 COMPENSATING。
-  //     真实案子都有差异行；调账只补余额、不摘差异行的话，桶停在 COMPENSATING，案子永远关不掉。
+  //   绕开点 B（整笔入账没有银行行）：1-8 号的铺底入账各配了一条同参考号的外部行（配得上就
+  //     没有差异行，见文件头 Fixture strategy；场景 1 / 8 那笔重复入账是个例，靠 explainedFlowId
+  //     锚住）。场景 9 的这笔 300.00 入账根本没有银行行——钱从没到过——所以钱包上一定有一条
+  //     「我有外无」差异行；调账只补余额、不摘差异行的话，桶停在 COMPENSATING，案子永远关不掉。
+  //     （旧账本里 1-8 号的铺底入账不带跨外部标记、引擎看不见，所以那时「1-8 号没有差异行」
+  //     是靠标记绕过去的；现金户上每条流水都算穿越，现在是靠配对。）
   //
   // 这条用例断言的是业主真正要的那句话：**平完账，案子真的关掉了。**
   // ────────────────────────────────────────────────────────────────────────
@@ -1015,7 +1070,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
       iban: `AE_E2E_ADJ_C9_${Date.now()}`,
     });
 
-    // 我们记了一笔 300.00 的充值（真实形状：进钱记在钱包现金户上），银行那边根本没这笔钱。
+    // 我们记了一笔 300.00 的充值（真实形状：进钱记在钱包现金户上），银行那边根本没这笔钱：不配外部行。
     const X = 30000n;
     await fundCustomerWallet({
       walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger, currency: aedCode,

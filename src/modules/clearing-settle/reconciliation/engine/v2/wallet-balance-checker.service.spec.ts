@@ -208,19 +208,22 @@ describe('WalletBalanceCheckerService', () => {
     expect(result.internal.total).toBe(800n);
   });
 
-  // 2026-09-02 回归锁（Task 12）的新形态：账户号首位为 0 时，注册表（恒 32 位）与 account_flows
-  // 的 tbAccountId 曾差一位，按字符串等值查流水会静默查空——客户户往往只有一条，余额算成 0、
-  // 差额变成外部收盘全额，凭空造破口。现在取户走注册表、再用**补零后**的 32 位户号查流水。
-  it('前导零账户号：用补零后的 32 位户号查流水，该户的行必须算进余额（不许静默查空）', async () => {
-    const CASH_LEAD0 = '0d1f22c2b330c2b293bf95ca6a7f2339';
+  // 前导零账户号的补零：写侧已全线定长 32 位（§A，2026-09-13），新库里注册表与 account_flows 都是 32 位；
+  // 检查器取户时仍把注册表户号补零到 32 位再等值查流水（同款历史坑：首位 0 的户号某一侧少一位，
+  // 等值查询会静默查空——客户户往往只有一条，余额算成 0、差额变成外部收盘全额，凭空造破口）。
+  // 这条用「注册表 31 位 / 流水 32 位」的错位夹具钉住这一步：去掉补零，该户的行就查不到。
+  it('前导零账户号：注册表里少一位的户号补零成 32 位后才查流水，该户的行必须算进余额（不许静默查空）', async () => {
+    const CASH_LEAD0 = '0d1f22c2b330c2b293bf95ca6a7f2339';      // account_flows 侧：定长 32 位
+    const REG_UNPADDED = CASH_LEAD0.slice(1);                   // 注册表侧：首位 0 被吃掉的 31 位
     expect(CASH_LEAD0).toHaveLength(32);
+    expect(REG_UNPADDED).toHaveLength(31);
     const prisma = makePrismaMock(
       [{ tbAccountId: CASH_LEAD0, direction: 'IN', amount: 87500, createdAt: new Date('2026-06-26T01:00:00Z') }],
-      [{ tbAccountId: CASH_LEAD0, code: 1, ledger: 1, ownerType: 'WALLET', ownerUuid: 'w-cust-aed' }],
+      [{ tbAccountId: REG_UNPADDED, code: 1, ledger: 1, ownerType: 'WALLET', ownerUuid: 'w-cust-aed' }],
     );
     const svc = new WalletBalanceCheckerService(prisma as any);
     const result = await svc.checkBalance({ walletRef: 'w-cust-aed', externalClosing: 87500n, cutoff });
-    expect(result.cashTbAccountId).toHaveLength(32);
+    expect(result.cashTbAccountId).toBe(CASH_LEAD0);
     expect(result.internal.total).toBe(87500n);
     expect(result.delta).toBe(0n);
     expect(result.pass).toBe(true);

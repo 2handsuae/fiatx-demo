@@ -20,8 +20,8 @@ export function deterministicTransferId(
  * §A 根修（2026-09-13）：此前裸 toString(16)，u128 首 nibble 为 0 时只有 31 位
  * （1/16 每 id），account_flows 落行短一位 → 字符串 join 读面随机丢行 → 幻影失衡。
  * registry 侧同病 2026-09-04 已修（bigintToRegistryHex）；本次把补零推到本体，
- * 写侧全线定长。读侧 padTbId 补丁（wallet-flow-matcher / wallet-balance-checker /
- * tb-evidence）保留不动——新库下是无害恒等。
+ * 写侧全线定长。读侧 padTbId 补丁（wallet-balance-checker / tb-evidence）保留不动——
+ * 新库下是无害恒等（流水匹配器不自己补零，它收检查器给的 32 位户号）。
  */
 export function bigintToHex(value: bigint): string {
   return value.toString(16).padStart(32, '0');

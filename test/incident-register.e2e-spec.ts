@@ -24,6 +24,7 @@ import { AdjustmentService } from '../src/modules/clearing-settle/reconciliation
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
+import { bigintToHex } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
@@ -182,18 +183,21 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     return customer;
   }
 
+  /** 真实充值的两跳形状：Step 1 借 这只钱包的现金户(A.CLIENT_CASH)／贷 暂扣，Step 2 借 暂扣／贷 应付。
+   *  戊波一:现金户一钱包一户，只经 resolveCashAccountId 取；钱包由 createOrReturn(开地址流程)开好现金户。
+   *  传 externalRef = 这笔入账有银行回单(调用方另用 createExternalLine 补同参考号的外部行)；不传 = 没有回单的孤儿入账。 */
   async function fundCustomerWallet(opts: {
     walletId: string; ownerId: string; assetId: string; ledger: number; currency: string; amount: bigint; tag: string;
     externalRef?: string; effectiveDate?: string;
   }): Promise<string> {
     const sourceNo = `E2E-INC-FUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
 
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const walletCashId = await accounting.resolveCashAccountId(opts.walletId, opts.ledger);
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
 
     await accounting.executeTransfer({
-      debitAccountId: clientAssetId, creditAccountId: suspenseId, amount: opts.amount, ledger: opts.ledger,
+      debitAccountId: walletCashId, creditAccountId: suspenseId, amount: opts.amount, ledger: opts.ledger,
       code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
       evidence: {
         sourceType: 'DEPOSIT', sourceNo, eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
@@ -405,9 +409,16 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     mainCustomer = await createIsolatedCustomer('MAIN');
     mainWallet = await ensureDepositWallet(mainCustomer.id, usdtNetwork);
     const outflowRef = `0xe2einc${randomUUID().replace(/-/g, '').slice(0, 16)}`;
+    // 铺底入账配一条同参考号的托管方回单（现金户上每条流水都算穿越，要有行配得上；配上了它就不是差异行，
+    // 案子上唯一的差异就是下面那笔「我方毫无记录的转出」）。
+    const fundRef = `0xe2eincfund${randomUUID().replace(/-/g, '').slice(0, 16)}`;
     await fundCustomerWallet({
       walletId: mainWallet.id, ownerId: mainCustomer.id, assetId: usdtAssetId, ledger: TB_LEDGERS.USDT,
-      currency: 'USDT', amount: FUND_AMOUNT_MINOR, tag: 'MAIN',
+      currency: 'USDT', amount: FUND_AMOUNT_MINOR, tag: 'MAIN', externalRef: fundRef,
+    });
+    await createExternalLine({
+      walletId: mainWallet.id, currency: usdtCode, book: 'CLIENT', direction: 'IN',
+      amount: FUND_AMOUNT_MINOR, externalRef: fundRef, source: 'HEXTRUST', description: 'Original deposit',
     });
     // 未授权转出：外部托管方对账单出现一笔我方毫无内部记录的转出（外有我无 · OUT）。
     const outLine = await createExternalLine({
@@ -542,7 +553,12 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     const ev = await tbEvidence.findBySource('RECON_ADJUSTMENT', mainAdjustmentNo);
     expect(ev[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
     expect(ev[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
+    // 戊波一:客户池认损 = 借 这位客户的应付户 / 贷 案子钱包自己的现金户（客户余额与钱包现金同时掉定损额）
+    expect(ev[0].debitTbAccountId).toBe(bigintToHex(await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: TB_LEDGERS.USDT, ownerType: 'CUSTOMER', ownerUuid: mainCustomer.id })));
+    expect(ev[0].creditTbAccountId).toBe(bigintToHex(await accounting.resolveCashAccountId(mainWallet.id, TB_LEDGERS.USDT)));
     expect((await accounting.getCustomerAvailableBalance(mainCustomer.id, 'USDT')).available).toBe(FUND_AMOUNT_MINOR - LOSS_MINOR);
+    const mainCash = await accounting.lookupBalance(await accounting.resolveCashAccountId(mainWallet.id, TB_LEDGERS.USDT));
+    expect(mainCash.debitsPosted - mainCash.creditsPosted).toBe(FUND_AMOUNT_MINOR - LOSS_MINOR); // 钱包现金户 = 铺底 − 定损额 = 外部真值
 
     // 内部已经等于外部：重对账，案子愈。
     await runNow();

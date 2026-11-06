@@ -25,6 +25,7 @@ import { SupplementEvidenceService } from '../src/modules/clearing-settle/reconc
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
+import { bigintToHex } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
@@ -213,20 +214,21 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   }
 
   /** Real production evidence shape — mirrors deposit-workflow.service.ts's own
-   *  Step 1 (CLIENT_CASH→DEPOSIT_SUSPENSE, the leg an external statement shows) + Step 2
-   *  (DEPOSIT_SUSPENSE→CLIENT_PAYABLE, pure reclass) exactly. */
+   *  Step 1 (DR 这只钱包的现金户 A.CLIENT_CASH / CR DEPOSIT_SUSPENSE, the leg an external statement shows) + Step 2
+   *  (DEPOSIT_SUSPENSE→CLIENT_PAYABLE, pure reclass) exactly。戊波一:现金户一钱包一户，
+   *  Step 1 的借方只经 resolveCashAccountId 取；钱包由 createOrReturn(开地址流程)开好现金户。 */
   async function fundCustomerWallet(opts: {
     walletId: string; ownerId: string; assetId: string; ledger: number; currency: string; amount: bigint; tag: string;
     externalRef?: string; effectiveDate?: string;
   }): Promise<string> {
     const sourceNo = `E2E-SUPP-FUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
 
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const walletCashId = await accounting.resolveCashAccountId(opts.walletId, opts.ledger);
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
 
     await accounting.executeTransfer({
-      debitAccountId: clientAssetId, creditAccountId: suspenseId, amount: opts.amount, ledger: opts.ledger,
+      debitAccountId: walletCashId, creditAccountId: suspenseId, amount: opts.amount, ledger: opts.ledger,
       code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
       evidence: {
         sourceType: 'DEPOSIT', sourceNo, eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
@@ -288,6 +290,16 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
 
   async function auditSince(action: string, subjectNo: string) {
     return (prisma as any).auditLogEvent.findMany({ where: { action, primarySubjectNo: subjectNo, recordedAt: { gte: testStartedAt } } });
+  }
+
+  /** 戊波一:凭证行的借 / 贷账户 id 是 32 位十六进制串；现金户只经 resolveCashAccountId 取，应付户按客户取。 */
+  const cashHex = async (walletId: string, ledger: number) => bigintToHex(await accounting.resolveCashAccountId(walletId, ledger));
+  const payableHex = async (customerId: string, ledger: number) =>
+    bigintToHex(await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId }));
+  /** 钱包现金户已落账净额(资产类，借增贷减)——用差额断言，不依赖该钱包的历史。 */
+  async function cashPosted(walletId: string, ledger: number): Promise<bigint> {
+    const b = await accounting.lookupBalance(await accounting.resolveCashAccountId(walletId, ledger));
+    return b.debitsPosted - b.creditsPosted;
   }
 
   /** 造一个「外有我无」案子：新钱包 + 外部行 + 收盘 + 跑一次对账，返回案子与差异行。
@@ -514,20 +526,20 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     return finalW;
   }
 
-  /** 夹具级直接扣款——镜像 fundCustomerWallet 的贷方向，走同一组 TB 原语（同样是
-   *  "测试铺底"性质的直接记账，不代表任何真实业务事件）。Step 6(b) 只是要构造
+  /** 夹具级直接扣款——镜像 fundCustomerWallet 的贷方向（借 应付 / 贷 这只钱包的现金户），走同一组 TB 原语
+   *  （同样是"测试铺底"性质的直接记账，不代表任何真实业务事件）。Step 6(b) 只是要构造
    *  「当下可用余额不够」这一个前提，不需要（也不该）经真实客户提现端点：真走
    *  createWithdrawal 会撞上 L1 TransactionLimitGateService 的单笔/累计上限，
    *  且限额闸门本就不是 initiateClawback 自己那道余额守卫想测的东西——直接记账
    *  绕开这个不相关的限制。调用方对本文件专属的全新客户只扣 1 分钱（不打负），
    *  不碰任何种子演示客户的余额。 */
-  async function debitCustomerBalance(ownerId: string, amountMinor: bigint): Promise<void> {
+  async function debitCustomerBalance(ownerId: string, walletId: string, amountMinor: bigint): Promise<void> {
     if (amountMinor <= 0n) return;
     const sourceNo = `E2E-SUPP-DRAIN-${randomUUID().slice(0, 8)}`;
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: TB_LEDGERS.AED, ownerType: 'CUSTOMER', ownerUuid: ownerId });
-    const assetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: TB_LEDGERS.AED, ownerType: 'SYSTEM' });
+    const walletCashId = await accounting.resolveCashAccountId(walletId, TB_LEDGERS.AED);
     await accounting.executeTransfer({
-      debitAccountId: payableId, creditAccountId: assetId, amount: amountMinor, ledger: TB_LEDGERS.AED,
+      debitAccountId: payableId, creditAccountId: walletCashId, amount: amountMinor, ledger: TB_LEDGERS.AED,
       code: TB_TRANSFER_CODES.RECON_ADJUSTMENT,
       evidence: {
         sourceType: 'DEPOSIT', sourceNo, eventCode: 'E2E_FIXTURE_DRAIN',
@@ -628,7 +640,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     expect(await auditSince('DEPOSIT_SUPPLEMENTED', req.signalNo)).toHaveLength(1);
   });
 
-  it('② 退汇：SUCCESS 充值 1200 AED → 银行扣回 → 定性 → 发起（候选含原单）→ CFO 批 → CLAWED_BACK，借应付贷资产，余额减 → 重跑愈', async () => {
+  it('② 退汇：SUCCESS 充值 1200 AED → 银行扣回 → 定性 → 发起（候选含原单）→ CFO 批 → CLAWED_BACK，借应付贷客户现金，余额减 → 重跑愈', async () => {
     // 用本文件专属的全新客户，不用 Bob（Task 12 验收轮收口）——self 栈跑过
     // demo:all 后，Bob 的 AED 可用余额会被花名册第 18 条那笔 25 万 AED 待审批
     // 提现（PENDING_APPROVAL，TigerBeetle pending 未过账）锁成负数，导致这里退汇
@@ -659,11 +671,16 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     expect(cands.kind).toBe('SUPPLEMENT_BOUNCE'); expect(cands.candidates.map((c) => c.orderNo)).toContain(deposit.depositNo);
 
     const before = (await accounting.getCustomerAvailableBalance(custClaw.id, 'AED')).available;
+    const cashBefore = await cashPosted(wallet.id, TB_LEDGERS.AED);
     const req = await depositWf.initiateClawback(deposit.depositNo, { externalLineId: line.id, caseNo: kase.caseNo, dispositionNo: disp.dispositionNo, reason: '银行撤回' }, ops());
     await approvalsService.approve(req.approvalNo, { reason: 'e2e CFO approve clawback' }, cfo());
     await waitUntil(async () => (await deposits.findOne(deposit.id)).status === 'CLAWED_BACK', 30000);
     const ev = (await tbEvidence.findBySource('DEPOSIT', deposit.depositNo)).find((e: any) => e.eventCode === 'DEPOSIT_CLAWBACK');
     expect(ev.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]); expect(ev.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
+    // 戊波一:账户落点——借这位客户自己的应付户 / 贷退汇所在钱包(充值落地的那只 vIBAN)的现金户，两边余额同减 120_000
+    expect(ev.debitTbAccountId).toBe(await payableHex(custClaw.id, TB_LEDGERS.AED));
+    expect(ev.creditTbAccountId).toBe(await cashHex(wallet.id, TB_LEDGERS.AED));
+    expect(await cashPosted(wallet.id, TB_LEDGERS.AED)).toBe(cashBefore - 120_000n);
     expect(ev.externalRef).toBe(ref); expect(ev.effectiveDate).toBe(kase.businessDate);
     expect((await accounting.getCustomerAvailableBalance(custClaw.id, 'AED')).available).toBe(before - 120_000n);
     await walletRecon.run({ cutoff: CUTOFF });
@@ -671,7 +688,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     expect(await auditSince('DEPOSIT_CLAWED_BACK', deposit.depositNo)).toHaveLength(1);
   });
 
-  it('③ 退回：SUCCESS 提现 → 银行退回 → 定性 → 发起 → CFO 批 → RETURNED，借资产贷应付，余额加、手续费不退 → 重跑愈', async () => {
+  it('③ 退回：SUCCESS 提现 → 银行退回 → 定性 → 发起 → CFO 批 → RETURNED，借客户现金贷应付，余额加、手续费不退 → 重跑愈', async () => {
     // ③ 用本文件专属的独立客户（不用 Bob）——理由见 makeSuccessfulFiatWithdraw 的注释：
     // 收盘算术要求这只钱包的外部历史只有本场景造的那几笔。
     const custRet = await createIsolatedCustomer('RET');
@@ -705,12 +722,17 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
 
     const feeEvidenceBefore = (await tbEvidence.findBySource('WITHDRAWAL', w.withdrawNo)).filter((e: any) => String(e.eventCode).includes('FEE'));
     const before = (await accounting.getCustomerAvailableBalance(custRet.id, 'AED')).available;
+    const cashBefore = await cashPosted(w.fromWalletId, TB_LEDGERS.AED);
     const req = await withdrawWf.initiateReturnClaim(w.withdrawNo, { externalLineId: line.id, caseNo: kase.caseNo, dispositionNo: disp.dispositionNo, reason: '银行退回' }, ops());
     await approvalsService.approve(req.approvalNo, { reason: 'e2e CFO approve return-claim' }, cfo());
     await waitUntil(async () => (await withdraws.findByNo(w.withdrawNo)).status === 'RETURNED', 30000);
 
     const ev = (await tbEvidence.findBySource('WITHDRAWAL', w.withdrawNo)).find((e: any) => e.eventCode === 'WITHDRAW_BOUNCE_REENTRY');
     expect(ev.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]); expect(ev.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
+    // 戊波一:账户落点——借退回所在钱包(提现出款的那只 vIBAN)的现金户 / 贷这位客户自己的应付户，两边余额同加 netMinor
+    expect(ev.debitTbAccountId).toBe(await cashHex(w.fromWalletId, TB_LEDGERS.AED));
+    expect(ev.creditTbAccountId).toBe(await payableHex(custRet.id, TB_LEDGERS.AED));
+    expect(await cashPosted(w.fromWalletId, TB_LEDGERS.AED)).toBe(cashBefore + netMinor);
     expect(ev.externalRef).toBe(ref); expect(ev.effectiveDate).toBe(kase.businessDate);
     expect((await accounting.getCustomerAvailableBalance(custRet.id, 'AED')).available).toBe(before + netMinor);
     const feeEvidenceAfter = (await tbEvidence.findBySource('WITHDRAWAL', w.withdrawNo)).filter((e: any) => String(e.eventCode).includes('FEE'));
@@ -751,7 +773,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
       addressType: 'BANK', network: aedNetwork, address: tmpIban, iban: tmpIban,
     });
     const { deposit: depB, wallet: walletB } = await makeSuccessfulFiatDeposit('1200', tmpCustomer.id, tmpCustomer.customerNo);
-    await debitCustomerBalance(tmpCustomer.id, 1n);
+    await debitCustomerBalance(tmpCustomer.id, walletB.id, 1n);
     const refB = `E2E-CLAW-INSUFF-${randomUUID()}`;
     const lineB = await createExternalLine({ walletId: walletB.id, currency: 'AED', book: 'CLIENT', direction: 'OUT', amount: 120_000n, externalRef: refB, description: 'Return' });
     await upsertExternalBalance({ walletId: walletB.id, currency: 'AED', book: 'CLIENT', closingBalance: 0n });

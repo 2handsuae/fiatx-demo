@@ -18,7 +18,7 @@ const base: CaseConclusionInput = {
   assetCode: 'AED',
   walletRef: 'wallet-ref-1',
   walletNo: 'WA2601019534',
-  coaCode: 'L.CLIENT_PAYABLE',
+  coaCode: 'A.CLIENT_CASH',
   deltaAmount: '-73550',
   actualExternal: '2426450',
 };

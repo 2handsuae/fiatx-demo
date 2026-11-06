@@ -520,12 +520,14 @@ async function writeMirror(
   let balances = 0;
   let lines = 0;
   for (const p of plans) {
-    // External balance = the wallet's TB net balance (bal.internal.total).
-    // Because each line is a 1:1 projection of a credit/debit posting on the
-    // wallet's owned TB accounts (planWallets step 2), and direction is taken
-    // raw from account_flows.direction, opening(0) + Σ(IN − OUT) = TB net by
-    // construction. The accountRef key is a stable derived key (so the upsert
-    // composite unique constraint behaves); we use the walletRef itself.
+    // External balance = the wallet's cash-account net balance (bal.internal.total,
+    // which counts 调账行). Each line is a 1:1 mirror of a POSTED row on that cash
+    // account (planWallets step 1) with direction taken raw from account_flows.direction,
+    // so opening(0) + Σ(line IN − OUT) = closing holds while no adjustment row exists.
+    // Once adjustments are posted the closing keeps carrying them but the lines do not
+    // (an adjustment never reaches the bank's statement) — that gap is deliberate: it is
+    // what lets a post-adjustment wallet pass. The accountRef key is a stable derived
+    // key (so the upsert composite unique constraint behaves); we use the walletRef itself.
     const accountRef = p.walletRef;
     const source = sourceFor(p.currency);
     const closingBalance = D(p.internalTotal.toString());
@@ -668,11 +670,13 @@ async function assertTargetWalletsClean(
 //
 // 失窃额校准（T6「先跑后选」方法论，spec §5 校准表；2026-09-30 demo:all 后实测）：
 //   F_OPS(AED) 当刻 946,089.35，NLA 当刻 1,364,752.25，红线 1,200,000.00，
-//   Bob（demo_bob@example.com）AED 托管钱包当刻实值 262,200.00（含
-//   CLIENT_PAYABLE 257,100.00 + DEPOSIT_SUSPENSE 5,100.00；其 250,000
+//   Bob（demo_bob@example.com）AED 托管钱包当刻实值 262,200.00（= 他 vIBAN
+//   现金户 A.CLIENT_CASH 的已落账净额，恰等于他的 CLIENT_PAYABLE 257,100.00 +
+//   DEPOSIT_SUSPENSE 5,100.00——客户本平衡；其 250,000
 //   在途提现单 PENDING_APPROVAL 只在 TB 记一笔 debitsPending 押注、尚未落
 //   account_flows，不占用这里的口径——planWallets 的 internalTotal 只认
 //   POSTED 流水）。五判据实测全过，候选 250,000.00 AED / Bob 未改动。
+//   （2026-11-06 戊波一账本重立后复测：现金户口径下上述数字逐位不变。）
 const CRISIS_THEFT_AED_MINOR = D('25000000'); // 分：250,000.00 AED
 const CRISIS_THEFT_OWNER_EMAIL = 'demo_bob@example.com';
 const CRISIS_REF_PREFIX = 'CRISIS-';

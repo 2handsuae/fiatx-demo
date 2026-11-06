@@ -353,7 +353,7 @@ export class TbEvidenceService {
     // TB account id 是 16 字节 = 32 位 hex。account_flows 里存在少数 31 位的行
     // (上游某处 bigint.toString(16) 未 padStart,前导零被吃掉),而 registry 侧恒为 32 位
     // —— 裸 Map.get 会查不中,导致这些流水的科目名/客户号恒空(实测 96 条里有 10 条)。
-    // 对账引擎为同一件事早有 padTbId(wallet-flow-matcher.service.ts),读侧此前漏了。
+    // 对账引擎的余额检查器为同一件事早有 padTbId(wallet-balance-checker.service.ts),读侧此前漏了。
     const padTbId = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
 
     const ids = [...new Set(rows.map((r) => r.tbAccountId).filter(Boolean).map(padTbId))];

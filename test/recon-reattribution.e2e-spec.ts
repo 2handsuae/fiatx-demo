@@ -26,6 +26,8 @@ import { WalletReconRunService } from '../src/modules/clearing-settle/reconcilia
 import { ReconciliationQueryService } from '../src/modules/clearing-settle/reconciliation/domain/reconciliation-query.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
+import { WalletCashAccountService } from '../src/modules/accounting/tigerbeetle/wallet-cash-account.service';
+import { bigintToHex } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
@@ -56,15 +58,16 @@ import { generateReferenceNo } from '../src/common/utils/no-generator.util';
  *   `bash scripts/stack.sh reset <main|self>` 重铺。
  *
  * ── 场景 A 要证的业务事实 ──────────────────────────────────────────────
- * 一笔钱记错了客户：**钱在托管方那里一分没动，只是我方把主人记错了**。
- * 所以分录是两个客户的应付对转：
- *     借 错记方客户应付 CLIENT_PAYABLE (ownerUuid = A)
- *     贷 正主方客户应付 CLIENT_PAYABLE (ownerUuid = B)
- *     客户资产腿 CLIENT_CASH 绝不出现 —— 托管里的钱没进也没出
- * 这一条**用行为证明**：把两条真实 account_flows 的 tbAccountId 回查
- * tb_account_registry，断言两边的 code 都是 CLIENT_PAYABLE、且 ownerNo 一边是
- * 错记方一边是正主方。不去 grep 源码文本（本仓库为「扫源码文本」型断言的
- * 自证绿灯栽过六次）。
+ * 一笔钱记错了客户：**钱在托管方那里一分没动，只是我方把它记在了错的人名下**。
+ * 戊波一的账本里每个客户一个钱包、每个钱包一个现金户（A.CLIENT_CASH），「记错人」就是
+ * 「记错钱包」——所以改记是一张凭证四条腿（两笔转账、同一个调账单号）：
+ *     应付对：借 错记方客户应付 CLIENT_PAYABLE (ownerUuid = A) ／ 贷 正主方客户应付 CLIENT_PAYABLE (ownerUuid = B)
+ *     现金对：借 正主方钱包现金户 CLIENT_CASH (walletRef = B 的钱包) ／ 贷 错记方钱包现金户 (walletRef = A 的钱包)
+ * 现金对不挪的话，两案永远不自愈：B 的应付会比他的现金多、A 的现金还挂着不属于他的钱。
+ * 这一条**用行为证明**：把四条真实 account_flows 的 tbAccountId 回查 tb_account_registry，
+ * 断言应付对两边的 code 都是 CLIENT_PAYABLE、ownerNo 一边是错记方一边是正主方；现金对两边的
+ * code 都是 CLIENT_CASH，且账户 id 就是两只钱包各自的现金户（resolveCashAccountId）；再用两只
+ * 钱包现金户的真实余额收口。不去 grep 源码文本（本仓库为「扫源码文本」型断言的自证绿灯栽过六次）。
  *
  * 一张改记单同时牵两个案件、各带一个证据锚（错记方内部流水 id + 正主方外部
  * 对账单行 id），落账后**一次重对账两个案子一起自愈**——这一半靠的是
@@ -159,32 +162,35 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
   async function createCustomerWallet(opts: {
     ownerId: string; ownerNo: string; network: string; walletRole: 'C_VIBAN' | 'C_DEP'; iban?: string;
   }): Promise<{ id: string }> {
-    return (prisma as any).wallet.create({
+    const created = await (prisma as any).wallet.create({
       data: {
         walletNo: `WA-E2E-REATTR-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: opts.ownerId, ownerNo: opts.ownerNo,
         vaultCode: 'CLIENT_DEPOSIT', walletRole: opts.walletRole, network: opts.network,
         iban: opts.iban ?? null, status: 'ACTIVE',
       },
-      select: { id: true },
     });
+    // 戊波一:每个钱包一个现金户——运行时钱包在开地址流程里开户，这里直接 prisma.create 的夹具要补上，
+    // 否则解析不到该钱包的现金户（铺底 / 改记落账都要用）。
+    await app.get(WalletCashAccountService).ensureForWallet(created);
+    return { id: created.id };
   }
 
-  /** 全新公司钱包——同样不碰种子的 F_FEE（那是共享聚合户，提现/兑换套件会往上
-   *  真的落手续费收入）。ownerType:'PLATFORM' 与种子惯例一致，R2 校验按
-   *  FIRM_SIDE={PLATFORM,SYSTEM} 放行。唯一键 (vaultCode, network, ownerNo)
-   *  不允许第二条 PLATFORM 行，独立归属号避开种子的 'PLATFORM'。 */
+  /** 全新公司钱包——同样不碰种子的 F_FEE（那是共享的手续费钱包，提现/兑换套件会往上
+   *  真的落手续费收入）。ownerType:'PLATFORM' → 现金户码 50（公司现金）。唯一键
+   *  (vaultCode, network, ownerNo) 不允许第二条 PLATFORM 行，独立归属号避开种子的 'PLATFORM'。 */
   async function createFirmWallet(opts: { vaultCode: string; network: string }): Promise<{ id: string }> {
     const tag = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    return (prisma as any).wallet.create({
+    const created = await (prisma as any).wallet.create({
       data: {
         walletNo: `WA-E2E-REATTR-FIRM-${tag}`,
         ownerType: 'PLATFORM', ownerId: null, ownerNo: `PLATFORM-E2E-${tag}`,
         vaultCode: opts.vaultCode, walletRole: opts.vaultCode, network: opts.network,
         status: 'ACTIVE',
       },
-      select: { id: true },
     });
+    await app.get(WalletCashAccountService).ensureForWallet(created); // 同上:夹具钱包补开现金户
+    return { id: created.id };
   }
 
   /** 全新 fixture 客户，专属场景 A 的一端（错记方或正主方）——照抄
@@ -228,9 +234,10 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
 
   /**
    * 客户钱包铺底：与 deposit-workflow.service.ts 生产里的两跳完全同形
-   * （Step 1 CLIENT_CASH→DEPOSIT_SUSPENSE 外部对账单上看得见的入账，Step 2
-   * DEPOSIT_SUSPENSE→CLIENT_PAYABLE 纯账面重分类）。
-   * 对这个钱包 (PAYABLE+SUSPENSE) 的净效果 = +amount。
+   * （Step 1 借 这只钱包的现金户 → 贷 暂扣，外部对账单上看得见的入账；Step 2
+   * 借 暂扣 → 贷 应付，纯账面重分类）。戊波一:Step 1 的借方是钱包自己的现金户
+   * （只经 resolveCashAccountId 取，不再有按币种聚合的客户现金户）。
+   * 对这个钱包 (PAYABLE+SUSPENSE) 的净效果 = +amount，它的现金户也 +amount。
    *
    * Step 1 传 externalRef —— 本文件要的正是「一条真实
    * 的、外部对账单上本该有的入账」：外部对账单上没有它，它就是那条
@@ -245,12 +252,12 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     // 本轮的证据/流水写入，钱包内部余额停在 0 而且哪儿都不报错。
     const sourceNo = `E2E-REATTR-FUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
 
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const walletCashId = await accounting.resolveCashAccountId(opts.walletId, opts.ledger);
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
 
     await accounting.executeTransfer({
-      debitAccountId: clientAssetId,
+      debitAccountId: walletCashId,
       creditAccountId: suspenseId,
       amount: opts.amount,
       ledger: opts.ledger,
@@ -294,9 +301,8 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
   }
 
   /**
-   * 公司钱包铺底（场景 B 用）：DR FIRM_CASH / CR INCOME_OTHER。
-   * WalletBalanceChecker 对公司钱包只认 200/201/203/210/211/212，聚合腿 FIRM_CASH(50)
-   * 被丢掉，所以这个钱包的内部余额 = +amount。
+   * 公司钱包铺底（场景 B 用）：借 这只钱包的现金户（A.FIRM_CASH，码 50）／ 贷 公司权益——
+   * 附录 B「注资」的形状（码 70）。这个钱包的内部余额就是它自己现金户的余额 = +amount。
    * 这里刻意传 externalRef —— 场景 B 要的是一条
    * **能与外部对账单行按单号配上、但金额对不上**的真实流水（AMOUNT_MISMATCH）。
    */
@@ -304,21 +310,21 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     walletId: string; ledger: number; currency: string; amount: bigint; tag: string; externalRef: string;
   }): Promise<void> {
     const sourceNo = `E2E-REATTR-FIRMFUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
-    const firmAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
-    const incomeOtherId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.INCOME_OTHER, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const walletCashId = await accounting.resolveCashAccountId(opts.walletId, opts.ledger);
+    const equityId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_EQUITY, ledger: opts.ledger, ownerType: 'SYSTEM' });
 
     await accounting.executeTransfer({
-      debitAccountId: firmAssetId,
-      creditAccountId: incomeOtherId,
+      debitAccountId: walletCashId,
+      creditAccountId: equityId,
       amount: opts.amount,
       ledger: opts.ledger,
-      code: TB_TRANSFER_CODES.RECON_ADJUSTMENT,
+      code: TB_TRANSFER_CODES.CAPITAL_INJECTION,
       evidence: {
         sourceType: 'DEPOSIT',
         sourceNo,
         eventCode: 'E2E_FIRM_FIXTURE',
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH],
-        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
+        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY],
         assetCurrency: opts.currency,
         traceId: sourceNo,
         actorType: 'SYSTEM',
@@ -389,9 +395,8 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     return (prisma as any).accountFlow.findMany({ where: { sourceType: 'RECON_ADJUSTMENT', sourceNo: adjustmentNo } });
   }
 
-  /** tb_account_registry 存的是 32 位补零形式，account_flows.tbAccountId 可能是
-   *  31 位未补零——两侧都补齐再 join（同 WalletFlowMatcherService 的 padTbId，
-   *  少了这一步会查不到注册行、断言变成「查不到所以没红」的假绿）。 */
+  /** tb_account_registry 存的是 32 位补零形式，account_flows.tbAccountId 也是定长 32 位
+   *  （写侧定长）；这里仍两侧都补齐再 join，查不到就抛——不让断言变成「查不到所以没红」的假绿。 */
   const padTbId = (id: string) => (id.length < 32 ? id.padStart(32, '0') : id);
 
   async function registryOf(tbAccountId: string): Promise<{ code: number; ownerType: string; ownerNo: string | null }> {
@@ -401,6 +406,14 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     });
     if (!reg) throw new Error(`tb_account_registry 查无此账户：${tbAccountId}（补零后 ${padTbId(tbAccountId)}）`);
     return reg;
+  }
+
+  /** 凭证行 / 流水行的账户 id 是 32 位十六进制串；现金户只经 resolveCashAccountId 取。 */
+  const cashHex = async (walletId: string, ledger: number) => bigintToHex(await accounting.resolveCashAccountId(walletId, ledger));
+  /** 钱包现金户已落账净额（资产类，借增贷减）——每个钱包都是本场景专属新钱包，余额从 0 起算，可断言绝对值。 */
+  async function cashPosted(walletId: string, ledger: number): Promise<bigint> {
+    const b = await accounting.lookupBalance(await accounting.resolveCashAccountId(walletId, ledger));
+    return b.debitsPosted - b.creditsPosted;
   }
 
   /** 真实充值单 fixture——改记的边界线守卫（createReattributionDraft）会真的按
@@ -426,7 +439,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
 
   // ── 场景 A · 改记一单双案同愈 ────────────────────────────────────────────
 
-  it('A. 改记一单双案同愈：两案 OPEN → 定性 MISATTRIBUTED_FROM → 对端候选命中 → 一张改记单（应付对转，资产腿不动）→ 真批真落账 → 一次重对账两案齐愈', async () => {
+  it('A. 改记一单双案同愈：两案 OPEN → 定性 MISATTRIBUTED_FROM → 对端候选命中 → 一张改记单（应付对转 + 现金对转，四条腿）→ 真批真落账 → 一次重对账两案齐愈', async () => {
     const ledger = 1; // AED
     const X = 87500n; // AED 875.00 —— 被记错主人的那一笔
 
@@ -579,48 +592,74 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     // 不是轮询写短了。
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 
-    // ── ⑤ 账本：应付对转，客户资产腿绝不出现 ───────────────────────────────
+    // ── ⑤ 账本：一张凭证四条腿——应付对转 + 现金对转（钱挪到正主的钱包现金户）─────────
+    // 戊波一·附录 B「改记」/ 总纲 §4 岔口 6：每客户一个钱包，「记错人」就是「记错钱包」。
+    // 钱实际在正主的钱包里，账却记在错记方的现金户上，所以现金户要跟着挪；只转应付不挪现金的话，
+    // 两案永远不自愈，正主的应付还会比他的现金多。两对转账同一个调账单号、各自一条凭证：
+    //   RECON_ADJUSTMENT_POSTED      借 错记方应付 ／ 贷 正主方应付
+    //   RECON_ADJUSTMENT_POSTED_CASH 借 正主方钱包现金户 ／ 贷 错记方钱包现金户
     const flows = await flowsFor(adjustmentNo);
-    expect(flows).toHaveLength(2); // 只有两条腿——没有第三条资产腿
-
-    const outLeg = flows.find((f: any) => f.direction === 'OUT');
-    const inLeg = flows.find((f: any) => f.direction === 'IN');
-    expect(outLeg).toBeTruthy();
-    expect(inLeg).toBeTruthy();
-    // 两腿各落各的钱包：错记方降、正主方升——两案的差额才各自归零。
-    expect(outLeg.walletRef).toBe(fromWallet.id);
-    expect(inLeg.walletRef).toBe(toWallet.id);
-    expect(String(outLeg.amount)).toBe(String(X));
-    expect(String(inLeg.amount)).toBe(String(X));
+    expect(flows).toHaveLength(4); // 两对转账、每对两条腿
     for (const f of flows) {
       expect(f.sourceNo).toBe(adjustmentNo);
       expect(f.assetCode).toBe(aedCode);
       expect(f.effectiveDate).toBe(TODAY);
+      expect(String(f.amount)).toBe(String(X));
     }
+    const payableLegs = flows.filter((f: any) => f.eventCode === 'RECON_ADJUSTMENT_POSTED');
+    const cashLegs = flows.filter((f: any) => f.eventCode === 'RECON_ADJUSTMENT_POSTED_CASH');
+    expect(payableLegs).toHaveLength(2);
+    expect(cashLegs).toHaveLength(2);
 
-    // ★ 资产腿不动的**行为证明**：把两条流水的 tbAccountId 回查注册表，
-    //   科目对必须是 CLIENT_PAYABLE ↔ CLIENT_PAYABLE，且一边挂错记方、一边挂正主方。
-    //   （断言的是 TB 真的动了哪两个账户，不是源码里写了什么。）
-    const outReg = await registryOf(outLeg.tbAccountId);
-    const inReg = await registryOf(inLeg.tbAccountId);
+    // ★ **行为证明**：把流水的 tbAccountId 回查注册表，看 TB 真的动了哪几个账户（不是源码里写了什么）。
+    // 应付对：负债户借减（OUT）、贷增（IN）——错记方降、正主方升，两边都是 CLIENT_PAYABLE、挂不同客户。
+    const payableOut = payableLegs.find((f: any) => f.direction === 'OUT');
+    const payableIn = payableLegs.find((f: any) => f.direction === 'IN');
+    expect(payableOut).toBeTruthy();
+    expect(payableIn).toBeTruthy();
+    const outReg = await registryOf(payableOut.tbAccountId);
+    const inReg = await registryOf(payableIn.tbAccountId);
     expect(outReg.code).toBe(TB_ACCOUNT_CODES.CLIENT_PAYABLE);
     expect(inReg.code).toBe(TB_ACCOUNT_CODES.CLIENT_PAYABLE);
-    expect(outReg.code).not.toBe(TB_ACCOUNT_CODES.CLIENT_CASH); // 托管里的钱没进也没出
-    expect(inReg.code).not.toBe(TB_ACCOUNT_CODES.CLIENT_CASH);
     expect(outReg.ownerType).toBe('CUSTOMER');
     expect(inReg.ownerType).toBe('CUSTOMER');
     expect(outReg.ownerNo).toBe(fromCustomer.customerNo); // 借：从错记方名下拿走
     expect(inReg.ownerNo).toBe(toCustomer.customerNo);   // 贷：记到正主方名下
     expect(outReg.ownerNo).not.toBe(inReg.ownerNo); // 两腿必须是**不同**客户的应付户
 
-    // 凭证侧同一结论（写的人说的）与上面注册表侧（TB 真做的）互为交叉验证。
+    // 现金对：资产户借增（IN）、贷减（OUT）——正主方钱包现金升、错记方钱包现金降。
+    // 账户 id 必须就是两只钱包各自的现金户（resolveCashAccountId），流水上的钱包标签也由此派生。
+    const cashOut = cashLegs.find((f: any) => f.direction === 'OUT');
+    const cashIn = cashLegs.find((f: any) => f.direction === 'IN');
+    expect(cashOut).toBeTruthy();
+    expect(cashIn).toBeTruthy();
+    expect(cashOut.tbAccountId).toBe(await cashHex(fromWallet.id, ledger));
+    expect(cashIn.tbAccountId).toBe(await cashHex(toWallet.id, ledger));
+    expect(cashOut.walletRef).toBe(fromWallet.id);
+    expect(cashIn.walletRef).toBe(toWallet.id);
+    expect((await registryOf(cashOut.tbAccountId)).code).toBe(TB_ACCOUNT_CODES.CLIENT_CASH);
+    expect((await registryOf(cashIn.tbAccountId)).code).toBe(TB_ACCOUNT_CODES.CLIENT_CASH);
+    // 应付对的两条腿不带钱包标签（标签只在现金户上）
+    for (const f of payableLegs) expect(f.walletRef).toBeNull();
+    // 余额收口：错记方现金户铺底 X、被改记贷出 X → 0；正主方现金户 0 → X，各自等于对应的外部真值。
+    expect(await cashPosted(fromWallet.id, ledger)).toBe(0n);
+    expect(await cashPosted(toWallet.id, ledger)).toBe(X);
+
+    // 凭证侧同一结论（写的人说的）与上面注册表侧（TB 真做的）互为交叉验证：一个调账单号下两条凭证。
     const evidence = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);
-    expect(evidence).toHaveLength(1);
-    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
-    expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
-    expect(evidence[0].debitCode).not.toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
-    expect(evidence[0].creditCode).not.toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
-    expect(evidence[0].actorId).toBe('E2E_OPS_APPROVER_A');
+    expect(evidence).toHaveLength(2);
+    const payableEv = evidence.find((e: any) => e.eventCode === 'RECON_ADJUSTMENT_POSTED');
+    const cashEv = evidence.find((e: any) => e.eventCode === 'RECON_ADJUSTMENT_POSTED_CASH');
+    expect(payableEv).toBeTruthy();
+    expect(cashEv).toBeTruthy();
+    expect(payableEv.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
+    expect(payableEv.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
+    expect(cashEv.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
+    expect(cashEv.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
+    expect(cashEv.debitTbAccountId).toBe(await cashHex(toWallet.id, ledger));   // 借：正主方钱包现金户
+    expect(cashEv.creditTbAccountId).toBe(await cashHex(fromWallet.id, ledger)); // 贷：错记方钱包现金户
+    expect(payableEv.actorId).toBe('E2E_OPS_APPROVER_A');
+    expect(cashEv.actorId).toBe('E2E_OPS_APPROVER_A');
 
     // 铁律①：正主方 B 的余额真的变了，按 B 也必须查得到这条审计（本仓第一个双 OWNER 事件）。
     const auditEvent = await (prisma as any).auditLogEvent.findFirst({
@@ -787,10 +826,10 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
       where: { dispositionNo: disposition.dispositionNo },
     });
     expect(dispositionRow.adjustmentNo).toBeNull();
-    // 这个钱包上的流水仍然只有铺底那两条（FIRM_CASH 腿 + INCOME_OTHER 腿），
+    // 这个钱包上的流水仍然只有铺底那一条（它自己现金户上的借方腿；对手方公司权益户不带钱包标签），
     // 定性一条分录都没添。
     const walletFlows = await (prisma as any).accountFlow.findMany({ where: { walletRef: wallet.id } });
-    expect(walletFlows).toHaveLength(2);
+    expect(walletFlows).toHaveLength(1);
     expect(walletFlows.filter((f: any) => f.sourceType === 'RECON_ADJUSTMENT')).toHaveLength(0);
 
     // ── 再跑一次对账：案子必须**仍然是 OPEN** ───────────────────────────────

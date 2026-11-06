@@ -195,7 +195,7 @@ describe('getCase — flowComparison (T3)', () => {
   }
   const emptyMatch = { matched: [], orphanInternal: [], orphanExternal: [], mismatch: [] };
 
-  it('hands the case wallet cash account to the matcher and reads its own rows without RECON_ADJUSTMENT', async () => {
+  it('hands the case wallet cash account to the matcher and reads its own rows by that same account, without RECON_ADJUSTMENT', async () => {
     const prisma = mkFlowPrisma();
     const flowMatcher = { matchFlows: jest.fn().mockResolvedValue(emptyMatch) };
     const balanceChecker = {
@@ -210,11 +210,13 @@ describe('getCase — flowComparison (T3)', () => {
     expect(flowMatcher.matchFlows).toHaveBeenCalledWith(
       expect.objectContaining({ walletRef: 'walletX', cashTbAccountId: 'c0de0000000000000000000000000001' }),
     );
+    // 内部侧取行与匹配器同一纳入条件：按现金户 tbAccountId（不是 walletRef 标签），排除调账行
     expect(prisma.accountFlow.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ walletRef: 'walletX', sourceType: { not: 'RECON_ADJUSTMENT' } }),
+        where: expect.objectContaining({ tbAccountId: 'c0de0000000000000000000000000001', sourceType: { not: 'RECON_ADJUSTMENT' } }),
       }),
     );
+    expect((prisma.accountFlow.findMany as jest.Mock).mock.calls[0][0].where).not.toHaveProperty('walletRef');
   });
 
   it('case walletRef is not a wallet (unattributed external account) → matcher gets no cash account, page still builds', async () => {
@@ -225,6 +227,7 @@ describe('getCase — flowComparison (T3)', () => {
     const result: any = await svc.getCase(kase.caseNo);
 
     expect(flowMatcher.matchFlows).toHaveBeenCalledWith(expect.objectContaining({ cashTbAccountId: null }));
+    expect(prisma.accountFlow.findMany).not.toHaveBeenCalled(); // 没有现金户 → 内部侧不取行（与匹配器的 null 路径一致）
     expect(result.flowComparison.map((r: any) => r.matchType)).toEqual(['ORPHAN_EXTERNAL']);
   });
 
