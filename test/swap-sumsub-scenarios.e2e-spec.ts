@@ -28,6 +28,7 @@ import { SwapQuoteService } from '../src/modules/trading/swap-fee-level/swap-quo
 import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
 import { WalletCashAccountService } from '../src/modules/accounting/tigerbeetle/wallet-cash-account.service';
+import { SystemWalletResolver } from '../src/modules/funds-layer/domain/system-wallet-resolver.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
@@ -285,12 +286,8 @@ describe('Swap Sumsub verdict buttons (e2e, Task 12)', () => {
     const asset = await (prisma as any).asset.findUnique({ where: { id: assetId } });
     const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];
     const amountBigint = decimalToBigint(amount, asset.decimals);
-    const wallet = await (prisma as any).wallet.findFirst({
-      where: {
-        ownerType: 'CUSTOMER', ownerId: customerId, network: asset.network, status: 'ACTIVE',
-        walletRole: currency === 'AED' ? 'C_VIBAN' : 'C_DEP',
-      },
-    });
+    // 与兑换腿同一个解析器——保证进钱的钱包就是兑换会去扣的那只。
+    const wallet = await app.get(SystemWalletResolver).resolveCustomer(assetId, asset.type === 'FIAT' ? 'C_VIBAN' : 'C_DEP', customerId);
     const cashId = await accounting.resolveCashAccountId(wallet.id, ledger);
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });

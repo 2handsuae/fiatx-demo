@@ -44,15 +44,16 @@ export const TB_TRANSFER_CODES = {
   DEPOSIT_CLAWBACK: 21,
 
   // ── 兑换(30–49)──
-  SWAP_SELL_CLIENT: 30,        // 客户卖出(from):DR CLIENT_PAYABLE / CR CLIENT_CASH
-  SWAP_SELL_FIRM: 31,          // 公司收入(from):DR FIRM_CASH / CR FIRM_EQUITY
-  SWAP_BUY_OPS_TO_SET: 32,     // 法币公司内:DR FIRM_EQUITY / CR FIRM_SET (仅 fiat 腿)
-  SWAP_BUY_SET_TO_ASSET: 33,   // 公司放出(to):DR FIRM_SET / CR FIRM_CASH (fiat) | DR FIRM_EQUITY / CR FIRM_CASH (crypto)
-  SWAP_BUY_CLIENT: 34,         // 客户收到(to,毛):DR CLIENT_CASH / CR CLIENT_PAYABLE
-  SWAP_FEE_CLIENT: 35,         // 客户付费(to):DR CLIENT_PAYABLE / CR CLIENT_CASH
-  SWAP_FEE_FIRM: 36,           // 公司收费(to):DR FIRM_CASH / CR INCOME_SWAP_FEE(210)（名字保留,同码 16）
-  SWAP_SELL_SET_TO_OPS: 37,    // 法币卖出公司内:DR FIRM_SET / CR FIRM_EQUITY (fiat-sell only)
-  SWAP_BUY_OPS_TO_ASSET: 38,  // 币买公司放出:DR FIRM_EQUITY / CR FIRM_CASH (crypto-buy only)
+  // 戊波一:现金类科目一钱包一户。同一腿内,现金贷方 = 该腿 fromRole 钱包、现金借方 = toRole 钱包;结算户并入 FIRM_CASH(「公司现金·结算」)。
+  SWAP_SELL_CLIENT: 30,        // 客户卖出(腿 1):DR CLIENT_PAYABLE / CR CLIENT_CASH·客户钱包(两阶段:建单挂起,腿 1 确认落账)
+  SWAP_SELL_FIRM: 31,          // 公司收入(腿 1):DR FIRM_CASH·toRole 钱包(卖币=运营 / 卖法币=结算) / CR FIRM_EQUITY
+  SWAP_BUY_OPS_TO_SET: 32,     // 卖币买法币·腿 2 运营→结算:DR FIRM_CASH·F_SET / CR FIRM_CASH·F_OPS
+  SWAP_BUY_SET_TO_ASSET: 33,   // 卖币买法币·腿 3 放出:DR FIRM_EQUITY / CR FIRM_CASH·F_SET
+  SWAP_BUY_CLIENT: 34,         // 客户收到(腿 3,毛):DR CLIENT_CASH·客户钱包 / CR CLIENT_PAYABLE
+  SWAP_FEE_CLIENT: 35,         // 客户付费(腿 4):DR CLIENT_PAYABLE / CR CLIENT_CASH·客户钱包
+  SWAP_FEE_FIRM: 36,           // 公司收费(腿 4):DR FIRM_CASH·F_FEE / CR INCOME_SWAP_FEE(210)（名字保留,同码 16）
+  SWAP_SELL_SET_TO_OPS: 37,    // 卖法币买币·腿 2 结算→运营:DR FIRM_CASH·F_OPS / CR FIRM_CASH·F_SET
+  SWAP_BUY_OPS_TO_ASSET: 38,  // 卖法币买币·腿 3 放出:DR FIRM_EQUITY / CR FIRM_CASH·F_OPS
 
   // ── Bootstrap(70)──
   CAPITAL_INJECTION: 70, // 资本注入:DR FIRM_CASH / CR FIRM_EQUITY

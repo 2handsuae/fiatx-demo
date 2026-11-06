@@ -22,6 +22,7 @@ import { FundsOrderService } from '../src/modules/funds-orders/funds-order.servi
 import { FundsOrderAction, FundsOrderStatus } from '../src/modules/funds-orders/dto/funds-order.dto';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
 import { WalletCashAccountService } from '../src/modules/accounting/tigerbeetle/wallet-cash-account.service';
+import { SystemWalletResolver } from '../src/modules/funds-layer/domain/system-wallet-resolver.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
@@ -81,6 +82,7 @@ describe('Swap money arcs (e2e, Task 12)', () => {
   let swapQuote: SwapQuoteService;
   let fundsOrders: FundsOrderService;
   let accounting: AccountingService;
+  let walletResolver: SystemWalletResolver;
   let tbEvidence: TbEvidenceService;
   let customerAccess: CustomerAccessService;
   let restrictionsService: CustomerRestrictionsService;
@@ -111,6 +113,7 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     swapQuote = app.get(SwapQuoteService);
     fundsOrders = app.get(FundsOrderService);
     accounting = app.get(AccountingService);
+    walletResolver = app.get(SystemWalletResolver);
     tbEvidence = app.get(TbEvidenceService);
     customerAccess = app.get(CustomerAccessService);
     restrictionsService = app.get(CustomerRestrictionsService);
@@ -233,12 +236,8 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     const asset = await (prisma as any).asset.findUnique({ where: { id: assetId } });
     const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];
     const amountBigint = decimalToBigint(amount, asset.decimals);
-    const wallet = await (prisma as any).wallet.findFirst({
-      where: {
-        ownerType: 'CUSTOMER', ownerId: customerId, network: asset.network, status: 'ACTIVE',
-        walletRole: currency === 'AED' ? 'C_VIBAN' : 'C_DEP',
-      },
-    });
+    // 与兑换腿同一个解析器——保证进钱的钱包就是兑换会去扣的那只。
+    const wallet = await walletResolver.resolveCustomer(assetId, asset.type === 'FIAT' ? 'C_VIBAN' : 'C_DEP', customerId);
     const cashId = await accounting.resolveCashAccountId(wallet.id, ledger);
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
@@ -357,6 +356,28 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     });
   }
 
+  /** 钱包级现金余额(借方户:借记已落 − 贷记已落)。角色 + 资产 → 与兑换腿同一个解析器找钱包 → resolveCashAccountId 取户 → lookupBalance。
+   *  verify:coa 只看恒等式,看不出「钱记到了别的钱包」;逐钱包前后对比才看得出。 */
+  async function cashBalanceOf(role: 'C_VIBAN' | 'C_DEP' | 'F_OPS' | 'F_SET' | 'F_FEE', assetId: string): Promise<bigint> {
+    const wallet = role.startsWith('C_')
+      ? await walletResolver.resolveCustomer(assetId, role, customerId)
+      : await walletResolver.resolve(assetId, role);
+    const ledger = assetId === aedAssetId ? TB_LEDGERS.AED : TB_LEDGERS.USDT;
+    const b = await accounting.lookupBalance(await accounting.resolveCashAccountId(wallet.id, ledger));
+    return b.debitsPosted - b.creditsPosted;
+  }
+
+  async function walletCashSnapshot() {
+    return {
+      clientViban: await cashBalanceOf('C_VIBAN', aedAssetId),
+      clientDep: await cashBalanceOf('C_DEP', usdtAssetId),
+      opsAed: await cashBalanceOf('F_OPS', aedAssetId),
+      setAed: await cashBalanceOf('F_SET', aedAssetId),
+      opsUsdt: await cashBalanceOf('F_OPS', usdtAssetId),
+      feeUsdt: await cashBalanceOf('F_FEE', usdtAssetId),
+    };
+  }
+
   /** 每个 eventCode 的 [借方科目, 贷方科目] 助记码必须与附录 B 一致(且一个 eventCode 恰好一行)。 */
   function expectEvidencePairs(evidence: any[], expected: Record<string, [string, string]>): void {
     const got: Record<string, [string, string]> = {};
@@ -443,6 +464,8 @@ describe('Swap money arcs (e2e, Task 12)', () => {
   it('1b. 反向 happy path(AED→USDT):4 腿全部 CLEAR → SUCCESS,7 笔证据落在现金户 + 公司权益,客户余额一减一加', async () => {
     const before = await availableBalances();
     const amount = '100';
+    // 逐钱包现金余额快照(卖 AED 买 USDT):客户 vIBAN / 客户地址 / 运营 AED / 结算 AED / 运营 USDT / 手续费 USDT
+    const walletsBefore = await walletCashSnapshot();
 
     const { swap } = await createSwap(aedAssetId, 'AED', usdtAssetId, 'USDT', amount);
     expect(swap.status).toBe(SwapTransactionStatus.COMPLIANCE_PENDING);
@@ -472,6 +495,21 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     const after = await availableBalances();
     expect(after.aed).toBe(before.aed - decimalToBigint(amount, aedDecimals));
     expect(after.usdt).toBe(before.usdt + decimalToBigint(String(finalSwap.netToAmount), usdtDecimals));
+
+    // 钱必须落在附录 B 指定的那几只钱包(现金户)上,不是别的钱包:
+    //   腿 1 客户 vIBAN −卖出额 → 结算户 +卖出额;腿 2 结算户 −卖出额 → 运营户(AED) +卖出额(结算户净变动 0);
+    //   腿 3 运营地址(USDT) −毛额 → 客户地址 +毛额;腿 4 客户地址 −费 → 手续费地址 +费。
+    const sold = decimalToBigint(amount, aedDecimals);
+    const gross = decimalToBigint(String(finalSwap.toAmount), usdtDecimals);
+    const fee = decimalToBigint(String(finalSwap.feeAmount), usdtDecimals);
+    expect(fee).toBeGreaterThan(0n); // 费腿真的有金额,下面手续费钱包的断言才有判别力
+    const w = await walletCashSnapshot();
+    expect(w.clientViban - walletsBefore.clientViban).toBe(-sold);
+    expect(w.opsAed - walletsBefore.opsAed).toBe(sold);
+    expect(w.setAed - walletsBefore.setAed).toBe(0n);
+    expect(w.opsUsdt - walletsBefore.opsUsdt).toBe(-gross);
+    expect(w.clientDep - walletsBefore.clientDep).toBe(gross - fee);
+    expect(w.feeUsdt - walletsBefore.feeUsdt).toBe(fee);
   });
 
   it('2. THE HEADLINE PROPERTY（站3·出生锁版）— KYT rejected swap: 圈全擦、余额复原、零落笔零单据, quote consumed, restrictions block SWAP/WITHDRAW but not DEPOSIT', async () => {
