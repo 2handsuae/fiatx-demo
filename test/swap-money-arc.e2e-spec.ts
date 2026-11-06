@@ -439,7 +439,7 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     // 2(sell)+1(settle)+2(buy)+2(fee) = 7 TB evidence rows for this swap.
     const evidence = await tbEvidence.findBySource('SWAP', swap.swapNo!);
     expect(evidence).toHaveLength(7);
-    // 戊波一·附录 B「兑换·反向(卖 USDT 买 AED)」:现金户 + 公司权益,不再有 FIRM_SET。
+    // 戊波一·附录 B「兑换·反向(卖 USDT 买 AED)」:现金户 + 公司权益,不再有退役的 201（结算户）。
     expectEvidencePairs(evidence, {
       SWAP_SELL_CLIENT: ['L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
       SWAP_SELL_FIRM: ['A.FIRM_CASH', 'E.FIRM_EQUITY'],

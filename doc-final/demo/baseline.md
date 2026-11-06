@@ -241,7 +241,7 @@ test/sla.e2e-spec.ts                         # 私库
 | `approval_cases`（`approvalNo` 属本任务两值） | **2** | `APR2601015507`（`LP_PROFILE_APPROVAL`，entityRef=`LPP2601010183`，APPROVED）／`APR2601015999`（`LP_EXCHANGE_APPROVAL`，entityRef=`LPX2601016429`，APPROVED）——评审 R15 补种，替换此前无案背书的占位号 |
 | `approval_steps`（属上两案） | **2** | 各一条 stepNo=1，status=APPROVED，`decidedByRole=CFO`，`decidedByUserNo=ADM2501010010` |
 
-**F_LIQ/F_OPS 余额判据**（原「F_LIQ 直比判据」改名——**它是 TigerBeetle 余额直读，不是对账引擎判据**；reset 后、`demo:all` 之前的独立实测，不受花名册流水影响；**乙波二 Task 9 起 F_OPS(AED) 判据改口径**，见下方新判据）：**2026-11-06 戊波一起改读现金户**（码 203 / 201 退役）：`Company Cash · Company Liquidity · AED_ZAND` ／ `Company Cash · Company Liquidity · TRON` 两个前厅现金户（`code=50`）`balance=0`（85 进 86 出，净 0）；~~`ledger=1 code=200(E.FIRM_OPS) balance=95000000`~~ → **`Company Cash · Company Operations · AED_ZAND`（`code=50`，借方户，余额 = 借 − 贷）`balance=94750000`**（= 注资 100,000,000 分 − LP 卖出腿 5,000,000 分 − PAY 历史单码 87 的 250,000 分 = 947,500.00 AED，**公司现金·运营 AED 再减 2,500**——见下方「乙波二种子断言」节）；**同期公司权益（`ledger=1 code=200 FIRM_EQUITY`）`balance=95000000`（950,000.00 AED，= 注资 − LP 卖出腿；PAY 计开支户、不冲减权益，两者差额 250,000 分 = `EXPENSE_BANK_CUSTODY` AED 余额）**；`Company Cash · Company Operations · TRON` `balance=113600000000`（= 注资起点 100,000,000,000 分 + 腿3 13,600,000,000 分 = 113,600.000000 USDT，**公司现金·运营 USDT 加 1.36 万，本任务不动**），公司权益 USDT 同为 `113600000000`——四项与 spec/plan 的期望值逐位吻合。
+**F_LIQ/F_OPS 余额判据**（原「F_LIQ 直比判据」改名——**它是 TigerBeetle 余额直读，不是对账引擎判据**；reset 后、`demo:all` 之前的独立实测，不受花名册流水影响；**乙波二 Task 9 起 F_OPS(AED) 判据改口径**，见下方新判据）：**2026-11-06 戊波一起改读现金户**（码 203 / 201 退役）：`Company Cash · Company Liquidity · AED_ZAND` ／ `Company Cash · Company Liquidity · TRON` 两个前厅现金户（`code=50`）`balance=0`（85 进 86 出，净 0）；~~`ledger=1 code=200(E.FIRM_OPS) balance=95000000`~~ → **`Company Cash · Company Operations · AED_ZAND`（`code=50`，借方户，余额 = 借 − 贷）`balance=94750000`**（= 注资 100,000,000 分 − LP 卖出腿 5,000,000 分 − PAY 历史单码 87 的 250,000 分 = 947,500.00 AED，**公司现金·运营 AED 再减 2,500**——见下方「乙波二种子断言」节）；**同期公司权益（`ledger=1 code=200 FIRM_EQUITY`）`balance=95000000`（950,000.00 AED，= 注资 − LP 卖出腿；PAY 计开支户、不冲减权益，两者差额 250,000 分 = `EXPENSE_BANK_CUSTODY` AED 余额）**；`Company Cash · Company Operations · TRON` `balance=113600000000`（= 注资起点 100,000,000,000 分 + 腿3 13,600,000,000 分 = 113,600.000000 USDT，**公司现金·运营 USDT 加 1.36 万，本任务不动**），公司权益 USDT 同为 `113600000000`——六项（前厅两户、运营 AED / USDT、权益 AED / USDT）与 spec/plan 的期望值逐位吻合（权益两项为戊波一新增，实测值）。
 
 **F_LIQ 对账直比判据（新增，评审 R16）**——真正走对账引擎（`WalletReconRunService`，非 TB 直读）验证这笔历史单的账实一致，`reset self` → `up self` → `demo:all` 之后跑：
 
@@ -489,7 +489,7 @@ sqlite3 "$DB" "select actionType,status,count(*) from approval_cases where actio
 
 ## 战役戊波一账本地基判据（reset 判据，2026-11-06 Task 12 起）
 
-本节是「账本按钱包位置重立」（COA v3：每个钱包一个现金户，旧聚合户与 201 / 203 退役）落地后的 reset / 收尾判据，**与前文冲突处以本节为准**（前文各战役节里的旧助记码、`walletsChecked=19`、`67 个科目` 等是当时的实测，保持原样，仅「当前判据」行已就地订正并标注）。本节同时是总纲 §6.4 要求的「公司权益两户期望值」所在。
+本节是「账本按钱包位置重立」（COA v3：每个钱包一个现金户，旧聚合户与 201 / 203 退役）落地后的 reset / 收尾判据，**与前文冲突处以本节为准**（前文各战役节里的旧助记码、`walletsChecked=19`、`67 个科目` 等是当时的实测，保持原样，仅「当前判据」行已就地订正并标注）。本节同时是波一 spec §6 第 4 条 要求的「公司权益两户期望值」所在。
 
 **名称对照**（读前文历史段时用）：
 
@@ -507,7 +507,7 @@ sqlite3 "$DB" "select actionType,status,count(*) from approval_cases where actio
 |---|---|---|
 | 公司现金·运营（`Company Cash · Company Operations · AED_ZAND` / `… · TRON`） | **94750000**（947,500.00 AED） | **113600000000**（113,600.000000 USDT） |
 | 公司现金·LP 前厅 / 结算 / 手续费 | 0 / 0 / 0 | 0 / — / 0（F_SET 只走法币，无 USDT 户） |
-| **公司权益 `FIRM_EQUITY`（总纲 §6.4 新增判据）** | **95000000**（950,000.00 AED） | **113600000000**（113,600.000000 USDT） |
+| **公司权益 `FIRM_EQUITY`（波一 spec §6 第 4 条 新增判据）** | **95000000**（950,000.00 AED） | **113600000000**（113,600.000000 USDT） |
 | 银行与托管费用 `EXPENSE_BANK_CUSTODY` | **250000**（2,500.00 AED，PAY 历史单） | 0 |
 | 兑换费 / 提现费 / 其他收入、对账核销损失、其他开支 | 全 0 | 全 0 |
 | Henry 两个客户现金户（`CLIENT_CASH`） | 4495000（44,950.00 AED） | 2709049000（2,709.049000 USDT） |

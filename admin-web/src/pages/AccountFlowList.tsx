@@ -409,7 +409,7 @@ const AccountFlowList = () => {
                     {row.tbAccountId.slice(0, 8)}…{row.tbAccountId.slice(-6)}
                   </button>
                 </td>
-                <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 truncate max-w-[150px]" title={accountName(row.accountName, row.assetCode)}>
+                <td className="px-3 py-2 font-mono text-[11px] text-adm-t2 whitespace-nowrap" title={accountName(row.accountName, row.assetCode)}>
                   {accountName(row.accountName, row.assetCode)}
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px]">
