@@ -18,6 +18,8 @@ const OPS_WALLET = { id: 'w-ops-aed', walletNo: 'WAL-OPS-AED', address: null, ib
 // 修复轮同款：resolveTbAccountId 的 mock 按 (code, ledger) 编码出不同的账户 id——若实现把
 // ledger 传错，断言里期望的账户 id 会对不上，能真的抓到跨 ledger 错误。
 const acct = (code: number, ledger: number): bigint => BigInt(code) * 100n + BigInt(ledger);
+// 钱包现金户(戊波一:一钱包一户):按 (钱包 id, ledger) 单射编码,与 acct() 的小整数 id 互不相撞。
+const cashAcct = (walletId: string, ledger: number): bigint => BigInt(`0x${Buffer.from(`cash:${walletId}@${ledger}`).toString('hex')}`);
 
 const baseInput = {
   contributorName: 'Founder Holdings Ltd', assetId: AED.id, amount: '500000',
@@ -82,6 +84,8 @@ function makeWorkflow() {
   const approvals: any = { createAndSubmit: jest.fn(async () => ({ approvalNo: 'APR1' })), cancel: jest.fn(async () => ({})) };
   const accounting: any = {
     resolveTbAccountId: jest.fn(async ({ code, ledger }: any) => acct(code, ledger)),
+    // 戊波一:现金户只经这个入口取——按 (钱包 id, ledger) 编码,传错钱包或账本断言对不上
+    resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => cashAcct(walletId, ledger)),
     executeTransfer: jest.fn(async () => ({ tbTransferId: 1n })),
   };
   const auditLogs: any = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn(async () => ({})) };
@@ -227,7 +231,7 @@ describe('CapitalInjectionWorkflowService (Task 3)', () => {
       await expect(wf.simulateContribution(cinNo, treasury)).rejects.toThrow(/not awaiting funds/);
     });
 
-    it('confirm：post 码 70（DR FIRM_CASH / CR FIRM_EQUITY，注入币 ledger，外穿）→ CLEAR 腿 → SUCCESS + audit CONFIRMED(expected/received) + explicit requestId', async () => {
+    it('confirm：post 码 70（DR 现金·row.toWalletId / CR FIRM_EQUITY，注入币 ledger）→ CLEAR 腿 → SUCCESS + audit CONFIRMED(expected/received) + explicit requestId', async () => {
       const { wf, injections, accounting, fundsOrders, auditLogs, cinNo } = await seedAwaitingFunds();
       await wf.simulateContribution(cinNo, treasury);
       const r = await wf.confirm(cinNo, treasury);
@@ -235,13 +239,20 @@ describe('CapitalInjectionWorkflowService (Task 3)', () => {
       expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
       expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
         code: TB_TRANSFER_CODES.CAPITAL_INJECTION, amount: 50_000_000n, ledger: TB_LEDGERS.AED,
-        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_CASH, TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_EQUITY, TB_LEDGERS.AED),
+        debitAccountId: cashAcct('w-ops-aed', TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_EQUITY, TB_LEDGERS.AED),
         evidence: expect.objectContaining({
           sourceType: 'CAPITAL_INJECTION', sourceNo: cinNo, eventCode: 'CAPITAL_INJECTION',
-          debitCode: 'A.FIRM_CASH', creditCode: 'E.FIRM_EQUITY',
-          debitWalletRef: 'w-ops-aed', creditWalletRef: 'w-ops-aed', isExternalCrossing: true, assetCurrency: 'AED',
+          debitCode: 'A.FIRM_CASH', creditCode: 'E.FIRM_EQUITY', assetCurrency: 'AED',
         }),
       });
+      // 借方 = 收到款那只钱包(row.toWalletId = F_OPS)的现金户,经唯一入口取;不再有聚合 FIRM_CASH 查询
+      expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops-aed', TB_LEDGERS.AED);
+      expect((accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code)).not.toContain(TB_ACCOUNT_CODES.FIRM_CASH);
+      // 戊波一:钱包标签 / 外穿标记三字段退役,不再写
+      const ev = accounting.executeTransfer.mock.calls[0][0].evidence;
+      expect(ev).not.toHaveProperty('debitWalletRef');
+      expect(ev).not.toHaveProperty('creditWalletRef');
+      expect(ev).not.toHaveProperty('isExternalCrossing');
       expect(fundsOrders.advance).toHaveBeenCalledWith('fo-1', 'CLEAR', 'CAPITAL_INJECTION_WORKFLOW');
       const row = await injections.findByNo(cinNo);
       expect(row.status).toBe(S.SUCCESS);

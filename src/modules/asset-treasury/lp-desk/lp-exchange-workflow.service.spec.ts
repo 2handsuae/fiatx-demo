@@ -18,6 +18,14 @@ const profile = { id: 'uuid-lp', lpNo: 'LPP1', name: 'Acme LP', agreementRef: 'A
 // 若实现把 ledger 传错（例如买入腿误用卖出币 ledger），断言里期望的账户 id 会对不上，能
 // 真的抓到跨 ledger 错误，不只是抓「有没有传某个 ledger 参数」。
 const acct = (code: number, ledger: number): bigint => BigInt(code) * 100n + BigInt(ledger);
+// 钱包现金户(戊波一:一钱包一户):按 (钱包 id, ledger) 单射编码,与 acct() 的小整数 id 互不相撞。
+const cashAcct = (walletId: string, ledger: number): bigint => BigInt(`0x${Buffer.from(`cash:${walletId}@${ledger}`).toString('hex')}`);
+// 三字段(钱包标签 / 外穿标记)戊波一起退役,凭证不得再写。
+const expectNoRetiredEvidenceFields = (call: any) => {
+  expect(call.evidence).not.toHaveProperty('debitWalletRef');
+  expect(call.evidence).not.toHaveProperty('creditWalletRef');
+  expect(call.evidence).not.toHaveProperty('isExternalCrossing');
+};
 
 // LP 两步准入 Task 5：收款地址簿条目 fixture（链上 USDT / 法币 AED 各一）。
 const usdtAddress = { addressNo: 'LPA1', lpId: 'uuid-lp', lpNo: 'LPP1', assetId: USDT.id, status: 'ACTIVE', network: 'TRON', address: 'TLP-PAYOUT-1', iban: null };
@@ -61,6 +69,8 @@ function makeWorkflow(o: Partial<Record<'exchangeRow' | 'buyLegs' | 'payoutAddre
   const approvals: any = { createAndSubmit: jest.fn(async () => ({ approvalNo: 'APR1' })), cancel: jest.fn(async () => ({})) };
   const accounting: any = {
     resolveTbAccountId: jest.fn(async ({ code, ledger }: any) => acct(code, ledger)),
+    // 戊波一:现金户只经这个入口取——传错钱包或账本,断言里的期望 id 对不上
+    resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => cashAcct(walletId, ledger)),
     executeTransfer: jest.fn(async () => ({ tbTransferId: 1n })),
   };
   // 生产那道词表校验亲自跑每条信封（缺必填 / 缺 causation / 域不符 / INHERIT 无 correlationId 当场抛）。
@@ -316,19 +326,22 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       }));
     });
 
-    it('CONFIRMED: posts 84 with the SELL-side ledger (跨 ledger 是本任务要害) — DR E.FIRM_EQUITY / CR A.FIRM_CASH, external-crossing → CLEAR → AWAITING_DELIVERY + audit PAY_LEG_POSTED carries fromStatus/toStatus + explicit requestId', async () => {
+    it('CONFIRMED: posts 84 with the SELL-side ledger (跨 ledger 是本任务要害) — DR E.FIRM_EQUITY / CR 现金·sellFromWalletId → CLEAR → AWAITING_DELIVERY + audit PAY_LEG_POSTED carries fromStatus/toStatus + explicit requestId', async () => {
       const { wf, accounting, fundsOrders, exchanges, auditLogs } = makeWorkflow({ exchangeRow: executing });
       await wf.handleFundsOrderChanged(evt(1, 'CONFIRMED') as any);
       expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
       expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
         code: TB_TRANSFER_CODES.LP_EXCHANGE_PAY, amount: 20_000_000_000n, ledger: TB_LEDGERS.USDT,
-        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_EQUITY, TB_LEDGERS.USDT), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_CASH, TB_LEDGERS.USDT),
+        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_EQUITY, TB_LEDGERS.USDT), creditAccountId: cashAcct('w-ops-usdt', TB_LEDGERS.USDT),
         evidence: expect.objectContaining({
           sourceType: 'LP_EXCHANGE', sourceNo: 'LPX1', eventCode: 'LP_EXCHANGE_PAY',
-          debitCode: 'E.FIRM_EQUITY', creditCode: 'A.FIRM_CASH',
-          debitWalletRef: 'w-ops-usdt', creditWalletRef: 'w-ops-usdt', isExternalCrossing: true, assetCurrency: 'USDT',
+          debitCode: 'E.FIRM_EQUITY', creditCode: 'A.FIRM_CASH', assetCurrency: 'USDT',
         }),
       });
+      // 贷方 = 付出那只钱包(sellFromWalletId = F_OPS 的 USDT 行)的现金户,卖出币账本;不再有聚合 FIRM_CASH 查询
+      expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops-usdt', TB_LEDGERS.USDT);
+      expect((accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code)).not.toContain(TB_ACCOUNT_CODES.FIRM_CASH);
+      expectNoRetiredEvidenceFields(accounting.executeTransfer.mock.calls[0][0]);
       expect(fundsOrders.advance).toHaveBeenCalledWith('fo-1', 'CLEAR', 'LP_EXCHANGE_WORKFLOW');
       expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'AWAITING_DELIVERY');
       const audit = auditLogs.recordSystem.mock.calls[0][0];
@@ -375,9 +388,13 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
       expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
         code: TB_TRANSFER_CODES.LP_EXCHANGE_RECEIVE, amount: 7_328_000n, ledger: TB_LEDGERS.AED,
-        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_CASH, TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_LIQ, TB_LEDGERS.AED),
-        evidence: expect.objectContaining({ eventCode: 'LP_EXCHANGE_RECEIVE', debitCode: 'A.FIRM_CASH', creditCode: 'E.FIRM_LIQ', debitWalletRef: 'w-liq-aed', creditWalletRef: 'w-liq-aed', isExternalCrossing: true, assetCurrency: 'AED' }),
+        debitAccountId: cashAcct('w-liq-aed', TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_EQUITY, TB_LEDGERS.AED),
+        evidence: expect.objectContaining({ eventCode: 'LP_EXCHANGE_RECEIVE', debitCode: 'A.FIRM_CASH', creditCode: 'E.FIRM_EQUITY', assetCurrency: 'AED' }),
       });
+      // 85:借 现金·buyViaWalletId(F_LIQ 前厅,买入币账本)/ 贷 FIRM_EQUITY(买入币账本);FIRM_LIQ(203)不再出现
+      expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-liq-aed', TB_LEDGERS.AED);
+      expect((accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code)).not.toContain(TB_ACCOUNT_CODES.FIRM_LIQ);
+      expectNoRetiredEvidenceFields(accounting.executeTransfer.mock.calls[0][0]);
       expect(fundsOrders.advance).toHaveBeenCalledWith('fo-2', 'CLEAR', 'LP_EXCHANGE_WORKFLOW');
       expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({ fundsOrderNo: 'FDO2', fromWalletId: null, toWalletId: 'w-liq-aed', assetCode: 'AED', assetType: 'FIAT', amountMinor: 7_328_000n }));
       // 评审 Imp#1/R12：回单必须先于落账（invocationCallOrder 越小越早发生）。
@@ -570,7 +587,7 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       await expect(wf.accept('LPX1', treasury)).rejects.toThrow(/not delivered yet/);
     });
 
-    it('creates leg 3 (F_LIQ → F_OPS, both our own wallets, address/iban filled both sides), records BOTH custodian lines BEFORE posting 86 (评审 R13：内转也要两侧过对账，isExternalCrossing=true), CLEARs, SUCCESS + audit ACCEPTED with expected/received + explicit requestId + LP name mirrored', async () => {
+    it('creates leg 3 (F_LIQ → F_OPS, both our own wallets, address/iban filled both sides), records BOTH custodian lines BEFORE posting 86 (评审 R13：内转也要两侧过对账), CLEARs, SUCCESS + audit ACCEPTED with expected/received + explicit requestId + LP name mirrored', async () => {
       const { wf, fundsOrders, accounting, custodianStatement, exchanges, auditLogs } = makeWorkflow({ exchangeRow: delivered });
       const r = await wf.accept('LPX1', treasury);
       expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -580,9 +597,16 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       }));
       expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
         code: TB_TRANSFER_CODES.LP_EXCHANGE_ACCEPT, amount: 7_328_000n, ledger: TB_LEDGERS.AED,
-        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_LIQ, TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_EQUITY, TB_LEDGERS.AED),
-        evidence: expect.objectContaining({ eventCode: 'LP_EXCHANGE_ACCEPT', debitCode: 'E.FIRM_LIQ', creditCode: 'E.FIRM_EQUITY', debitWalletRef: 'w-liq-aed', creditWalletRef: 'w-ops-aed', isExternalCrossing: true }),
+        debitAccountId: cashAcct('w-ops-aed', TB_LEDGERS.AED), creditAccountId: cashAcct('w-liq-aed', TB_LEDGERS.AED),
+        evidence: expect.objectContaining({ eventCode: 'LP_EXCHANGE_ACCEPT', debitCode: 'A.FIRM_CASH', creditCode: 'A.FIRM_CASH', assetCurrency: 'AED' }),
       });
+      // 86:借 现金·buyToWalletId(F_OPS 运营,买入币账本)/ 贷 现金·buyViaWalletId(F_LIQ 前厅)——两侧都是钱包现金户,不碰权益、不碰 FIRM_LIQ
+      expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops-aed', TB_LEDGERS.AED);
+      expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-liq-aed', TB_LEDGERS.AED);
+      const resolvedCodes86 = (accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code);
+      expect(resolvedCodes86).not.toContain(TB_ACCOUNT_CODES.FIRM_LIQ);
+      expect(resolvedCodes86).not.toContain(TB_ACCOUNT_CODES.FIRM_EQUITY);
+      expectNoRetiredEvidenceFields(accounting.executeTransfer.mock.calls[0][0]);
       expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({
         fundsOrderNo: 'FDO3', fromWalletId: 'w-liq-aed', toWalletId: 'w-ops-aed', assetCode: 'AED', assetType: 'FIAT', amountMinor: 7_328_000n,
       }));

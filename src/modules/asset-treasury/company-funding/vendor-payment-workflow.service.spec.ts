@@ -22,6 +22,8 @@ const activeVendor = { id: 'vendor-1', vendorNo: 'VEN2609290001', name: 'HexTrus
 // 修复轮同款：resolveTbAccountId 的 mock 按 (code, ledger) 编码出不同的账户 id——若实现把
 // ledger 传错，断言里期望的账户 id 会对不上，能真的抓到跨 ledger 错误。
 const acct = (code: number, ledger: number): bigint => BigInt(code) * 100n + BigInt(ledger);
+// 钱包现金户(戊波一:一钱包一户):按 (钱包 id, ledger) 单射编码,与 acct() 的小整数 id 互不相撞。
+const cashAcct = (walletId: string, ledger: number): bigint => BigInt(`0x${Buffer.from(`cash:${walletId}@${ledger}`).toString('hex')}`);
 
 const baseInput = {
   vendorNo: activeVendor.vendorNo, payeeAccountRef: 'HexTrust ops account — IBAN AE070000000123456789',
@@ -90,6 +92,8 @@ function makePrisma() {
 function makeAccounting(creditsPosted: bigint, debitsPosted: bigint, debitsPending = 0n) {
   return {
     resolveTbAccountId: jest.fn(async ({ code, ledger }: any) => acct(code, ledger)),
+    // 戊波一:现金户只经这个入口取——传错钱包或账本,断言里的期望 id 对不上
+    resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => cashAcct(walletId, ledger)),
     lookupBalance: jest.fn(async () => ({ creditsPosted, debitsPosted, debitsPending, creditsPending: 0n })),
     executeTransfer: jest.fn(async () => ({ tbTransferId: 1n })),
   };
@@ -281,21 +285,33 @@ describe('VendorPaymentWorkflowService (Task 5)', () => {
       }));
     });
 
-    it('CONFIRMED: posts 87 (DR E.FIRM_EQUITY / CR A.FIRM_CASH, external-crossing) BEFORE recording — actually records custodian line first (回单先于落账) — then CLEARs → SUCCESS + audit EXECUTED carries fromStatus/toStatus + explicit requestId', async () => {
+    it('CONFIRMED: posts 87 (DR X.EXPENSE_BANK_CUSTODY / CR 现金·row.fromWalletId) BEFORE recording — actually records custodian line first (回单先于落账) — then CLEARs → SUCCESS + audit EXECUTED carries fromStatus/toStatus + explicit requestId', async () => {
       const ctx = makeWorkflow();
       const { payNo, vendorPaymentId } = await seedExecuting(ctx);
       await ctx.wf.handleFundsOrderChanged(evt(vendorPaymentId, 'SUBMITTED') as any);
+      // 开单 / 批准时的余额闸(第 8 任务才改)也走这个 mock——清掉,下面「查了哪些户」只看落账这一步
+      ctx.accounting.resolveTbAccountId.mockClear();
       await ctx.wf.handleFundsOrderChanged(evt(vendorPaymentId, 'CONFIRMED') as any);
       expect(ctx.accounting.executeTransfer).toHaveBeenCalledTimes(1);
       expect(ctx.accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
         code: TB_TRANSFER_CODES.VENDOR_PAYMENT, amount: 1_200_000n, ledger: TB_LEDGERS.AED,
-        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_EQUITY, TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_CASH, TB_LEDGERS.AED),
+        debitAccountId: acct(TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, TB_LEDGERS.AED), creditAccountId: cashAcct('w-ops-aed', TB_LEDGERS.AED),
         evidence: expect.objectContaining({
           sourceType: 'VENDOR_PAYMENT', sourceNo: payNo, eventCode: 'VENDOR_PAYMENT',
-          debitCode: 'E.FIRM_EQUITY', creditCode: 'A.FIRM_CASH',
-          debitWalletRef: 'w-ops-aed', creditWalletRef: 'w-ops-aed', isExternalCrossing: true, assetCurrency: 'AED',
+          debitCode: 'X.EXPENSE_BANK_CUSTODY', creditCode: 'A.FIRM_CASH', assetCurrency: 'AED',
         }),
       });
+      // 贷方 = 付款钱包(row.fromWalletId = F_OPS)的现金户,经唯一入口取;借方是开支户(SYSTEM 300),不再借权益
+      expect(ctx.accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops-aed', TB_LEDGERS.AED);
+      const resolved = (ctx.accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0]);
+      expect(resolved).toContainEqual(expect.objectContaining({ code: TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, ledger: TB_LEDGERS.AED, ownerType: 'SYSTEM' }));
+      expect(resolved.map((a) => a.code)).not.toContain(TB_ACCOUNT_CODES.FIRM_CASH);
+      expect(resolved.map((a) => a.code)).not.toContain(TB_ACCOUNT_CODES.FIRM_EQUITY);
+      // 戊波一:钱包标签 / 外穿标记三字段退役,不再写
+      const ev = ctx.accounting.executeTransfer.mock.calls[0][0].evidence;
+      expect(ev).not.toHaveProperty('debitWalletRef');
+      expect(ev).not.toHaveProperty('creditWalletRef');
+      expect(ev).not.toHaveProperty('isExternalCrossing');
       // 评审 R12 同款纪律：回单必须先于落账（invocationCallOrder 越小越早发生，本次调用
       // 是 CONFIRMED 事件里的 postPaymentLeg，custodian 记录发生在 SUBMITTED 那一跳）。
       expect(ctx.custodianStatement.recordLegMovement.mock.invocationCallOrder[0]).toBeLessThan(ctx.accounting.executeTransfer.mock.invocationCallOrder[0]);

@@ -260,43 +260,42 @@ export class InternalTransferWorkflowService {
     await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'LEG_FAILED', reason: note, fundsOrderNo: leg.fundsOrderNo, fromStatus: row.status, toStatus: updated.status });
   }
 
-  // ── 分录（spec §5）────────────────────────────────────────────────────
+  // ── 分录（spec §5；戊波一·附录 B「内部转账」）──────────────────────────
+  // 81 补款腿 1（法币）：借 现金·结算钱包(viaWalletId) ／ 贷 现金·运营钱包(fromWalletId)
+  // 82 公司放出：借 对账核销损失 ／ 贷 现金·公司钱包（法币 = 结算钱包，加密币 = 运营钱包）
+  // 83 客户收到：借 现金·客户钱包(toWalletId) ／ 贷 应付·客户
+  // 垫款路径同法接线（UI 置灰，无新行为）。现金户一钱包一户，只经 resolveCashAccountId 取。
 
   private async accounts(row: any) {
     const ledger = TB_LEDGERS[row.asset.currency as keyof typeof TB_LEDGERS];
     if (!ledger) throw new NotFoundException(`Unable to resolve a ledger for asset ${row.asset.code} (currency=${row.asset.currency})`);
-    const sys = (code: number) => this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'SYSTEM' });
     return {
       ledger,
-      firmOps: () => sys(TB_ACCOUNT_CODES.FIRM_EQUITY),
-      firmSet: () => sys(TB_ACCOUNT_CODES.FIRM_SET),
-      firmAsset: () => sys(TB_ACCOUNT_CODES.FIRM_CASH),
-      clientAsset: () => sys(TB_ACCOUNT_CODES.CLIENT_CASH),
+      cash: (walletId: string) => this.accounting.resolveCashAccountId(walletId, ledger),
+      reconLoss: () => this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, ledger, ownerType: 'SYSTEM' }),
       clientPayable: () => this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: row.customerId }),
     };
   }
 
-  private evidence(row: any, leg: any, eventCode: string, debitCode: number, creditCode: number, debitWalletRef: string, creditWalletRef: string) {
+  private evidence(row: any, leg: any, eventCode: string, debitCode: number, creditCode: number) {
     return {
       sourceType: 'INTERNAL_TRANSFER', sourceNo: row.transferNo, eventCode, traceId: row.traceId,
       debitCode: TB_CODE_TO_COA[debitCode], creditCode: TB_CODE_TO_COA[creditCode],
       assetCurrency: row.asset.currency, // ⚠ currency 不是 code（USDT-TRON vs USDT）
       actorType: 'SYSTEM', actorId: 'INTERNAL_TRANSFER_WORKFLOW',
       memo: `${row.purpose === 'CLIENT_COMPENSATION' ? 'Compensation' : 'Advance'} ${row.transferNo} leg ${leg.legSeq} (case ${row.sourceCaseNo})`,
-      debitWalletRef, creditWalletRef,
       externalRef: this.fundsOrders.resolveExternalRef({ ...leg, asset: row.asset }),
-      isExternalCrossing: true,
     };
   }
 
-  /** 法币腿 1：借 运营户 / 贷 结算户（81）——出方运营户行、入方结算户行；公司资产总量不变。 */
+  /** 法币腿 1：借 现金·结算钱包 / 贷 现金·运营钱包（81）——公司资产总量不变，只是钱从运营钱包挪到结算钱包。 */
   private async postOpsToSet(row: any, leg: any) {
     const a = await this.accounts(row);
     const amount = majorToMinor(leg.amount, row.asset.decimals);
     await this.accounting.executeTransfer({
-      debitAccountId: await a.firmOps(), creditAccountId: await a.firmSet(), amount, ledger: a.ledger,
+      debitAccountId: await a.cash(row.viaWalletId), creditAccountId: await a.cash(row.fromWalletId), amount, ledger: a.ledger,
       code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_OPS_TO_SET,
-      evidence: this.evidence(row, leg, 'INTERNAL_TRANSFER_OPS_TO_SET', TB_ACCOUNT_CODES.FIRM_EQUITY, TB_ACCOUNT_CODES.FIRM_SET, row.fromWalletId, row.viaWalletId),
+      evidence: this.evidence(row, leg, 'INTERNAL_TRANSFER_OPS_TO_SET', TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.FIRM_CASH),
     });
   }
 
@@ -305,19 +304,18 @@ export class InternalTransferWorkflowService {
     const a = await this.accounts(row);
     const amount = majorToMinor(leg.amount, row.asset.decimals);
     const isFiat = row.asset.type === 'FIAT';
-    const firmCode = isFiat ? TB_ACCOUNT_CODES.FIRM_SET : TB_ACCOUNT_CODES.FIRM_EQUITY;
-    const firmWallet = isFiat ? row.viaWalletId : row.fromWalletId;
+    const firmWalletId = isFiat ? row.viaWalletId : row.fromWalletId;
     await this.accounting.executeTransfer({
-      debitAccountId: isFiat ? await a.firmSet() : await a.firmOps(), creditAccountId: await a.firmAsset(), amount, ledger: a.ledger,
+      debitAccountId: await a.reconLoss(), creditAccountId: await a.cash(firmWalletId), amount, ledger: a.ledger,
       code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_FIRM_OUT,
-      evidence: this.evidence(row, leg, 'INTERNAL_TRANSFER_FIRM_OUT', firmCode, TB_ACCOUNT_CODES.FIRM_CASH, firmWallet, firmWallet),
+      evidence: this.evidence(row, leg, 'INTERNAL_TRANSFER_FIRM_OUT', TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, TB_ACCOUNT_CODES.FIRM_CASH),
     });
     // 客户侧事件码按用途分——客户端对账单靠它显示「平台补款 / 平台垫付」（spec §11）
     const clientEvent = row.purpose === 'CLIENT_COMPENSATION' ? 'INTERNAL_TRANSFER_COMPENSATION_IN' : 'INTERNAL_TRANSFER_ADVANCE_IN';
     await this.accounting.executeTransfer({
-      debitAccountId: await a.clientAsset(), creditAccountId: await a.clientPayable(), amount, ledger: a.ledger,
+      debitAccountId: await a.cash(row.toWalletId), creditAccountId: await a.clientPayable(), amount, ledger: a.ledger,
       code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_CLIENT_IN,
-      evidence: this.evidence(row, leg, clientEvent, TB_ACCOUNT_CODES.CLIENT_CASH, TB_ACCOUNT_CODES.CLIENT_PAYABLE, row.toWalletId, row.toWalletId),
+      evidence: this.evidence(row, leg, clientEvent, TB_ACCOUNT_CODES.CLIENT_CASH, TB_ACCOUNT_CODES.CLIENT_PAYABLE),
     });
   }
 

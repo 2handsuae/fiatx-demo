@@ -255,26 +255,21 @@ export class VendorPaymentWorkflowService {
     return ledger;
   }
 
-  private sysAccount(ledger: number, code: number) {
-    return this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'SYSTEM' });
-  }
-
-  /** 码 87：DR FIRM_EQUITY / CR FIRM_CASH，付款币 ledger，外穿——一侧物理钱包是
-   *  row.fromWalletId（付出的那个网络行），外包商的外部坐标不是钱包，不进 walletRef。 */
+  /** 码 87：DR EXPENSE_BANK_CUSTODY（银行与托管费用，付款币 ledger 的 SYSTEM 开支户）/ CR 现金·row.fromWalletId
+   *  （付出的那只钱包，F_OPS 运营）。外包商的外部坐标不是钱包，不开户（戊波一·附录 B「支出」）。 */
   private async postPaymentLeg(row: any, leg: any) {
     const ledger = this.ledgerOf(row.asset.currency);
     const amount = majorToMinor(leg.amount, row.asset.decimals);
     await this.accounting.executeTransfer({
-      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_EQUITY),
-      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_CASH),
+      debitAccountId: await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, ledger, ownerType: 'SYSTEM' }),
+      creditAccountId: await this.accounting.resolveCashAccountId(row.fromWalletId, ledger),
       amount, ledger, code: TB_TRANSFER_CODES.VENDOR_PAYMENT,
       evidence: {
         sourceType: 'VENDOR_PAYMENT', sourceNo: row.payNo, eventCode: 'VENDOR_PAYMENT', traceId: row.traceId,
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH],
         assetCurrency: row.asset.currency, actorType: 'SYSTEM', actorId: 'VENDOR_PAYMENT_WORKFLOW',
         memo: `Vendor payment ${row.payNo} confirmed (paid to ${row.vendorName})`,
-        debitWalletRef: row.fromWalletId, creditWalletRef: row.fromWalletId,
-        externalRef: this.fundsOrders.resolveExternalRef({ ...leg, asset: row.asset }), isExternalCrossing: true,
+        externalRef: this.fundsOrders.resolveExternalRef({ ...leg, asset: row.asset }),
       },
     });
   }

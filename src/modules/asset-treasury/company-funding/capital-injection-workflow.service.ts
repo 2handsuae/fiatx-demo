@@ -200,26 +200,21 @@ export class CapitalInjectionWorkflowService {
     return ledger;
   }
 
-  private sysAccount(ledger: number, code: number) {
-    return this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'SYSTEM' });
-  }
-
-  /** 码 70：DR FIRM_CASH / CR FIRM_EQUITY，注入币 ledger，外穿——一侧物理钱包是
-   *  row.toWalletId（收到款的那个网络行），出资方的外部坐标不是钱包。 */
+  /** 码 70：DR 现金·row.toWalletId（收到款的那只钱包，F_OPS 运营）/ CR FIRM_EQUITY，注入币 ledger。
+   *  出资方的外部坐标不是钱包，不开户。现金户只经 resolveCashAccountId 取（戊波一·附录 B「注资」）。 */
   private async postInjection(row: any, leg: any) {
     const ledger = this.ledgerOf(row.asset.currency);
     const amount = majorToMinor(leg.amount, row.asset.decimals);
     await this.accounting.executeTransfer({
-      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_CASH),
-      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_EQUITY),
+      debitAccountId: await this.accounting.resolveCashAccountId(row.toWalletId, ledger),
+      creditAccountId: await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_EQUITY, ledger, ownerType: 'SYSTEM' }),
       amount, ledger, code: TB_TRANSFER_CODES.CAPITAL_INJECTION,
       evidence: {
         sourceType: 'CAPITAL_INJECTION', sourceNo: row.cinNo, eventCode: 'CAPITAL_INJECTION', traceId: row.traceId,
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY],
         assetCurrency: row.asset.currency, actorType: 'SYSTEM', actorId: 'CAPITAL_INJECTION_WORKFLOW',
         memo: `Capital injection ${row.cinNo} confirmed (contributed by ${row.contributorName})`,
-        debitWalletRef: row.toWalletId, creditWalletRef: row.toWalletId,
-        externalRef: this.fundsOrders.resolveExternalRef({ ...leg, asset: row.asset }), isExternalCrossing: true,
+        externalRef: this.fundsOrders.resolveExternalRef({ ...leg, asset: row.asset }),
       },
     });
   }

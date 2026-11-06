@@ -2,9 +2,21 @@ import { ConflictException } from '@nestjs/common';
 import { InternalTransferWorkflowService } from './internal-transfer-workflow.service';
 import { InternalTransferStatus as S } from './dto/internal-transfer.dto';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 
 const USDT = { id: 'a-usdt', code: 'USDT-TRON', currency: 'USDT', decimals: 6, type: 'CRYPTO' };
 const AED = { id: 'a-aed', code: 'AED', currency: 'AED', decimals: 2, type: 'FIAT' };
+// 按 (code, ledger) / (钱包 id, ledger) 编出不同的账户 id——传错钱包或账本,断言里的期望 id 就对不上。
+// 现金户(戊波一:一钱包一户)走 cashAcct,只经 resolveCashAccountId 取;其余科目走 acct。
+const acct = (code: number, ledger: number): bigint => BigInt(code) * 100n + BigInt(ledger);
+const cashAcct = (walletId: string, ledger: number): bigint => BigInt(`0x${Buffer.from(`cash:${walletId}@${ledger}`).toString('hex')}`);
+// 三字段(钱包标签 / 外穿标记)戊波一起退役,凭证不得再写。
+const expectNoRetiredEvidenceFields = (call: any) => {
+  expect(call.evidence).not.toHaveProperty('debitWalletRef');
+  expect(call.evidence).not.toHaveProperty('creditWalletRef');
+  expect(call.evidence).not.toHaveProperty('isExternalCrossing');
+};
 const treasury = { actorType: 'ADMIN' as const, userId: 'uuid-tre', userNo: 'ADM-TRE', roleCodes: ['TREASURY_OFFICER'] };
 
 function makeWorkflow(o: Partial<Record<'adjustment' | 'asset' | 'wallet' | 'disposition' | 'transferRow', any>> = {}) {
@@ -34,7 +46,8 @@ function makeWorkflow(o: Partial<Record<'adjustment' | 'asset' | 'wallet' | 'dis
   const approvals: any = { createAndSubmit: jest.fn(async () => ({ approvalNo: 'APR1' })), cancel: jest.fn(async () => ({})) };
   const accounting: any = {
     getCustomerAvailableBalance: jest.fn(async () => ({ available: 30_000n, held: 0n, total: 30_000n })),
-    resolveTbAccountId: jest.fn(async ({ code }: any) => BigInt(code)),
+    resolveTbAccountId: jest.fn(async ({ code, ledger }: any) => acct(code, ledger)),
+    resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => cashAcct(walletId, ledger)),
     executeTransfer: jest.fn(async () => ({ tbTransferId: 1n })),
   };
   const auditLogs: any = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn(async () => ({})) };
@@ -160,27 +173,71 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
       expect(fundsOrders.stampExternalRef).toHaveBeenCalledWith('fo-1');
       expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({ fundsOrderNo: 'FO1', fromWalletId: 'w-ops', toWalletId: 'w-cust', assetCode: 'USDT-TRON', assetType: 'CRYPTO', amountMinor: 7_500_000n, externalRef: expect.stringMatching(/^0x/) }));
     });
-    it('CONFIRMED · fiat leg 1: debit operating account / credit settlement account (81) → cleared → creates leg 2 (settlement account → customer)', async () => {
+    it('CONFIRMED · fiat leg 1: 81 debit cash·viaWallet (settlement) / credit cash·fromWallet (operating) → cleared → creates leg 2 (settlement account → customer)', async () => {
       const row = { ...executing(AED), amount: '900' };
       const { wf, accounting, fundsOrders, transfers } = makeWorkflow({ transferRow: row, asset: AED });
       fundsOrders.findById.mockResolvedValueOnce({ id: 'fo-1', fundsOrderNo: 'FO1', legSeq: 1, amount: '900', txHash: null, referenceNo: 'BANK-1', createdAt: new Date(), fromWalletId: 'w-ops', toWalletId: 'w-set' });
       await wf.handleFundsOrderChanged(evt(1, 'CONFIRMED') as any);
       expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
-      expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({ code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_OPS_TO_SET, amount: 90_000n, evidence: expect.objectContaining({ sourceType: 'INTERNAL_TRANSFER', sourceNo: 'ITR1', eventCode: 'INTERNAL_TRANSFER_OPS_TO_SET', debitWalletRef: 'w-ops', creditWalletRef: 'w-set', isExternalCrossing: true, externalRef: 'BANK-1', assetCurrency: 'AED' }) });
+      expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
+        code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_OPS_TO_SET, amount: 90_000n, ledger: TB_LEDGERS.AED,
+        debitAccountId: cashAcct('w-set', TB_LEDGERS.AED), creditAccountId: cashAcct('w-ops', TB_LEDGERS.AED),
+        evidence: expect.objectContaining({ sourceType: 'INTERNAL_TRANSFER', sourceNo: 'ITR1', eventCode: 'INTERNAL_TRANSFER_OPS_TO_SET', debitCode: 'A.FIRM_CASH', creditCode: 'A.FIRM_CASH', externalRef: 'BANK-1', assetCurrency: 'AED' }),
+      });
+      expectNoRetiredEvidenceFields(accounting.executeTransfer.mock.calls[0][0]);
+      // 81 两侧都是钱包现金户,经唯一入口取;不再有聚合 FIRM_CASH / FIRM_SET / FIRM_EQUITY 查询
+      expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-set', TB_LEDGERS.AED);
+      expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops', TB_LEDGERS.AED);
+      expect(accounting.resolveTbAccountId).not.toHaveBeenCalled();
       expect(fundsOrders.advance).toHaveBeenCalledWith('fo-1', 'CLEAR', 'INTERNAL_TRANSFER_WORKFLOW');
       expect(fundsOrders.create).toHaveBeenCalledWith(expect.objectContaining({ legSeq: 2, fromWalletId: 'w-set', toWalletId: 'w-cust' }));
       expect(transfers.transition).not.toHaveBeenCalled();
     });
-    it('CONFIRMED · final leg (crypto leg 1): firm pays out (82) + customer receives (83, event code by purpose) → SUCCESS + audit LEG_POSTED / SETTLED', async () => {
+    it('CONFIRMED · final leg (crypto leg 1): 82 DR EXPENSE_RECON_LOSS / CR cash·fromWallet, 83 (event code by purpose) DR cash·toWallet / CR CLIENT_PAYABLE(customer) → SUCCESS + audit LEG_POSTED / SETTLED', async () => {
       const { wf, accounting, fundsOrders, transfers, auditLogs } = makeWorkflow({ transferRow: executing(USDT) });
       fundsOrders.findById.mockResolvedValueOnce({ id: 'fo-1', fundsOrderNo: 'FO1', legSeq: 1, amount: '7.5', txHash: '0xleg', referenceNo: null, createdAt: new Date(), fromWalletId: 'w-ops', toWalletId: 'w-cust' });
       await wf.handleFundsOrderChanged(evt(1, 'CONFIRMED') as any);
       expect(accounting.executeTransfer).toHaveBeenCalledTimes(2);
-      expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({ code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_FIRM_OUT, amount: 7_500_000n, evidence: expect.objectContaining({ eventCode: 'INTERNAL_TRANSFER_FIRM_OUT', debitWalletRef: 'w-ops', creditWalletRef: 'w-ops' }) });
-      expect(accounting.executeTransfer.mock.calls[1][0]).toMatchObject({ code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_CLIENT_IN, amount: 7_500_000n, evidence: expect.objectContaining({ eventCode: 'INTERNAL_TRANSFER_COMPENSATION_IN', debitWalletRef: 'w-cust', creditWalletRef: 'w-cust', externalRef: '0xleg' }) });
+      // 82:借 对账核销损失(SYSTEM 301,公司出这笔钱记损失)/ 贷 现金·公司钱包(加密币 = from 运营钱包);不再借权益、不再贷聚合 FIRM_CASH
+      expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
+        code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_FIRM_OUT, amount: 7_500_000n, ledger: TB_LEDGERS.USDT,
+        debitAccountId: acct(TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, TB_LEDGERS.USDT), creditAccountId: cashAcct('w-ops', TB_LEDGERS.USDT),
+        evidence: expect.objectContaining({ eventCode: 'INTERNAL_TRANSFER_FIRM_OUT', debitCode: 'X.EXPENSE_RECON_LOSS', creditCode: 'A.FIRM_CASH' }),
+      });
+      // 83:借 现金·客户钱包(toWalletId)/ 贷 应付·客户(逐客户户,账本同币种)
+      expect(accounting.executeTransfer.mock.calls[1][0]).toMatchObject({
+        code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_CLIENT_IN, amount: 7_500_000n, ledger: TB_LEDGERS.USDT,
+        debitAccountId: cashAcct('w-cust', TB_LEDGERS.USDT), creditAccountId: acct(TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_LEDGERS.USDT),
+        evidence: expect.objectContaining({ eventCode: 'INTERNAL_TRANSFER_COMPENSATION_IN', debitCode: 'A.CLIENT_CASH', creditCode: 'L.CLIENT_PAYABLE', externalRef: '0xleg' }),
+      });
+      for (const c of accounting.executeTransfer.mock.calls) expectNoRetiredEvidenceFields(c[0]);
+      expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops', TB_LEDGERS.USDT);
+      expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-cust', TB_LEDGERS.USDT);
+      expect(accounting.resolveTbAccountId).toHaveBeenCalledWith(expect.objectContaining({ code: TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, ownerType: 'SYSTEM' }));
       expect(accounting.resolveTbAccountId).toHaveBeenCalledWith(expect.objectContaining({ code: 100, ownerType: 'CUSTOMER', ownerUuid: 'uuid-cu' }));
+      const resolvedCodes = (accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code);
+      for (const gone of [TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.CLIENT_CASH, TB_ACCOUNT_CODES.FIRM_SET, TB_ACCOUNT_CODES.FIRM_EQUITY]) expect(resolvedCodes).not.toContain(gone);
       expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'SUCCESS', expect.objectContaining({ settledAt: expect.any(Date) }));
       expect(auditLogs.recordSystem.mock.calls.map((c: any) => c[0].action)).toEqual(['INTERNAL_TRANSFER_LEG_POSTED', 'INTERNAL_TRANSFER_SETTLED']);
+    });
+    it('CONFIRMED · final leg (fiat leg 2): 82 credits the settlement wallet cash (via), 83 debits the customer wallet cash — the advance path is wired the same way', async () => {
+      const row = { ...executing(AED), amount: '900', purpose: 'CLIENT_ADVANCE' };
+      const { wf, accounting, fundsOrders, transfers } = makeWorkflow({ transferRow: row, asset: AED });
+      fundsOrders.findById.mockResolvedValueOnce({ id: 'fo-2', fundsOrderNo: 'FO2', legSeq: 2, amount: '900', txHash: null, referenceNo: 'BANK-2', createdAt: new Date(), fromWalletId: 'w-set', toWalletId: 'w-cust' });
+      await wf.handleFundsOrderChanged(evt(2, 'CONFIRMED') as any);
+      expect(accounting.executeTransfer).toHaveBeenCalledTimes(2);
+      expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
+        code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_FIRM_OUT, amount: 90_000n, ledger: TB_LEDGERS.AED,
+        debitAccountId: acct(TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, TB_LEDGERS.AED), creditAccountId: cashAcct('w-set', TB_LEDGERS.AED),
+        evidence: expect.objectContaining({ eventCode: 'INTERNAL_TRANSFER_FIRM_OUT', debitCode: 'X.EXPENSE_RECON_LOSS', creditCode: 'A.FIRM_CASH' }),
+      });
+      expect(accounting.executeTransfer.mock.calls[1][0]).toMatchObject({
+        code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_CLIENT_IN, amount: 90_000n, ledger: TB_LEDGERS.AED,
+        debitAccountId: cashAcct('w-cust', TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_LEDGERS.AED),
+        evidence: expect.objectContaining({ eventCode: 'INTERNAL_TRANSFER_ADVANCE_IN', debitCode: 'A.CLIENT_CASH', creditCode: 'L.CLIENT_PAYABLE' }),
+      });
+      for (const c of accounting.executeTransfer.mock.calls) expectNoRetiredEvidenceFields(c[0]);
+      expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'SUCCESS', expect.objectContaining({ settledAt: expect.any(Date) }));
     });
     it('the customer-side event code for an advance is INTERNAL_TRANSFER_ADVANCE_IN', async () => {
       const { wf, accounting, fundsOrders } = makeWorkflow({ transferRow: { ...executing(USDT), purpose: 'CLIENT_ADVANCE' } });

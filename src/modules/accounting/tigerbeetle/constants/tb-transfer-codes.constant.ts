@@ -53,7 +53,8 @@ export const TB_TRANSFER_CODES = {
   SWAP_BUY_OPS_TO_ASSET: 38,  // 卖法币买币·腿 3 放出:DR FIRM_EQUITY / CR FIRM_CASH·F_OPS
 
   // ── Bootstrap(70)──
-  CAPITAL_INJECTION: 70, // 资本注入:DR FIRM_CASH / CR FIRM_EQUITY
+  // 戊波一(附录 B「注资」):借方是收到款的那只钱包(row.toWalletId,F_OPS 运营)的现金户,不再是聚合 FIRM_CASH。
+  CAPITAL_INJECTION: 70, // 资本注入:DR 现金·运营钱包(A.FIRM_CASH) / CR 公司权益(E.FIRM_EQUITY)
 
   // ── 平账·调账(80)──
   // 五种分录组合共用这一个码:前四种随 book×direction 推导(resolvePostingLegs);
@@ -62,19 +63,21 @@ export const TB_TRANSFER_CODES = {
   RECON_ADJUSTMENT: 80, // 调账单落账(disposition/adjustment-rules.ts)
 
   // ── 平账·划转(81–83)（二期，2026-09-05）：内部划转单（公司 → 客户）三种腿分录。
-  // 形状与兑换买入腿同源（32 OPS_TO_SET / 33 SET_TO_ASSET / 34 BUY_CLIENT），父单换成划转单：
-  //   法币腿 1：运营户 → 结算户；法币腿 2 / 加密币腿 1：公司放出 + 客户收到（一步两笔，任一失败整步失败）。
-  INTERNAL_TRANSFER_OPS_TO_SET: 81, // DR FIRM_EQUITY / CR FIRM_SET（法币腿 1）
-  INTERNAL_TRANSFER_FIRM_OUT: 82,   // DR FIRM_SET(法币腿 2) 或 FIRM_EQUITY(加密币腿 1) / CR FIRM_CASH
-  INTERNAL_TRANSFER_CLIENT_IN: 83,  // DR CLIENT_CASH / CR CLIENT_PAYABLE(客户)
+  // 戊波一(附录 B「内部转账」)接到现金户:钱包级现金户一钱包一户,公司放出记「对账核销损失」(公司替托管缺口掏的钱)。
+  //   法币腿 1：运营钱包 → 结算钱包；法币腿 2 / 加密币腿 1：公司放出 + 客户收到（一步两笔，任一失败整步失败）。
+  INTERNAL_TRANSFER_OPS_TO_SET: 81, // DR 现金·结算钱包 viaWalletId(A.FIRM_CASH) / CR 现金·运营钱包 fromWalletId(A.FIRM_CASH)（法币腿 1）
+  INTERNAL_TRANSFER_FIRM_OUT: 82,   // DR 对账核销损失(X.EXPENSE_RECON_LOSS) / CR 现金·公司钱包(A.FIRM_CASH；法币腿 2 = 结算钱包，加密币腿 1 = 运营钱包)
+  INTERNAL_TRANSFER_CLIENT_IN: 83,  // DR 现金·客户钱包 toWalletId(A.CLIENT_CASH) / CR 应付(L.CLIENT_PAYABLE，客户)
 
   // ── 战役乙波一（2026-09-29）：LP 兑换（84–86）。先款后货：卖出直出、买入落前厅、验收入库 ──
-  LP_EXCHANGE_PAY: 84,     // 卖出腿：DR FIRM_EQUITY / CR FIRM_CASH（卖出币 ledger，付给 LP，外穿）
-  LP_EXCHANGE_RECEIVE: 85, // 买入腿：DR FIRM_CASH / CR FIRM_LIQ（买入币 ledger，LP 打来落前厅，外穿）
-  LP_EXCHANGE_ACCEPT: 86,  // 验收转腿：DR FIRM_LIQ / CR FIRM_EQUITY（买入币 ledger，验收入库，内转）
+  // 戊波一(附录 B「LP 兑换」)接到现金户:公司权益是兑换对手盘,LP 前厅(F_LIQ 钱包)并入公司现金,不再有独立的在途验收户。
+  LP_EXCHANGE_PAY: 84,     // 卖出腿：DR 公司权益(E.FIRM_EQUITY，卖出币) / CR 现金·运营钱包 sellFromWalletId(A.FIRM_CASH)
+  LP_EXCHANGE_RECEIVE: 85, // 买入腿：DR 现金·LP 前厅钱包 buyViaWalletId(A.FIRM_CASH) / CR 公司权益(E.FIRM_EQUITY，买入币)
+  LP_EXCHANGE_ACCEPT: 86,  // 验收转腿：DR 现金·运营钱包 buyToWalletId(A.FIRM_CASH) / CR 现金·LP 前厅钱包 buyViaWalletId(A.FIRM_CASH)
 
   // ── 战役乙波二（2026-09-29）：供应商付款（87）。单腿出：运营户直出到收款坐标；注资复用 70 ──
-  VENDOR_PAYMENT: 87, // 付款腿：DR FIRM_EQUITY / CR FIRM_CASH（付款币 ledger，付给在册外包商，外穿）
+  // 戊波一(附录 B「支出」):钱出去记开支,不再借权益。
+  VENDOR_PAYMENT: 87, // 付款腿：DR 银行与托管费用(X.EXPENSE_BANK_CUSTODY) / CR 现金·运营钱包 fromWalletId(A.FIRM_CASH)
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];

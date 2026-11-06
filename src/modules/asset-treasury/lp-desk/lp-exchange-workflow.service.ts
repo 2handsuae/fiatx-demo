@@ -402,7 +402,11 @@ export class LpExchangeWorkflowService {
     return { exchangeNo, status: updated.status as string };
   }
 
-  // ── 分录（84/85/86）───────────────────────────────────────────────────
+  // ── 分录（84/85/86；戊波一·附录 B「LP 兑换」波一列）───────────────────────
+  // 84 卖出腿出款确认：借 公司权益(卖出币) ／ 贷 现金·sellFromWalletId（运营）
+  // 85 LP 发货到前厅：借 现金·buyViaWalletId（LP 前厅） ／ 贷 公司权益(买入币)
+  // 86 验收入库：借 现金·buyToWalletId（运营） ／ 贷 现金·buyViaWalletId（LP 前厅）
+  // 现金户一钱包一户，只经 resolveCashAccountId 取；权益户是该币种的 SYSTEM 户。
 
   private ledgerOf(currency: string): number {
     const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];
@@ -410,69 +414,62 @@ export class LpExchangeWorkflowService {
     return ledger;
   }
 
-  private sysAccount(ledger: number, code: number) {
-    return this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'SYSTEM' });
+  private equityAccount(ledger: number) {
+    return this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_EQUITY, ledger, ownerType: 'SYSTEM' });
   }
 
-  private evidence(row: any, eventCode: string, debitCode: number, creditCode: number, assetCurrency: string, debitWalletRef: string | null, creditWalletRef: string | null, externalRef: string | null, isExternalCrossing: boolean, memo: string) {
+  private evidence(row: any, eventCode: string, debitCode: number, creditCode: number, assetCurrency: string, externalRef: string | null, memo: string) {
     return {
       sourceType: 'LP_EXCHANGE', sourceNo: row.exchangeNo, eventCode, traceId: row.traceId,
       debitCode: TB_CODE_TO_COA[debitCode], creditCode: TB_CODE_TO_COA[creditCode],
-      assetCurrency, actorType: 'SYSTEM', actorId: 'LP_EXCHANGE_WORKFLOW', memo,
-      debitWalletRef, creditWalletRef, externalRef, isExternalCrossing,
+      assetCurrency, actorType: 'SYSTEM', actorId: 'LP_EXCHANGE_WORKFLOW', memo, externalRef,
     };
   }
 
-  /** 腿 1（84）：DR FIRM_EQUITY / CR FIRM_CASH，卖出币 ledger，外穿——一侧物理钱包
-   *  是 sellFromWalletId（付出的那个网络行），LP 的外部坐标不是钱包，不进 walletRef。 */
+  /** 腿 1（84）：DR FIRM_EQUITY / CR 现金·sellFromWalletId，卖出币 ledger。LP 的外部坐标不是钱包，不开户。 */
   private async postSellLeg(row: any, leg: any) {
     const ledger = this.ledgerOf(row.sellAsset.currency);
     const amount = majorToMinor(leg.amount, row.sellAsset.decimals);
     await this.accounting.executeTransfer({
-      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_EQUITY),
-      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_CASH),
+      debitAccountId: await this.equityAccount(ledger),
+      creditAccountId: await this.accounting.resolveCashAccountId(row.sellFromWalletId, ledger),
       amount, ledger, code: TB_TRANSFER_CODES.LP_EXCHANGE_PAY,
       evidence: this.evidence(
         row, 'LP_EXCHANGE_PAY', TB_ACCOUNT_CODES.FIRM_EQUITY, TB_ACCOUNT_CODES.FIRM_CASH, row.sellAsset.currency,
-        row.sellFromWalletId, row.sellFromWalletId,
-        this.fundsOrders.resolveExternalRef({ ...leg, asset: row.sellAsset }), true,
+        this.fundsOrders.resolveExternalRef({ ...leg, asset: row.sellAsset }),
         `LP exchange ${row.exchangeNo} sell leg (paid to LP ${row.lpNo})`,
       ),
     });
   }
 
-  /** 腿 2（85）：DR FIRM_CASH / CR FIRM_LIQ，买入币 ledger，外穿——一侧物理钱包是
-   *  buyViaWalletId（LP 打来落前厅的那个网络行）。 */
+  /** 腿 2（85）：DR 现金·buyViaWalletId（LP 打来落前厅的那只钱包）/ CR FIRM_EQUITY，买入币 ledger。 */
   private async postBuyLeg(row: any, leg: any) {
     const ledger = this.ledgerOf(row.buyAsset.currency);
     const amount = majorToMinor(leg.amount, row.buyAsset.decimals);
     await this.accounting.executeTransfer({
-      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_CASH),
-      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_LIQ),
+      debitAccountId: await this.accounting.resolveCashAccountId(row.buyViaWalletId, ledger),
+      creditAccountId: await this.equityAccount(ledger),
       amount, ledger, code: TB_TRANSFER_CODES.LP_EXCHANGE_RECEIVE,
       evidence: this.evidence(
-        row, 'LP_EXCHANGE_RECEIVE', TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.FIRM_LIQ, row.buyAsset.currency,
-        row.buyViaWalletId, row.buyViaWalletId,
-        this.fundsOrders.resolveExternalRef({ ...leg, asset: row.buyAsset }), true,
+        row, 'LP_EXCHANGE_RECEIVE', TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.FIRM_EQUITY, row.buyAsset.currency,
+        this.fundsOrders.resolveExternalRef({ ...leg, asset: row.buyAsset }),
         `LP exchange ${row.exchangeNo} buy leg (received from LP ${row.lpNo})`,
       ),
     });
   }
 
-  /** 腿 3（86）：DR FIRM_LIQ / CR FIRM_EQUITY，买入币 ledger——两个物理钱包都是我们自己的
-   *  （buyViaWalletId → buyToWalletId），但 isExternalCrossing=true（评审 R13：F_LIQ/F_OPS
-   *  是两条钱包行，逐钱包对账模型下这笔移动必须两侧都过对账，「内转」不等于「不进对账」）。 */
+  /** 腿 3（86）：DR 现金·buyToWalletId（运营）/ CR 现金·buyViaWalletId（前厅），买入币 ledger——
+   *  两只钱包都是我们自己的，逐钱包对账下这笔移动两侧都要过对账（评审 R13：「内转」不等于「不进对账」）。 */
   private async postAcceptLeg(row: any, leg: any) {
     const ledger = this.ledgerOf(row.buyAsset.currency);
     const amount = majorToMinor(leg.amount, row.buyAsset.decimals);
     await this.accounting.executeTransfer({
-      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_LIQ),
-      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_EQUITY),
+      debitAccountId: await this.accounting.resolveCashAccountId(row.buyToWalletId, ledger),
+      creditAccountId: await this.accounting.resolveCashAccountId(row.buyViaWalletId, ledger),
       amount, ledger, code: TB_TRANSFER_CODES.LP_EXCHANGE_ACCEPT,
       evidence: this.evidence(
-        row, 'LP_EXCHANGE_ACCEPT', TB_ACCOUNT_CODES.FIRM_LIQ, TB_ACCOUNT_CODES.FIRM_EQUITY, row.buyAsset.currency,
-        row.buyViaWalletId, row.buyToWalletId,
-        this.fundsOrders.resolveExternalRef({ ...leg, asset: row.buyAsset }), true,
+        row, 'LP_EXCHANGE_ACCEPT', TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.FIRM_CASH, row.buyAsset.currency,
+        this.fundsOrders.resolveExternalRef({ ...leg, asset: row.buyAsset }),
         `LP exchange ${row.exchangeNo} acceptance transfer (front desk → operating)`,
       ),
     });

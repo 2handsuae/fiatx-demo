@@ -49,6 +49,7 @@ import { ReconciliationQueryService } from '../src/modules/clearing-settle/recon
 import { InternalTransferWorkflowService } from '../src/modules/asset-treasury/internal-transfers/internal-transfer-workflow.service';
 import { FundsOrderAction } from '../src/modules/funds-orders/dto/funds-order.dto';
 import { toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
+import { bigintToHex } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
 
 /**
  * 平账二期（spec §14）e2e：认损 → 补款（加密币一腿）｜ 垫款 → 认领（法币两腿经结算户）｜ 拒绝路径。
@@ -154,28 +155,29 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
   }
 
   /** Real production evidence shape — mirrors deposit-workflow.service.ts's own
-   *  Step 1 (CLIENT_CASH→DEPOSIT_SUSPENSE, external crossing) + Step 2
-   *  (DEPOSIT_SUSPENSE→CLIENT_PAYABLE, pure reclass) exactly. */
+   *  Step 1 (DR 客户现金·落地钱包 / CR 暂扣) + Step 2 (DR 暂扣 / CR 应付, pure reclass) exactly.
+   *  戊波一:现金类账户一钱包一户——Step 1 的借方是这只钱包自己的现金户(A.CLIENT_CASH),
+   *  只经 AccountingService.resolveCashAccountId 取,不再有按币种聚合的客户现金户。
+   *  钱包由调用方经 createOrReturn(= 开地址流程,已开好现金户)取得。 */
   async function fundCustomerWallet(opts: {
     walletId: string; ownerId: string; assetId: string; ledger: number; currency: string; amount: bigint; tag: string;
-    externalRef?: string; crossing?: boolean; effectiveDate?: string;
+    externalRef?: string; effectiveDate?: string;
   }): Promise<string> {
     const sourceNo = `E2E-ITR-FUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
 
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const walletCashId = await accounting.resolveCashAccountId(opts.walletId, opts.ledger);
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
 
     await accounting.executeTransfer({
-      debitAccountId: clientAssetId, creditAccountId: suspenseId, amount: opts.amount, ledger: opts.ledger,
+      debitAccountId: walletCashId, creditAccountId: suspenseId, amount: opts.amount, ledger: opts.ledger,
       code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
       evidence: {
         sourceType: 'DEPOSIT', sourceNo, eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         assetCurrency: opts.currency, traceId: sourceNo, actorType: 'SYSTEM', actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund customer balance for recon-supplement tests (Step 1)',
-        debitWalletRef: opts.walletId, creditWalletRef: opts.walletId,
-        externalRef: opts.externalRef ?? null, isExternalCrossing: opts.crossing ?? false,
+        externalRef: opts.externalRef ?? null,
         ...(opts.effectiveDate ? { effectiveDate: opts.effectiveDate } : {}),
       },
     });
@@ -188,8 +190,6 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
         assetCurrency: opts.currency, traceId: sourceNo, actorType: 'SYSTEM', actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund customer balance for recon-supplement tests (Step 2)',
-        debitWalletRef: opts.walletId, creditWalletRef: opts.walletId,
-        isExternalCrossing: false,
         ...(opts.effectiveDate ? { effectiveDate: opts.effectiveDate } : {}),
       },
     });
@@ -296,7 +296,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
   /** 真造一笔 SUCCESS 法币充值：真实客户入口 createForCustomer + QUICK_DEMO
    *  扫描 → 等 COMPLIANCE_PENDING → 真 KYT 通道（花名册 ⚡① 同一条通道）→ 等 SUCCESS；
    *  随后把这笔充值自己的外部对账镜像补上（同参考号的 IN 行）——不补的话，充值
-   *  Step 1 那条 isExternalCrossing 内部流水在后续对账里找不到对应外部行，
+   *  Step 1 那条进钱的内部流水在后续对账里找不到对应外部行，
    *  永远是一条「我有外无」孤儿，桶判定卡在 COMPENSATING 而不是 MATCHED（哪怕总额
    *  已经用退汇/退回冲平），调用方最后一步「案子该愈」的断言会等不到 RESOLVED——
    *  e2e 首次真实数据跑通时当场复现（原版 recon-supplement.e2e-spec.ts 的注释
@@ -327,8 +327,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
   /** 真造一笔 SUCCESS 法币提现（Bob）：真实客户入口 createWithdrawal（经真报价）
    *  → 真 KYT 通道 → 两条腿（本金 + 手续费，手续费按费率可能为 0）真实 CONFIRMED
    *  → 等 SUCCESS；随后把 NET_POST / FEE_POST 两条腿各自的外部对账镜像补上（两条
-   *  evidence 都标了 isExternalCrossing=true，withdraw-money-arcs 既有的记账
-   *  形状，本文件不改）——同 makeSuccessfulFiatDeposit 的道理，不补的话这两条
+   *  evidence 都是 withdraw-money-arcs 既有的记账形状，本文件不改）——同 makeSuccessfulFiatDeposit 的道理，不补的话这两条
    *  内部流水各是一条「我有外无」孤儿，桶判定卡在 COMPENSATING。TigerBeetle 在本系统
    *  没启用不可透支约束（C2，见 doc-final/PRODUCTION-NOTES.md），createWithdrawal
    *  本身不需要余额铺底就能成功——不为它单独铺底。 */
@@ -437,6 +436,76 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
   const transferRow = (transferNo: string) => (prisma as any).internalTransfer.findUnique({ where: { transferNo } });
   const latestApprovalCase = (actionType: string, entityRef: string) => (prisma as any).approvalCase.findFirst({ where: { actionType, entityRef }, orderBy: { createdAt: 'desc' } });
   const auditSince = (action: string, subjectNo: string) => (prisma as any).auditLogEvent.findMany({ where: { action, primarySubjectNo: subjectNo, recordedAt: { gte: testStartedAt } } });
+  /** 戊波一:凭证行的借 / 贷账户 id 是十六进制串;现金户只经 resolveCashAccountId 取。 */
+  const cashHex = async (walletId: string, ledger: number) => bigintToHex(await accounting.resolveCashAccountId(walletId, ledger));
+  const reconLossHex = async (ledger: number) => bigintToHex(await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, ledger, ownerType: 'SYSTEM' }));
+  /** 现金户已落账净额(资产类:借增贷减)——断言「钱从哪只钱包出 / 进哪只钱包」。 */
+  async function cashPosted(walletId: string, ledger: number): Promise<bigint> {
+    const b = await accounting.lookupBalance(await accounting.resolveCashAccountId(walletId, ledger));
+    return b.debitsPosted - b.creditsPosted;
+  }
+  /** 对账核销损失户(SYSTEM 301,开支类借方户)已落账净额。 */
+  async function reconLossPosted(ledger: number): Promise<bigint> {
+    const b = await accounting.lookupBalance(await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, ledger, ownerType: 'SYSTEM' }));
+    return b.debitsPosted - b.creditsPosted;
+  }
+  type CompanyBooks = { cash: Record<string, bigint>; loss: bigint };
+  /** 落账前先记下相关钱包现金户 + 对账核销损失户的余额,落账后按差额断言(库里已有 demo:setup 等别的套件的流水,不断言绝对值)。 */
+  async function snapshotBooks(ledger: number, walletIds: string[]): Promise<CompanyBooks> {
+    const cash: Record<string, bigint> = {};
+    for (const id of walletIds) cash[id] = await cashPosted(id, ledger);
+    return { cash, loss: await reconLossPosted(ledger) };
+  }
+
+  /** 补款 / 垫款单落账后的账户与余额落点(戊波一·附录 B「内部转账」)——**过账断言**,不依赖对账引擎。
+   *  法币(两腿):81 借 现金·结算钱包 / 贷 现金·运营钱包;82 借 对账核销损失 / 贷 现金·结算钱包。
+   *  加密币(一腿):82 借 对账核销损失 / 贷 现金·运营钱包。83 恒为 借 现金·客户钱包 / 贷 应付·客户。 */
+  async function expectTransferPostings(o: {
+    transferNo: string; ledger: number; fiat: boolean; opsWalletId: string; setWalletId?: string; customerWalletId: string;
+    clientInEvent: string; amountMinor: bigint; before: CompanyBooks;
+  }): Promise<void> {
+    const tev = await tbEvidence.findBySource('INTERNAL_TRANSFER', o.transferNo);
+    const byEvent = (code: string) => tev.find((e: any) => e.eventCode === code);
+    const expectedEvents = o.fiat
+      ? ['INTERNAL_TRANSFER_FIRM_OUT', o.clientInEvent, 'INTERNAL_TRANSFER_OPS_TO_SET']
+      : ['INTERNAL_TRANSFER_FIRM_OUT', o.clientInEvent];
+    expect(tev.map((e: any) => e.eventCode).sort()).toEqual(expectedEvents.sort());
+    const firmWalletId = o.fiat ? o.setWalletId! : o.opsWalletId;
+    if (o.fiat) {
+      const opsToSet = byEvent('INTERNAL_TRANSFER_OPS_TO_SET');
+      expect([opsToSet.debitCode, opsToSet.creditCode]).toEqual(['A.FIRM_CASH', 'A.FIRM_CASH']);
+      expect(opsToSet.debitTbAccountId).toBe(await cashHex(o.setWalletId!, o.ledger));
+      expect(opsToSet.creditTbAccountId).toBe(await cashHex(o.opsWalletId, o.ledger));
+    }
+    const firmOut = byEvent('INTERNAL_TRANSFER_FIRM_OUT');
+    expect([firmOut.debitCode, firmOut.creditCode]).toEqual(['X.EXPENSE_RECON_LOSS', 'A.FIRM_CASH']);
+    expect(firmOut.debitTbAccountId).toBe(await reconLossHex(o.ledger));
+    expect(firmOut.creditTbAccountId).toBe(await cashHex(firmWalletId, o.ledger));
+    const clientIn = byEvent(o.clientInEvent);
+    expect([clientIn.debitCode, clientIn.creditCode]).toEqual(['A.CLIENT_CASH', 'L.CLIENT_PAYABLE']);
+    expect(clientIn.debitTbAccountId).toBe(await cashHex(o.customerWalletId, o.ledger));
+    // 余额落点:运营钱包现金少了本金;结算钱包(法币)81 进来 82 放出,净零;客户钱包现金多了本金;对账核销损失多了本金
+    const wallets = Object.keys(o.before.cash);
+    const after = await snapshotBooks(o.ledger, wallets);
+    expect(after.cash[o.opsWalletId]).toBe(o.before.cash[o.opsWalletId] - o.amountMinor);
+    if (o.fiat) expect(after.cash[o.setWalletId!]).toBe(o.before.cash[o.setWalletId!]);
+    expect(after.cash[o.customerWalletId]).toBe(o.before.cash[o.customerWalletId] + o.amountMinor);
+    expect(after.loss).toBe(o.before.loss + o.amountMinor);
+  }
+
+  /** 已落账的客户池认损调账单夹具(不经对账引擎):补款单只认这张单的业务键与金额,过账形状不依赖案子怎么愈合。 */
+  async function seedPostedLossAdjustment(opts: { cust: { id: string; customerNo: string }; walletId: string; assetCode: string; amountMinor: string; tag: string }): Promise<string> {
+    const adjustmentNo = `ADJ-E2E-ITR-${opts.tag}-${randomUUID().slice(0, 8)}`;
+    await (prisma as any).reconciliationAdjustment.create({
+      data: {
+        adjustmentNo, caseNo: `REC-E2E-ITR-${opts.tag}-${randomUUID().slice(0, 8)}`, walletRef: opts.walletId,
+        book: 'CLIENT', direction: 'REDUCE', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', assetCode: opts.assetCode, amount: opts.amountMinor,
+        effectiveDate: TODAY, reasonInternal: 'e2e fixture: posted client-pool loss recognition', status: 'POSTED', postedAt: new Date(),
+        ownerNo: opts.cust.customerNo, ownerId: opts.cust.id, traceId: `e2e-itr-${opts.tag}`, createdByUserId: 'E2E_TREASURY',
+      },
+    });
+    return adjustmentNo;
+  }
   const platformWallet = (vault: 'F_OPS' | 'F_SET', network: string) => (prisma as any).wallet.findFirst({ where: { vaultCode: vault, network, ownerType: 'PLATFORM', status: 'ACTIVE' } });
   async function waitForSimLines(fundsOrderNo: string, walletIds: string[]): Promise<void> {
     await waitUntil(async () => (await (prisma as any).externalStatementLine.count({ where: { dedupKey: { in: walletIds.map((w) => `SIM-${fundsOrderNo}-${w}`) } } })) === walletIds.length);
@@ -449,7 +518,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     const cust = await createIsolatedCustomer(tag);
     const wallet = await ensureDepositWallet(cust.id, usdtNetwork);
     const REF = `0xe2eloss${tag}${randomUUID().replace(/-/g, '').slice(0, 16)}`;
-    await fundCustomerWallet({ walletId: wallet.id, ownerId: cust.id, assetId: usdtAssetId, ledger: TB_LEDGERS.USDT, currency: 'USDT', amount: 3_000_000_000n, tag, externalRef: REF, crossing: true });
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: cust.id, assetId: usdtAssetId, ledger: TB_LEDGERS.USDT, currency: 'USDT', amount: 3_000_000_000n, tag, externalRef: REF });
     await createExternalLine({ walletId: wallet.id, currency: usdtCode, book: 'CLIENT', direction: 'IN', amount: 2_992_500_000n, externalRef: REF, source: 'HEXTRUST' });
     await upsertExternalBalance({ walletId: wallet.id, currency: usdtCode, book: 'CLIENT', closingBalance: 2_992_500_000n, source: 'HEXTRUST' });
     expect((await runNow()).status).toBe('BREAK');
@@ -515,6 +584,8 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     await expect(transferWf.cancel(req.transferNo, { reason: 'late' }, treasury())).rejects.toThrow(/cannot be cancelled/);
     const itr = await transferRow(req.transferNo);
     const opsW = await platformWallet('F_OPS', usdtNetwork);
+    // 戊波一:落账前先记账——公司放出记在运营钱包现金户 + 对账核销损失,客户收到记在客户钱包现金户
+    const booksBefore = await snapshotBooks(TB_LEDGERS.USDT, [opsW.id, wallet.id]);
     const [leg1] = await fundsOrders.findByParent({ internalTransferId: itr.id }, { legSeq: 1 });
     expect(leg1.status).toBe('CREATED');
     expect([leg1.fromWalletId, leg1.toWalletId]).toEqual([opsW.id, wallet.id]);
@@ -538,7 +609,9 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     await waitUntil(async () => (await transferRow(req.transferNo)).status === 'SUCCESS');
     const tev = await tbEvidence.findBySource('INTERNAL_TRANSFER', req.transferNo);
     expect(tev.map((e: any) => e.eventCode).sort()).toEqual(['INTERNAL_TRANSFER_COMPENSATION_IN', 'INTERNAL_TRANSFER_FIRM_OUT']);
-    for (const e of tev) { expect(e.isExternalCrossing).toBe(true); expect(e.externalRef).toBe(stamped.txHash); expect(e.assetCode).toBe('USDT'); }
+    for (const e of tev) { expect(e.externalRef).toBe(stamped.txHash); expect(e.assetCode).toBe('USDT'); }
+    // 戊波一·附录 B「内部转账」:过账形状(账户 + 余额落点)见 expectTransferPostings
+    await expectTransferPostings({ transferNo: req.transferNo, ledger: TB_LEDGERS.USDT, fiat: false, opsWalletId: opsW.id, customerWalletId: wallet.id, clientInEvent: 'INTERNAL_TRANSFER_COMPENSATION_IN', amountMinor: 7_500_000n, before: booksBefore });
     expect((await fundsOrders.findById(leg1.id)).status).toBe('CLEARED');
     expect((await accounting.getCustomerAvailableBalance(cust.id, 'USDT')).available).toBe(3_000_000_000n);
     // 再对账：在途案自愈；行上回挂 SUCCESS，不再给按钮
@@ -583,6 +656,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     const itr = await transferRow(req.transferNo);
     const opsW = await platformWallet('F_OPS', aedNetwork); const setW = await platformWallet('F_SET', aedNetwork);
     expect(itr.viaWalletId).toBe(setW.id);
+    const booksBefore = await snapshotBooks(TB_LEDGERS.AED, [opsW.id, setW.id, wallet.id]);
     // 腿 1：运营户 → 结算户
     const [leg1] = await fundsOrders.findByParent({ internalTransferId: itr.id }, { legSeq: 1 });
     expect([leg1.fromWalletId, leg1.toWalletId]).toEqual([opsW.id, setW.id]);
@@ -599,10 +673,8 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     await waitForSimLines(leg2.fundsOrderNo, [setW.id, wallet.id]);
     await fundsOrders.advance(leg2.id, FundsOrderAction.CONFIRM, 'E2E');
     await waitUntil(async () => (await transferRow(req.transferNo)).status === 'SUCCESS');
-    const tev = await tbEvidence.findBySource('INTERNAL_TRANSFER', req.transferNo);
-    expect(tev.map((e: any) => e.eventCode).sort()).toEqual(['INTERNAL_TRANSFER_ADVANCE_IN', 'INTERNAL_TRANSFER_FIRM_OUT', 'INTERNAL_TRANSFER_OPS_TO_SET']);
-    const opsToSet = tev.find((e: any) => e.eventCode === 'INTERNAL_TRANSFER_OPS_TO_SET');
-    expect([opsToSet.debitWalletRef, opsToSet.creditWalletRef]).toEqual([opsW.id, setW.id]);
+    // 戊波一·附录 B「内部转账」:过账形状(账户 + 余额落点)见 expectTransferPostings
+    await expectTransferPostings({ transferNo: req.transferNo, ledger: TB_LEDGERS.AED, fiat: true, opsWalletId: opsW.id, setWalletId: setW.id, customerWalletId: wallet.id, clientInEvent: 'INTERNAL_TRANSFER_ADVANCE_IN', amountMinor: 90_000n, before: booksBefore });
     expect((await accounting.getCustomerAvailableBalance(cust.id, 'AED')).available).toBe(120_000n);
     // 垫款到账：读面不再给 ADVANCE，回挂 SUCCESS；认领退汇走 B 批原路
     const row1 = await rowByLine(kase.caseNo, line.id);
@@ -661,5 +733,64 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     expect(await tbEvidence.findBySource('INTERNAL_TRANSFER', req.transferNo)).toHaveLength(0);
     expect((await auditSince('INTERNAL_TRANSFER_REJECTED', req.transferNo))[0].approvalNo).toBe(apr.approvalNo);
     expect((await rowByAdjustment(kase.caseNo, adjustmentNo)).nextStep?.kind).toBe('COMPENSATION');
+  });
+
+  // ── 过账形状(戊波一)：不经对账引擎 ──────────────────────────────────────
+  // 上面 A / B / C 的主链都要先过 runNow()（对账引擎），而对账引擎到第 11 任务才改读现金户；
+  // 这两条把「补款单落账记到哪几个户」单独拎出来：夹具直接放一张已落账的认损调账单，其余全走真实入口
+  // （发起 → CFO 批 → 资金单推进 → 落账），断言只看账户 id、助记码与余额落点，不碰对账引擎。
+
+  it('P1 · 加密币一腿补款（不经对账引擎）：82 借 对账核销损失 / 贷 现金·运营钱包，83 借 现金·客户钱包 / 贷 应付 → SUCCESS', async () => {
+    const cust = await createIsolatedCustomer('P1');
+    const wallet = await ensureDepositWallet(cust.id, usdtNetwork);
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: cust.id, assetId: usdtAssetId, ledger: TB_LEDGERS.USDT, currency: 'USDT', amount: 3_000_000_000n, tag: 'P1' });
+    const adjustmentNo = await seedPostedLossAdjustment({ cust, walletId: wallet.id, assetCode: usdtCode, amountMinor: '7500000', tag: 'P1' });
+    const opsW = await platformWallet('F_OPS', usdtNetwork);
+    const booksBefore = await snapshotBooks(TB_LEDGERS.USDT, [opsW.id, wallet.id]);
+    const req = await transferWf.initiateCompensation({ adjustmentNo, reason: '公司认赔' }, treasury());
+    const apr = await latestApprovalCase(ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL, req.transferNo);
+    await approvalsService.approve(apr.approvalNo, { reason: 'e2e CFO approve compensation' }, cfo());
+    await waitUntil(async () => (await transferRow(req.transferNo)).status === 'EXECUTING');
+    const itr = await transferRow(req.transferNo);
+    expect(itr.viaWalletId).toBeNull();
+    const [leg1] = await fundsOrders.findByParent({ internalTransferId: itr.id }, { legSeq: 1 });
+    expect([leg1.fromWalletId, leg1.toWalletId]).toEqual([opsW.id, wallet.id]);
+    await fundsOrders.advance(leg1.id, FundsOrderAction.SUBMIT, 'E2E');
+    await waitForSimLines(leg1.fundsOrderNo, [opsW.id, wallet.id]);
+    await fundsOrders.advance(leg1.id, FundsOrderAction.OBSERVE_CONFIRMING, 'E2E');
+    await fundsOrders.advance(leg1.id, FundsOrderAction.CONFIRM, 'E2E');
+    await waitUntil(async () => (await transferRow(req.transferNo)).status === 'SUCCESS');
+    await expectTransferPostings({ transferNo: req.transferNo, ledger: TB_LEDGERS.USDT, fiat: false, opsWalletId: opsW.id, customerWalletId: wallet.id, clientInEvent: 'INTERNAL_TRANSFER_COMPENSATION_IN', amountMinor: 7_500_000n, before: booksBefore });
+    expect((await fundsOrders.findById(leg1.id)).status).toBe('CLEARED');
+    expect((await accounting.getCustomerAvailableBalance(cust.id, 'USDT')).available).toBe(3_007_500_000n); // 83 贷应付：补款到账
+  });
+
+  it('P2 · 法币两腿补款（不经对账引擎）：81 借 现金·结算钱包 / 贷 现金·运营钱包，82 借 对账核销损失 / 贷 现金·结算钱包，83 借 现金·客户 vIBAN / 贷 应付 → SUCCESS', async () => {
+    const cust = await createIsolatedCustomer('P2');
+    const wallet = await ensureDepositWallet(cust.id, aedNetwork);
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: cust.id, assetId: aedAssetId, ledger: TB_LEDGERS.AED, currency: 'AED', amount: 300_000n, tag: 'P2' });
+    const adjustmentNo = await seedPostedLossAdjustment({ cust, walletId: wallet.id, assetCode: aedCode, amountMinor: '90000', tag: 'P2' });
+    const opsW = await platformWallet('F_OPS', aedNetwork); const setW = await platformWallet('F_SET', aedNetwork);
+    const booksBefore = await snapshotBooks(TB_LEDGERS.AED, [opsW.id, setW.id, wallet.id]);
+    const req = await transferWf.initiateCompensation({ adjustmentNo, reason: '公司认赔' }, treasury());
+    const apr = await latestApprovalCase(ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL, req.transferNo);
+    await approvalsService.approve(apr.approvalNo, { reason: 'e2e CFO approve compensation' }, cfo());
+    await waitUntil(async () => (await transferRow(req.transferNo)).status === 'EXECUTING');
+    const itr = await transferRow(req.transferNo);
+    expect(itr.viaWalletId).toBe(setW.id);
+    const [leg1] = await fundsOrders.findByParent({ internalTransferId: itr.id }, { legSeq: 1 });
+    expect([leg1.fromWalletId, leg1.toWalletId]).toEqual([opsW.id, setW.id]);
+    await fundsOrders.advance(leg1.id, FundsOrderAction.SUBMIT, 'E2E');
+    await waitForSimLines(leg1.fundsOrderNo, [opsW.id, setW.id]);
+    await fundsOrders.advance(leg1.id, FundsOrderAction.CONFIRM, 'E2E');
+    await waitUntil(async () => (await fundsOrders.findByParent({ internalTransferId: itr.id }, { legSeq: 2 })).length === 1);
+    const [leg2] = await fundsOrders.findByParent({ internalTransferId: itr.id }, { legSeq: 2 });
+    expect([leg2.fromWalletId, leg2.toWalletId]).toEqual([setW.id, wallet.id]);
+    await fundsOrders.advance(leg2.id, FundsOrderAction.SUBMIT, 'E2E');
+    await waitForSimLines(leg2.fundsOrderNo, [setW.id, wallet.id]);
+    await fundsOrders.advance(leg2.id, FundsOrderAction.CONFIRM, 'E2E');
+    await waitUntil(async () => (await transferRow(req.transferNo)).status === 'SUCCESS');
+    await expectTransferPostings({ transferNo: req.transferNo, ledger: TB_LEDGERS.AED, fiat: true, opsWalletId: opsW.id, setWalletId: setW.id, customerWalletId: wallet.id, clientInEvent: 'INTERNAL_TRANSFER_COMPENSATION_IN', amountMinor: 90_000n, before: booksBefore });
+    expect((await accounting.getCustomerAvailableBalance(cust.id, 'AED')).available).toBe(390_000n);
   });
 });
