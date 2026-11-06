@@ -7,7 +7,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
-import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { LpProfileService } from './lp-profile.service';
 import { LP_EXCHANGE_TRANSITIONS } from './constants/lp-exchange-transitions.constant';
@@ -19,6 +19,7 @@ export class LpExchangeService {
     private readonly prisma: PrismaService,
     private readonly accounting: AccountingService,
     private readonly lpProfiles: LpProfileService,
+    private readonly systemWallets: SystemWalletResolver,
   ) {}
 
   // ── 建单 ────────────────────────────────────────────────────────────
@@ -87,15 +88,21 @@ export class LpExchangeService {
     await this.prisma.lpExchange.update({ where: { exchangeNo }, data: { approvalNo } });
   }
 
-  /** 出生守卫 / 批准时复核：运营户该币种（卖出币）可用（贷 − 借 − 待过账借）≥ 金额
-   *  （最小单位）——同 InternalTransferService.assertFirmOpsBalance 形状，10 行只读
+  /** 出生守卫 / 批准时复核：运营户（F_OPS 钱包现金户，借方户）该币种（卖出币）可用（借 − 贷 − 贷挂起）≥ 金额
+   *  （最小单位）——同 InternalTransferService.assertFirmOpsBalance 形状，只读
    *  守卫，不跨模块 import 复用（各主体自己一份实现，同来源不同实例）。 */
   async assertFirmOpsBalance(currency: string, amountMinor: bigint): Promise<void> {
     const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];
     if (!ledger) throw new BadRequestException(`Unsupported currency: ${currency}`);
-    const opsId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_EQUITY, ledger, ownerType: 'SYSTEM' });
-    const bal = await this.accounting.lookupBalance(opsId);
-    const available = bal.creditsPosted - bal.debitsPosted - bal.debitsPending;
+    // 戊波一 T8：运营户 = F_OPS 钱包的现金户（借方户）；权益户 FIRM_EQUITY 只是对手盘，读它数字不对。
+    // 今天一币种一资产（AED→AED_ZAND、USDT→TRON），按币种找资产再找 F_OPS 钱包即唯一。
+    const asset = await this.prisma.asset.findFirst({ where: { currency } });
+    if (!asset) throw new BadRequestException(`Unsupported currency: ${currency}`);
+    const opsWallet = await this.systemWallets.resolve(asset.id, 'F_OPS');
+    const cashId = await this.accounting.resolveCashAccountId(opsWallet.id, ledger);
+    const bal = await this.accounting.lookupBalance(cashId);
+    // 借方口径：可用 = 借已过账 − 贷已过账 − 贷挂起（出款挂起是贷方挂起；debitsPending 是待入账，不可花）
+    const available = bal.debitsPosted - bal.creditsPosted - bal.creditsPending;
     if (available < amountMinor) {
       throw new BadRequestException(
         `Insufficient ${currency} balance in the operating account (available ${available.toString()}, need ${amountMinor.toString()}, smallest unit) — the firm cannot sell an asset it does not have`,

@@ -3,10 +3,12 @@
 // GET /admin/tb/account-flows），不建任何新后端聚合端点（spec §5）。可见性由
 // FUNDING_DASHBOARD_VIEW 门控（金库/CFO/高管/内审恰四职务，见 App.tsx 路由 + rbac.catalog.ts）。
 //
-// 五区：① 运营户水位（F_OPS，每币种一张水位卡：余额大字 + 横向水位条 + 阈值刻线 +
-// 低于线时红字）② F_LIQ 在途待验收格 ③ F_SET 结算在途格 ④ 三收入格（210/211/212）
+// 五区：① 运营户水位（F_OPS 钱包的现金户，每币种一张水位卡：余额大字 + 横向水位条 + 阈值刻线 +
+// 低于线时红字）② F_LIQ 钱包现金户在途待验收格 ③ F_SET 钱包现金户结算在途格 ④ 三收入格（210/211/212）
 // ⑤ 最近资金动态（流水最近 10 条）。波三接线声明：本波看板只展示，零事件、零推送、
 // 零预留挂点（乙总纲假设①、裁定 4）。
+// 戊波一 T8：①②③ 改读 ownerType=WALLET 的公司现金户（码 50），按 walletRole（F_OPS/F_LIQ/F_SET）
+// 分区——权益户 200 只是兑换对手盘，不再当「运营户现金」读；④ 收入格仍读 SYSTEM 户，不变。
 //
 // 战役乙波三 T4：NLA（Net Liquid Assets，regulatory）区，置于五区之上，消费 T1/T3 的
 // GET/POST /admin/prudential/status|check——全部 dashboard 观众（本页既有
@@ -38,12 +40,21 @@ const IDENTITY_ASSET_LOOKUP: AssetLookup = { currencyOf: (raw) => raw, decimalsO
    用 API 下发的 accountName（唯一真相源，见 ledger-account.constants.ts 头注释同款纪律），
    不在前端另造名字。 */
 const TREASURY_CODES = {
-  FIRM_EQUITY: 200, // E.FIRM_EQUITY — 运营/流动性（兑换对手盘）
-  FIRM_LIQ: 203, // E.FIRM_LIQ — LP 在途验收户
-  FIRM_SET: 201, // E.FIRM_SET — 法币结算户（仅法币 ledger）
+  FIRM_CASH: 50, // A.FIRM_CASH — 公司现金（每个公司钱包一户，ownerType WALLET；按 walletRole 分运营 / LP 前厅 / 结算）
+  FIRM_EQUITY: 200, // E.FIRM_EQUITY — 公司权益（兑换对手盘；本页只用于流水过滤，不当现金读）
   INCOME_SWAP_FEE: 210, // E.INCOME_SWAP_FEE
   INCOME_WITHDRAW_FEE: 211, // E.INCOME_WITHDRAW_FEE
   INCOME_OTHER: 212, // E.INCOME_OTHER
+  EXPENSE_BANK_CUSTODY: 300, // X.EXPENSE_BANK_CUSTODY
+  EXPENSE_RECON_LOSS: 301, // X.EXPENSE_RECON_LOSS
+  EXPENSE_OTHER: 302, // X.EXPENSE_OTHER
+} as const;
+
+/** 现金户所属公司钱包的角色（后端 walletRole，= vaultCode）：①运营 ②LP 前厅 ③结算。 */
+const WALLET_ROLES = {
+  OPS: 'F_OPS',
+  LIQ: 'F_LIQ',
+  SET: 'F_SET',
 } as const;
 
 const INCOME_CODES = [
@@ -52,11 +63,14 @@ const INCOME_CODES = [
   TREASURY_CODES.INCOME_OTHER,
 ];
 
+/** 「公司账户」流水过滤集（⑤ 最近资金动态）：公司现金 + 权益 + 收入三格 + 开支三类。 */
 const COMPANY_CODES: number[] = [
+  TREASURY_CODES.FIRM_CASH,
   TREASURY_CODES.FIRM_EQUITY,
-  TREASURY_CODES.FIRM_LIQ,
-  TREASURY_CODES.FIRM_SET,
   ...INCOME_CODES,
+  TREASURY_CODES.EXPENSE_BANK_CUSTODY,
+  TREASURY_CODES.EXPENSE_RECON_LOSS,
+  TREASURY_CODES.EXPENSE_OTHER,
 ];
 
 /* ── Interfaces（字段形状照 LedgerAccountList.tsx:33 / AccountFlowList.tsx:17 的读法）── */
@@ -67,6 +81,8 @@ interface AccountRow {
   accountName: string | null;
   assetCode: string;
   balance: string | null;
+  /** 戊波一 T8：仅 ownerType=WALLET 的行有值（F_OPS / F_LIQ / F_SET …），其余为 null。 */
+  walletRole?: string | null;
 }
 
 interface FlowRow {
@@ -264,14 +280,23 @@ const CompanyFundsDashboard = () => {
     setLoading(true);
     setError(null);
     try {
-      const [assetsRes, accountsRes, flowsRes] = await Promise.all([
+      // 戊波一 T8:两路账户——SYSTEM 户(收入三格 / 权益 / 开支)+ 公司现金户(ownerType=WALLET、码 50,
+      // 带 walletRole 供分区)。客户现金户同属 WALLET 但码是 1,不会被码 50 过滤带进来。
+      const [assetsRes, accountsRes, cashRes, flowsRes] = await Promise.all([
         adminFetch(`${import.meta.env.VITE_API_URL}/assets?take=100`),
         adminFetch(`${import.meta.env.VITE_API_URL}/admin/tb/accounts?ownerType=SYSTEM&take=100`),
+        adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/tb/accounts?ownerType=WALLET&code=${TREASURY_CODES.FIRM_CASH}&take=100`,
+        ),
         adminFetch(`${import.meta.env.VITE_API_URL}/admin/tb/account-flows?take=200`),
       ]);
 
       if (!accountsRes.ok) {
         setError(await getApiErrorMessage(accountsRes, 'Failed to load ledger accounts.'));
+        return;
+      }
+      if (!cashRes.ok) {
+        setError(await getApiErrorMessage(cashRes, 'Failed to load company cash accounts.'));
         return;
       }
       if (!flowsRes.ok) {
@@ -294,7 +319,8 @@ const CompanyFundsDashboard = () => {
       }
 
       const accountsData = await accountsRes.json();
-      const companyAccounts: AccountRow[] = (accountsData.items ?? [])
+      const cashData = await cashRes.json();
+      const companyAccounts: AccountRow[] = [...(accountsData.items ?? []), ...(cashData.items ?? [])]
         .filter((r: AccountRow) => COMPANY_CODES.includes(r.code))
         .map((r: AccountRow) => ({ ...r, assetCode: lookup.currencyOf(r.assetCode) }));
       setAccounts(companyAccounts);
@@ -323,9 +349,15 @@ const CompanyFundsDashboard = () => {
   const accountsByCode = (code: number): AccountRow[] =>
     accounts.filter((a) => a.code === code).sort((a, b) => a.assetCode.localeCompare(b.assetCode));
 
-  const opsAccounts = accountsByCode(TREASURY_CODES.FIRM_EQUITY);
-  const liqAccounts = accountsByCode(TREASURY_CODES.FIRM_LIQ);
-  const setAccountsRows = accountsByCode(TREASURY_CODES.FIRM_SET);
+  /** 公司现金户（码 50）按钱包角色取：①运营 F_OPS ②LP 前厅 F_LIQ ③结算 F_SET，每币种一户。 */
+  const cashAccountsByRole = (walletRole: string): AccountRow[] =>
+    accounts
+      .filter((a) => a.code === TREASURY_CODES.FIRM_CASH && a.walletRole === walletRole)
+      .sort((a, b) => a.assetCode.localeCompare(b.assetCode));
+
+  const opsAccounts = cashAccountsByRole(WALLET_ROLES.OPS);
+  const liqAccounts = cashAccountsByRole(WALLET_ROLES.LIQ);
+  const setAccountsRows = cashAccountsByRole(WALLET_ROLES.SET);
 
   // NLA 合计水位条：分子=nlaAedMinor（AED 2 位小数），红线刻线在 floorAedMinor 位置——
   // 复用既有 gaugeScale 的算术（fillPct/thresholdPct），只是这条线的颜色/语义在渲染处
@@ -473,7 +505,7 @@ const CompanyFundsDashboard = () => {
               </div>
             </div>
 
-            {/* ── ① Operating balances (F_OPS) ── */}
+            {/* ── ① Operating balances (F_OPS wallet cash account) ── */}
             <DetailCard
               title="Operating Balances — Firm Operating Funds"
               description="Below-threshold balances turn red — that's the cue to find an LP or push a client trade."
@@ -488,7 +520,7 @@ const CompanyFundsDashboard = () => {
               )}
             </DetailCard>
 
-            {/* ── ② F_LIQ in-transit pending acceptance ── */}
+            {/* ── ② F_LIQ wallet cash account — in transit pending acceptance ── */}
             <DetailCard title="LP Delivery in Transit — Pending Acceptance" columns={3}>
               {liqAccounts.length === 0 ? (
                 <EmptyRow label="No LP delivery in transit." />
@@ -499,7 +531,7 @@ const CompanyFundsDashboard = () => {
               )}
             </DetailCard>
 
-            {/* ── ③ F_SET settlement in transit ── */}
+            {/* ── ③ F_SET wallet cash account — settlement in transit ── */}
             <DetailCard title="Settlement in Transit — Fiat" columns={3}>
               {setAccountsRows.length === 0 ? (
                 <EmptyRow label="No fiat settlement in transit." />

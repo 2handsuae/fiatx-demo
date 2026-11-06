@@ -16,6 +16,7 @@ describe('TbAccountRegistryService', () => {
         update: jest.fn(),
       },
       customerMain: { findMany: jest.fn() },
+      wallet: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const mockTbService: any = { lookupAccounts: jest.fn().mockResolvedValue([]) };
     service = new TbAccountRegistryService(mockPrisma, mockTbService);
@@ -113,6 +114,50 @@ describe('TbAccountRegistryService', () => {
       expect(items[0].ownerName).toBe('Alice Happy');
       expect(items[1].ownerName).toBeNull();
       expect(mockPrisma.customerMain.findMany).toHaveBeenCalledTimes(1); // 无 N+1
+    });
+
+    it('WALLET 行批量附 walletRole / walletNo(按 ownerUuid 一次 IN 联 wallets,无 N+1);非 WALLET 行两者为 null(戊波一 T8)', async () => {
+      mockPrisma.tbAccountRegistry.findMany.mockResolvedValue([
+        { tbAccountId: 'a1', code: 50, ownerType: 'WALLET', ownerUuid: 'w-ops', ownerNo: 'WA-OPS' },
+        { tbAccountId: 'a2', code: 50, ownerType: 'WALLET', ownerUuid: 'w-liq', ownerNo: 'WA-LIQ' },
+        { tbAccountId: 'a3', code: 1, ownerType: 'WALLET', ownerUuid: 'w-cust', ownerNo: 'WA-CUST' },
+        { tbAccountId: 'a4', code: 200, ownerType: 'SYSTEM', ownerUuid: null, ownerNo: null },
+      ]);
+      mockPrisma.tbAccountRegistry.count.mockResolvedValue(4);
+      // 行为化 mock:真按 where.id.in 过滤
+      const wallets = [
+        { id: 'w-ops', walletNo: 'WA-OPS', walletRole: 'F_OPS' },
+        { id: 'w-liq', walletNo: 'WA-LIQ', walletRole: 'F_LIQ' },
+        { id: 'w-cust', walletNo: 'WA-CUST', walletRole: 'C_DEP' },
+        { id: 'w-other', walletNo: 'WA-OTHER', walletRole: 'F_SET' },
+      ];
+      mockPrisma.wallet.findMany.mockImplementation(async ({ where }: any) => wallets.filter((w) => where.id.in.includes(w.id)));
+
+      const { items } = await service.findAll({});
+
+      expect(items.map((r: any) => [r.walletRole, r.walletNo])).toEqual([
+        ['F_OPS', 'WA-OPS'],
+        ['F_LIQ', 'WA-LIQ'],
+        ['C_DEP', 'WA-CUST'],
+        [null, null],
+      ]);
+      expect(mockPrisma.wallet.findMany).toHaveBeenCalledTimes(1); // 无 N+1
+      expect(mockPrisma.wallet.findMany.mock.calls[0][0].where.id.in.sort()).toEqual(['w-cust', 'w-liq', 'w-ops']);
+      // 既有字段不动、不新增 UUID 字段
+      expect(items[0].ownerUuid).toBe('w-ops');
+    });
+
+    it('页内没有 WALLET 行 → 不查 wallets', async () => {
+      mockPrisma.tbAccountRegistry.findMany.mockResolvedValue([
+        { tbAccountId: 'a4', code: 200, ownerType: 'SYSTEM', ownerUuid: null, ownerNo: null },
+      ]);
+      mockPrisma.tbAccountRegistry.count.mockResolvedValue(1);
+
+      const { items } = await service.findAll({});
+
+      expect(mockPrisma.wallet.findMany).not.toHaveBeenCalled();
+      expect(items[0].walletRole).toBeNull();
+      expect(items[0].walletNo).toBeNull();
     });
 
     it('q 命中 ownerNo/姓名/description 三路 OR', async () => {

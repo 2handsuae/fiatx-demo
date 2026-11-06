@@ -45,7 +45,11 @@ function makePrisma() {
   const vendorRows: Record<string, any> = { [activeVendor.vendorNo]: activeVendor };
 
   return {
-    asset: { findUnique: jest.fn(async ({ where }: any) => assetsById[where.id] ?? null) },
+    asset: {
+      findUnique: jest.fn(async ({ where }: any) => assetsById[where.id] ?? null),
+      // 戊波一 T8：余额闸按币种找资产（行为化：真按 where.currency 过滤）
+      findFirst: jest.fn(async ({ where }: any) => Object.values(assetsById).find((a: any) => a.currency === where.currency) ?? null),
+    },
     wallet: { findUnique: jest.fn(async ({ where }: any) => walletsById[where.id] ?? null) },
     outsourcingVendor: { findUnique: jest.fn(async ({ where }: any) => vendorRows[where.vendorNo] ?? null) },
     vendorPayment: {
@@ -89,12 +93,13 @@ function makePrisma() {
   };
 }
 
-function makeAccounting(creditsPosted: bigint, debitsPosted: bigint, debitsPending = 0n) {
+function makeAccounting(debitsPosted: bigint, creditsPosted: bigint, creditsPending = 0n) {
   return {
     resolveTbAccountId: jest.fn(async ({ code, ledger }: any) => acct(code, ledger)),
     // 戊波一:现金户只经这个入口取——传错钱包或账本,断言里的期望 id 对不上
     resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => cashAcct(walletId, ledger)),
-    lookupBalance: jest.fn(async () => ({ creditsPosted, debitsPosted, debitsPending, creditsPending: 0n })),
+    // 戊波一 T8:余额闸读 F_OPS 现金户(借方户),可用 = 借 − 贷 − 贷挂起
+    lookupBalance: jest.fn(async () => ({ debitsPosted, creditsPosted, debitsPending: 0n, creditsPending })),
     executeTransfer: jest.fn(async () => ({ tbTransferId: 1n })),
   };
 }
@@ -104,7 +109,10 @@ function makeWorkflow() {
   const vendors = new OutsourcingVendorsService(prisma as any, {} as any);
   // 余额充裕（100_000 AED 级），assertFirmOpsBalance 天然放行；不足场景用 jest.spyOn 单次拒绝。
   const accounting: any = makeAccounting(100_000_000_000n, 0n);
-  const payments = new VendorPaymentService(prisma, vendors, accounting);
+  // 戊波一 T8:余额闸自己 resolve F_OPS 钱包取现金户——给 payments 单独一份桩,不与下面 workflow 的
+  // systemWallets 共用(否则「NLA 拦下后 workflow 没 resolve 钱包」的断言会被闸的 resolve 污染)。
+  const gateWallets: any = { resolve: jest.fn(async () => OPS_WALLET) };
+  const payments = new VendorPaymentService(prisma, vendors, accounting, gateWallets);
   const approvals: any = { createAndSubmit: jest.fn(async () => ({ approvalNo: 'APR1' })), cancel: jest.fn(async () => ({})) };
   const auditLogs: any = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn(async () => ({})) };
   // fundsOrders 桩：create/findById 直写/直读同一份 prisma.fundsOrder 内存表，让

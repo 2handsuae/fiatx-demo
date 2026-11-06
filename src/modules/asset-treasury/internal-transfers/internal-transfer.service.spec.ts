@@ -1,8 +1,9 @@
 import { InternalTransferService } from './internal-transfer.service';
 import { InternalTransferStatus as S } from './dto/internal-transfer.dto';
+import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 
 describe('InternalTransferService (Task 5)', () => {
-  const svc = (prisma: any = {}, accounting: any = {}) => new InternalTransferService(prisma, accounting);
+  const svc = (prisma: any = {}, accounting: any = {}, systemWallets: any = {}) => new InternalTransferService(prisma, accounting, systemWallets);
 
   describe('six states, six edges', () => {
     it.each([
@@ -15,22 +16,45 @@ describe('InternalTransferService (Task 5)', () => {
     ])('%s → %s rejected', (from, to) => { expect(() => svc().assertTransition(from, to)).toThrow(/Illegal internal transfer status transition/); });
   });
 
-  describe('assertFirmOpsBalance — operating account net credit balance (credits − debits − pending debits) ≥ amount', () => {
-    const accounting = (creditsPosted: bigint, debitsPosted: bigint, debitsPending = 0n) => ({
-      resolveTbAccountId: jest.fn(async () => 1n),
-      lookupBalance: jest.fn(async () => ({ creditsPosted, debitsPosted, debitsPending, creditsPending: 0n })),
+  describe('assertFirmOpsBalance — F_OPS 钱包现金户（借方户）可用 = 借 − 贷 − 贷挂起 ≥ 金额（戊波一 T8）', () => {
+    const ASSETS: Record<string, any> = {
+      AED: { id: 'asset-aed', currency: 'AED' },
+      USDT: { id: 'asset-usdt', currency: 'USDT' },
+    };
+    const prismaOf = () => ({
+      // 行为化：真按 where.currency 找资产，找不到返回 null
+      asset: { findFirst: jest.fn(async ({ where }: any) => ASSETS[where.currency] ?? null) },
     });
+    const walletsOf = () => ({ resolve: jest.fn(async (assetId: string) => ({ id: `w-ops-${assetId}` })) });
+    const accounting = (debitsPosted: bigint, creditsPosted: bigint, creditsPending = 0n, debitsPending = 0n) => ({
+      // 权益户（resolveTbAccountId）故意抛：闸不许再读它
+      resolveTbAccountId: jest.fn(async () => { throw new Error('the gate must read the F_OPS cash account, not a SYSTEM account'); }),
+      resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => BigInt(ledger) * 1000n + BigInt(walletId.length)),
+      lookupBalance: jest.fn(async () => ({ debitsPosted, creditsPosted, debitsPending, creditsPending })),
+    });
+    const gate = (acc: any, wallets: any = walletsOf()) => svc(prismaOf(), acc, wallets);
     it('enough → allowed', async () => {
-      await expect(svc({}, accounting(100_000_000_000n, 571_811_000n)).assertFirmOpsBalance('USDT', 7_500_000n)).resolves.toBeUndefined();
+      await expect(gate(accounting(100_000_000_000n, 571_811_000n)).assertFirmOpsBalance('USDT', 7_500_000n)).resolves.toBeUndefined();
     });
     it('not enough → 400, message carries available / needed', async () => {
-      await expect(svc({}, accounting(1_000n, 0n)).assertFirmOpsBalance('AED', 2_000n)).rejects.toThrow(/Insufficient.*available 1000.*need 2000/);
+      await expect(gate(accounting(1_000n, 0n)).assertFirmOpsBalance('AED', 2_000n)).rejects.toThrow(/Insufficient.*available 1000.*need 2000/);
     });
-    it('pending debits also count as committed', async () => {
-      await expect(svc({}, accounting(3_000n, 0n, 2_000n)).assertFirmOpsBalance('AED', 1_500n)).rejects.toThrow(/Insufficient/);
+    it('outflow-locked amount (credits pending) already counts as committed', async () => {
+      await expect(gate(accounting(3_000n, 0n, 2_000n)).assertFirmOpsBalance('AED', 1_500n)).rejects.toThrow(/Insufficient.*available 1000/);
+    });
+    it('debits pending (inflow not yet posted) is not spendable and does not raise available', async () => {
+      await expect(gate(accounting(1_000n, 0n, 0n, 9_000n)).assertFirmOpsBalance('AED', 2_000n)).rejects.toThrow(/Insufficient.*available 1000/);
+    });
+    it('reads the F_OPS wallet of the currency\'s asset, then that wallet\'s cash account on the currency ledger', async () => {
+      const wallets = walletsOf();
+      const acc = accounting(10n, 0n);
+      await gate(acc, wallets).assertFirmOpsBalance('USDT', 1n);
+      expect(wallets.resolve).toHaveBeenCalledWith('asset-usdt', 'F_OPS');
+      expect(acc.resolveCashAccountId).toHaveBeenCalledWith('w-ops-asset-usdt', TB_LEDGERS.USDT);
+      expect(acc.resolveTbAccountId).not.toHaveBeenCalled();
     });
     it('currency not on the ledger → 400', async () => {
-      await expect(svc({}, accounting(1n, 0n)).assertFirmOpsBalance('BTC', 1n)).rejects.toThrow(/Unsupported currency/);
+      await expect(gate(accounting(1n, 0n)).assertFirmOpsBalance('BTC', 1n)).rejects.toThrow(/Unsupported currency/);
     });
   });
 

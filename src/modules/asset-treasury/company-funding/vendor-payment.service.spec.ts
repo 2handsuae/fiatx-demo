@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { VendorPaymentService } from './vendor-payment.service';
 import { VendorPaymentStatus as S } from './dto/vendor-payment.dto';
 import { OutsourcingVendorsService } from '../../governance/compliance-office/outsourcing-vendors.service';
+import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 
 /** 行为化内存行 mock（照 capital-injection.service.spec.ts 的 makePrisma 先例）。
  *  clock 用递增计数器而非 `new Date()`——避免同一 tick 内连续两次写入撞同一毫秒。 */
@@ -51,6 +52,8 @@ function makePrisma() {
       }),
     },
     fundsOrder: { findMany: jest.fn(async () => []) },
+    // 戊波一 T8：余额闸按币种找资产（行为化：真按 where.currency 过滤，找不到返回 null）
+    asset: { findFirst: jest.fn(async ({ where }: any) => Object.values(assets).find((a: any) => a.currency === where.currency) ?? null) },
   };
 }
 
@@ -77,11 +80,17 @@ const baseInput = {
   reason: 'Monthly vendor invoice settlement', fromWalletId: 'w-ops-aed', createdByUserId: 'ADM1',
 };
 
-function makeAccounting(creditsPosted: bigint, debitsPosted: bigint, debitsPending = 0n) {
+/** 戊波一 T8：余额闸读 F_OPS 钱包的现金户（借方户）——权益户 resolveTbAccountId 故意抛。 */
+function makeAccounting(debitsPosted: bigint, creditsPosted: bigint, creditsPending = 0n, debitsPending = 0n) {
   return {
-    resolveTbAccountId: jest.fn(async () => 1n),
-    lookupBalance: jest.fn(async () => ({ creditsPosted, debitsPosted, debitsPending, creditsPending: 0n })),
+    resolveTbAccountId: jest.fn(async () => { throw new Error('the gate must read the F_OPS cash account, not a SYSTEM account'); }),
+    resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => BigInt(ledger) * 1000n + BigInt(walletId.length)),
+    lookupBalance: jest.fn(async () => ({ debitsPosted, creditsPosted, debitsPending, creditsPending })),
   };
+}
+
+function makeSystemWallets() {
+  return { resolve: jest.fn(async (assetId: string) => ({ id: `w-ops-${assetId}` })) };
 }
 
 describe('VendorPaymentService (乙波二 T4)', () => {
@@ -89,7 +98,8 @@ describe('VendorPaymentService (乙波二 T4)', () => {
     prisma: any = makePrisma(),
     vendors: any = makeVendors({ [activeVendor.vendorNo]: activeVendor, [terminatedVendor.vendorNo]: terminatedVendor }),
     accounting: any = makeAccounting(0n, 0n),
-  ) => new VendorPaymentService(prisma, vendors, accounting);
+    systemWallets: any = makeSystemWallets(),
+  ) => new VendorPaymentService(prisma, vendors, accounting, systemWallets);
 
   describe('create — 出生守卫', () => {
     it('rejects create when vendor is TERMINATED', async () => {
@@ -209,7 +219,7 @@ describe('VendorPaymentService (乙波二 T4)', () => {
     });
   });
 
-  describe('assertFirmOpsBalance — operating account net credit balance (credits − debits − pending debits) ≥ amount', () => {
+  describe('assertFirmOpsBalance — F_OPS 钱包现金户（借方户）可用 = 借 − 贷 − 贷挂起 ≥ 金额（戊波一 T8）', () => {
     it('enough → allowed', async () => {
       const service = svc(makePrisma(), makeVendors({}), makeAccounting(100_000_000_000n, 571_811_000n));
       await expect(service.assertFirmOpsBalance('USDT', 7_500_000n)).resolves.toBeUndefined();
@@ -218,9 +228,22 @@ describe('VendorPaymentService (乙波二 T4)', () => {
       const service = svc(makePrisma(), makeVendors({}), makeAccounting(1_000n, 0n));
       await expect(service.assertFirmOpsBalance('AED', 2_000n)).rejects.toThrow(/Insufficient.*available 1000.*need 2000/);
     });
-    it('pending debits also count as committed', async () => {
+    it('outflow-locked amount (credits pending) already counts as committed', async () => {
       const service = svc(makePrisma(), makeVendors({}), makeAccounting(3_000n, 0n, 2_000n));
-      await expect(service.assertFirmOpsBalance('AED', 1_500n)).rejects.toThrow(/Insufficient/);
+      await expect(service.assertFirmOpsBalance('AED', 1_500n)).rejects.toThrow(/Insufficient.*available 1000/);
+    });
+    it('debits pending (inflow not yet posted) is not spendable and does not raise available', async () => {
+      const service = svc(makePrisma(), makeVendors({}), makeAccounting(1_000n, 0n, 0n, 9_000n));
+      await expect(service.assertFirmOpsBalance('AED', 2_000n)).rejects.toThrow(/Insufficient.*available 1000/);
+    });
+    it('reads the F_OPS wallet of the currency\'s asset, then that wallet\'s cash account on the currency ledger', async () => {
+      const accounting = makeAccounting(10n, 0n);
+      const systemWallets = makeSystemWallets();
+      const service = svc(makePrisma(), makeVendors({}), accounting, systemWallets);
+      await service.assertFirmOpsBalance('USDT', 1n);
+      expect(systemWallets.resolve).toHaveBeenCalledWith('asset-usdt', 'F_OPS');
+      expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops-asset-usdt', TB_LEDGERS.USDT);
+      expect(accounting.resolveTbAccountId).not.toHaveBeenCalled();
     });
     it('currency not on the ledger → 400', async () => {
       const service = svc(makePrisma(), makeVendors({}), makeAccounting(1n, 0n));

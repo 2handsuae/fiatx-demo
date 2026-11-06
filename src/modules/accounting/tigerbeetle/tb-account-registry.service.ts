@@ -127,7 +127,7 @@ export class TbAccountRegistryService {
       (this.prisma as any).tbAccountRegistry.count({ where }),
     ]);
 
-    const named = await this.attachOwnerNames(rows);
+    const named = await this.attachWalletInfo(await this.attachOwnerNames(rows));
     return { items: this.attachAccountNames(await this.attachBalances(named)), total };
   }
 
@@ -150,6 +150,29 @@ export class TbAccountRegistryService {
       ...r,
       ownerName: r.ownerType === 'CUSTOMER' ? (names.get(r.ownerUuid) ?? null) : null,
     }));
+  }
+
+  /** WALLET 行（现金户，戊波一）批量附 walletRole / walletNo(按 ownerUuid=wallet.id 单次 IN 联 wallets,
+   *  禁 N+1);非 WALLET 行两者恒 null。只下发业务键与角色,不新增任何 UUID 字段(ownerUuid 是既有字段,不动)。
+   *  看板据此认「运营 / LP 前厅 / 结算」三类公司现金户。 */
+  private async attachWalletInfo(rows: any[]): Promise<any[]> {
+    const walletIds = [
+      ...new Set(
+        rows.filter((r) => r.ownerType === 'WALLET' && r.ownerUuid).map((r) => r.ownerUuid),
+      ),
+    ];
+    if (walletIds.length === 0) return rows.map((r) => ({ ...r, walletRole: null, walletNo: null }));
+    const wallets = await (this.prisma as any).wallet.findMany({
+      where: { id: { in: walletIds } },
+      select: { id: true, walletNo: true, walletRole: true },
+    });
+    const byId = new Map<string, { walletNo: string; walletRole: string }>(
+      wallets.map((w: any) => [w.id, { walletNo: w.walletNo, walletRole: w.walletRole }]),
+    );
+    return rows.map((r) => {
+      const w = r.ownerType === 'WALLET' ? byId.get(r.ownerUuid) : undefined;
+      return { ...r, walletRole: w?.walletRole ?? null, walletNo: w?.walletNo ?? null };
+    });
   }
 
   /** 整页账户余额：一次 TB 批量 lookupAccounts，class-aware 算 posted 余额；
