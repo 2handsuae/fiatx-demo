@@ -1,12 +1,13 @@
 // src/modules/accounting/tigerbeetle/accounting.service.ts
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { PrismaService } from '../../../core/prisma/prisma.service';
 import { TigerBeetleService } from './tigerbeetle.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
 import { TbEvidenceService } from './tb-evidence.service';
 import { deterministicTransferId, bigintToHex, bigintToRegistryHex, hexToBigint } from './utils/tb-id.util';
 import { CreateTbAccountParams, EvidenceParams, TbBalanceResult, CustomerAvailableBalance, ExecutePendingTransferParams, PostOrVoidPendingTransferParams } from './types/accounting.types';
-import { TB_ACCOUNT_CODES } from './constants/tb-account-codes.constant';
+import { TB_ACCOUNT_CODES, accountFlagsFor } from './constants/tb-account-codes.constant';
 import { TB_LEDGERS } from './constants/tb-ledgers.constant';
 import { id as tbId, CreateAccountStatus, CreateTransferStatus, TransferFlags } from 'tigerbeetle-node';
 
@@ -18,14 +19,17 @@ export class AccountingService {
     private readonly tbService: TigerBeetleService,
     private readonly registryService: TbAccountRegistryService,
     private readonly evidenceService: TbEvidenceService,
+    private readonly prisma: PrismaService,
   ) {}
 
   // ── Account Lifecycle ──
 
   async createAccounts(paramsList: CreateTbAccountParams[], tx?: Prisma.TransactionClient): Promise<void> {
+    // 账本不得为负：未显式给 flags 时按科目类别写（借方户 4 / 贷方户 2，见 accountFlagsFor）。
+    // TB 账户与注册表行用同一个值。
     const tbAccounts = paramsList.map((p) => {
       const accountId = tbId();
-      return { accountId, params: p };
+      return { accountId, params: { ...p, flags: p.flags ?? accountFlagsFor(p.code) } };
     });
 
     const errors = await this.tbService.createAccounts(
@@ -37,11 +41,11 @@ export class AccountingService {
         credits_posted: 0n,
         user_data_128: params.ownerUuid ? this.uuidToBigint(params.ownerUuid) : 0n,
         user_data_64: 0n,
-        user_data_32: params.ownerType === 'SYSTEM' ? 0 : params.ownerType === 'CUSTOMER' ? 1 : 2,
+        user_data_32: params.ownerType === 'SYSTEM' ? 0 : params.ownerType === 'CUSTOMER' ? 1 : params.ownerType === 'WALLET' ? 3 : 2,
         reserved: 0,
         ledger: params.ledger,
         code: params.code,
-        flags: params.flags ?? 0,
+        flags: params.flags,
         timestamp: 0n,
       })),
     );
@@ -413,6 +417,24 @@ export class AccountingService {
       });
     }
     return hexToBigint(entry.tbAccountId);
+  }
+
+  /**
+   * 钱包现金户解析 —— 全仓记账调用点取「钱包的现金户」的唯一入口（戊波一 §2.2）。
+   * 读钱包行：CUSTOMER → 1 客户现金，PLATFORM → 50 公司现金；再按 (code, ledger, 'WALLET', walletId) 查注册表。
+   * 钱包不存在、或没到 ACTIVE（没开户）→ 抛 NotFoundException，不回落到任何别的户（记账失败 = 流程失败，铁律⑤）。
+   */
+  async resolveCashAccountId(walletId: string, ledger: number, tx?: Prisma.TransactionClient): Promise<bigint> {
+    const db = tx ?? this.prisma;
+    const wallet = await db.wallet.findUnique({ where: { id: walletId }, select: { ownerType: true } });
+    if (!wallet) {
+      throw new NotFoundException({
+        code: 'WALLET_NOT_FOUND',
+        message: `Wallet ${walletId} not found — cannot resolve its cash account`,
+      });
+    }
+    const code = wallet.ownerType === 'CUSTOMER' ? TB_ACCOUNT_CODES.CLIENT_CASH : TB_ACCOUNT_CODES.FIRM_CASH;
+    return this.resolveTbAccountId({ code, ledger, ownerType: 'WALLET', ownerUuid: walletId }, tx);
   }
 
   // ── Helpers ──

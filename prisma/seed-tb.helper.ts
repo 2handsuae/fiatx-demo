@@ -1,6 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 import { createHash } from 'crypto';
-import { createClient as tbCreateClient } from 'tigerbeetle-node';
+import { createClient as tbCreateClient, CreateAccountStatus } from 'tigerbeetle-node';
+import { TB_ACCOUNT_CODES, accountFlagsFor, cashAccountName } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
+import { currencyForNetwork } from '../src/config/manifests/assets.manifest';
+import type { NetworkCode } from '../src/config/manifests/networks.manifest';
 
 export type EnsureTbAccountRegistryInput = {
   code: number;
@@ -61,10 +65,76 @@ export async function ensureTbAccountRegistry(
       ownerNo: input.ownerNo ?? null,
       assetCode: input.assetCode,
       description: input.description ?? null,
-      flags: input.flags ?? 0,
+      flags: input.flags ?? accountFlagsFor(input.code),
     },
   });
 
+  return tbAccountId;
+}
+
+export type EnsureWalletCashAccountInput = {
+  id: string;
+  walletNo: string;
+  /** 'PLATFORM' | 'CUSTOMER'：CUSTOMER → 1 客户现金，其余 → 50 公司现金 */
+  ownerType: string;
+  ownerNo: string;
+  vaultCode: string;
+  walletRole: string;
+  network: string;
+};
+
+/**
+ * 种子 / 演示脚本版的「钱包现金户开户」（戊波一 §2.3，与 WalletCashAccountService.ensureForWallet 同语义）：
+ * 写 (1|50, 钱包所在网络的币种 ledger, 'WALLET', wallet.id) 注册表行（户名进 description、flags 按类别），
+ * 并立即在 `tbClient` 上建出对应 TB 账户（"已存在"视为成功）。返回 tbAccountId。
+ * 与 ensureTbAccountRegistry 同形：有注册行就复用其 id；TB 侧 createAccounts 幂等，所以重跑安全。
+ */
+export async function ensureWalletCashAccount(
+  prisma: PrismaClient,
+  tbClient: ReturnType<typeof tbCreateClient>,
+  wallet: EnsureWalletCashAccountInput,
+): Promise<string> {
+  const code = wallet.ownerType === 'CUSTOMER' ? TB_ACCOUNT_CODES.CLIENT_CASH : TB_ACCOUNT_CODES.FIRM_CASH;
+  const assetCurrency = currencyForNetwork(wallet.network as NetworkCode);
+  const ledger = TB_LEDGERS[assetCurrency as keyof typeof TB_LEDGERS];
+  const flags = accountFlagsFor(code);
+
+  const tbAccountId = await ensureTbAccountRegistry(prisma, {
+    code,
+    ledger,
+    ownerType: 'WALLET',
+    ownerUuid: wallet.id,
+    ownerNo: wallet.walletNo,
+    assetCode: assetCurrency,
+    description: cashAccountName(code, wallet),
+    flags,
+  });
+
+  const errors = await tbClient.createAccounts([
+    {
+      id: BigInt('0x' + tbAccountId),
+      debits_pending: 0n,
+      credits_pending: 0n,
+      debits_posted: 0n,
+      credits_posted: 0n,
+      user_data_128: BigInt('0x' + wallet.id.replace(/-/g, '')),
+      user_data_64: 0n,
+      user_data_32: 3,
+      reserved: 0,
+      ledger,
+      code,
+      flags,
+      timestamp: 0n,
+    },
+  ]);
+  const realErrors = errors.filter(
+    (e: any) => e.status !== CreateAccountStatus.exists && e.status !== CreateAccountStatus.created,
+  );
+  if (realErrors.length > 0) {
+    throw new Error(
+      `ensureWalletCashAccount(${wallet.walletNo}) TB createAccounts failed: ${JSON.stringify(realErrors, (_, v) => (typeof v === 'bigint' ? v.toString() : v))}`,
+    );
+  }
   return tbAccountId;
 }
 
@@ -108,11 +178,11 @@ export async function provisionTbAccounts(prisma: PrismaClient): Promise<void> {
         ? BigInt('0x' + entry.ownerUuid.replace(/-/g, ''))
         : 0n,
       user_data_64: 0n,
-      user_data_32: entry.ownerType === 'SYSTEM' ? 0 : entry.ownerType === 'CUSTOMER' ? 1 : 2,
+      user_data_32: entry.ownerType === 'SYSTEM' ? 0 : entry.ownerType === 'CUSTOMER' ? 1 : entry.ownerType === 'WALLET' ? 3 : 2,
       reserved: 0,
       ledger: entry.ledger,
       code: entry.code,
-      flags: entry.flags ?? 0,
+      flags: entry.flags ?? accountFlagsFor(entry.code),
       timestamp: 0n,
     }));
 

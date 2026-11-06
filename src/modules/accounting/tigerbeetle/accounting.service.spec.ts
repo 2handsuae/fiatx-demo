@@ -12,8 +12,11 @@ jest.mock('tigerbeetle-node', () => ({
     post_pending_transfer: 2,
     void_pending_transfer: 4,
   },
+  // 标志位取真实枚举：accountFlagsFor 的默认值断言不能靠本 mock 自证
+  AccountFlags: jest.requireActual('tigerbeetle-node').AccountFlags,
 }));
 
+import { NotFoundException } from '@nestjs/common';
 import { AccountingService } from './accounting.service';
 import { CreateTransferStatus } from 'tigerbeetle-node';
 
@@ -22,6 +25,7 @@ describe('AccountingService', () => {
   let mockTbService: any;
   let mockRegistryService: any;
   let mockEvidenceService: any;
+  let mockPrisma: any;
 
   beforeEach(() => {
     mockTbService = {
@@ -39,7 +43,9 @@ describe('AccountingService', () => {
       updateTransferType: jest.fn().mockResolvedValue(undefined),
     };
 
-    service = new AccountingService(mockTbService, mockRegistryService, mockEvidenceService);
+    mockPrisma = { wallet: { findUnique: jest.fn() } };
+
+    service = new AccountingService(mockTbService, mockRegistryService, mockEvidenceService, mockPrisma);
   });
 
   describe('createAccounts', () => {
@@ -55,6 +61,19 @@ describe('AccountingService', () => {
 
       expect(mockTbService.createAccounts).toHaveBeenCalledTimes(1);
       expect(mockRegistryService.register).toHaveBeenCalledTimes(1);
+    });
+
+    // 戊波一：账本不得为负。flags 按类别默认，TB 与注册表两处写同一个值。
+    it('createAccounts defaults flags to 2 for code 100 (credit-normal: debits_must_not_exceed_credits)', async () => {
+      await service.createAccounts([{ code: 100, ledger: 1, ownerType: 'CUSTOMER', ownerUuid: 'uuid-1', assetCurrency: 'AED' }]);
+      expect(mockTbService.createAccounts.mock.calls[0][0][0].flags).toBe(2);
+      expect(mockRegistryService.register.mock.calls[0][0].flags).toBe(2);
+    });
+
+    it('createAccounts defaults flags to 4 for code 1 (debit-normal: credits_must_not_exceed_debits)', async () => {
+      await service.createAccounts([{ code: 1, ledger: 2, ownerType: 'WALLET', ownerUuid: 'wallet-uuid', assetCurrency: 'USDT' }]);
+      expect(mockTbService.createAccounts.mock.calls[0][0][0].flags).toBe(4);
+      expect(mockRegistryService.register.mock.calls[0][0].flags).toBe(4);
     });
   });
 
@@ -276,6 +295,52 @@ describe('AccountingService', () => {
           ownerUuid: 'nonexistent',
         }),
       ).rejects.toThrow();
+    });
+  });
+
+  // 现金户解析入口：所有记账调用点取钱包现金户只走这里（戊波一 §2.2）
+  describe('resolveCashAccountId', () => {
+    it('CUSTOMER wallet → code 1 on the given ledger, ownerType WALLET / ownerUuid = wallet id; tx is forwarded', async () => {
+      mockPrisma.wallet.findUnique.mockResolvedValue({ ownerType: 'CUSTOMER' });
+      mockRegistryService.resolve.mockResolvedValue({ tbAccountId: 'ff' });
+      const tx: any = { wallet: { findUnique: jest.fn().mockResolvedValue({ ownerType: 'CUSTOMER' }) } };
+
+      const id = await service.resolveCashAccountId('wallet-1', 2, tx);
+
+      expect(id).toBe(255n);
+      expect(tx.wallet.findUnique).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.wallet.findUnique).not.toHaveBeenCalled();
+      expect(mockRegistryService.resolve).toHaveBeenCalledWith(
+        { code: 1, ledger: 2, ownerType: 'WALLET', ownerUuid: 'wallet-1' },
+        tx,
+      );
+    });
+
+    it('PLATFORM wallet → code 50', async () => {
+      mockPrisma.wallet.findUnique.mockResolvedValue({ ownerType: 'PLATFORM' });
+      mockRegistryService.resolve.mockResolvedValue({ tbAccountId: '10' });
+
+      const id = await service.resolveCashAccountId('wallet-2', 1);
+
+      expect(id).toBe(16n);
+      expect(mockRegistryService.resolve).toHaveBeenCalledWith(
+        { code: 50, ledger: 1, ownerType: 'WALLET', ownerUuid: 'wallet-2' },
+        undefined,
+      );
+    });
+
+    it('resolveCashAccountId throws NotFoundException when wallet has no registry row', async () => {
+      mockPrisma.wallet.findUnique.mockResolvedValue({ ownerType: 'CUSTOMER' });
+      mockRegistryService.resolve.mockResolvedValue(null);
+
+      await expect(service.resolveCashAccountId('wallet-not-active', 2)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('throws NotFoundException when the wallet row itself does not exist (no registry lookup, no fallback)', async () => {
+      mockPrisma.wallet.findUnique.mockResolvedValue(null);
+
+      await expect(service.resolveCashAccountId('ghost', 2)).rejects.toBeInstanceOf(NotFoundException);
+      expect(mockRegistryService.resolve).not.toHaveBeenCalled();
     });
   });
 });

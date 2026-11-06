@@ -9,10 +9,12 @@ import { CUSTODIAN_ADAPTER } from './custodian-adapter.interface';
 import { PrismaModule } from '../../../core/prisma/prisma.module';
 import { AuditLogsModule } from '../../audit-logging/audit-logs.module';
 import { CustomersModule } from '../../identity/customers/customers.module';
+import { TigerBeetleModule } from '../../accounting/tigerbeetle/tigerbeetle.module';
 
 @Module({
   // 站6：一期拆除后交易前置门迁 CustomerAccessService——本模块改引 CustomersModule。
-  imports: [PrismaModule, AuditLogsModule, CustomersModule],
+  // 戊波一：钱包 ACTIVE 时开现金户（WalletCashAccountService 住 TigerBeetleModule，后者只依赖 PrismaModule，无环）。
+  imports: [PrismaModule, AuditLogsModule, CustomersModule, TigerBeetleModule],
   controllers: [WalletsController, CustomerDepositWalletController],
   providers: [
     WalletsService,

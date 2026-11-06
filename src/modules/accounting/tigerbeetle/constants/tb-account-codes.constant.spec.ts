@@ -103,11 +103,11 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
     ).toBe('Client Cash · CU2601012635 · Deposit address');
   });
 
-  it('FIRM_LIQ is provisioned for both fiat and crypto assets (LP 在途验收户不分币种)', () => {
+  it('systemAccountCodesFor 不再分法币：FIAT 与 CRYPTO 返回同一份 7 码（现金户不在上币时开，201/203 不再开）', () => {
     const fiatCodes = systemAccountCodesFor('FIAT').map((a) => a.code);
     const cryptoCodes = systemAccountCodesFor('CRYPTO').map((a) => a.code);
-    expect(fiatCodes).toContain(TB_ACCOUNT_CODES.FIRM_LIQ);
-    expect(cryptoCodes).toContain(TB_ACCOUNT_CODES.FIRM_LIQ);
+    expect(fiatCodes).toEqual([200, 210, 211, 212, 300, 301, 302]);
+    expect(cryptoCodes).toEqual(fiatCodes);
   });
 });
 
@@ -122,15 +122,16 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
  */
 describe('system TB account codes are registered at every provisioning site (regression guard)', () => {
   // Codes every asset (fiat AND crypto) must get a system TB account for — excludes
-  // FIRM_SET (fiat-only, bank settlement) and the two per-customer codes
+  // 现金类 1 / 50（每钱包一户，钱包 ACTIVE 时开）与两个每客户码
   // (CLIENT_PAYABLE/DEPOSIT_SUSPENSE, registered per-customer in seedCustomers(), not here).
   const ALWAYS_REGISTERED_SYSTEM_CODES = [
-    'CLIENT_CASH',
-    'FIRM_CASH',
     'FIRM_EQUITY',
     'INCOME_SWAP_FEE',
     'INCOME_WITHDRAW_FEE',
     'INCOME_OTHER',
+    'EXPENSE_BANK_CUSTODY',
+    'EXPENSE_RECON_LOSS',
+    'EXPENSE_OTHER',
   ] as const;
 
   // 波一(2026-09-04)T2 前，这里另有两条：prisma/seed.business.ts（自己内联一份同款数组）

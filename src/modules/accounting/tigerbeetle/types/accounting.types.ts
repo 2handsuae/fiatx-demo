@@ -1,7 +1,7 @@
 export interface CreateTbAccountParams {
   code: number;
   ledger: number;
-  ownerType: 'SYSTEM' | 'CUSTOMER' | 'LP';
+  ownerType: 'SYSTEM' | 'CUSTOMER' | 'LP' | 'WALLET';
   ownerUuid?: string;
   ownerNo?: string;
   assetCurrency: string;

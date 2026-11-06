@@ -1430,7 +1430,7 @@ model TbAccountRegistry {
   tbAccountId String   @id              // TB u128 as hex string
   code        Int                       // TB account type code (u16)
   ledger      Int                       // TB ledger ID (u32): 1=AED, 2=USDT
-  ownerType   String                    // SYSTEM | CUSTOMER | LP
+  ownerType   String                    // SYSTEM | CUSTOMER | LP | WALLET（现金户 1/50 归属钱包）
   ownerUuid   String?                   // Prisma entity UUID (queryable)
   ownerNo     String?                   // Human-readable No
   assetCode   String                    // AED | USDT

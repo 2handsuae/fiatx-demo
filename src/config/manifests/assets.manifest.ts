@@ -48,3 +48,10 @@ export const DEFAULT_ASSETS: AssetManifestEntry[] = [
     custodianAssetKey: 'tron_USDT',
   },
 ];
+
+/** 网络 → 币种（= 账本）。今天一网络一资产（TRON → USDT，AED_ZAND → AED），不预做多资产（戊波一 spec §2.3）。 */
+export function currencyForNetwork(code: NetworkCode): string {
+  const asset = DEFAULT_ASSETS.find((a) => a.network === code);
+  if (!asset) throw new Error(`No asset registered on network ${code}`);
+  return asset.currency;
+}
