@@ -139,8 +139,16 @@ export async function ensureWalletCashAccount(
 }
 
 /**
+ * 单次 createAccounts 提交的账户数上限。TigerBeetle 一批能塞多少条取决于集群的消息大小；
+ * 自栈（--development）实测 250 条能过、254 条起报 "Too much data was sent or requested in this batch"。
+ * 注册表随钱包增长（每个钱包一个现金户），整表一批迟早越线，故分批提交；100 离实测上限有足够余量。
+ */
+export const TB_CREATE_ACCOUNTS_BATCH_SIZE = 100;
+
+/**
  * Connect to TigerBeetle at TB_ADDRESS, read ALL tbAccountRegistry rows, and
- * create the corresponding accounts. Idempotent — "exists" results are OK.
+ * create the corresponding accounts (in chunks of TB_CREATE_ACCOUNTS_BATCH_SIZE).
+ * Idempotent — "exists" results are OK.
  * Gracefully skips when TB_ADDRESS is unset or the cluster cannot be reached.
  */
 export async function provisionTbAccounts(prisma: PrismaClient): Promise<void> {
@@ -188,16 +196,18 @@ export async function provisionTbAccounts(prisma: PrismaClient): Promise<void> {
 
     const TB_ACCOUNT_EXISTS = 21;
     const TB_DEV_OK = 4294967295; // 0xFFFFFFFF — development mode "created" status
-    const errors = await client.createAccounts(accounts);
-    const realErrors = errors.filter(
-      (e: any) => e.status !== TB_ACCOUNT_EXISTS && e.status !== TB_DEV_OK,
-    );
+    const realErrors: any[] = [];
+    let existed = 0;
+    for (let start = 0; start < accounts.length; start += TB_CREATE_ACCOUNTS_BATCH_SIZE) {
+      const errors: any[] = await client.createAccounts(accounts.slice(start, start + TB_CREATE_ACCOUNTS_BATCH_SIZE));
+      existed += errors.filter((e: any) => e.status === TB_ACCOUNT_EXISTS).length;
+      realErrors.push(...errors.filter((e: any) => e.status !== TB_ACCOUNT_EXISTS && e.status !== TB_DEV_OK));
+    }
     if (realErrors.length > 0) {
       console.log(`  ⚠ TB account provisioning had ${realErrors.length} errors: ${JSON.stringify(realErrors, (_, v) => typeof v === 'bigint' ? v.toString() : v)}`);
     }
 
-    const created = accounts.length - errors.filter((e: any) => e.status === TB_ACCOUNT_EXISTS).length;
-    const existed = errors.filter((e: any) => e.status === TB_ACCOUNT_EXISTS).length;
+    const created = accounts.length - existed;
     console.log(`  ✔ TB accounts provisioned: ${created} created, ${existed} already existed, ${realErrors.length} errors`);
   } finally {
     client.destroy();

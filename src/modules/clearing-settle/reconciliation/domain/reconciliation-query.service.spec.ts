@@ -210,10 +210,10 @@ describe('getCase — flowComparison (T3)', () => {
     expect(flowMatcher.matchFlows).toHaveBeenCalledWith(
       expect.objectContaining({ walletRef: 'walletX', cashTbAccountId: 'c0de0000000000000000000000000001' }),
     );
-    // 内部侧取行与匹配器同一纳入条件：按现金户 tbAccountId（不是 walletRef 标签），排除调账行
+    // 内部侧取行与匹配器 / 检查器同一纳入条件：按现金户 tbAccountId（不是 walletRef 标签）、只取 POSTED，排除调账行
     expect(prisma.accountFlow.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ tbAccountId: 'c0de0000000000000000000000000001', sourceType: { not: 'RECON_ADJUSTMENT' } }),
+        where: expect.objectContaining({ tbAccountId: 'c0de0000000000000000000000000001', transferType: 'POSTED', sourceType: { not: 'RECON_ADJUSTMENT' } }),
       }),
     );
     expect((prisma.accountFlow.findMany as jest.Mock).mock.calls[0][0].where).not.toHaveProperty('walletRef');
