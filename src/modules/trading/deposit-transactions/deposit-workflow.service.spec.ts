@@ -250,6 +250,7 @@ describe('DepositWorkflowService', () => {
     // getCustomerAvailableBalance 是本批新增的余额前置条件查询。
     accountingService = {
       resolveTbAccountId: jest.fn(),
+      resolveCashAccountId: jest.fn(),
       executeTransfer: jest.fn(),
       getCustomerAvailableBalance: jest.fn(),
     };
@@ -2059,13 +2060,21 @@ describe('DepositWorkflowService', () => {
       depositService.findOneByNo.mockResolvedValue({ ...deposit, clawbackExternalLineId: 'line-2', clawbackReconCaseNo: 'REC2', clawbackDispositionNo: 'RCD2' });
       supplementEvidence.describeLine.mockResolvedValue({ externalLineId: 'line-2', externalRef: 'RET-1', businessDate: '2026-09-01', amountMinor: '120000', direction: 'OUT', caseNo: 'REC2' });
       accountingService.getCustomerAvailableBalance.mockResolvedValue({ available: 500000n });
-      accountingService.resolveTbAccountId.mockResolvedValueOnce(100n).mockResolvedValueOnce(1n);
+      accountingService.resolveTbAccountId.mockResolvedValueOnce(100n);
+      accountingService.resolveCashAccountId.mockResolvedValueOnce(1n);
       depositService.updateStatus.mockResolvedValue({ ...deposit, status: 'CLAWED_BACK' });
       await service.onClawbackDecided({ decision: 'APPROVED', entityRef: 'DEP1', approvalId: 'ap2', approvalNo: 'APR2' } as any);
       const call = accountingService.executeTransfer.mock.calls[0][0];
       expect(call.code).toBe(TB_TRANSFER_CODES.DEPOSIT_CLAWBACK);
       expect(call.amount).toBe(120000n);
-      expect(call.evidence).toMatchObject({ eventCode: 'DEPOSIT_CLAWBACK', externalRef: 'RET-1', effectiveDate: '2026-09-01', isExternalCrossing: true, debitWalletRef: 'w1', creditWalletRef: 'w1' });
+      // 戊波一:借 应付·客户 / 贷 现金·充值落地钱包(w1)——现金户只经 resolveCashAccountId 取
+      expect(accountingService.resolveCashAccountId).toHaveBeenCalledWith('w1', 2);
+      expect(call.debitAccountId).toBe(100n);
+      expect(call.creditAccountId).toBe(1n);
+      expect(call.evidence).toMatchObject({ eventCode: 'DEPOSIT_CLAWBACK', debitCode: 'L.CLIENT_PAYABLE', creditCode: 'A.CLIENT_CASH', externalRef: 'RET-1', effectiveDate: '2026-09-01' });
+      expect(call.evidence).not.toHaveProperty('debitWalletRef');
+      expect(call.evidence).not.toHaveProperty('creditWalletRef');
+      expect(call.evidence).not.toHaveProperty('isExternalCrossing');
       expect(depositService.updateStatus).toHaveBeenCalledWith('d1', expect.objectContaining({ action: DepositTransactionAction.CLAWBACK }));
       const actions = auditLogsService.recordSystem.mock.calls.map((c: any[]) => c[0].action);
       expect(actions).toEqual(expect.arrayContaining(['DEPOSIT_CLAWBACK_STARTED', 'DEPOSIT_CLAWED_BACK']));
@@ -2158,11 +2167,12 @@ describe('DepositWorkflowService', () => {
   });
 
   describe('executeDepositAccounting — real-time 1:1 model', () => {
-    let accountingService: { resolveTbAccountId: jest.Mock; executeTransfer: jest.Mock };
+    let accountingService: { resolveTbAccountId: jest.Mock; resolveCashAccountId: jest.Mock; executeTransfer: jest.Mock };
 
     beforeEach(async () => {
       accountingService = {
         resolveTbAccountId: jest.fn(),
+        resolveCashAccountId: jest.fn(),
         executeTransfer: jest.fn().mockResolvedValue(undefined),
       };
 
@@ -2211,22 +2221,19 @@ describe('DepositWorkflowService', () => {
       referenceNo: null,
     };
 
-    it('STEP_1: debits CLIENT_CASH/SYSTEM and credits DEPOSIT_SUSPENSE/CUSTOMER with DEPOSIT_ASSET_TO_SUSPENSE code', async () => {
-      accountingService.resolveTbAccountId
-        .mockResolvedValueOnce('tb-client-asset-id')   // debit: CLIENT_CASH SYSTEM
-        .mockResolvedValueOnce('tb-suspense-id');       // credit: DEPOSIT_SUSPENSE CUSTOMER
+    it('STEP_1: debits the landing wallet cash account (resolveCashAccountId) and credits DEPOSIT_SUSPENSE/CUSTOMER with DEPOSIT_ASSET_TO_SUSPENSE code', async () => {
+      accountingService.resolveCashAccountId.mockResolvedValueOnce('tb-wallet-cash-id');   // debit: 现金·充值落地钱包
+      accountingService.resolveTbAccountId.mockResolvedValueOnce('tb-suspense-id');         // credit: DEPOSIT_SUSPENSE CUSTOMER
 
       await (service as any).executeDepositAccounting(baseDeposit, 'STEP_1', cryptoFundsOrder);
 
-      // First resolve call: CLIENT_CASH / SYSTEM (no ownerUuid)
-      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
-        code: TB_ACCOUNT_CODES.CLIENT_CASH,
-        ledger: 2,
-        ownerType: 'SYSTEM',
-      });
+      // 戊波一:现金户 = 到账那只钱包的户(payin 资金单的 toWalletId),只经 resolveCashAccountId 取;不再解析聚合 CLIENT_CASH/SYSTEM
+      expect(accountingService.resolveCashAccountId).toHaveBeenCalledTimes(1);
+      expect(accountingService.resolveCashAccountId).toHaveBeenCalledWith('wallet-acc-1', 2);
 
-      // Second resolve call: DEPOSIT_SUSPENSE / CUSTOMER
-      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(2, {
+      // 唯一一次 resolveTbAccountId:DEPOSIT_SUSPENSE / CUSTOMER
+      expect(accountingService.resolveTbAccountId).toHaveBeenCalledTimes(1);
+      expect(accountingService.resolveTbAccountId).toHaveBeenCalledWith({
         code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
         ledger: 2,
         ownerType: 'CUSTOMER',
@@ -2235,20 +2242,35 @@ describe('DepositWorkflowService', () => {
 
       expect(accountingService.executeTransfer).toHaveBeenCalledWith(
         expect.objectContaining({
-          debitAccountId: 'tb-client-asset-id',
+          debitAccountId: 'tb-wallet-cash-id',
           creditAccountId: 'tb-suspense-id',
           code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
           evidence: expect.objectContaining({
             debitCode: 'A.CLIENT_CASH',
             creditCode: 'L.DEPOSIT_SUSPENSE',
-            // Phase B: both legs carry the customer's wallet, externalRef = txHash, crossing = true
-            debitWalletRef: 'wallet-acc-1',
-            creditWalletRef: 'wallet-acc-1',
             externalRef: '0xdeadbeef',
-            isExternalCrossing: true,
           }),
         }),
       );
+      // 钱包落点由账户本身表达,证据不再带钱包标签 / 外部穿越标记
+      const evidence = accountingService.executeTransfer.mock.calls[0][0].evidence;
+      expect(evidence).not.toHaveProperty('debitWalletRef');
+      expect(evidence).not.toHaveProperty('creditWalletRef');
+      expect(evidence).not.toHaveProperty('isExternalCrossing');
+    });
+
+    it('STEP_1: no funds order passed → falls back to the deposit\'s own toWalletId for the cash account', async () => {
+      accountingService.resolveCashAccountId.mockResolvedValueOnce('tb-wallet-cash-id');
+      accountingService.resolveTbAccountId.mockResolvedValueOnce('tb-suspense-id');
+
+      await (service as any).executeDepositAccounting({ ...baseDeposit, toWalletId: 'deposit-own-wallet' }, 'STEP_1');
+
+      expect(accountingService.resolveCashAccountId).toHaveBeenCalledWith('deposit-own-wallet', 2);
+    });
+
+    it('STEP_1: no landing wallet at all → fails (ledger failure = flow failure), nothing posted', async () => {
+      await expect((service as any).executeDepositAccounting(baseDeposit, 'STEP_1')).rejects.toThrow(/wallet/i);
+      expect(accountingService.executeTransfer).not.toHaveBeenCalled();
     });
 
     it('STEP_1: uses funds order referenceNo for a FIAT payin (type-based externalRef)', async () => {
@@ -2260,9 +2282,8 @@ describe('DepositWorkflowService', () => {
         txHash: null,
         referenceNo: 'BANK-REF-XYZ',
       };
-      accountingService.resolveTbAccountId
-        .mockResolvedValueOnce('tb-client-asset-id')
-        .mockResolvedValueOnce('tb-suspense-id');
+      accountingService.resolveCashAccountId.mockResolvedValueOnce('tb-wallet-cash-id');
+      accountingService.resolveTbAccountId.mockResolvedValueOnce('tb-suspense-id');
 
       await (service as any).executeDepositAccounting(baseDeposit, 'STEP_1', fiatRefFundsOrder);
 
@@ -2270,21 +2291,19 @@ describe('DepositWorkflowService', () => {
         expect.objectContaining({
           evidence: expect.objectContaining({
             externalRef: 'BANK-REF-XYZ',
-            isExternalCrossing: true,
           }),
         }),
       );
     });
 
-    it('STEP_1: works the same for FIAT assets (no fiat/crypto branching for debit account)', async () => {
+    it('STEP_1: works the same for FIAT assets (cash account of the vIBAN wallet, on the fiat ledger)', async () => {
       const fiatDeposit = {
         ...baseDeposit,
         asset: { currency: 'USD', tbLedgerId: 3, decimals: 2, type: 'FIAT' },
       };
 
-      accountingService.resolveTbAccountId
-        .mockResolvedValueOnce('tb-client-asset-fiat-id')
-        .mockResolvedValueOnce('tb-suspense-fiat-id');
+      accountingService.resolveCashAccountId.mockResolvedValueOnce('tb-viban-cash-id');
+      accountingService.resolveTbAccountId.mockResolvedValueOnce('tb-suspense-fiat-id');
 
       await (service as any).executeDepositAccounting(fiatDeposit, 'STEP_1', {
         id: 'fo-fiat-1',
@@ -2293,15 +2312,11 @@ describe('DepositWorkflowService', () => {
         referenceNo: 'BANK-REF-FIAT',
       });
 
-      // Debit must still be CLIENT_CASH/SYSTEM — NOT CLIENT_BANK or CLIENT_CUSTODY
-      expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
-        code: TB_ACCOUNT_CODES.CLIENT_CASH,
-        ledger: 3,
-        ownerType: 'SYSTEM',
-      });
+      expect(accountingService.resolveCashAccountId).toHaveBeenCalledWith('wallet-fiat-1', 3);
 
       expect(accountingService.executeTransfer).toHaveBeenCalledWith(
         expect.objectContaining({
+          debitAccountId: 'tb-viban-cash-id',
           code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
         }),
       );
@@ -2336,14 +2351,16 @@ describe('DepositWorkflowService', () => {
           evidence: expect.objectContaining({
             debitCode: 'L.DEPOSIT_SUSPENSE',
             creditCode: 'L.CLIENT_PAYABLE',
-            // Phase B: same wallet on both legs (pure ledger reclass), no external ref, not crossing
-            debitWalletRef: 'wallet-acc-1',
-            creditWalletRef: 'wallet-acc-1',
+            // pure ledger reclass: no external ref (and no cash account is touched)
             externalRef: null,
-            isExternalCrossing: false,
           }),
         }),
       );
+      expect(accountingService.resolveCashAccountId).not.toHaveBeenCalled();
+      const evidence = accountingService.executeTransfer.mock.calls[0][0].evidence;
+      expect(evidence).not.toHaveProperty('debitWalletRef');
+      expect(evidence).not.toHaveProperty('creditWalletRef');
+      expect(evidence).not.toHaveProperty('isExternalCrossing');
     });
 
     it('STEP_2: deposit.effectiveDate（补录单业务归属日,平账 B 批 spec §2.3）流入 executeTransfer evidence', async () => {
@@ -3555,6 +3572,18 @@ describe('DepositWorkflowService', () => {
         expect(spec).toMatchObject({ kind: 'CONFISCATE', legSeq: 2, sourceNo: 'DEP-ARC-001' });
         expect(spec.tbLegs).toHaveLength(2);
         expect(spec.buildLegInput(1)).toMatchObject({ legSeq: 2, attempt: 1, toWalletId: 'fee-wallet-1' });
+        // 戊波一:码 3 借 暂扣 / 贷 现金·充值落地钱包;码 4 借 现金·F_FEE 钱包 / 贷 其他收入(附录 B)
+        expect(spec.tbLegs[0].debit).toEqual({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ownerType: 'CUSTOMER', ownerUuid: 'cust-arc-1' });
+        expect(spec.tbLegs[0].credit).toEqual({ cashWalletId: 'cust-wallet-1' });
+        expect(spec.tbLegs[0]).toMatchObject({ debitCoa: 'L.DEPOSIT_SUSPENSE', creditCoa: 'A.CLIENT_CASH' });
+        expect(spec.tbLegs[1].debit).toEqual({ cashWalletId: 'fee-wallet-1' });
+        expect(spec.tbLegs[1].credit).toEqual({ code: TB_ACCOUNT_CODES.INCOME_OTHER, ownerType: 'SYSTEM' });
+        expect(spec.tbLegs[1]).toMatchObject({ debitCoa: 'A.FIRM_CASH', creditCoa: 'E.INCOME_OTHER' });
+        for (const leg of spec.tbLegs) {
+          expect(leg).not.toHaveProperty('debitWalletRef');
+          expect(leg).not.toHaveProperty('creditWalletRef');
+          expect(leg).not.toHaveProperty('isExternalCrossing');
+        }
         expect(depositService.updateStatus).toHaveBeenCalledWith('dep-arc-1',
           expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_START }));
         expect(auditActions()).toContain(AuditActions.DEPOSIT_CONFISCATION_STARTED);
@@ -3624,7 +3653,12 @@ describe('DepositWorkflowService', () => {
         expect(spec).toMatchObject({ kind: 'RETURN', legSeq: 3 });
         expect(spec.tbLegs).toHaveLength(1);
         expect(spec.postEnrich).toMatchObject({ eventCode: 'DEPOSIT_RETURN_POST' });
+        expect(spec.postEnrich).not.toHaveProperty('isExternalCrossing');
         expect(spec.buildLegInput(1)).toMatchObject({ legSeq: 3, toWalletId: null, toAddress: 'T_SENDER_ADDR' });
+        // 戊波一:码 5/6/7 借 暂扣 / 贷 现金·充值落地钱包(两阶段:同一对账户锁定 → 落账 / 作废)
+        expect(spec.tbLegs[0].debit).toEqual({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ownerType: 'CUSTOMER', ownerUuid: 'cust-arc-1' });
+        expect(spec.tbLegs[0].credit).toEqual({ cashWalletId: 'cust-wallet-1' });
+        expect(spec.tbLegs[0]).not.toHaveProperty('isExternalCrossing');
         expect(depositService.updateStatus).toHaveBeenCalledWith('dep-arc-1',
           expect.objectContaining({ action: DepositTransactionAction.RETURN }));
         const started = auditLogsService.recordSystem.mock.calls.find((c: any[]) => c[0].action === AuditActions.DEPOSIT_RETURN_STARTED);
@@ -3677,6 +3711,10 @@ describe('DepositWorkflowService', () => {
         expect(spec.tbLegs[0].memo).toContain('GOV-REF-1');
         expect(spec.tbLegs[0].voidEventCode).toBe('SEIZE_REVERSE_SUSPENSE');
         expect(spec.buildLegInput(1)).toMatchObject({ legSeq: 4, toWalletId: null });
+        // 戊波一:码 8/9/20 借 暂扣 / 贷 现金·充值落地钱包(对方是当局、不建模、不开户)
+        expect(spec.tbLegs[0].debit).toEqual({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ownerType: 'CUSTOMER', ownerUuid: 'cust-arc-1' });
+        expect(spec.tbLegs[0].credit).toEqual({ cashWalletId: 'cust-wallet-1' });
+        expect(spec.tbLegs[0]).not.toHaveProperty('isExternalCrossing');
         expect(depositService.updateStatus).toHaveBeenCalledWith('dep-arc-1',
           expect.objectContaining({ action: DepositTransactionAction.SEIZE }));
         expect(auditActions()).toContain(AuditActions.DEPOSIT_SEIZE_STARTED);

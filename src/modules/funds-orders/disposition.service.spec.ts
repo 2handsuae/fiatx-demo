@@ -7,6 +7,9 @@ import { FundsOrderAction } from './dto/funds-order.dto';
  * 决定性转账号跨 pend/settle/void 同 attempt 复算、legIndex=attempt 消歧、
  * 3× 瞬时重试、POST 语义补记携外部参考号、腿收口幂等。编排层（状态/审计）断言
  * 在 deposit-workflow.service.spec.ts 的「处置弧编排」块。
+ *
+ * 戊波一:现金类账户(客户现金 / 公司现金)每钱包一户——账户引用写 `{ cashWalletId }`,
+ * pend 时只经 AccountingService.resolveCashAccountId 取户;其余(暂扣 / 其他收入)仍是 (code, ownerType, ownerUuid)。
  */
 describe('DispositionService', () => {
   let fundsOrders: any;
@@ -29,16 +32,16 @@ describe('DispositionService', () => {
       {
         transferCode: 41, eventCode: 'EC_ONE', voidEventCode: 'EC_ONE_VOID',
         debit: { code: 101, ownerType: 'CUSTOMER', ownerUuid: 'cust-1' },
-        credit: { code: 1, ownerType: 'SYSTEM' },
+        credit: { cashWalletId: 'cust-wallet' },
         debitCoa: 'L.DEPOSIT_SUSPENSE', creditCoa: 'A.CLIENT_CASH',
-        memo: 'leg one (pending)', debitWalletRef: 'w1', creditWalletRef: 'w1', isExternalCrossing: false,
+        memo: 'leg one (pending)',
       },
       {
         transferCode: 42, eventCode: 'EC_TWO', voidEventCode: 'EC_TWO_VOID',
-        debit: { code: 50, ownerType: 'SYSTEM' },
+        debit: { cashWalletId: 'fee-wallet' },
         credit: { code: 212, ownerType: 'SYSTEM' },
         debitCoa: 'A.FIRM_CASH', creditCoa: 'E.INCOME_OTHER',
-        memo: 'leg two (pending)', debitWalletRef: null, creditWalletRef: 'fee-w', isExternalCrossing: false,
+        memo: 'leg two (pending)',
       },
     ],
     ...overrides,
@@ -53,7 +56,8 @@ describe('DispositionService', () => {
       advance: jest.fn().mockResolvedValue(undefined),
     };
     accounting = {
-      resolveTbAccountId: jest.fn().mockResolvedValue('tb-acc'),
+      resolveTbAccountId: jest.fn(async (a: any) => `tb-${a.code}-${a.ownerType}`),
+      resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => `tb-cash-${walletId}-${ledger}`),
       executePendingTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }),
       postPendingTransfer: jest.fn().mockResolvedValue(undefined),
       voidPendingTransfer: jest.fn().mockResolvedValue(undefined),
@@ -69,7 +73,33 @@ describe('DispositionService', () => {
     expect(accounting.executePendingTransfer).toHaveBeenCalledTimes(2);
     const first = accounting.executePendingTransfer.mock.calls[0][0];
     expect(first).toMatchObject({ code: 41, legIndex: 1, amount: 5000000n, ledger: 2 });
-    expect(first.evidence).toMatchObject({ eventCode: 'EC_ONE', memo: 'leg one (pending)', isExternalCrossing: false });
+    expect(first.evidence).toMatchObject({ eventCode: 'EC_ONE', memo: 'leg one (pending)' });
+    // 戊波一:证据不再带钱包标签 / 外部穿越标记
+    expect(first.evidence).not.toHaveProperty('debitWalletRef');
+    expect(first.evidence).not.toHaveProperty('creditWalletRef');
+    expect(first.evidence).not.toHaveProperty('isExternalCrossing');
+  });
+
+  it('initiate：cashWalletId 形态的账户经 resolveCashAccountId(walletId, ledger) 取户；其余账户仍走 resolveTbAccountId', async () => {
+    await svc.initiate(spec());
+    // 腿一:借 暂扣(客户) / 贷 现金·客户钱包;腿二:借 现金·F_FEE 钱包 / 贷 其他收入(系统)
+    expect(accounting.resolveCashAccountId).toHaveBeenCalledTimes(2);
+    expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('cust-wallet', 2);
+    expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('fee-wallet', 2);
+    expect(accounting.resolveTbAccountId).toHaveBeenCalledTimes(2);
+    expect(accounting.resolveTbAccountId).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 101, ledger: 2, ownerType: 'CUSTOMER', ownerUuid: 'cust-1' }));
+    expect(accounting.resolveTbAccountId).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 212, ledger: 2, ownerType: 'SYSTEM' }));
+    const [leg1, leg2] = accounting.executePendingTransfer.mock.calls.map((c: any[]) => c[0]);
+    expect(leg1).toMatchObject({ debitAccountId: 'tb-101-CUSTOMER', creditAccountId: 'tb-cash-cust-wallet-2' });
+    expect(leg2).toMatchObject({ debitAccountId: 'tb-cash-fee-wallet-2', creditAccountId: 'tb-212-SYSTEM' });
+  });
+
+  it('initiate：钱包没有现金户 → resolveCashAccountId 抛错,不挂任何 pending（记账失败 = 流程失败）', async () => {
+    accounting.resolveCashAccountId.mockRejectedValueOnce(new Error('no cash account'));
+    await expect(svc.initiate(spec())).rejects.toThrow('no cash account');
+    expect(accounting.executePendingTransfer).not.toHaveBeenCalled();
   });
 
   it('initiate：已有同 legSeq 腿则复用（防重复发起），attempt 延续既有值', async () => {
@@ -89,11 +119,12 @@ describe('DispositionService', () => {
   });
 
   it('settle：postEnrich 弧对首腿 LOCK 行补记 POST 语义并携外部参考号', async () => {
-    const s = spec({ postEnrich: { eventCode: 'EC_POST', memo: 'confirmed externally', isExternalCrossing: true } });
+    const s = spec({ postEnrich: { eventCode: 'EC_POST', memo: 'confirmed externally' } });
     const r = await svc.settle(s, 'fo-1', 1);
     expect(r).toEqual({ ok: true, externalRef: '0xabc' });
     expect(tbEvidence.enrichForPost).toHaveBeenCalledWith(expect.any(String),
-      expect.objectContaining({ eventCode: 'EC_POST', externalRef: '0xabc', isExternalCrossing: true }));
+      expect.objectContaining({ eventCode: 'EC_POST', externalRef: '0xabc' }));
+    expect(tbEvidence.enrichForPost.mock.calls[0][1]).not.toHaveProperty('isExternalCrossing');
   });
 
   it('settle：瞬时失败 3× 重试，第三次成功则 ok；三次全败返回 ok:false 与末次错误', async () => {

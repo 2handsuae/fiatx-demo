@@ -32,11 +32,15 @@ import { FundsOrderAction } from './dto/funds-order.dto';
  *  - 腿收口 CLEARED：already terminal 视为幂等成功；其余失败返回错误串由调用方留痕。
  */
 
-export interface DispositionAccountRef {
-  code: number;
-  ownerType: 'SYSTEM' | 'CUSTOMER';
-  ownerUuid?: string;
-}
+/**
+ * 账户引用两种形态(戊波一):
+ *  - `{ cashWalletId }`:现金类(客户现金 / 公司现金)每钱包一户,pend 时只经
+ *    AccountingService.resolveCashAccountId(walletId, ledger) 取户(没开户即抛,记账失败 = 流程失败);
+ *  - `{ code, ownerType, ownerUuid? }`:其余科目(暂扣 / 应付 / 收入…)按 (code, ownerType, ownerUuid) 取户。
+ */
+export type DispositionAccountRef =
+  | { code: number; ownerType: 'SYSTEM' | 'CUSTOMER'; ownerUuid?: string }
+  | { cashWalletId: string };
 
 export interface DispositionTbLeg {
   /** TB transfer 分类码（TB_TRANSFER_CODES.*） */
@@ -51,16 +55,12 @@ export interface DispositionTbLeg {
   debitCoa: string;
   creditCoa: string;
   memo: string;
-  debitWalletRef: string | null;
-  creditWalletRef: string | null;
-  isExternalCrossing: boolean;
 }
 
-/** settle 成功后对首腿 LOCK 行做 POST 语义补记（仅真外部穿越的弧需要，如退回） */
+/** settle 成功后对首腿 LOCK 行做 POST 语义补记（仅钱真出门的弧需要，如退回）：改 eventCode / memo 并盖外部参考号 */
 export interface DispositionPostEnrich {
   eventCode: string;
   memo: string;
-  isExternalCrossing: boolean;
 }
 
 export interface DispositionSpec {
@@ -149,7 +149,6 @@ export class DispositionService {
             eventCode: spec.postEnrich.eventCode,
             memo: spec.postEnrich.memo,
             externalRef,
-            isExternalCrossing: spec.postEnrich.isExternalCrossing,
           });
         }
         return { ok: true, externalRef };
@@ -201,16 +200,20 @@ export class DispositionService {
     }
   }
 
-  /** 挂全部 pending 锁（pend 侧 evidence 带 memo / walletRef / 穿越位，post 侧不带——照抄原三链）。 */
+  /** 账户引用 → 账本户号:现金户走 resolveCashAccountId,其余走注册表四元组。 */
+  private resolveAccount(ref: DispositionAccountRef, ledger: number): Promise<bigint> {
+    if ('cashWalletId' in ref) return this.accountingService.resolveCashAccountId(ref.cashWalletId, ledger);
+    return this.accountingService.resolveTbAccountId({
+      code: ref.code, ledger, ownerType: ref.ownerType, ownerUuid: ref.ownerUuid,
+    });
+  }
+
+  /** 挂全部 pending 锁（pend 侧 evidence 带 memo，post 侧不带——照抄原三链）。 */
   private async pendLegs(spec: DispositionSpec, attempt: number): Promise<void> {
     const amountBigint = this.decimalToBigint(spec.amount, spec.decimals);
     for (const leg of spec.tbLegs) {
-      const debitId = await this.accountingService.resolveTbAccountId({
-        code: leg.debit.code, ledger: spec.ledger, ownerType: leg.debit.ownerType, ownerUuid: leg.debit.ownerUuid,
-      });
-      const creditId = await this.accountingService.resolveTbAccountId({
-        code: leg.credit.code, ledger: spec.ledger, ownerType: leg.credit.ownerType, ownerUuid: leg.credit.ownerUuid,
-      });
+      const debitId = await this.resolveAccount(leg.debit, spec.ledger);
+      const creditId = await this.resolveAccount(leg.credit, spec.ledger);
       await this.accountingService.executePendingTransfer({
         debitAccountId: debitId, creditAccountId: creditId, amount: amountBigint, ledger: spec.ledger,
         code: leg.transferCode, timeout: 0, legIndex: attempt,
@@ -218,8 +221,7 @@ export class DispositionService {
           sourceType: spec.sourceType, sourceNo: spec.sourceNo, eventCode: leg.eventCode,
           debitCode: leg.debitCoa, creditCode: leg.creditCoa,
           assetCurrency: spec.currency, traceId: spec.traceId, actorType: 'SYSTEM', actorId: 'SYSTEM',
-          memo: leg.memo, debitWalletRef: leg.debitWalletRef, creditWalletRef: leg.creditWalletRef,
-          isExternalCrossing: leg.isExternalCrossing,
+          memo: leg.memo,
         },
       });
     }

@@ -2,26 +2,21 @@
 /** TB transfer type codes (u16). Immutable once assigned. 实时 1:1 模型。 */
 export const TB_TRANSFER_CODES = {
   // ── 充值(1–9)──
-  DEPOSIT_ASSET_TO_SUSPENSE: 1,   // DR CLIENT_CASH / CR DEPOSIT_SUSPENSE
-  DEPOSIT_SUSPENSE_TO_PAYABLE: 2, // DR DEPOSIT_SUSPENSE / CR CLIENT_PAYABLE
-  // 没收(below-min 充值当 T&C 手续费没收，两腿)：leg1 精确反冲 STEP_1 归零客户暂扣，
-  // leg2 公司侧确认收入(COA v2 起入 INCOME_OTHER，与服务费收入隔离)。两腿各保客户/公司恒等式两边同增减。
-  DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET: 3, // DR DEPOSIT_SUSPENSE / CR CLIENT_CASH（反冲 STEP_1）
-  // 2026-08-13 COA v2 随科目改名(原 DEPOSIT_CONFISCATE_FIRM_FEE —— 名字里直接写着已退役的
-  // FIRM_FEE)。⚠️ 下游 eventCode 字符串 'CONFISCATE_INCOME_OTHER' 喂 deterministicTransferId
-  // 复现 pending id,**startConfiscation(下锁) 与 settleConfiscation(结算) 两处必须成对改**,
-  // 只改一处则 post 找不到 pending;且改名后在途单的旧 pending 锁 post 不回来 —— 按
-  // CLAUDE.md「Demo 数据约定」(不留迁移兼容层、改完即重置重铺)处理,部署后重置即可。
-  DEPOSIT_CONFISCATE_INCOME_OTHER: 4,      // DR FIRM_CASH / CR INCOME_OTHER(212)（below-min 没收确认其他收入）
-  // 退回(RETURNING→RETURNED)：pending/post/void 三段式，模仿提现净额腿
-  DEPOSIT_RETURN_PENDING: 5, // 客户侧锁定(pending)
-  DEPOSIT_RETURN_POST: 6,    // 外部确认:post
-  DEPOSIT_RETURN_VOID: 7,    // 取消/失败:void
-  // 上缴(SEIZING→SEIZED)：单腿(终审纠偏 2026-07-28)——反冲客户暂扣(销负债+托管资产
-  // 收缩，钱离场)，贷方记 CLIENT_CASH（此前误记 FIRM_SEIZED 导致 COA 恒等式破坏，
-  // 已改回；结构与退回弧一致）。pending/post 两段，void 见下方 20 段。
-  DEPOSIT_SEIZE_PENDING: 8, // 客户侧锁定(pending)：DR DEPOSIT_SUSPENSE / CR CLIENT_CASH
-  DEPOSIT_SEIZE_POST: 9,    // 落地确认:post
+  // 戊波一(附录 B):现金类一钱包一户。「现金·落地钱包」= 这笔充值落进的那只钱包的客户现金户(A.CLIENT_CASH),
+  // 没收 / 退回 / 上缴都是反冲它,取户同一个入口(resolveCashAccountId)。
+  DEPOSIT_ASSET_TO_SUSPENSE: 1,   // 钱到账:DR 现金·落地钱包(A.CLIENT_CASH) / CR 暂扣(L.DEPOSIT_SUSPENSE)
+  DEPOSIT_SUSPENSE_TO_PAYABLE: 2, // 合规放行:DR 暂扣(L.DEPOSIT_SUSPENSE) / CR 应付(L.CLIENT_PAYABLE),不碰现金
+  // 没收(below-min 充值当 T&C 手续费没收,两腿):
+  // 腿 1(码 3)精确反冲码 1,客户暂扣归零、客户现金户退回;腿 2(码 4)在公司手续费钱包记收入。两腿各保客户 / 公司两本账各自平。
+  DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET: 3, // DR 暂扣(L.DEPOSIT_SUSPENSE) / CR 现金·落地钱包(A.CLIENT_CASH)
+  DEPOSIT_CONFISCATE_INCOME_OTHER: 4,      // DR 现金·公司 F_FEE 钱包(A.FIRM_CASH) / CR 其他收入(E.INCOME_OTHER,212)
+  // 退回(RETURNING→RETURNED):pending / post / void 三段式,同一对账户:
+  DEPOSIT_RETURN_PENDING: 5, // 锁定(pending):DR 暂扣(L.DEPOSIT_SUSPENSE) / CR 现金·落地钱包(A.CLIENT_CASH)
+  DEPOSIT_RETURN_POST: 6,    // 确认落账(post):同上
+  DEPOSIT_RETURN_VOID: 7,    // 失败作废(void):同上
+  // 上缴(SEIZING→SEIZED):单腿,同退回,对方栏是当局(不建模、不开户);pending / post 两段,void 见下方 20 段
+  DEPOSIT_SEIZE_PENDING: 8, // 锁定(pending):DR 暂扣(L.DEPOSIT_SUSPENSE) / CR 现金·落地钱包(A.CLIENT_CASH)
+  DEPOSIT_SEIZE_POST: 9,    // 落账(post):同上
 
   // ── 提现(10–19)──
   WITHDRAW_NET_PENDING: 10, // 客户侧锁定:DR CLIENT_PAYABLE / CR CLIENT_CASH (pending)
@@ -38,9 +33,9 @@ export const TB_TRANSFER_CODES = {
   WITHDRAW_BOUNCE_REENTRY: 17,
 
   // ── 充值·上缴续段(20–29)：充值段 5–9 已满,续挪此──
-  DEPOSIT_SEIZE_VOID: 20, // 上缴取消/失败:void
-  // 平账 B 批②：入账后被银行/托管方退汇（SUCCESS→CLAWED_BACK），单腿反向：
-  // DR CLIENT_PAYABLE(客户) / CR CLIENT_CASH(SYSTEM)。不建资金单（decisions 2026-08-28）。
+  DEPOSIT_SEIZE_VOID: 20, // 上缴失败作废(void):DR 暂扣(L.DEPOSIT_SUSPENSE) / CR 现金·落地钱包(A.CLIENT_CASH)
+  // 平账 B 批②:入账后被银行/托管方退汇(SUCCESS→CLAWED_BACK),单腿反向:
+  // DR 应付(L.CLIENT_PAYABLE,客户) / CR 现金·落地钱包(A.CLIENT_CASH)。不建资金单(decisions 2026-08-28)。UI 挂起(附录 B「挂起」)。
   DEPOSIT_CLAWBACK: 21,
 
   // ── 兑换(30–49)──

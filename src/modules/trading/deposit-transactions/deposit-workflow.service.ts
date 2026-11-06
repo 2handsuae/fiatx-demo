@@ -1581,9 +1581,10 @@ export class DepositWorkflowService implements OnModuleInit {
   /**
    * 没收弧处置说明书（地基站 2026-08-26：钱侧六件套收敛进 DispositionService，
    * 本弧只保留业务判断与留痕；账本/资金单机制见 disposition.service.ts 头注，
-   * 六件套原文见 git 历史）。两笔锁定：①反冲暂扣（SUSPENSE→CLIENT_CASH，逐字
-   * 反转 payin STEP_1）②没收计入其他收入（FIRM_CASH→INCOME_OTHER，与服务费
-   * 隔离）；均为行内重分类、非外部穿越。目的地=公司 F_FEE 钱包（by-wallet 对账锚）。
+   * 六件套原文见 git 历史）。两笔锁定（戊波一，附录 B 码 3 + 4）：
+   * ①借 暂扣·客户 / 贷 现金·充值落地钱包（A.CLIENT_CASH，逐字反转 payin STEP_1）
+   * ②借 现金·公司 F_FEE 钱包 / 贷 其他收入（A.FIRM_CASH→E.INCOME_OTHER，与服务费隔离）。
+   * 目的地=公司 F_FEE 钱包（现金户即该钱包的户）。
    */
   private confiscationSpec(
     deposit: any,
@@ -1592,7 +1593,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const asset = deposit.asset;
     if (!asset) throw new Error(`Deposit ${deposit.id} has no associated asset`);
     if (!asset.tbLedgerId) throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
-    const customerWalletRef: string | null = deposit.toWalletId ?? null;
+    const landingWalletId = this.landingWalletId(deposit);
     return {
       kind: 'CONFISCATE', sourceType: 'DEPOSIT', sourceNo: deposit.depositNo,
       traceId: deposit.traceId || deposit.id,
@@ -1611,19 +1612,17 @@ export class DepositWorkflowService implements OnModuleInit {
           transferCode: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_SUSPENSE_TO_ASSET,
           eventCode: 'CONFISCATE_REVERSE_SUSPENSE', voidEventCode: 'CONFISCATE_REVERSE_SUSPENSE_VOID',
           debit: { code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId },
-          credit: { code: TB_ACCOUNT_CODES.CLIENT_CASH, ownerType: 'SYSTEM' },
+          credit: { cashWalletId: landingWalletId },
           debitCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
           memo: 'Below-min confiscation reverse suspense (pending)',
-          debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: false,
         },
         {
           transferCode: TB_TRANSFER_CODES.DEPOSIT_CONFISCATE_INCOME_OTHER,
           eventCode: 'CONFISCATE_INCOME_OTHER', voidEventCode: 'CONFISCATE_INCOME_OTHER_VOID',
-          debit: { code: TB_ACCOUNT_CODES.FIRM_CASH, ownerType: 'SYSTEM' },
+          debit: { cashWalletId: firmFeeWallet.id },
           credit: { code: TB_ACCOUNT_CODES.INCOME_OTHER, ownerType: 'SYSTEM' },
           debitCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH], creditCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
           memo: 'Below-min confiscation fee income (pending)',
-          debitWalletRef: null, creditWalletRef: firmFeeWallet.id, isExternalCrossing: false,
         },
       ],
     };
@@ -1876,11 +1875,6 @@ export class DepositWorkflowService implements OnModuleInit {
     const ledger = asset.tbLedgerId;
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
 
-    // Phase B per-physical-wallet recon: the deposit's payin funds_order pins the
-    // specific wallet that received the funds. Falls back to the deposit's own
-    // toWalletId when the funds_order isn't passed.
-    const walletRef: string | null =
-      fundsOrder?.toWalletId ?? deposit.toWalletId ?? null;
     // externalRef 归 funds_order 所有(CONFIRMED 时按资产类型铸)。STEP_1 是外部穿越腿,
     // 读单一源,不再本地 coalesce。STEP_2(下方)是纯重分类,保持 externalRef:null。
     const externalRef: string | null = fundsOrder
@@ -1888,12 +1882,12 @@ export class DepositWorkflowService implements OnModuleInit {
       : null;
 
     if (step === 'STEP_1') {
-      // Real-time 1:1: debit the aggregate CLIENT_CASH (SYSTEM), credit DEPOSIT_SUSPENSE (CUSTOMER)
-      const debitAccountId = await this.accountingService.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.CLIENT_CASH,
+      // 戊波一(附录 B 码 1):借 现金·充值落地钱包(A.CLIENT_CASH,一钱包一户)、贷 暂扣·客户。
+      // 落地钱包 = payin 资金单钉住的收款钱包,资金单没传时回落单上的 toWalletId;现金户只经 resolveCashAccountId 取。
+      const debitAccountId = await this.accountingService.resolveCashAccountId(
+        this.landingWalletId(deposit, fundsOrder),
         ledger,
-        ownerType: 'SYSTEM',
-      });
+      );
       const creditAccountId = await this.accountingService.resolveTbAccountId({
         code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
         ledger,
@@ -1918,12 +1912,7 @@ export class DepositWorkflowService implements OnModuleInit {
           actorType: 'SYSTEM',
           actorId: 'SYSTEM',
           memo: 'Payin confirmed, funds in compliance hold (CLIENT_CASH→DEPOSIT_SUSPENSE)',
-          // Phase B: inbound real-world recognition — both aggregate (CLIENT_CASH) and
-          // SUSPENSE legs reference the specific wallet that received the on-chain / bank inbound.
-          debitWalletRef: walletRef,
-          creditWalletRef: walletRef,
           externalRef,
-          isExternalCrossing: true,
           ...(effectiveDateResolved && { effectiveDate: effectiveDateResolved }),
         },
       });
@@ -1960,12 +1949,8 @@ export class DepositWorkflowService implements OnModuleInit {
           actorType: 'SYSTEM',
           actorId: 'SYSTEM',
           memo: 'Compliance approved, funds credited to client payable',
-          // Phase B: pure ledger reclass — money doesn't move physically, both legs sit on the same wallet,
-          // no external statement entry, not a real-world crossing.
-          debitWalletRef: walletRef,
-          creditWalletRef: walletRef,
+          // 纯账内重分类(暂扣→应付,不碰现金):无外部参考号
           externalRef: null,
-          isExternalCrossing: false,
           ...(effectiveDateResolved && { effectiveDate: effectiveDateResolved }),
         },
       });
@@ -1979,6 +1964,19 @@ export class DepositWorkflowService implements OnModuleInit {
     const [whole, frac = ''] = str.split('.');
     const paddedFrac = frac.padEnd(decimals, '0').slice(0, decimals);
     return BigInt(whole + paddedFrac);
+  }
+
+  /**
+   * 戊波一:这笔充值的钱落在哪只钱包——现金户(客户现金·该钱包)的开户依据。
+   * payin 资金单钉住收款钱包(fundsOrder.toWalletId),没传资金单就取单上的 toWalletId;
+   * 都没有 = 钱不知落在哪,记账失败即流程失败(不回落到任何聚合户)。
+   */
+  private landingWalletId(deposit: any, fundsOrder?: any): string {
+    const walletId: string | null = fundsOrder?.toWalletId ?? deposit.toWalletId ?? null;
+    if (!walletId) {
+      throw new Error(`Deposit ${deposit.depositNo} has no landing wallet — cannot resolve its cash account`);
+    }
+    return walletId;
   }
 
   /**
@@ -2254,7 +2252,7 @@ export class DepositWorkflowService implements OnModuleInit {
     await this.depositAudit(deposit, { action: 'DEPOSIT_CLAWBACK_STARTED', reason: 'CFO approved the clawback claim — reverse entry posted', approvalNo: event.approvalNo, causationId: event.approvalId, metadata: { externalLineId: line.externalLineId, externalRef: line.externalRef, effectiveDate: line.businessDate } });
     const ledger = asset.tbLedgerId;
     const debitAccountId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId });
-    const creditAccountId = await this.accountingService.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger, ownerType: 'SYSTEM' });
+    const creditAccountId = await this.accountingService.resolveCashAccountId(this.landingWalletId(deposit), ledger);
     await this.accountingService.executeTransfer({
       debitAccountId, creditAccountId, amount: amountMinor, ledger, code: TB_TRANSFER_CODES.DEPOSIT_CLAWBACK,
       evidence: {
@@ -2262,8 +2260,7 @@ export class DepositWorkflowService implements OnModuleInit {
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
         assetCurrency: asset.currency, traceId: deposit.traceId || deposit.id, actorType: 'SYSTEM', actorId: 'SYSTEM',
         memo: `Deposit clawed back by bank/custodian — statement line ${line.externalRef ?? line.externalLineId} (recon case ${line.caseNo ?? '-'})`,
-        debitWalletRef: deposit.toWalletId, creditWalletRef: deposit.toWalletId,
-        externalRef: line.externalRef, isExternalCrossing: true, effectiveDate: line.businessDate,
+        externalRef: line.externalRef, effectiveDate: line.businessDate,
       },
     });
     const row = await this.depositService.updateStatus(deposit.id, { action: DepositTransactionAction.CLAWBACK, reason: `Clawed back per approval ${event.approvalNo}` } as any);
@@ -2457,7 +2454,7 @@ export class DepositWorkflowService implements OnModuleInit {
    *
    * Mirrors startConfiscation's structure but with ONE leg, not two: return only
    * reverses the customer's suspense (DR DEPOSIT_SUSPENSE(CUSTOMER) / CR
-   * CLIENT_CASH(SYSTEM) — exact reverse of the payin STEP_1, same direction as
+   * CLIENT_CASH(充值落地钱包的现金户) — exact reverse of the payin STEP_1, same direction as
    * confiscation's leg1). Unlike confiscation (an internal reclass), this leg is a
    * genuine external crossing — the funds order's destination is the ORIGINAL
    * SENDER (deposit.fromAddress/fromIban), not a firm wallet, and toWalletId is
@@ -2471,15 +2468,15 @@ export class DepositWorkflowService implements OnModuleInit {
    */
   /**
    * 退回弧处置说明书（地基站 2026-08-26：钱侧六件套收敛进 DispositionService，
-   * 六件套原文见 git 历史）。单腿反冲暂扣（SUSPENSE→CLIENT_CASH），真外部穿越：
-   * 钱确实离开客户托管、原路退回原发款方（目的地锁死 deposit.fromAddress/fromIban，
-   * 退第三方=洗白通道，禁止）。settle 后对 LOCK 行补记 POST 语义 + 外部参考号。
+   * 六件套原文见 git 历史）。单腿（戊波一，附录 B 码 5/6/7）：借 暂扣·客户 / 贷 现金·充值落地钱包
+   * （两阶段：锁定 → 确认落账 / 失败作废）。钱确实离开客户托管、原路退回原发款方（目的地锁死
+   * deposit.fromAddress/fromIban，退第三方=洗白通道，禁止）。settle 后对 LOCK 行补记 POST 语义 + 外部参考号。
    */
   private returnSpec(deposit: any): DispositionSpec {
     const asset = deposit.asset;
     if (!asset) throw new Error(`Deposit ${deposit.id} has no associated asset`);
     if (!asset.tbLedgerId) throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
-    const customerWalletRef: string | null = deposit.toWalletId ?? null;
+    const landingWalletId = this.landingWalletId(deposit);
     return {
       kind: 'RETURN', sourceType: 'DEPOSIT', sourceNo: deposit.depositNo,
       traceId: deposit.traceId || deposit.id,
@@ -2498,13 +2495,12 @@ export class DepositWorkflowService implements OnModuleInit {
           transferCode: TB_TRANSFER_CODES.DEPOSIT_RETURN_PENDING,
           eventCode: 'DEPOSIT_RETURN_PENDING', voidEventCode: 'DEPOSIT_RETURN_VOID',
           debit: { code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId },
-          credit: { code: TB_ACCOUNT_CODES.CLIENT_CASH, ownerType: 'SYSTEM' },
+          credit: { cashWalletId: landingWalletId },
           debitCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
           memo: 'Return to sender (pending)',
-          debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: true,
         },
       ],
-      postEnrich: { eventCode: 'DEPOSIT_RETURN_POST', memo: 'Return to sender confirmed externally', isExternalCrossing: true },
+      postEnrich: { eventCode: 'DEPOSIT_RETURN_POST', memo: 'Return to sender confirmed externally' },
     };
   }
 
@@ -2756,8 +2752,8 @@ export class DepositWorkflowService implements OnModuleInit {
 
   /**
    * 上缴弧处置说明书（地基站 2026-08-26：钱侧六件套收敛进 DispositionService，
-   * 六件套原文见 git 历史）。单腿反冲暂扣（SUSPENSE→CLIENT_CASH），真外部穿越：
-   * 钱经线下法务/财务专用通道移交政府。目的账户刻意不建模（toWalletId/toAddress/
+   * 六件套原文见 git 历史）。单腿（戊波一，附录 B 码 8/9/20）：借 暂扣·客户 / 贷 现金·充值落地钱包
+   * （两阶段，对方是当局、不开户）。钱经线下法务/财务专用通道移交政府。目的账户刻意不建模（toWalletId/toAddress/
    * toIban 全空）——orderRef（政府令文书号）嵌在锁定腿 memo 里，是 8 年留档的唯一
    * 追溯锚（业主口径 2026-07-28）。void 沿用同名事件码（历史如此，保真不改）；
    * settle 不做 POST 补记（目的地不建模，无外部参考号可记）。
@@ -2766,7 +2762,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const asset = deposit.asset;
     if (!asset) throw new Error(`Deposit ${deposit.id} has no associated asset`);
     if (!asset.tbLedgerId) throw new Error(`Asset ${asset.currency} has no tbLedgerId`);
-    const customerWalletRef: string | null = deposit.toWalletId ?? null;
+    const landingWalletId = this.landingWalletId(deposit);
     return {
       kind: 'SEIZE', sourceType: 'DEPOSIT', sourceNo: deposit.depositNo,
       traceId: deposit.traceId || deposit.id,
@@ -2785,10 +2781,9 @@ export class DepositWorkflowService implements OnModuleInit {
           transferCode: TB_TRANSFER_CODES.DEPOSIT_SEIZE_PENDING,
           eventCode: 'SEIZE_REVERSE_SUSPENSE', voidEventCode: 'SEIZE_REVERSE_SUSPENSE',
           debit: { code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ownerType: 'CUSTOMER', ownerUuid: deposit.ownerId },
-          credit: { code: TB_ACCOUNT_CODES.CLIENT_CASH, ownerType: 'SYSTEM' },
+          credit: { cashWalletId: landingWalletId },
           debitCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
           memo: `Government seizure order ${orderRef} — funds leaving client custody (pending)`,
-          debitWalletRef: customerWalletRef, creditWalletRef: customerWalletRef, isExternalCrossing: true,
         },
       ],
     };

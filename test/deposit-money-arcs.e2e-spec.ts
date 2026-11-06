@@ -19,6 +19,7 @@ import { DepositTransactionStatus } from '../src/modules/trading/deposit-transac
 import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
 import { FundsOrderStatus } from '../src/modules/funds-orders/dto/funds-order.dto';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
+import { bigintToHex } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
@@ -41,6 +42,8 @@ import { fakeBankRef, fakeChainTxHash } from '../src/common/utils/fake-external-
  *   (DEPOSIT_SUSPENSE/CLIENT_PAYABLE) that suite mutates — jest's e2e config has no
  *   maxWorkers pin, so both spec files may run in parallel workers against the same
  *   worktree DB/TigerBeetle cluster; using a different customer avoids a balance-delta race.
+ * - 戊波一:现金类账户一钱包一户——本文件所有「现金」断言都落在 demo_bob 那只 vIBAN 钱包(fiatWalletId)的
+ *   现金户上,取户只经 AccountingService.resolveCashAccountId,不再有按币种聚合的 CLIENT_CASH(SYSTEM)。
  * - Deposits are created directly at the state each arc starts from (MANUAL_CHECKING /
  *   FROZEN) via Prisma, exactly like deposit-sumsub-scenarios's
  *   `createDepositAtCompliancePending` bypasses the full lifecycle — the earlier lifecycle
@@ -48,7 +51,7 @@ import { fakeBankRef, fakeChainTxHash } from '../src/common/utils/fake-external-
  *   suite; this file's job is the four arcs themselves.
  * - The return/seize arcs assume money is already resting in DEPOSIT_SUSPENSE (the real
  *   precondition — Step 1 already ran before compliance review). `preBookSuspense()`
- *   reproduces that Step 1 posting (CLIENT_CASH→DEPOSIT_SUSPENSE) via the real
+ *   reproduces that Step 1 posting (A.CLIENT_CASH·落地钱包 → L.DEPOSIT_SUSPENSE，码 1) via the real
  *   AccountingService so the arc's own pending/post accounting has real money to move
  *   (not a synthetic negative-balance debit).
  * - `funds_order.status.changed` is fire-and-forget `emit()` (not `emitAsync`) inside
@@ -196,11 +199,16 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     return { id: created.id, depositNo: created.depositNo };
   }
 
-  /** Reproduces the real Step 1 posting (CLIENT_CASH→DEPOSIT_SUSPENSE) so the arc under
+  /** 到账那只钱包(fiatWalletId)的客户现金户——所有「现金」断言与预铺的落点(戊波一:只经 resolveCashAccountId 取)。 */
+  async function walletCashAccountId(): Promise<bigint> {
+    return accounting.resolveCashAccountId(fiatWalletId, ledger);
+  }
+
+  /** Reproduces the real Step 1 posting (码 1:借 A.CLIENT_CASH·落地钱包 / 贷 L.DEPOSIT_SUSPENSE) so the arc under
    *  test has real money resting in DEPOSIT_SUSPENSE to move — matches the real precondition
    *  (compliance review only ever starts after Step 1 already ran). */
   async function preBookSuspense(depositRow: { id: string; depositNo: string }, amountBigint: bigint): Promise<void> {
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger, ownerType: 'SYSTEM' });
+    const clientAssetId = await walletCashAccountId();
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
     await accounting.executeTransfer({
       debitAccountId: clientAssetId,
@@ -219,7 +227,6 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
         actorType: 'SYSTEM',
         actorId: 'E2E_HARNESS',
         memo: 'Task A6 e2e fixture: simulate Step 1 (money already in suspense before the arc under test starts)',
-        isExternalCrossing: false,
       },
     });
   }
@@ -232,11 +239,11 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
 
   /** Final-review fix: SEIZE reverted to a single leg — the A6 COA break was traced to
    *  the leg's credit account being wrong (CR FIRM_SEIZED instead of CR CLIENT_CASH),
-   *  not to a missing second leg. This helper lets the SEIZE scenario prove the client
-   *  bucket (CLIENT_CASH shrinks by the same amount as the suspense reversal) stays
+   *  not to a missing second leg. This helper lets the SEIZE scenario prove the landing
+   *  wallet's cash account (shrinks by the same amount as the suspense reversal) stays
    *  self-balanced on its own, exactly like the return arc. */
   async function clientAssetTotal(): Promise<bigint> {
-    const id = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger, ownerType: 'SYSTEM' });
+    const id = await walletCashAccountId();
     const balance = await accounting.lookupBalance(id);
     return balance.debitsPosted - balance.creditsPosted; // asset-normal: debit increases
   }
@@ -381,6 +388,15 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
 
     const after = await suspenseTotal();
     expect(after - before).toBe(-amountBigint);
+
+    // 附录 B 码 5/6/7:借 暂扣 / 贷 现金·落地钱包——证据行的助记码与真实贷方户都对得上
+    const returnRows = (await tbEvidence.findBySource('DEPOSIT', deposit.depositNo)).filter((r: any) => r.eventCode.startsWith('DEPOSIT_RETURN'));
+    expect(returnRows.length).toBeGreaterThan(0);
+    for (const r of returnRows) {
+      expect(r.debitCode).toBe('L.DEPOSIT_SUSPENSE');
+      expect(r.creditCode).toBe('A.CLIENT_CASH');
+      expect(r.creditTbAccountId).toBe(bigintToHex(await walletCashAccountId()));
+    }
   });
 
   it('2. SEIZE full arc: FROZEN → initiateSeize(orderRef) → two-step approval (SENIOR_MANAGEMENT_OFFICER → MLRO, distinct actors) → SEIZING + legSeq=4 pending-locked (single TB leg) → leg CONFIRMED → SEIZED, evidence.memo carries orderRef, COA identity holds (final-review fix: single-leg seize, credit CLIENT_CASH)', async () => {
@@ -449,6 +465,10 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     const legRow = evidenceRows.find((r: any) => r.eventCode === 'SEIZE_REVERSE_SUSPENSE');
     expect(legRow).toBeTruthy();
     expect(legRow.memo).toContain(orderRef);
+    // 附录 B 码 8/9:借 暂扣 / 贷 现金·落地钱包
+    expect(legRow.debitCode).toBe('L.DEPOSIT_SUSPENSE');
+    expect(legRow.creditCode).toBe('A.CLIENT_CASH');
+    expect(legRow.creditTbAccountId).toBe(bigintToHex(await walletCashAccountId()));
 
     // Final-review fix: prove the single leg (credit CLIENT_CASH, not FIRM_SEIZED)
     // is self-balancing on its own — DEPOSIT_SUSPENSE and CLIENT_CASH both shrink
