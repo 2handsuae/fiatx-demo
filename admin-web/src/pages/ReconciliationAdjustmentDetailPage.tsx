@@ -47,13 +47,18 @@ interface AdjustmentDetail {
   createdByUserId: string;
   decidedByUserId: string | null;
   postedAt: string | null;
-  tbTransferId: string | null;
+  tbTransferId: string | null; // 32 位十六进制转账号（证据页的键）——后端已把库里的十进制串换好；改记取应付对那笔
   createdAt: string;
   updatedAt: string;
   walletNo: string | null;
+  toWalletNo: string | null;  // 改记：正主方钱包的业务号；其余 null
   decimals: number;
   debitAccountCode: string | null;
   creditAccountCode: string | null;
+  // 改记是一张凭证四腿：上面这对借贷是应付对，现金对在下面三个字段（非改记全为 null）。
+  cashDebitAccountCode: string | null;
+  cashCreditAccountCode: string | null;
+  cashTbTransferId: string | null;  // 现金对的转账号，仅改记且已落账时有值
 }
 
 /* ── Helpers ────────────────────────────────────────────────── */
@@ -116,6 +121,7 @@ const ReconciliationAdjustmentDetailPage = () => {
     : (REASON_LABEL[detail.reasonCode] ? `${REASON_LABEL[detail.reasonCode]} · ${detail.reasonCode}` : detail.reasonCode);
   const bookLabel = detail.book === 'CLIENT' ? 'Client' : 'Firm';
   const directionLabel = detail.direction === 'INCREASE' ? 'INCREASE' : 'REDUCE';
+  const isReattribution = detail.direction === 'REATTRIBUTE';
 
   return (
     <div className="flex h-full flex-col">
@@ -166,9 +172,10 @@ const ReconciliationAdjustmentDetailPage = () => {
             <div className="whitespace-pre-wrap text-[13px] text-adm-t1">{detail.reasonInternal}</div>
           </DetailCard>
 
-          {/* 分录预览 / Posting Preview */}
+          {/* 分录预览 / Posting Preview —— 改记是一张凭证四腿：应付对一行 + 现金对一行（其余调账单只有一行） */}
           <DetailCard title="Posting Preview" columns={1}>
             <div className="flex flex-wrap items-center gap-3 font-mono text-[12px]">
+              {isReattribution && <span className="w-14 text-[10px] text-adm-t3">Payable</span>}
               <span className="rounded border border-adm-border bg-adm-bg px-3 py-2">
                 <span className="text-adm-t3">Dr </span>
                 <span className="text-adm-t1">{detail.debitAccountCode ?? '—'}</span>
@@ -180,19 +187,47 @@ const ReconciliationAdjustmentDetailPage = () => {
               </span>
               <span className="text-adm-t2">{formatAmount(detail.amount, detail.decimals)} {detail.assetCode}</span>
             </div>
+            {isReattribution && detail.cashDebitAccountCode && (
+              <div className="mt-2 flex flex-wrap items-center gap-3 font-mono text-[12px]">
+                <span className="w-14 text-[10px] text-adm-t3">Cash</span>
+                <span className="rounded border border-adm-border bg-adm-bg px-3 py-2">
+                  <span className="text-adm-t3">Dr </span>
+                  <span className="text-adm-t1">{detail.cashDebitAccountCode}</span>
+                  <span className="text-adm-t2"> · {detail.toWalletNo ?? '—'}</span>
+                </span>
+                <ArrowRight size={14} className="text-adm-t3" />
+                <span className="rounded border border-adm-border bg-adm-bg px-3 py-2">
+                  <span className="text-adm-t3">Cr </span>
+                  <span className="text-adm-t1">{detail.cashCreditAccountCode ?? '—'}</span>
+                  <span className="text-adm-t2"> · {detail.walletNo ?? '—'}</span>
+                </span>
+                <span className="text-adm-t2">{formatAmount(detail.amount, detail.decimals)} {detail.assetCode}</span>
+              </div>
+            )}
             <p className="mt-2 font-mono text-[10px] text-adm-t3">
               {detail.status === 'POSTED'
                 ? 'Approved — this entry has been posted.'
-                : 'Preview — derived from (book × direction); posts once approved (see adjustment-rules.ts resolvePostingLegs).'}
+                : 'Preview — derived from (book × direction × disposition family); posts once approved (see adjustment-rules.ts resolvePostingLegs).'}
             </p>
             {detail.status === 'POSTED' && detail.tbTransferId && (
-              <Link
-                to={`/admin/ledger/transfer-evidence/${encodeURIComponent(detail.tbTransferId)}`}
-                className="mt-3 inline-flex items-center gap-1.5 rounded border border-adm-blue/30 bg-adm-blue/5 px-3 py-1.5 font-mono text-[11px] text-adm-blue transition-colors hover:bg-adm-blue/10"
-              >
-                <ExternalLink size={12} />
-                View Ledger Evidence
-              </Link>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link
+                  to={`/admin/ledger/transfer-evidence/${encodeURIComponent(detail.tbTransferId)}`}
+                  className="inline-flex items-center gap-1.5 rounded border border-adm-blue/30 bg-adm-blue/5 px-3 py-1.5 font-mono text-[11px] text-adm-blue transition-colors hover:bg-adm-blue/10"
+                >
+                  <ExternalLink size={12} />
+                  {isReattribution ? 'View Ledger Evidence · Payable' : 'View Ledger Evidence'}
+                </Link>
+                {isReattribution && detail.cashTbTransferId && (
+                  <Link
+                    to={`/admin/ledger/transfer-evidence/${encodeURIComponent(detail.cashTbTransferId)}`}
+                    className="inline-flex items-center gap-1.5 rounded border border-adm-blue/30 bg-adm-blue/5 px-3 py-1.5 font-mono text-[11px] text-adm-blue transition-colors hover:bg-adm-blue/10"
+                  >
+                    <ExternalLink size={12} />
+                    View Ledger Evidence · Cash
+                  </Link>
+                )}
+              </div>
             )}
           </DetailCard>
 

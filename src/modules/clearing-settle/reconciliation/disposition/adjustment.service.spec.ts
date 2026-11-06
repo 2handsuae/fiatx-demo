@@ -8,6 +8,7 @@ import { TB_LEDGERS } from '../../../accounting/tigerbeetle/constants/tb-ledgers
 import { V8_RECON_AUDIT_ACTIONS } from '../../../audit-logging/constants/audit-actions.constant';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
 import { REASON_SPECS, RECON_ADJUSTMENT_SOURCE_TYPE, assertReasonAllowed } from './adjustment-rules';
+import { bigintToHex, deterministicTransferId } from '../../../accounting/tigerbeetle/utils/tb-id.util';
 
 describe('ReconciliationAdjustment schema', () => {
   const prisma = new PrismaClient();
@@ -1024,11 +1025,42 @@ describe('AdjustmentService.getAdjustment —— detail read model (Task 7)', ()
     expect(result.creditAccountCode).toBe('E.FIRM_EQUITY');
   });
 
-  it('reattribution: the preview shows the payable pair (debit L.CLIENT_PAYABLE / credit L.CLIENT_PAYABLE); the cash pair moves along with it at posting', async () => {
+  it('reattribution (not yet posted): main fields carry the payable pair; the cash pair is exposed separately (debit A.CLIENT_CASH / credit A.CLIENT_CASH) with no cash evidence link yet', async () => {
     const svc = makeSvc({ ...baseRow, direction: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION', toWalletRef: 'W_CUST_2', toOwnerNo: 'C0043' });
     const result: any = await svc.getAdjustment('ADJ2608280002');
     expect(result.debitAccountCode).toBe('L.CLIENT_PAYABLE');
     expect(result.creditAccountCode).toBe('L.CLIENT_PAYABLE');
+    expect(result.cashDebitAccountCode).toBe('A.CLIENT_CASH');
+    expect(result.cashCreditAccountCode).toBe('A.CLIENT_CASH');
+    expect(result.cashTbTransferId).toBeNull();
+    // 铁律⑥：两侧钱包只给业务号，内部 UUID 不外露。
+    expect(result.toWalletRef).toBeUndefined();
+    expect(result.walletRef).toBeUndefined();
+  });
+
+  it('reattribution (POSTED): both evidence links are the 32-hex ids the evidence page keys on — the payable pair from the stored decimal id, the cash pair from the deterministic id of (RECON_ADJUSTMENT, adjustmentNo, RECON_ADJUSTMENT_POSTED_CASH)', async () => {
+    const payableId = deterministicTransferId(RECON_ADJUSTMENT_SOURCE_TYPE, 'ADJ2608280002', 'RECON_ADJUSTMENT_POSTED', 0);
+    const cashId = deterministicTransferId(RECON_ADJUSTMENT_SOURCE_TYPE, 'ADJ2608280002', 'RECON_ADJUSTMENT_POSTED_CASH', 0);
+    const svc = makeSvc({
+      ...baseRow, direction: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION', toWalletRef: 'W_CUST_2', toOwnerNo: 'C0043',
+      status: 'POSTED', tbTransferId: payableId.toString(),
+    });
+    const result: any = await svc.getAdjustment('ADJ2608280002');
+    expect(result.tbTransferId).toBe(bigintToHex(payableId));
+    expect(result.cashTbTransferId).toBe(bigintToHex(cashId));
+    expect(result.cashTbTransferId).not.toBe(result.tbTransferId);
+    expect(result.tbTransferId).toHaveLength(32);
+    expect(result.cashTbTransferId).toHaveLength(32);
+  });
+
+  it('a one-voucher adjustment carries no cash-pair fields; its stored decimal transfer id is returned as the 32-hex evidence key (the decimal string 404s on the evidence page)', async () => {
+    const id = deterministicTransferId(RECON_ADJUSTMENT_SOURCE_TYPE, 'ADJ2608280002', 'RECON_ADJUSTMENT_POSTED', 0);
+    const svc = makeSvc({ ...baseRow, status: 'POSTED', tbTransferId: id.toString() });
+    const result: any = await svc.getAdjustment('ADJ2608280002');
+    expect(result.cashDebitAccountCode).toBeNull();
+    expect(result.cashCreditAccountCode).toBeNull();
+    expect(result.cashTbTransferId).toBeNull();
+    expect(result.tbTransferId).toBe(bigintToHex(id));
   });
 });
 
@@ -1612,7 +1644,9 @@ describe('Recon batch A: the approval page tells it straight —— write-off fa
     expect(text).toContain('Firm pool unexplained write-off');
     expect(text).toContain('WA2601017168');
     expect(text).toContain('0.07');
-    expect(text).toContain('recognized into operating funds');
+    // 戊波一：公司池核销少钱借「对账核销损失」，不再是借公司权益 / 运营款——CFO 读到的去向必须与分录一致。
+    expect(text).toContain('recognized as reconciliation write-off loss');
+    expect(text).not.toContain('operating funds');
     expect(text).toContain('overdue 3 days');
     expect(text).toContain('Checked receipts for three days');
   });
@@ -1662,6 +1696,9 @@ describe('AdjustmentService.describeImpact —— client pool loss recognition\'
     expect(text).not.toContain('overdue');
     expect(text).not.toContain('30');
     expect(text).toContain('firm bears the loss');
+    // 戊波一：客户池认损贷的是客户现金户（案子钱包），不再是聚合「客户资产池」。
+    expect(text).toContain('debit client payable, credit client cash');
+    expect(text).not.toContain('asset pool');
     // 150000 minor units at decimals=2 is 1500.00 AED — the assessed amount and the adjustment amount
     // are the same number (assertIncidentWriteOffAllowed already locks the amount, the two must be equal).
     expect(text).toContain('1500.00');

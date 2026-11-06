@@ -16,8 +16,9 @@ import { TB_TRANSFER_CODES } from '../../../accounting/tigerbeetle/constants/tb-
 import { ADJUSTMENT_TRANSITIONS, AdjustmentStatus } from '../constants/adjustment-transitions.constant';
 import { AdjustmentListRow, CreateAdjustmentDto } from '../dto/adjustment.dto';
 import { bigintToDecimal } from '../../../funds-layer/accounting/tb-amount.util';
+import { bigintToHex, deterministicTransferId } from '../../../accounting/tigerbeetle/utils/tb-id.util';
 import {
-  Book, Direction, ReasonCode, REASON_SPECS, RECON_ADJUSTMENT_SOURCE_TYPE,
+  Book, Direction, ReasonCode, REASON_SPECS, RECON_ADJUSTMENT_SOURCE_TYPE, RECON_ADJUSTMENT_CASH_EVENT_CODE,
   assertReasonAllowed, requiresRelatedOrder, resolvePostingLegs, resolveReattributionLegs,
 } from './adjustment-rules';
 import { AdjustFamily, DISPOSITION_LABEL, DispositionKind, OUTLET_OF, StoredOutlet, causeDisplayLabel } from './cause-registry';
@@ -90,7 +91,7 @@ export class AdjustmentService {
     if (row.reasonCode === 'UNEXPLAINED_CLIENT_LOSS') {
       const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
       if (extra?.incidentNo) {
-        return `Client pool loss recognition (incident ${extra.incidentNo} assessed ${majorAmount} ${row.assetCode}): debit client payable, credit client asset pool; `
+        return `Client pool loss recognition (incident ${extra.incidentNo} assessed ${majorAmount} ${row.assetCode}): debit client payable, credit client cash; `
              + `customer ${row.ownerNo ?? '(unknown)'} wallet ${extra?.walletNo ?? '(unknown)'} difference ${majorAmount} ${row.assetCode} recognized as loss, customer balance reduced accordingly; `
              + `incident assessment: firm bears the loss; investigation conclusion: ${extra?.findingNote ?? row.reasonInternal}; a compensation transfer will follow to restore the balance`;
       }
@@ -103,7 +104,7 @@ export class AdjustmentService {
     // 单号 + 金额锁定的依据。
     if (row.reasonCode === 'UNEXPLAINED_WRITE_OFF') {
       const majorAmount = bigintToDecimal(BigInt(row.amount), decimals).toFixed(decimals);
-      const outlet = row.direction === 'REDUCE' ? 'recognized into operating funds' : 'recorded as other income';
+      const outlet = row.direction === 'REDUCE' ? 'recognized as reconciliation write-off loss' : 'recorded as other income';
       if (extra?.incidentNo) {
         return `Firm pool write-off (incident ${extra.incidentNo} assessed ${majorAmount} ${row.assetCode}): wallet ${extra?.walletNo ?? '(unknown)'} ${row.assetCode} difference ${majorAmount} ${outlet}; `
              + `amount is locked to the incident's assessed loss; investigation conclusion: ${extra?.findingNote ?? row.reasonInternal}`;
@@ -692,18 +693,23 @@ export class AdjustmentService {
 
     // Task 7（admin 详情页）：decimals 供前端 分→元 缩放显示（T4 canon2 惯例，与
     // getCase 同款查法，前端不得自建 code→名字映射表——见
-    // tb-account-codes.constant.ts:38）；分录预览的借/贷助记码由 (book, direction)
+    // tb-account-codes.constant.ts:38）；分录预览的借/贷助记码由 (book, direction, reasonCode→处置家族)
     // 纯函数推导，不落库、不改行为，复用 onApproved 已经在用的同一对工具函数。
     const assetRow = await this.prisma.asset.findUnique({
       where: { code: row.assetCode }, select: { decimals: true },
     });
     // 第四族走第五种组合。落回 resolvePostingLegs 会把 REATTRIBUTE 当成非 REDUCE
-    // 的「增加」，预览显示成「借客户托管 / 贷客户应付」——与真实落账的两腿正相反，
-    // 详情页与账本各说各话。改记是四腿（应付对 + 现金对），详情页只有一对借贷栏位，
-    // 预览显示应付对；现金对随落账同时挪，见 postReattribution。
-    const legs = row.direction === 'REATTRIBUTE'
-      ? resolveReattributionLegs().payable
+    // 的「增加」，预览显示成「借客户现金 / 贷客户应付」——与真实落账的两腿正相反，
+    // 详情页与账本各说各话。改记是四腿（应付对 + 现金对）：主栏位给应付对，现金对另走
+    // cashDebitAccountCode / cashCreditAccountCode（详情页多画一行），见 postReattribution。
+    const reattribution = row.direction === 'REATTRIBUTE' ? resolveReattributionLegs() : null;
+    const legs = reattribution
+      ? reattribution.payable
       : resolvePostingLegs(row.book as Book, row.direction as Direction, row.reasonCode as ReasonCode);
+    // 凭证证据链接：TransferEvidence 以 32 位十六进制转账号为键，而调账单行上存的是十进制串，
+    // 直接拿来拼链接是 404——读面统一换成证据页认的十六进制。现金对的转账号是确定性哈希，
+    // 与落账时 executeTransfer 用的是同一个函数、同一组 (sourceType, sourceNo, eventCode)。
+    const posted = row.status === AdjustmentStatus.POSTED;
 
     const {
       id: _id,
@@ -727,6 +733,12 @@ export class AdjustmentService {
       decimals: assetRow?.decimals ?? 0,
       debitAccountCode: TB_CODE_TO_COA[legs.debitCode] ?? null,
       creditAccountCode: TB_CODE_TO_COA[legs.creditCode] ?? null,
+      tbTransferId: row.tbTransferId ? bigintToHex(BigInt(row.tbTransferId)) : null,
+      cashDebitAccountCode: reattribution ? (TB_CODE_TO_COA[reattribution.cash.debitCode] ?? null) : null,
+      cashCreditAccountCode: reattribution ? (TB_CODE_TO_COA[reattribution.cash.creditCode] ?? null) : null,
+      cashTbTransferId: reattribution && posted
+        ? bigintToHex(deterministicTransferId(RECON_ADJUSTMENT_SOURCE_TYPE, row.adjustmentNo, RECON_ADJUSTMENT_CASH_EVENT_CODE, 0))
+        : null,
     };
   }
 
@@ -989,7 +1001,7 @@ export class AdjustmentService {
       code: TB_TRANSFER_CODES.RECON_ADJUSTMENT,
       evidence: {
         ...evidenceBase,
-        eventCode: 'RECON_ADJUSTMENT_POSTED_CASH',
+        eventCode: RECON_ADJUSTMENT_CASH_EVENT_CODE,
         debitCode: TB_CODE_TO_COA[legs.cash.debitCode],
         creditCode: TB_CODE_TO_COA[legs.cash.creditCode],
         memo: `${row.reasonInternal} (cash reattribution)`,

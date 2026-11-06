@@ -95,8 +95,9 @@ const STANDALONE_ADJUSTMENT_TITLES = new Set(['Balance adjustment', 'Balance cor
 
 /**
  * Tipping-off judgment table (spec §6, Task 10 Step 1) — keyed by eventCode,
- * except RECON_ADJUSTMENT which is keyed by sourceType (its eventCode is
- * always 'RECON_ADJUSTMENT_POSTED', so the sourceType itself is the key).
+ * except RECON_ADJUSTMENT which is keyed by sourceType (adjustment vouchers post
+ * under more than one eventCode — a reattribution adds a second, cash-pair
+ * transfer — so the sourceType itself is the key).
  *
  * Event-code inventory & disposition (grep evidence in task-10-report.md):
  *  - Codes below are the ONLY ones ever posted (transferType=POSTED) against a
@@ -187,8 +188,10 @@ const ROW_PRESENTATION: Record<string, RowPresentation> = {
     family: 'INTERNAL_TRANSFER_ADVANCE',
     present: () => ({ title: 'Credit from FiatX · advance', subtitle: null }),
   },
-  // Reconciliation adjustments (keyed by sourceType, not eventCode — every
-  // adjustment posts the same 'RECON_ADJUSTMENT_POSTED' eventCode). Never
+  // Reconciliation adjustments (keyed by sourceType, not eventCode — a
+  // reattribution posts two transfers under different eventCodes, the payable
+  // pair and the cash pair; only the payable pair ever lands on a customer's
+  // CLIENT_PAYABLE statement). Never
   // shows the internal ADJ number. The reattribution arc posts one row per
   // customer (misattributed party debited, rightful party credited); the
   // rightful party's INCREASE-side row hides the subtitle so it can't see

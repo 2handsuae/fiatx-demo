@@ -14,6 +14,10 @@ export type Direction = 'REDUCE' | 'INCREASE';
  *  排除调账行）共用这一个常量，两侧不许各写各的字面量。 */
 export const RECON_ADJUSTMENT_SOURCE_TYPE = 'RECON_ADJUSTMENT';
 
+/** 改记凭证第二笔（现金对）的 evidence.eventCode。TB 转账号由 (sourceType, sourceNo, eventCode) 决定，
+ *  第二笔必须与第一笔（应付对，eventCode = RECON_ADJUSTMENT_POSTED）不同；落账与详情页读面共用这一个字面量。 */
+export const RECON_ADJUSTMENT_CASH_EVENT_CODE = 'RECON_ADJUSTMENT_POSTED_CASH';
+
 export type ReasonCode =
   | 'CUSTOMER_REATTRIBUTION'
   | 'UNEXPLAINED_WRITE_OFF'
@@ -37,7 +41,7 @@ export type ReasonCode =
  * customerLabel = 客户口径词；客户话术只在客户池使用，公司池调账客户不可见，快照取 null。
  */
 export const REASON_SPECS: Record<ReasonCode, {
-  /** 'ANY' = 两本账都能用，assertReasonAllowed 对它跳过账簿校验（分录仍只由「账簿 × 方向」定）。
+  /** 'ANY' = 两本账都能用，assertReasonAllowed 对它跳过账簿校验（分录：现金腿由账簿定，公司池对手腿由 family 定）。
    *  OTHER 兜底，以及客户 / 公司两格共用的 AMT_* 三码、DUP_BOOKING（业主 2026-11-04）。 */
   book: Book | 'ANY'; directions: Direction[];
   /** 客户口径词——只在客户池使用；公司池调账客户不可见，快照取 null（'ANY' 码的话术也不外露到公司池）。 */
@@ -49,12 +53,14 @@ export const REASON_SPECS: Record<ReasonCode, {
   internalLabel: string;
   /** 族——直接用 cause-registry.ts 的 AdjustFamily，不另抄一份字面量联合：
    *  抄一份的话，注册表加/改族这里不会报错，只会静默漂移。
-   *  只用于留痕/统计分组，不参与 assertReasonAllowed 的合法性判定。 */
+   *  决定公司池调账的对手科目（resolvePostingLegs：CORRECT / REVERSE → 公司权益，RECORD / WRITE_OFF 按方向见该函数），
+   *  同时用于留痕/统计分组；不参与 assertReasonAllowed 的合法性判定。 */
   family: AdjustFamily;
 }> = {
   // 第四族（spec §6）：钱在托管里一分没动，主人记错了。不走 book×direction
   // 语义（directions 空 = assertReasonAllowed 对它恒拒），分录由
-  // resolveReattributionLegs 直接定；两个客户的应付对转，资产腿不动。
+  // resolveReattributionLegs 直接定：一张凭证四腿——两个客户的应付对转 + 两个客户钱包的现金户一进一出
+  // （每客户一钱包，「记错人」就是「记错钱包」；托管里的钱没动，动的是账上记在谁的现金户）。
   CUSTOMER_REATTRIBUTION:     { book: 'CLIENT', directions: [],                     customerLabel: 'Account correction', internalLabel: 'Customer reattribution', family: 'REATTRIBUTE' },
   // 平账 A 批（spec §3）：第五族核销——查无果 + 账龄到线 + 小额，公司认下来。
   // 不是成因表里的成因：触发它的是账龄，开单守卫在 adjustment.service.assertWriteOffAllowed。
@@ -79,8 +85,8 @@ export const REASON_SPECS: Record<ReasonCode, {
   BANK_INTEREST_UNBOOKED: { book: 'FIRM',   directions: ['INCREASE'],           customerLabel: null, internalLabel: 'Bank interest unbooked', family: 'RECORD' },
   BANK_CHARGE_UNBOOKED:   { book: 'FIRM',   directions: ['REDUCE'],             customerLabel: null, internalLabel: 'Bank charges unbooked', family: 'RECORD' },
   // OTHER：双簿双向兜底（cause-registry.ts 里 usableIn 覆盖 CORRECT/REVERSE/RECORD/两个 HOLD，
-  // 但调账只在 ADJUST 出口用得到 reasonCode）。family 填 'CORRECT' 只是占位——OTHER 不真的属于
-  // 冲正族，只用于留痕/统计分组时有个桶放，assertReasonAllowed 的合法性判定不读这个字段。
+  // 但调账只在 ADJUST 出口用得到 reasonCode）。family 填 'CORRECT'：公司池的 OTHER 按冲正族走，
+  // 对手腿是公司权益（resolvePostingLegs 读这个字段），客户池照常对应付；assertReasonAllowed 的合法性判定不读它。
   OTHER:                  { book: 'ANY',    directions: ['REDUCE', 'INCREASE'], customerLabel: 'Balance correction', internalLabel: 'Other', family: 'CORRECT' },
 };
 
