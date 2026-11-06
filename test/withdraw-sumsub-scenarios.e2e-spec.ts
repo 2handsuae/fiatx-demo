@@ -32,6 +32,8 @@ import { AccountingService } from '../src/modules/accounting/tigerbeetle/account
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
+import { WalletCashAccountService } from '../src/modules/accounting/tigerbeetle/wallet-cash-account.service';
+import { SystemWalletResolver } from '../src/modules/funds-layer/domain/system-wallet-resolver.service';
 import { SUMSUB_TXN_CLIENT } from '../src/modules/sumsub-shared/sumsub-txn-client.interface';
 import { MockSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-client.mock';
 import { WithdrawDemoScenarioService } from '../src/modules/withdraw-sumsub/demo-scenario.service';
@@ -67,6 +69,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
   let withdrawQuoteService: WithdrawQuoteService;
   let fundsOrders: FundsOrderService;
   let accounting: AccountingService;
+  let walletResolver: SystemWalletResolver;
   let demoService: WithdrawDemoScenarioService;
   let materialRequests: MaterialRequestsService;
   let materialRequestReview: MaterialRequestReviewService;
@@ -99,6 +102,7 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
     withdrawQuoteService = app.get(WithdrawQuoteService);
     fundsOrders = app.get(FundsOrderService);
     accounting = app.get(AccountingService);
+    walletResolver = app.get(SystemWalletResolver);
     demoService = app.get(WithdrawDemoScenarioService);
     // 2026-08-18 迁移：WithdrawVerificationSessionService（按 seq 定位）已被
     // Task 9 掏空，职责并入材料请求账——改取 MaterialRequestsModule 导出的
@@ -253,6 +257,9 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
         address: opts.address ?? null, iban: opts.iban ?? null, status: 'ACTIVE',
       },
     });
+    // 戊波一:每个钱包一个现金户——运行时钱包在开地址流程里开户,这里直接 prisma.create 的夹具要补上,
+    // 否则充值进钱 / 提现锁定(贷客户现金户)解析不到账户。
+    await app.get(WalletCashAccountService).ensureForWallet(created);
     return created.id;
   }
 
@@ -275,12 +282,39 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
     });
   }
 
+  /** 按真实充值的形状给客户进钱(戊波一):先 码1 借客户钱包现金户 / 贷暂扣(钱到了钱包),再 码2 借暂扣 / 贷应付(放行入账)。
+   *  钱包经 SystemWalletResolver 解出(与提现锁定同一个解析器——保证进钱的钱包就是提现会去扣的那只)。
+   *  sourceNo 固定,重跑同一个库不重复进钱。 */
   async function fundCustomer(assetId: string, currency: string, amount: string): Promise<void> {
     const asset = await (prisma as any).asset.findUnique({ where: { id: assetId } });
     const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];
     const amountBigint = decimalToBigint(amount, asset.decimals);
+    const wallet = await walletResolver.resolveCustomer(assetId, asset.type === 'FIAT' ? 'C_VIBAN' : 'C_DEP', customerId);
+    const cashId = await accounting.resolveCashAccountId(wallet.id, ledger);
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
+    const common = {
+      sourceType: 'DEPOSIT',
+      sourceNo: `E2E-WITHDRAW-SCN-FUND-${currency}`,
+      assetCurrency: currency,
+      traceId: `e2e-withdraw-scn-fund-${currency}`,
+      actorType: 'SYSTEM',
+      actorId: 'E2E_HARNESS',
+      memo: 'e2e fixture: pre-fund customer balance for withdraw sumsub-scenario tests',
+    };
+    await accounting.executeTransfer({
+      debitAccountId: cashId,
+      creditAccountId: suspenseId,
+      amount: amountBigint,
+      ledger,
+      code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
+      evidence: {
+        ...common,
+        eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
+        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
+      },
+    });
     await accounting.executeTransfer({
       debitAccountId: suspenseId,
       creditAccountId: payableId,
@@ -288,16 +322,10 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
       ledger,
       code: TB_TRANSFER_CODES.DEPOSIT_SUSPENSE_TO_PAYABLE,
       evidence: {
-        sourceType: 'DEPOSIT',
-        sourceNo: `E2E-WITHDRAW-SCN-FUND-${currency}`,
+        ...common,
         eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE',
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
-        assetCurrency: currency,
-        traceId: `e2e-withdraw-scn-fund-${currency}`,
-        actorType: 'SYSTEM',
-        actorId: 'E2E_HARNESS',
-        memo: 'e2e fixture: pre-fund customer balance for withdraw sumsub-scenario tests',
       },
     });
   }

@@ -70,6 +70,10 @@ import { MockSumsubTxnClient } from '../src/modules/sumsub-shared/sumsub-txn-cli
 import { DepositDemoScenarioService } from '../src/modules/deposit-sumsub/demo-scenario.service';
 import { MaterialRequestsService } from '../src/modules/identity/material-requests/material-requests.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
+import { WalletCashAccountService } from '../src/modules/accounting/tigerbeetle/wallet-cash-account.service';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
+import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { WithdrawalAddressService } from '../src/modules/asset-treasury/withdrawal-addresses/withdrawal-address.service';
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
 import { ApprovalActorContext } from '../src/modules/governance/approvals/constants/approval.constants';
@@ -115,6 +119,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
   let customerId: string;
   let fiatAssetId: string;
   let fiatDecimals: number;
+  let cryptoDecimals: number;
   let fiatWalletId: string;
   let cryptoAssetId: string;
   let cryptoWalletId: string;
@@ -216,6 +221,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     fiatAssetId = fiatAsset.id;
     fiatDecimals = fiatAsset.decimals;
     cryptoAssetId = cryptoAsset.id;
+    cryptoDecimals = cryptoAsset.decimals;
 
     // ownerNo (not just ownerId) must be set — TB evidence's R2 invariant guard
     // cross-checks walletRef's wallet.ownerNo against tb_account_registry's ownerNo.
@@ -228,6 +234,9 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
       },
     });
     fiatWalletId = fiatWallet.id;
+    // 戊波一:每个钱包一个现金户——运行时钱包在开地址流程里开户,这里直接 prisma.create 的夹具要补上,
+    // 否则入账第一腿(借落地钱包现金户)解析不到账户,单子卡在 COMPLIANCE_PENDING。
+    await app.get(WalletCashAccountService).ensureForWallet(fiatWallet);
 
     const cryptoWallet = await prisma.wallet.create({
       data: {
@@ -238,6 +247,7 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
       },
     });
     cryptoWalletId = cryptoWallet.id;
+    await app.get(WalletCashAccountService).ensureForWallet(cryptoWallet);
 
     // Trading-ready gate (2026-07-11 invariant): approve is held without an active
     // fiat withdrawal address on file. Seed one via the real service.
@@ -300,6 +310,33 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
     return BigInt(whole + paddedFrac);
   }
 
+  /** 复现真实 Step 1(码 1:借 A.CLIENT_CASH·落地钱包 / 贷 L.DEPOSIT_SUSPENSE)——取户只经 resolveCashAccountId。 */
+  async function preBookStep1(depositNo: string, isCrypto: boolean, amount: string): Promise<void> {
+    const currency = isCrypto ? 'USDT' : 'AED';
+    const ledger = TB_LEDGERS[currency];
+    const cashId = await accounting.resolveCashAccountId(isCrypto ? cryptoWalletId : fiatWalletId, ledger);
+    const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
+    await accounting.executeTransfer({
+      debitAccountId: cashId,
+      creditAccountId: suspenseId,
+      amount: decimalToBigint(amount, isCrypto ? cryptoDecimals : fiatDecimals),
+      ledger,
+      code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
+      evidence: {
+        sourceType: 'DEPOSIT',
+        sourceNo: depositNo,
+        eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
+        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
+        assetCurrency: currency,
+        traceId: depositNo,
+        actorType: 'SYSTEM',
+        actorId: 'E2E_HARNESS',
+        memo: 'e2e fixture: simulate Step 1 (money already in suspense before the verdict under test arrives)',
+      },
+    });
+  }
+
   /**
    * Creates a deposit directly at COMPLIANCE_PENDING and drives L1
    * (submitSumsubTxns) for real, mirroring `detected()`'s COMPLIANCE_PENDING
@@ -348,6 +385,11 @@ describe('Deposit Sumsub verdict buttons (e2e, Task 9)', () => {
         limitHoldReason: opts.belowMin ? 'BELOW_MIN' : undefined,
       },
     });
+
+    // 戊波一:真实流程里合规审核只在 Step 1(钱到账落暂扣)之后才开始(detected() 已记账)。本夹具跳过 detected(),
+    // 暂扣户里就没有这笔钱;放行(Step 2:借暂扣 / 贷应付)与没收 / 退回都要动它,暂扣户是贷方户(借不得超贷),
+    // 所以必须按真实形状把 Step 1 先记上:码 1 借落地钱包现金户 / 贷暂扣。
+    await preBookStep1(created.depositNo, opts.isCrypto, opts.amount);
 
     mockSumsubTxnClient.primeSubmit(created.depositNo, submitTxnId);
 
