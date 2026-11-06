@@ -74,17 +74,33 @@ export const TB_TRANSFER_CODES = {
   //   法币腿 1：运营钱包 → 结算钱包；法币腿 2 / 加密币腿 1：公司放出 + 客户收到（一步两笔，任一失败整步失败）。
   INTERNAL_TRANSFER_OPS_TO_SET: 81, // DR 现金·结算钱包 viaWalletId(A.FIRM_CASH) / CR 现金·运营钱包 fromWalletId(A.FIRM_CASH)（法币腿 1）
   INTERNAL_TRANSFER_FIRM_OUT: 82,   // DR 对账核销损失(X.EXPENSE_RECON_LOSS) / CR 现金·公司钱包(A.FIRM_CASH；法币腿 2 = 结算钱包，加密币腿 1 = 运营钱包)
-  INTERNAL_TRANSFER_CLIENT_IN: 83,  // DR 现金·客户钱包 toWalletId(A.CLIENT_CASH) / CR 应付(L.CLIENT_PAYABLE，客户)
+  // 码 83 戊波二起按划转单用途分两种形状（码不改号，借贷由 eventCode 区分；SHORTFALL_TOPUP 形状随认损补缺单接线落地）：
+  //   用途 SHORTFALL_TOPUP（认损补缺的补款腿，eventCode INTERNAL_TRANSFER_SHORTFALL_TOPUP_IN）：
+  //     DR 现金·客户钱包 toWalletId(A.CLIENT_CASH,1) / CR 托管短缺待补·同一只客户钱包(A.CLIENT_SHORTFALL,2)——不碰应付，客户端零行
+  //   用途 CLIENT_ADVANCE（垫款，原样，eventCode INTERNAL_TRANSFER_ADVANCE_IN）：
+  //     DR 现金·客户钱包 toWalletId(A.CLIENT_CASH) / CR 应付(L.CLIENT_PAYABLE，客户)
+  INTERNAL_TRANSFER_CLIENT_IN: 83,
 
   // ── 战役乙波一（2026-09-29）：LP 兑换（84–86）。先款后货：卖出直出、买入落前厅、验收入库 ──
   // 戊波一(附录 B「LP 兑换」)接到现金户:公司权益是兑换对手盘,LP 前厅(F_LIQ 钱包)并入公司现金,不再有独立的在途验收户。
   LP_EXCHANGE_PAY: 84,     // 卖出腿：DR 公司权益(E.FIRM_EQUITY，卖出币) / CR 现金·运营钱包 sellFromWalletId(A.FIRM_CASH)
-  LP_EXCHANGE_RECEIVE: 85, // 买入腿：DR 现金·LP 前厅钱包 buyViaWalletId(A.FIRM_CASH) / CR 公司权益(E.FIRM_EQUITY，买入币)
+  LP_EXCHANGE_RECEIVE: 85, // 买入腿(戊波二改写)：DR 现金·LP 前厅钱包 buyViaWalletId(A.FIRM_CASH) / CR 应收 LP·该 LP(A.LP_RECEIVABLE，买入币)——LP 交货消掉码 88 挂的应收，不再贷公司权益
   LP_EXCHANGE_ACCEPT: 86,  // 验收转腿：DR 现金·运营钱包 buyToWalletId(A.FIRM_CASH) / CR 现金·LP 前厅钱包 buyViaWalletId(A.FIRM_CASH)
 
   // ── 战役乙波二（2026-09-29）：供应商付款（87）。单腿出：运营户直出到收款坐标；注资复用 70 ──
   // 戊波一(附录 B「支出」):钱出去记开支,不再借权益。
   VENDOR_PAYMENT: 87, // 付款腿：DR 银行与托管费用(X.EXPENSE_BANK_CUSTODY) / CR 现金·运营钱包 fromWalletId(A.FIRM_CASH)
+
+  // ── 戊波二（2026-11-07）：新账本才有的四个码（88–91）。码一经分配不可改号 ──
+  // 应收 LP：LP 兑换单卖出腿确认那一步，紧随码 84——钱已付给 LP、货还没到，挂一笔应收（LP 交货时由码 85 消掉）。
+  LP_EXCHANGE_RECEIVABLE: 88, // DR 应收 LP·该 LP(A.LP_RECEIVABLE,51，买入币 ledger) / CR 公司权益(E.FIRM_EQUITY,200，买入币 ledger)，金额 = 买入合同数
+  // 公司调拨单（公司钱包间挪钱，用途是单上的一个标签）：腿确认时一笔。
+  HOUSE_TRANSFER: 89,         // DR 现金·to 钱包(A.FIRM_CASH,50) / CR 现金·from 钱包(A.FIRM_CASH,50)
+  // 扫费同额结转：仅手续费户 → 运营户那条路，紧随码 89。把已扫进运营户的那截收入转成公司权益，运营户的钱才有权益背书。
+  // 总额 = min(调拨金额, Σ 收入户余额)，按码序 210 → 211 → 212 每户至多一笔，各自 eventCode FEE_INCOME_CLOSE_SWAP / _WITHDRAW / _OTHER。
+  FEE_INCOME_CLOSE: 90,       // DR 收入(E.INCOME_SWAP_FEE 210 / E.INCOME_WITHDRAW_FEE 211 / E.INCOME_OTHER 212) / CR 公司权益(E.FIRM_EQUITY,200)
+  // 认损补缺单：CFO 批准那一步，先于建补款腿——托管方少了客户的钱，公司认下：客户现金户记减、同额挂到「待补」，客户应付不动。生效日 = 案件业务日。
+  CLIENT_SHORTFALL_RECOGNIZED: 91, // DR 托管短缺待补·客户钱包(A.CLIENT_SHORTFALL,2) / CR 现金·同一只客户钱包(A.CLIENT_CASH,1)，eventCode INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED
 } as const;
 
 export type TbTransferCode = (typeof TB_TRANSFER_CODES)[keyof typeof TB_TRANSFER_CODES];

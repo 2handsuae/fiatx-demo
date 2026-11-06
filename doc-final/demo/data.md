@@ -238,11 +238,11 @@ IBAN 复用平台池 IBAN 生成器（`buildSystemPoolIban('LP_FALCON','AED')`�
 
 | 腿 | fundsOrderNo | 资产 | 金额 | 账本分录（code） | 借/贷 | 外部参考 |
 |---|---|---|---|---|---|---|
-| 1 卖出 | `FDO2601017173` | AED | 50,000 | 84 `LP_EXCHANGE_PAY` | DR `E.FIRM_EQUITY` / CR `A.FIRM_CASH`（公司现金·运营 AED） | `referenceNo`（FIAT，`fakeBankRef`） |
-| 2 买入落前厅 | `FDO2601017269` | USDT | 13,600 | 85 `LP_EXCHANGE_RECEIVE` | DR `A.FIRM_CASH`（公司现金·LP 前厅 USDT）/ CR `E.FIRM_EQUITY` | `txHash`（CRYPTO，`fakeChainTxHash`） |
+| 1 卖出 | `FDO2601017173` | AED | 50,000 | 84 `LP_EXCHANGE_PAY`；同一步紧随 88 `LP_EXCHANGE_RECEIVABLE`（USDT 13,600，无资金单、不另起一行） | 84：DR `E.FIRM_EQUITY` / CR `A.FIRM_CASH`（公司现金·运营 AED）；88：DR `A.LP_RECEIVABLE`（应收 LP·Falcon USDT）/ CR `E.FIRM_EQUITY` | `referenceNo`（FIAT，`fakeBankRef`） |
+| 2 买入落前厅 | `FDO2601017269` | USDT | 13,600 | 85 `LP_EXCHANGE_RECEIVE` | DR `A.FIRM_CASH`（公司现金·LP 前厅 USDT）/ CR `A.LP_RECEIVABLE`（应收 LP·Falcon USDT，消掉 88 挂的应收） | `txHash`（CRYPTO，`fakeChainTxHash`） |
 | 3 验收转 | `FDO2601015607` | USDT | 13,600 | 86 `LP_EXCHANGE_ACCEPT` | DR `A.FIRM_CASH`（公司现金·运营 USDT）/ CR `A.FIRM_CASH`（公司现金·LP 前厅 USDT） | `txHash`（CRYPTO） |
 
-**LP 两步准入后的单据列**（单据即快照，之后不回读地址簿）：`payoutAddressNo=LPA2601014044`、`payoutIban=AE470865518855649193687`（`payoutAddress` 空——卖出 AED 是法币，坐标抄 IBAN 不抄地址）；到货三件套 `deliveryFromAddress=TDeliverySourcePlaceholder00000000`（买入 USDT 是 crypto，来源落地址列、`deliveryFromIban` 空；即「干净占位」，常量 `DEFAULT_DELIVERY_SOURCE.CRYPTO`）、`deliveryScreeningAnswer=GREEN`、`deliveryScreenedAt`=到货时刻（回拨 2 天，与 `deliveredAt` 同值）——reset 世界里每笔到货都有筛查结论，详情区块不出空洞，也不造「功能前旧单」这种兼容层叙事。腿 1 `toIban` = 该 IBAN，腿 2 `fromAddress` = 该占位串；审批快照多 `payoutAddressNo` + `coordinate` 两键（对齐 `initiate` 的真实快照）。账本三笔分录零改动。
+**LP 两步准入后的单据列**（单据即快照，之后不回读地址簿）：`payoutAddressNo=LPA2601014044`、`payoutIban=AE470865518855649193687`（`payoutAddress` 空——卖出 AED 是法币，坐标抄 IBAN 不抄地址）；到货三件套 `deliveryFromAddress=TDeliverySourcePlaceholder00000000`（买入 USDT 是 crypto，来源落地址列、`deliveryFromIban` 空；即「干净占位」，常量 `DEFAULT_DELIVERY_SOURCE.CRYPTO`）、`deliveryScreeningAnswer=GREEN`、`deliveryScreenedAt`=到货时刻（回拨 2 天，与 `deliveredAt` 同值）——reset 世界里每笔到货都有筛查结论，详情区块不出空洞，也不造「功能前旧单」这种兼容层叙事。腿 1 `toIban` = 该 IBAN，腿 2 `fromAddress` = 该占位串；审批快照多 `payoutAddressNo` + `coordinate` 两键（对齐 `initiate` 的真实快照）。账本分录四笔（84 → 88 → 85 → 86，戊波二在卖出腿后加 88 挂应收、85 改贷应收 LP 消掉它）：期末应收 LP·Falcon（码 51）USDT 余额 0。
 
 三腿各配 1 条 `tbTransferEvidence` + 2 条 `accountFlow` 镜像（`AccountFlowProjectorService` 的真实行为：方向按每行所属**户的类别**判——借方户〔现金 / 开支〕借记 = IN、贷记 = OUT，贷方户〔应付 / 权益 / 收入〕贷记 = IN、借记 = OUT；三腿六行实测 IN 3 / OUT 3）——**3 条 evidence + 6 行 account_flows**（这是三腿的真实记账镜像；真实 workflow 的托管回单本身是 4 行非 6 行，见下一句）。托管回单（`external_statement_lines`/`external_balances`）不铺：`seedCapitalInjection` 模板本身也不写它，且 `recon:demo` 铺场脚本每次都会把外部账单从 `account_flows` 重铸一遍（`simulated-custodian-statement.service.ts` 头注释），本笔的 `account_flows` 镜像已经在库里，无需预先复制——**重铺后对账活证据见 `baseline.md`「F_LIQ 对账直比判据」节**：`recon:demo:pass` 实测 F_LIQ(USDT) 钱包在检且 `bucket=MATCHED matchedCount=2`（腿2 IN + 腿3 OUT 两行配对），`recon:demo:break` 18/18 场景不受干扰。
 

@@ -30,3 +30,4 @@
 （T1 起在此追加：任务号 / 文件 / 命令 + 退出码 + 关键行。）
 
 - **T1 科目码 2 / 51、开户、投影、天平**：`t1-account-codes-2-51-evidence.md`——TDD 红 / 绿与两组失效验证、闸门退出码、重铺后 81 户 → demo:all 后 **105** 户、`verify:coa` 前后、造不平一笔看天平变红再还原、天平硬编码清单（三处，全改）、一次 FDO 撞号偶发红的如实记录。
+- **T2 转账码 88–91 + 应收 LP 接线**：`t2-transfer-codes-88-91-lp-receivable-evidence.md`——单测与 e2e 的红 / 绿（e2e 红 = 把 workflow 临时还原成改前版）、闸门退出码、种子四腿（84→88→85→86）期末 51 = 0 的 TB 只读查询、e2e 里 51 / 200 / F_OPS / F_LIQ 的 TB 余额前后表、`GET /admin/tb/accounts?ownerType=LP&code=51` 返回 `ownerName`。

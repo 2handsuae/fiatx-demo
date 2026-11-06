@@ -17,6 +17,7 @@ describe('TbAccountRegistryService', () => {
       },
       customerMain: { findMany: jest.fn() },
       wallet: { findMany: jest.fn().mockResolvedValue([]) },
+      liquidityProvider: { findMany: jest.fn().mockResolvedValue([]) },
     };
     const mockTbService: any = { lookupAccounts: jest.fn().mockResolvedValue([]) };
     service = new TbAccountRegistryService(mockPrisma, mockTbService);
@@ -114,6 +115,33 @@ describe('TbAccountRegistryService', () => {
       expect(items[0].ownerName).toBe('Alice Happy');
       expect(items[1].ownerName).toBeNull();
       expect(mockPrisma.customerMain.findMany).toHaveBeenCalledTimes(1); // 无 N+1
+    });
+
+    it('LP 行(应收户 51)批量附 ownerName = LP 名称(一次 IN 联 liquidityProvider,无 N+1);无 LP 行时不查 LP 表;CUSTOMER / SYSTEM 行不受影响(戊波二)', async () => {
+      mockPrisma.tbAccountRegistry.findMany.mockResolvedValue([
+        { tbAccountId: 'a1', code: 51, ownerType: 'LP', ownerUuid: 'lp1', ownerNo: 'LPP1' },
+        { tbAccountId: 'a2', code: 51, ownerType: 'LP', ownerUuid: 'lp1', ownerNo: 'LPP1' },
+        { tbAccountId: 'a3', code: 51, ownerType: 'LP', ownerUuid: 'lp2', ownerNo: 'LPP2' },
+        { tbAccountId: 'a4', code: 100, ownerType: 'CUSTOMER', ownerUuid: 'u1', ownerNo: 'CU1' },
+        { tbAccountId: 'a5', code: 200, ownerType: 'SYSTEM', ownerUuid: null, ownerNo: null },
+      ]);
+      mockPrisma.tbAccountRegistry.count.mockResolvedValue(5);
+      mockPrisma.customerMain.findMany.mockResolvedValue([{ id: 'u1', firstName: 'Alice', lastName: 'Happy' }]);
+      // 行为化 mock:真按 where.id.in 过滤
+      const lps = [{ id: 'lp1', name: 'Falcon Liquidity FZE' }, { id: 'lp2', name: 'Dune Markets Ltd' }, { id: 'lp3', name: 'Not Queried' }];
+      mockPrisma.liquidityProvider.findMany.mockImplementation(async ({ where }: any) => lps.filter((l) => where.id.in.includes(l.id)));
+
+      const { items } = await service.findAll({ ownerType: 'LP', code: 51 });
+
+      expect(items.map((r: any) => r.ownerName)).toEqual(['Falcon Liquidity FZE', 'Falcon Liquidity FZE', 'Dune Markets Ltd', 'Alice Happy', null]);
+      expect(mockPrisma.liquidityProvider.findMany).toHaveBeenCalledTimes(1); // 无 N+1
+      expect(mockPrisma.liquidityProvider.findMany.mock.calls[0][0].where.id.in.sort()).toEqual(['lp1', 'lp2']); // 去重后只问用到的
+
+      // 一页里没有 LP 行 → 不碰 LP 表
+      mockPrisma.liquidityProvider.findMany.mockClear();
+      mockPrisma.tbAccountRegistry.findMany.mockResolvedValue([{ tbAccountId: 'a5', code: 200, ownerType: 'SYSTEM', ownerUuid: null, ownerNo: null }]);
+      await service.findAll({});
+      expect(mockPrisma.liquidityProvider.findMany).not.toHaveBeenCalled();
     });
 
     it('WALLET 行批量附 walletRole / walletNo(按 ownerUuid 一次 IN 联 wallets,无 N+1);非 WALLET 行两者为 null(戊波一 T8)', async () => {

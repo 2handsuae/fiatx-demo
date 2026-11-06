@@ -2345,8 +2345,8 @@ async function seedCapitalInjection(prisma: PrismaClient): Promise<void> {
 // tigerbeetle-node，服务直调铺数走不通；手写镜像，逐行对齐
 // lp-exchange-workflow.service.ts 的真实记账/回单形态：AccountingService.executeTransfer
 // 每次调用内部都会原子写 1 条 tbTransferEvidence + 2 条 accountFlow
-// （AccountFlowProjectorService.persist）——三腿 84/85/86 各一次，
-// 3 条 evidence + 6 行 accountFlow 镜像。托管回单（external_statement_lines /
+// （AccountFlowProjectorService.persist）——四笔 84/88/85/86 各一次（戊波二加 88 应收），
+// 4 条 evidence + 8 行 accountFlow 镜像。托管回单（external_statement_lines /
 // external_balances）不铺：seedCapitalInjection 模板本身也不写它，且 recon:demo 铺场
 // 脚本每次都会把外部账单从 account_flows 重铸一遍（simulated-custodian-statement.service.ts
 // 头注释），本笔的 account_flows 镜像已经在库里，无需预先复制托管回单。
@@ -2370,6 +2370,19 @@ async function findLpDeskSystemAccount(prisma: PrismaClient, code: number, ledge
   const reg = await (prisma as any).tbAccountRegistry.findFirst({ where: { code, ledger, ownerType: 'SYSTEM' }, select: { tbAccountId: true } });
   if (!reg) {
     throw new Error(`seedLpDesk: 找不到系统科目注册行 code=${code} ledger=${ledger}——provisionTbAccounts 是否先跑？`);
+  }
+  return reg;
+}
+
+/** 应收 LP 户查找（戊波二）：(51, 买入币账本, 'LP', lp.id)——与 AccountingService.resolveTbAccountId({code: 51, ledger, ownerType: 'LP', ownerUuid}) 同一个四元组。
+ *  开户在 seedLpDesk 前面的 ensureLpReceivableAccounts（Falcon / Dune 各 AED + USDT 两户），这里只读；找不到就抛。 */
+async function findLpReceivableAccount(prisma: PrismaClient, lpId: string, ledger: number): Promise<{ tbAccountId: string }> {
+  const reg = await (prisma as any).tbAccountRegistry.findFirst({
+    where: { code: TB_ACCOUNT_CODES.LP_RECEIVABLE, ledger, ownerType: 'LP', ownerUuid: lpId },
+    select: { tbAccountId: true },
+  });
+  if (!reg) {
+    throw new Error(`seedLpDesk: 找不到应收 LP 户注册行 code=${TB_ACCOUNT_CODES.LP_RECEIVABLE} ledger=${ledger} lpId=${lpId}——ensureLpReceivableAccounts 是否先跑？`);
   }
   return reg;
 }
@@ -2419,7 +2432,7 @@ const TB_DEV_OK_LP = 4294967295; // CreateTransferStatus.created（dev-mode echo
 async function seedLpDesk(prisma: PrismaClient): Promise<void> {
   const tbAddress = process.env.TB_ADDRESS;
   if (!tbAddress) {
-    // 同 seedCapitalInjection 纪律：不 graceful skip——少这三笔账本分录会让 F_LIQ/F_OPS
+    // 同 seedCapitalInjection 纪律：不 graceful skip——少这四笔账本分录会让 F_LIQ/F_OPS
     // 的期望余额（baseline.md）与实际不符，且失败点会落在很远的 verify:coa 下游。
     throw new Error(
       'TB_ADDRESS 未设置，无法铺 LP 历史兑换单的账本分录。修法：确认调用方显式传 TB_ADDRESS（见 scripts/reset-stack.sh）。',
@@ -2794,20 +2807,23 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
 
   console.log(`Seeded 1 LP exchange (${exchangeNo}, SUCCESS) + 1 APPROVED exchange approval case + 3 funds orders (legs 1/2/3, all CLEARED).`);
 
-  // ── 账本分录（84→85→86）+ 六行 accountFlow 镜像 ──────────────────────────
-  // 戊波一·附录 B「LP 兑换」波一列：
+  // ── 账本分录（84→88→85→86）+ 八行 accountFlow 镜像 ────────────────────────
+  // 戊波一·戊波二·附录 B「LP 兑换」：
   //   84 卖出腿出款确认   借 FIRM_EQUITY(AED) ／ 贷 公司现金·sellFrom(运营 AED)
-  //   85 LP 发货到前厅     借 公司现金·buyVia(LP 前厅 USDT) ／ 贷 FIRM_EQUITY(USDT)
+  //   88 紧随 84（同一步） 借 应收 LP·Falcon(51，USDT) ／ 贷 FIRM_EQUITY(USDT)，金额 = 买入合同数 13,600
+  //   85 LP 发货到前厅     借 公司现金·buyVia(LP 前厅 USDT) ／ 贷 应收 LP·Falcon(51，USDT)——交货消应收
   //   86 验收入库          借 公司现金·buyTo(运营 USDT) ／ 贷 公司现金·buyVia(LP 前厅 USDT)
-  // 现金户带「贷不超借」标志位，三腿必须按因果顺序记（84 先扣运营 AED、85 先入前厅、86 才从前厅转出）——下面 legs 的顺序即此序。
+  // 现金户与应收户都带「贷不超借」标志位，四腿必须按因果顺序记（84 先扣运营 AED、88 先挂应收、85 才消应收并入前厅、86 才从前厅转出）——
+  // 下面 legs 的顺序即此序；期末 51 余额 0（88 借 13,600、85 贷 13,600）。
   const aedLedger = TB_LEDGERS[aedAsset.currency as keyof typeof TB_LEDGERS];
   const usdtLedger = TB_LEDGERS[usdtAsset.currency as keyof typeof TB_LEDGERS];
-  const [equityAed, equityUsdt, cashSellFrom, cashBuyVia, cashBuyTo] = await Promise.all([
+  const [equityAed, equityUsdt, cashSellFrom, cashBuyVia, cashBuyTo, receivableUsdt] = await Promise.all([
     findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_EQUITY, aedLedger),
     findLpDeskSystemAccount(prisma, TB_ACCOUNT_CODES.FIRM_EQUITY, usdtLedger),
     findWalletCashAccount(prisma, sellFrom),
     findWalletCashAccount(prisma, buyVia),
     findWalletCashAccount(prisma, buyTo),
+    findLpReceivableAccount(prisma, falcon.id, usdtLedger),
   ]);
 
   const toMinor = (major: string, decimals: number): bigint => BigInt(major) * (10n ** BigInt(decimals));
@@ -2820,8 +2836,14 @@ async function seedLpDesk(prisma: PrismaClient): Promise<void> {
       code: TB_TRANSFER_CODES.LP_EXCHANGE_PAY, memo: `LP exchange ${exchangeNo} sell leg (paid to LP ${falcon.lpNo})`, at: executedAt,
     },
     {
-      eventCode: 'LP_EXCHANGE_RECEIVE', ledger: usdtLedger, debitReg: cashBuyVia, creditReg: equityUsdt,
-      debitCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH], creditCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY],
+      eventCode: 'LP_EXCHANGE_RECEIVABLE', ledger: usdtLedger, debitReg: receivableUsdt, creditReg: equityUsdt,
+      debitCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.LP_RECEIVABLE], creditCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY],
+      amount: toMinor(BUY_AMOUNT, usdtAsset.decimals), assetCode: 'USDT', externalRef: null,
+      code: TB_TRANSFER_CODES.LP_EXCHANGE_RECEIVABLE, memo: `LP exchange ${exchangeNo} receivable (LP ${falcon.lpNo} owes ${new Prisma.Decimal(BUY_AMOUNT).toFixed(usdtAsset.decimals)} USDT after the sell leg)`, at: executedAt,
+    },
+    {
+      eventCode: 'LP_EXCHANGE_RECEIVE', ledger: usdtLedger, debitReg: cashBuyVia, creditReg: receivableUsdt,
+      debitCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH], creditCoa: TB_CODE_TO_COA[TB_ACCOUNT_CODES.LP_RECEIVABLE],
       amount: toMinor(BUY_AMOUNT, usdtAsset.decimals), assetCode: 'USDT', externalRef: leg2TxHash,
       code: TB_TRANSFER_CODES.LP_EXCHANGE_RECEIVE, memo: `LP exchange ${exchangeNo} buy leg (received from LP ${falcon.lpNo})`, at: deliveredAt,
     },

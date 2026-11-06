@@ -1,4 +1,4 @@
-// 战役乙波一 T5 · LP 兑换 workflow（本波心脏）：审批裁决 / 三腿落账(84/85/86) / 验收 / ⚡到货。
+// 战役乙波一 T5 · LP 兑换 workflow（本波心脏）：审批裁决 / 三腿落账(84/85/86，戊波二卖出腿确认那一步多记一笔应收 88) / 验收 / ⚡到货。
 // 先款后货：批准即建卖出腿（腿 1，付给 LP，托管方账单上有这一行）；腿 1 清算后进悬空期（等 LP 发货）；
 // LP 打款落前厅为腿 2（⚡simulateDelivery，同一动作内建单+落账+advance+审计，直达
 // CONFIRMED——照充值域 fiat-at-birth 模拟推腿先例；LP 两步准入 Task 6：⚡可带来源坐标，
@@ -270,11 +270,12 @@ export class LpExchangeWorkflowService {
     });
   }
 
-  /** 先账后状态：84 先落，再收口清算，再翻 AWAITING_DELIVERY；落账失败停在原地不重试。 */
+  /** 先账后状态：84 先落、88 紧随（同一步两笔，任一失败整步失败），再收口清算，再翻 AWAITING_DELIVERY；落账失败停在原地不重试。 */
   private async onSellLegConfirmed(row: any, leg: any) {
     if (row.status !== LpExchangeStatus.EXECUTING) return;
     try {
       await this.postSellLeg(row, leg);
+      await this.postReceivable(row);
     } catch (err) {
       await this.exchangeAudit(row, { action: AuditActions.LP_EXCHANGE_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'POSTING_FAILED', reason: `Sell leg posting failed: ${(err as Error).message} — the order remains in Executing, the leg remains Confirmed, no retry`, fundsOrderNo: leg.fundsOrderNo });
       return;
@@ -402,11 +403,12 @@ export class LpExchangeWorkflowService {
     return { exchangeNo, status: updated.status as string };
   }
 
-  // ── 分录（84/85/86；戊波一·附录 B「LP 兑换」波一列）───────────────────────
+  // ── 分录（84/88/85/86；戊波一·戊波二·附录 B「LP 兑换」）────────────────────
   // 84 卖出腿出款确认：借 公司权益(卖出币) ／ 贷 现金·sellFromWalletId（运营）
-  // 85 LP 发货到前厅：借 现金·buyViaWalletId（LP 前厅） ／ 贷 公司权益(买入币)
+  // 88 紧随 84（同一步）：借 应收 LP·该 LP(51，买入币) ／ 贷 公司权益(买入币)，金额 = 买入合同数——钱已付、货未到，挂应收
+  // 85 LP 发货到前厅：借 现金·buyViaWalletId（LP 前厅） ／ 贷 应收 LP·该 LP(51，买入币)——交货消应收
   // 86 验收入库：借 现金·buyToWalletId（运营） ／ 贷 现金·buyViaWalletId（LP 前厅）
-  // 现金户一钱包一户，只经 resolveCashAccountId 取；权益户是该币种的 SYSTEM 户。
+  // 现金户一钱包一户，只经 resolveCashAccountId 取；权益户是该币种的 SYSTEM 户；应收户是 (51, ledger, 'LP', lpId)，LP 档案转 ACTIVE 时开。
 
   private ledgerOf(currency: string): number {
     const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];
@@ -416,6 +418,11 @@ export class LpExchangeWorkflowService {
 
   private equityAccount(ledger: number) {
     return this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_EQUITY, ledger, ownerType: 'SYSTEM' });
+  }
+
+  /** 该 LP 在某币种账本上的应收户（码 51）；没开户（LP 没走过 →ACTIVE）会抛 NotFound，记账失败即流程失败。 */
+  private lpReceivableAccount(row: any, ledger: number) {
+    return this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.LP_RECEIVABLE, ledger, ownerType: 'LP', ownerUuid: row.lpId });
   }
 
   private evidence(row: any, eventCode: string, debitCode: number, creditCode: number, assetCurrency: string, externalRef: string | null, memo: string) {
@@ -442,16 +449,33 @@ export class LpExchangeWorkflowService {
     });
   }
 
-  /** 腿 2（85）：DR 现金·buyViaWalletId（LP 打来落前厅的那只钱包）/ CR FIRM_EQUITY，买入币 ledger。 */
+  /** 应收（88，紧随 84）：DR 应收 LP·row.lpId（码 51）/ CR FIRM_EQUITY，买入币 ledger，金额 = 买入合同数。
+   *  没有资金单（钱没动，只是记下 LP 欠我们一笔货），故 externalRef 为 null。 */
+  private async postReceivable(row: any) {
+    const ledger = this.ledgerOf(row.buyAsset.currency);
+    const amount = majorToMinor(row.buyAmount, row.buyAsset.decimals);
+    await this.accounting.executeTransfer({
+      debitAccountId: await this.lpReceivableAccount(row, ledger),
+      creditAccountId: await this.equityAccount(ledger),
+      amount, ledger, code: TB_TRANSFER_CODES.LP_EXCHANGE_RECEIVABLE,
+      evidence: this.evidence(
+        row, 'LP_EXCHANGE_RECEIVABLE', TB_ACCOUNT_CODES.LP_RECEIVABLE, TB_ACCOUNT_CODES.FIRM_EQUITY, row.buyAsset.currency,
+        null,
+        `LP exchange ${row.exchangeNo} receivable (LP ${row.lpNo} owes ${new Prisma.Decimal(row.buyAmount).toFixed(row.buyAsset.decimals)} ${row.buyAsset.currency} after the sell leg)`,
+      ),
+    });
+  }
+
+  /** 腿 2（85）：DR 现金·buyViaWalletId（LP 打来落前厅的那只钱包）/ CR 应收 LP·row.lpId（码 51），买入币 ledger。 */
   private async postBuyLeg(row: any, leg: any) {
     const ledger = this.ledgerOf(row.buyAsset.currency);
     const amount = majorToMinor(leg.amount, row.buyAsset.decimals);
     await this.accounting.executeTransfer({
       debitAccountId: await this.accounting.resolveCashAccountId(row.buyViaWalletId, ledger),
-      creditAccountId: await this.equityAccount(ledger),
+      creditAccountId: await this.lpReceivableAccount(row, ledger),
       amount, ledger, code: TB_TRANSFER_CODES.LP_EXCHANGE_RECEIVE,
       evidence: this.evidence(
-        row, 'LP_EXCHANGE_RECEIVE', TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.FIRM_EQUITY, row.buyAsset.currency,
+        row, 'LP_EXCHANGE_RECEIVE', TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.LP_RECEIVABLE, row.buyAsset.currency,
         this.fundsOrders.resolveExternalRef({ ...leg, asset: row.buyAsset }),
         `LP exchange ${row.exchangeNo} buy leg (received from LP ${row.lpNo})`,
       ),

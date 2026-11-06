@@ -131,24 +131,43 @@ export class TbAccountRegistryService {
     return { items: this.attachAccountNames(await this.attachBalances(named)), total };
   }
 
-  /** CUSTOMER 行批量附 ownerName(单次 IN 查询,禁 N+1);SYSTEM 行恒 null。 */
+  /** CUSTOMER 行批量附 ownerName = 客户姓名、LP 行（应收户 51，戊波二）附 ownerName = LP 名称
+   *  （各一次 IN 查询,禁 N+1;页里没有该类行就不查那张表）;SYSTEM / WALLET 行恒 null。 */
   private async attachOwnerNames(rows: any[]): Promise<any[]> {
-    const uuids = [
+    const customerUuids = [
       ...new Set(
         rows.filter((r) => r.ownerType === 'CUSTOMER' && r.ownerUuid).map((r) => r.ownerUuid),
       ),
     ];
-    if (uuids.length === 0) return rows.map((r) => ({ ...r, ownerName: null }));
-    const customers = await (this.prisma as any).customerMain.findMany({
-      where: { id: { in: uuids } },
-      select: { id: true, firstName: true, lastName: true },
-    });
-    const names = new Map<string, string | null>(
-      customers.map((c: any) => [c.id, [c.firstName, c.lastName].filter(Boolean).join(' ') || null]),
-    );
+    const lpUuids = [
+      ...new Set(
+        rows.filter((r) => r.ownerType === 'LP' && r.ownerUuid).map((r) => r.ownerUuid),
+      ),
+    ];
+    if (customerUuids.length === 0 && lpUuids.length === 0) return rows.map((r) => ({ ...r, ownerName: null }));
+
+    const customerNames = new Map<string, string | null>();
+    if (customerUuids.length > 0) {
+      const customers = await (this.prisma as any).customerMain.findMany({
+        where: { id: { in: customerUuids } },
+        select: { id: true, firstName: true, lastName: true },
+      });
+      for (const c of customers) customerNames.set(c.id, [c.firstName, c.lastName].filter(Boolean).join(' ') || null);
+    }
+    const lpNames = new Map<string, string | null>();
+    if (lpUuids.length > 0) {
+      const lps = await (this.prisma as any).liquidityProvider.findMany({
+        where: { id: { in: lpUuids } },
+        select: { id: true, name: true },
+      });
+      for (const l of lps) lpNames.set(l.id, l.name ?? null);
+    }
     return rows.map((r) => ({
       ...r,
-      ownerName: r.ownerType === 'CUSTOMER' ? (names.get(r.ownerUuid) ?? null) : null,
+      ownerName:
+        r.ownerType === 'CUSTOMER' ? (customerNames.get(r.ownerUuid) ?? null)
+        : r.ownerType === 'LP' ? (lpNames.get(r.ownerUuid) ?? null)
+        : null,
     }));
   }
 
