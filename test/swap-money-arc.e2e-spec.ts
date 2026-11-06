@@ -21,6 +21,7 @@ import { SwapQuoteService } from '../src/modules/trading/swap-fee-level/swap-quo
 import { FundsOrderService } from '../src/modules/funds-orders/funds-order.service';
 import { FundsOrderAction, FundsOrderStatus } from '../src/modules/funds-orders/dto/funds-order.dto';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
+import { WalletCashAccountService } from '../src/modules/accounting/tigerbeetle/wallet-cash-account.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
@@ -167,9 +168,9 @@ describe('Swap money arcs (e2e, Task 12)', () => {
       address: 'AE070331234567890199999', iban: 'AE070331234567890199999',
     });
 
-    // Pre-fund the customer's CLIENT_PAYABLE balance for both assets (real TB
-    // transfer, DEPOSIT_SUSPENSE → CLIENT_PAYABLE — same leg a real deposit's
-    // Step 2 posts). Deterministic sourceNo → idempotent across repeated runs.
+    // Pre-fund the customer for both assets in the real deposit shape (real TB
+    // transfers: wallet cash → DEPOSIT_SUSPENSE, then DEPOSIT_SUSPENSE → CLIENT_PAYABLE).
+    // Deterministic sourceNo → idempotent across repeated runs.
     await fundCustomer(aedAssetId, 'AED', '1000000');
     await fundCustomer(usdtAssetId, 'USDT', '1000000');
   });
@@ -201,6 +202,9 @@ describe('Swap money arcs (e2e, Task 12)', () => {
         address: opts.address ?? null, iban: opts.iban ?? null, status: 'ACTIVE',
       },
     });
+    // 戊波一:每个钱包一个现金户——运行时钱包在开地址流程里开户,这里直接 prisma.create 的夹具要补上,
+    // 否则兑换腿 1 的锁定(贷客户现金户)解析不到账户。
+    await app.get(WalletCashAccountService).ensureForWallet(created);
     return created.id;
   }
 
@@ -223,12 +227,43 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     });
   }
 
+  /** 按真实充值的形状给客户进钱(戊波一):先 码1 借客户钱包现金户 / 贷暂扣(钱到了钱包),再 码2 借暂扣 / 贷应付(放行入账)。
+   *  法币走 vIBAN(C_VIBAN)、加密币走充值地址(C_DEP)——同一网络上的那只钱包。sourceNo 固定,重跑同一个库不重复进钱。 */
   async function fundCustomer(assetId: string, currency: string, amount: string): Promise<void> {
     const asset = await (prisma as any).asset.findUnique({ where: { id: assetId } });
     const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];
     const amountBigint = decimalToBigint(amount, asset.decimals);
+    const wallet = await (prisma as any).wallet.findFirst({
+      where: {
+        ownerType: 'CUSTOMER', ownerId: customerId, network: asset.network, status: 'ACTIVE',
+        walletRole: currency === 'AED' ? 'C_VIBAN' : 'C_DEP',
+      },
+    });
+    const cashId = await accounting.resolveCashAccountId(wallet.id, ledger);
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
+    const common = {
+      sourceType: 'DEPOSIT',
+      sourceNo: `E2E-SWAP-ARCS-FUND-${currency}`,
+      assetCurrency: currency,
+      traceId: `e2e-swap-arcs-fund-${currency}`,
+      actorType: 'SYSTEM',
+      actorId: 'E2E_HARNESS',
+      memo: 'e2e fixture: pre-fund customer balance for swap money-arc tests',
+    };
+    await accounting.executeTransfer({
+      debitAccountId: cashId,
+      creditAccountId: suspenseId,
+      amount: amountBigint,
+      ledger,
+      code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
+      evidence: {
+        ...common,
+        eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
+        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
+      },
+    });
     await accounting.executeTransfer({
       debitAccountId: suspenseId,
       creditAccountId: payableId,
@@ -236,17 +271,10 @@ describe('Swap money arcs (e2e, Task 12)', () => {
       ledger,
       code: TB_TRANSFER_CODES.DEPOSIT_SUSPENSE_TO_PAYABLE,
       evidence: {
-        sourceType: 'DEPOSIT',
-        sourceNo: `E2E-SWAP-ARCS-FUND-${currency}`,
+        ...common,
         eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE',
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
-        assetCurrency: currency,
-        traceId: `e2e-swap-arcs-fund-${currency}`,
-        actorType: 'SYSTEM',
-        actorId: 'E2E_HARNESS',
-        memo: 'e2e fixture: pre-fund customer balance for swap money-arc tests',
-        isExternalCrossing: false,
       },
     });
   }
@@ -329,6 +357,13 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     });
   }
 
+  /** 每个 eventCode 的 [借方科目, 贷方科目] 助记码必须与附录 B 一致(且一个 eventCode 恰好一行)。 */
+  function expectEvidencePairs(evidence: any[], expected: Record<string, [string, string]>): void {
+    const got: Record<string, [string, string]> = {};
+    for (const e of evidence) got[e.eventCode] = [e.debitCode, e.creditCode];
+    expect(got).toEqual(expected);
+  }
+
   async function waitUntil(predicate: () => Promise<boolean>, timeoutMs = 5000, intervalMs = 40): Promise<void> {
     const start = Date.now();
     for (;;) {
@@ -383,6 +418,16 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     // 2(sell)+1(settle)+2(buy)+2(fee) = 7 TB evidence rows for this swap.
     const evidence = await tbEvidence.findBySource('SWAP', swap.swapNo!);
     expect(evidence).toHaveLength(7);
+    // 戊波一·附录 B「兑换·反向(卖 USDT 买 AED)」:现金户 + 公司权益,不再有 FIRM_SET。
+    expectEvidencePairs(evidence, {
+      SWAP_SELL_CLIENT: ['L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
+      SWAP_SELL_FIRM: ['A.FIRM_CASH', 'E.FIRM_EQUITY'],
+      SWAP_BUY_OPS_TO_SET: ['A.FIRM_CASH', 'A.FIRM_CASH'],
+      SWAP_BUY_SET_TO_ASSET: ['E.FIRM_EQUITY', 'A.FIRM_CASH'],
+      SWAP_BUY_CLIENT: ['A.CLIENT_CASH', 'L.CLIENT_PAYABLE'],
+      SWAP_FEE_CLIENT: ['L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
+      SWAP_FEE_FIRM: ['A.FIRM_CASH', 'E.INCOME_SWAP_FEE'],
+    });
 
     const actions = await auditActionsFor(swap.id, AuditEntityTypes.SWAP_TRANSACTION);
     expect(actions).toContain(AuditActions.SWAP_KYT_APPROVED);
@@ -393,6 +438,40 @@ describe('Swap money arcs (e2e, Task 12)', () => {
     const toDelta = decimalToBigint(String(finalSwap.netToAmount), aedDecimals);
     expect(after.usdt).toBe(before.usdt - fromDelta);
     expect(after.aed).toBe(before.aed + toDelta);
+  });
+
+  it('1b. 反向 happy path(AED→USDT):4 腿全部 CLEAR → SUCCESS,7 笔证据落在现金户 + 公司权益,客户余额一减一加', async () => {
+    const before = await availableBalances();
+    const amount = '100';
+
+    const { swap } = await createSwap(aedAssetId, 'AED', usdtAssetId, 'USDT', amount);
+    expect(swap.status).toBe(SwapTransactionStatus.COMPLIANCE_PENDING);
+    await workflow.applyKytVerdict(swap.id, { verdict: 'approved' });
+
+    for (const legSeq of [1, 2, 3, 4]) {
+      await driveLegToClear(swap.id, swap.swapNo!, legSeq);
+    }
+    const finalSwap = await waitFor(async () => {
+      const s = await swapService.findByIdInternal(swap.id);
+      return s.status === SwapTransactionStatus.SUCCESS ? s : null;
+    });
+
+    const evidence = await tbEvidence.findBySource('SWAP', swap.swapNo!);
+    expect(evidence).toHaveLength(7);
+    // 戊波一·附录 B「兑换·正向(卖 AED 买 USDT)」:结算户 / 运营户都是公司现金,结算腿借贷现金与权益。
+    expectEvidencePairs(evidence, {
+      SWAP_SELL_CLIENT: ['L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
+      SWAP_SELL_FIRM: ['A.FIRM_CASH', 'E.FIRM_EQUITY'],
+      SWAP_SELL_SET_TO_OPS: ['A.FIRM_CASH', 'A.FIRM_CASH'],
+      SWAP_BUY_OPS_TO_ASSET: ['E.FIRM_EQUITY', 'A.FIRM_CASH'],
+      SWAP_BUY_CLIENT: ['A.CLIENT_CASH', 'L.CLIENT_PAYABLE'],
+      SWAP_FEE_CLIENT: ['L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
+      SWAP_FEE_FIRM: ['A.FIRM_CASH', 'E.INCOME_SWAP_FEE'],
+    });
+
+    const after = await availableBalances();
+    expect(after.aed).toBe(before.aed - decimalToBigint(amount, aedDecimals));
+    expect(after.usdt).toBe(before.usdt + decimalToBigint(String(finalSwap.netToAmount), usdtDecimals));
   });
 
   it('2. THE HEADLINE PROPERTY（站3·出生锁版）— KYT rejected swap: 圈全擦、余额复原、零落笔零单据, quote consumed, restrictions block SWAP/WITHDRAW but not DEPOSIT', async () => {

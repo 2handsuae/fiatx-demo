@@ -2,8 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
-import { buildSwapLegPlan, LegAccounting, SwapLegSpec } from '../../funds-layer/constants/swap-leg-plan.constant';
-import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { buildSwapLegPlan, cashSideRole, EntrySide, LegAccounting, SwapLegSpec } from '../../funds-layer/constants/swap-leg-plan.constant';
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA, isCashCode } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { deterministicTransferId, bigintToHex } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
@@ -76,14 +76,33 @@ export class SwapLegAccounting {
 
   // ── Account resolution ──
 
+  /**
+   * 戊波一:现金类(1 客户现金 / 50 公司现金)每个钱包一户——同一腿内,现金贷方 = 该腿 fromRole 的钱包、
+   * 现金借方 = toRole 的钱包(cashSideRole);客户角色(C_*)按 ctx.ownerId 解析,平台角色按资产解析。
+   * 现金户只经 resolveCashAccountId 取(没开户即抛,记账失败 = 流程失败);应付按客户;其余(权益 / 收入)按系统户。
+   */
   private async resolveAcct(
     code: number,
     ledger: number,
-    ownerId: string,
+    ctx: SwapSettleCtx,
+    spec: SwapLegSpec,
+    side: EntrySide,
     client?: any,
   ): Promise<bigint> {
+    if (isCashCode(code)) {
+      const role = cashSideRole(spec, side);
+      const assetId = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
+      const walletId = await this.resolveWallet(assetId, role, ctx.ownerId, client);
+      if (!walletId) {
+        throw new NotFoundException({
+          code: 'SWAP_CASH_WALLET_NOT_FOUND',
+          message: `Swap ${ctx.swapNo} leg ${spec.legSeq}: no ${role} wallet to hold the ${side} cash account`,
+        });
+      }
+      return this.accounting.resolveCashAccountId(walletId, ledger, client);
+    }
     if (code === TB_ACCOUNT_CODES.CLIENT_PAYABLE) {
-      return this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'CUSTOMER', ownerUuid: ownerId }, client);
+      return this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'CUSTOMER', ownerUuid: ctx.ownerId }, client);
     }
     return this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'SYSTEM' }, client);
   }
@@ -91,16 +110,11 @@ export class SwapLegAccounting {
   // ── Evidence builder ──
 
   /**
-   * Build the base evidence params for a leg-accounting entry, optionally
-   * augmented with Phase B per-physical-wallet recon fields.
+   * Build the base evidence params for a leg-accounting entry.
    *
-   * Phase B fields:
-   *   debit/creditWalletRef → physical wallet on each side (resolved per TB code).
-   *   externalRef           → owned by the leg's funds_order (crypto→txHash /
-   *                           fiat→referenceNo, minted at CONFIRMED). Stamped onto
-   *                           the POSTED evidence by postLeg → enrichForPost, not here.
-   *   isExternalCrossing    → true for all swap legs in this codebase (all are
-   *                           genuine cross-wallet moves per swap-leg-plan).
+   * 戊波一:钱包落点由账户本身表达(现金户一钱包一户),证据不再带 debit/creditWalletRef / isExternalCrossing。
+   * externalRef 归该腿资金单所有(crypto→txHash / fiat→referenceNo,CONFIRMED 时铸号),
+   * 由 postLeg → enrichForPost 盖到 POSTED 证据行上,这里不带。
    */
   private evidence(
     ctx: SwapSettleCtx,
@@ -108,9 +122,6 @@ export class SwapLegAccounting {
     extra?: {
       eventCodeOverride?: string;
       memoOverride?: string;
-      debitWalletRef?: string | null;
-      creditWalletRef?: string | null;
-      isExternalCrossing?: boolean;
     },
   ) {
     return {
@@ -124,17 +135,11 @@ export class SwapLegAccounting {
       actorType: 'SYSTEM',
       actorId: 'SWAP_SETTLEMENT',
       memo: extra?.memoOverride ?? `swap leg ${a.eventCode}`,
-      // Phase B per-physical-wallet recon (forwarded by AccountingService to TbEvidenceService)
-      debitWalletRef: extra?.debitWalletRef ?? null,
-      creditWalletRef: extra?.creditWalletRef ?? null,
-      // externalRef stays null on the base evidence — the funds_order-owned ref is
-      // stamped onto the POSTED row by postLeg → enrichForPost, never here.
       externalRef: null,
-      isExternalCrossing: extra?.isExternalCrossing ?? false,
     };
   }
 
-  // ── Wallet resolution (best-effort, informational only) ──
+  // ── Wallet resolution (miss → null; 现金户解析 / R1 校验各自按 null 抛错) ──
 
   private async resolveWallet(assetId: string, role: string, ownerId: string, client?: any): Promise<string | null> {
     try {
@@ -148,77 +153,6 @@ export class SwapLegAccounting {
     } catch {
       return null;
     }
-  }
-
-  // ── Phase B walletRef-by-TB-code helper ──
-
-  /**
-   * Phase B: resolve the physical wallet that a TB-code side of an accounting
-   * entry sits on. Best-effort — returns null on miss so the evidence row is
-   * still written (recon just can't pair this row by wallet).
-   *
-   * Mapping (per Phase B spec §4):
-   *   CLIENT_PAYABLE       → customer's wallet for this leg's customer role
-   *   CLIENT_CASH (agg.)  → SAME customer wallet (carried for audit drill-down)
-   *   FIRM_EQUITY             → platform's F_OPS wallet for this leg's asset
-   *   FIRM_SET             → platform's F_SET wallet
-   *   INCOME_SWAP_FEE      → platform's F_FEE wallet
-   *   FIRM_CASH (agg.)    → matched to the OTHER side's firm role (the entry's
-   *                          counterpart equity), so the aggregate row carries
-   *                          the same firm wallet as its equity counterpart.
-   */
-  private async walletRefForCode(
-    code: number,
-    counterpartCode: number,
-    spec: SwapLegSpec,
-    ctx: SwapSettleCtx,
-    client?: any,
-  ): Promise<string | null> {
-    const assetId = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
-
-    // Customer side: CLIENT_PAYABLE or its aggregate counterpart CLIENT_CASH
-    if (
-      code === TB_ACCOUNT_CODES.CLIENT_PAYABLE ||
-      code === TB_ACCOUNT_CODES.CLIENT_CASH
-    ) {
-      // Pick whichever of fromRole/toRole is the customer role on this leg
-      const customerRole = spec.fromRole.startsWith('C_')
-        ? spec.fromRole
-        : spec.toRole.startsWith('C_')
-        ? spec.toRole
-        : null;
-      if (!customerRole) return null;
-      return this.resolveWallet(assetId, customerRole, ctx.ownerId, client);
-    }
-
-    // Firm equity side: direct mapping to the role
-    const equityRoleMap: Record<number, string> = {
-      [TB_ACCOUNT_CODES.FIRM_EQUITY]: 'F_OPS',
-      [TB_ACCOUNT_CODES.FIRM_SET]: 'F_SET',
-      [TB_ACCOUNT_CODES.INCOME_SWAP_FEE]: 'F_FEE',
-    };
-    if (equityRoleMap[code]) {
-      return this.resolveWallet(assetId, equityRoleMap[code], ctx.ownerId, client);
-    }
-
-    // FIRM_CASH (aggregate): inherit the counterpart equity's wallet for audit
-    if (code === TB_ACCOUNT_CODES.FIRM_CASH && equityRoleMap[counterpartCode]) {
-      return this.resolveWallet(assetId, equityRoleMap[counterpartCode], ctx.ownerId, client);
-    }
-
-    return null;
-  }
-
-  /** Phase B: resolve walletRef pair for a leg accounting entry. */
-  private async resolveLegWalletRefs(
-    a: LegAccounting,
-    spec: SwapLegSpec,
-    ctx: SwapSettleCtx,
-    client?: any,
-  ): Promise<{ debitWalletRef: string | null; creditWalletRef: string | null }> {
-    const debitWalletRef = await this.walletRefForCode(a.debitCode, a.creditCode, spec, ctx, client);
-    const creditWalletRef = await this.walletRefForCode(a.creditCode, a.debitCode, spec, ctx, client);
-    return { debitWalletRef, creditWalletRef };
   }
 
   // ── R1: per-leg from/to wallet resolution (workflow IF columns) ──
@@ -297,17 +231,15 @@ export class SwapLegAccounting {
    * Does NOT call transitionSwapLeg — caller is responsible for the transition.
    */
   async initiateLegPending(ctx: SwapSettleCtx, spec: SwapLegSpec, client: any): Promise<void> {
-    // Phase B: every swap leg is a real cross-wallet movement (per swap-leg-plan
-    // there are no pure-bookkeeping legs). externalRef 归 funds_order 所有,在腿达到
-    // CONFIRMED 时由 postLeg → enrichForPost 补写真实铸号;pending 行此刻不带 ref。
+    // 每条兑换腿都是真实跨钱包移动(swap-leg-plan 里没有纯记账腿)。
+    // externalRef 归 funds_order 所有,在腿达到 CONFIRMED 时由 postLeg → enrichForPost 补写真实铸号;pending 行此刻不带 ref。
     const attempt = ctx.attempt ?? 1;
     for (const a of spec.accounting) {
       const amt = this.amountBigint(a.amountRef, ctx);
       if (amt <= 0n) continue;
       const ledger = this.ledgerFor(a.side, ctx);
-      const debitId = await this.resolveAcct(a.debitCode, ledger, ctx.ownerId, client);
-      const creditId = await this.resolveAcct(a.creditCode, ledger, ctx.ownerId, client);
-      const { debitWalletRef, creditWalletRef } = await this.resolveLegWalletRefs(a, spec, ctx, client);
+      const debitId = await this.resolveAcct(a.debitCode, ledger, ctx, spec, 'debit', client);
+      const creditId = await this.resolveAcct(a.creditCode, ledger, ctx, spec, 'credit', client);
       await this.accounting.executePendingTransfer({
         debitAccountId: debitId,
         creditAccountId: creditId,
@@ -315,11 +247,7 @@ export class SwapLegAccounting {
         ledger,
         code: a.code,
         timeout: 0,
-        evidence: this.evidence(ctx, a, {
-          debitWalletRef,
-          creditWalletRef,
-          isExternalCrossing: true,
-        }),
+        evidence: this.evidence(ctx, a),
         tx: client,
         // Self-heal: keep TB pending id aligned with post/void's deterministicTransferId
         // (`attempt` as the 4th arg). Without this, retried legs collide on attempt=0.
@@ -352,7 +280,7 @@ export class SwapLegAccounting {
       if (externalRef) {
         await this.tbEvidence.enrichForPost(
           bigintToHex(pendingId),
-          { externalRef, isExternalCrossing: true },
+          { externalRef },
           client,
         );
       }
