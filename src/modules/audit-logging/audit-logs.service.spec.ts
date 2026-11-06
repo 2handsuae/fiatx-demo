@@ -149,6 +149,8 @@ describe('AuditLogsService', () => {
       CAPITAL_INJECTION: 'CAPITAL_INJECTION',
       // 战役乙波二 T4（2026-09-29）：付款单主体
       VENDOR_PAYMENT: 'VENDOR_PAYMENT',
+      // 戊波二 T5（2026-11-07）：公司调拨单主体（审批 workflowType）
+      HOUSE_TRANSFER: 'HOUSE_TRANSFER',
       // 战役乙波三 T1（2026-09-30）：审慎（NLA）状态主体
       PRUDENTIAL: 'PRUDENTIAL',
       // 战役丙波三 T2（2026-10-03）：客户协议发布（审批 workflowType）

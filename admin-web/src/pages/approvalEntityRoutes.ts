@@ -82,6 +82,9 @@ export const ENTITY_ROUTE_BY_ACTION: Record<string, (ref: string) => string | nu
   // 战役乙波二（Task 7）：付款单——entityRef 是 payNo
   // （vendor-payment-workflow.service.ts initiate() 逐字确认）。
   VENDOR_PAYMENT_APPROVAL: (r) => `/admin/vendor-payments/${r}`,
+  // 戊波二（T5）：公司调拨单——entityRef 是 transferNo（house-transfer-workflow.service.ts initiate() 逐字确认）。
+  // 详情页本体 T6 落地（同 AGREEMENT_PUBLISH 先落路由表后落页面）。
+  HOUSE_TRANSFER_APPROVAL: (r) => `/admin/house-transfers/${r}`,
   // 战役丙波三（T9 随 S9 表同批加行，守键集相等；页面本体 T10 落地）：协议发布——entityRef 是
   // versionKey（agreement-publish-workflow.service.ts submitPublish 逐字确认），Customer
   // Agreements 是单页版本卡 + 选中版详情，没有按版本号寻址的子路由，回链落到该页。

@@ -109,6 +109,9 @@ export const ApprovalActionTypes = {
   // 战役乙波二 T5（2026-09-29）：付款单发起——金库提、CFO 单步批，复刻
   // CAPITAL_INJECTION_APPROVAL 同形状。挂在 VendorPayment 主体（entityRef=payNo）。
   VENDOR_PAYMENT_APPROVAL: 'VENDOR_PAYMENT_APPROVAL',
+  // 戊波二 T5（2026-11-07）：公司调拨单发起——金库提、CFO 单步批，复刻 VENDOR_PAYMENT_APPROVAL
+  // 同形状。挂在 HouseTransfer 主体（entityRef=transferNo）。
+  HOUSE_TRANSFER_APPROVAL: 'HOUSE_TRANSFER_APPROVAL',
   // 战役丙波三 T3（2026-10-03）：客户协议发布——合规官提（版本 + 生效日）、高管单步批。
   // 挂在 CustomerAgreementVersion 主体（entityRef=versionKey）。
   AGREEMENT_PUBLISH: 'AGREEMENT_PUBLISH',
@@ -484,6 +487,10 @@ export const DEFAULT_APPROVAL_POLICIES: Record<
   [ApprovalActionTypes.VENDOR_PAYMENT_APPROVAL]: {
     steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true,
   },
+  // 戊波二 T5（spec §4.2）：公司调拨单——CFO 单步 48h 可撤（照 INTERNAL_TRANSFER_APPROVAL 同参）。
+  [ApprovalActionTypes.HOUSE_TRANSFER_APPROVAL]: {
+    steps: [{ stepNo: 1, roles: ['CFO'] }], timeoutHours: 48, allowCancel: true,
+  },
   // 战役丙波三 T3（2026-10-03）：协议发布——合规官提、高管单步批，照 RI_REPLACEMENT 同款档位
   // （48h 超时可撤）。批准落地另有 30 天通知期复核（见 AgreementPublishWorkflowService）。
   [ApprovalActionTypes.AGREEMENT_PUBLISH]: {
@@ -566,6 +573,8 @@ export const V1_APPROVAL_ACTION_TYPES: readonly string[] = [
   ApprovalActionTypes.CAPITAL_INJECTION_APPROVAL,
   // 战役乙波二 T5：付款单——同上漏白名单教训，一并登记。
   ApprovalActionTypes.VENDOR_PAYMENT_APPROVAL,
+  // 戊波二 T5：公司调拨单——同上漏白名单教训，一并登记。
+  ApprovalActionTypes.HOUSE_TRANSFER_APPROVAL,
   // 战役丙波三 T3：协议发布——同上漏白名单教训，一并登记。
   ApprovalActionTypes.AGREEMENT_PUBLISH,
   // 甲波六 T1：LP 高风险 / 服务商 / 重大服务商三条准入策略——同上漏白名单教训，一并登记。

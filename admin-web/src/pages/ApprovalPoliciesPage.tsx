@@ -86,6 +86,8 @@ const ACTION_TYPE_LABELS: Record<string, string> = {
   CAPITAL_INJECTION_APPROVAL: 'Capital injection',
   // 战役乙波二 Task 7：付款单——金库提、CFO 单步批。
   VENDOR_PAYMENT_APPROVAL: 'Vendor payment',
+  // 戊波二 T5：公司调拨单——金库提、CFO 单步批。
+  HOUSE_TRANSFER_APPROVAL: 'House transfer',
   // 战役丙波三 T3 登记、T10 补人话标签：客户协议发布——合规官提、高管单步批。
   AGREEMENT_PUBLISH: 'Customer agreement publication',
   // 甲波六 T1：LP / 服务商背调与审批——合规官提；LP 高风险与重大服务商 CFO→高管两步，普通服务商 CFO 单步。

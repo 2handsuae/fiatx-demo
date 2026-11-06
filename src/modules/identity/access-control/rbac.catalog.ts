@@ -572,6 +572,12 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/vendor-payments/:payNo/cancel', 'Cancel a pending-approval vendor payment', ['FUNDING_WRITE']),
   route('GET', '/admin/vendor-payments', 'List vendor payments', ['FUNDING_READ']),
   route('GET', '/admin/vendor-payments/:payNo', 'Get vendor payment detail (with funds-order legs)', ['FUNDING_READ']),
+  // ─── 戊波二 T5 · 公司调拨单（HouseTransfer）：公司钱包间挪钱（运营户 ⇄ 手续费户），不开新权限组，复用 FUNDING_*
+  // （与注资单、付款单同组）。腿推进走资金单页 ⚡（FUNDS_ORDER_ACT），本族无 simulate-* 端点；静态段先于 :transferNo。───
+  route('POST', '/admin/house-transfers', "Initiate a house transfer (move the firm's own money between its operating and fee wallets) — CFO signs it off", ['FUNDING_WRITE']),
+  route('POST', '/admin/house-transfers/:transferNo/cancel', 'Cancel a pending-approval house transfer', ['FUNDING_WRITE']),
+  route('GET', '/admin/house-transfers', 'List house transfers', ['FUNDING_READ']),
+  route('GET', '/admin/house-transfers/:transferNo', 'Get house transfer detail (with the funds-order leg)', ['FUNDING_READ']),
   // 战役乙波三 T1：审慎（NLA）只读状态端点——归既有桶 treasury.view_dashboard 的组
   // FUNDING_DASHBOARD_VIEW（金库/CFO/高管/内审四职务本就持有，零权限扩张，零新桶）。
   route('GET', '/admin/prudential/status', 'Get the current NLA prudential status', ['FUNDING_DASHBOARD_VIEW']),
@@ -1115,6 +1121,16 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       {
         key: 'treasury.act_funding', label: 'Operate company funding',
         description: 'Initiate capital injections and vendor payments, confirm receipts — CFO signs off',
+        groups: ['FUNDING_WRITE'],
+      },
+      {
+        key: 'treasury.view_house_transfers', label: 'View house transfers',
+        description: 'Browse company wallet-to-wallet transfers (operating ⇄ fee) with their funds-order leg and fee-income close entries',
+        groups: ['FUNDING_READ'],
+      },
+      {
+        key: 'treasury.act_house_transfers', label: 'Operate house transfers',
+        description: 'Initiate or cancel a transfer between the firm operating and fee wallets (fee sweep) — CFO signs off',
         groups: ['FUNDING_WRITE'],
       },
       {

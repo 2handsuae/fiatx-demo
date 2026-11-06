@@ -654,6 +654,7 @@ model Asset {
   lpExchangesAsBuyAsset          LpExchange[]                    @relation("LpExchangeBuyAsset")
   capitalInjections              CapitalInjection[]              @relation("CapitalInjectionAsset")
   vendorPayments                 VendorPayment[]                 @relation("VendorPaymentAsset")
+  houseTransfers                 HouseTransfer[]                 @relation("HouseTransferAsset")
   reconciliationCases            ReconciliationCase[]
   withdrawalFeeLevels            WithdrawalFeeLevel[]
   swapFeeLevelsFrom              SwapFeeLevel[]                  @relation("SwapFeeLevelFromAsset")
@@ -1094,6 +1095,36 @@ model VendorPayment {
   @@map("vendor_payments")
 }
 
+// 戊波二：公司调拨单——公司自己的钱在运营户（F_OPS）与手续费户（F_FEE）之间挪（码 89）。用途是单上的一个标签，
+// 本波只放 FEE_SWEEP（扫费）；手续费户 → 运营户那条路另有同额结转（码 90，收入 → 公司权益，回执存 closeTbTransferIds）。
+// 腿是唯一一条资金单（fundsOrderNo 是批准后建腿时回填的业务号）。from / to 钱包存裸列，守卫在 FirmWalletPickerService。
+model HouseTransfer {
+  id                 String    @id @default(uuid())
+  transferNo         String    @unique
+  purpose            String    // FEE_SWEEP（字符串列，不做枚举约束——以后加用途 = 下拉加一个值）
+  assetId            String
+  amount             Decimal   // 元
+  fromWalletId       String    // 运营户 F_OPS 或手续费户 F_FEE（该资产网络上的行）
+  toWalletId         String    // 同上，且 ≠ from
+  reason             String
+  status             String    @default("PENDING_APPROVAL") // PENDING_APPROVAL | EXECUTING | SUCCESS | FAILED | REJECTED | CANCELLED
+  approvalNo         String?
+  fundsOrderNo       String?   // 唯一一条腿
+  closeTbTransferIds String?   // 码 90 的回执：落账顺序的 JSON 数组（0～3 笔，十六进制转账号）
+  failureReasonCode  String?   // INSUFFICIENT_FIRM_BALANCE | LEG_FAILED | POSTING_FAILED
+  failureNote        String?
+  executedAt         DateTime?
+  settledAt          DateTime?
+  traceId            String
+  createdByUserId    String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  asset       Asset @relation("HouseTransferAsset", fields: [assetId], references: [id])
+  fundsOrders FundsOrder[] @relation("HouseTransferFundsOrders")
+  @@index([status])
+  @@map("house_transfers")
+}
+
 model FundsOrder {
   id                    String                 @id @default(uuid())
   fundsOrderNo          String                 @unique
@@ -1104,6 +1135,7 @@ model FundsOrder {
   lpExchangeId          String?
   capitalInjectionId    String?
   vendorPaymentId       String?
+  houseTransferId       String?
   legSeq                Int                    @default(1)
   attempt               Int                    @default(1)
   status                String
@@ -1138,6 +1170,7 @@ model FundsOrder {
   lpExchange            LpExchange?            @relation("LpExchangeFundsOrders", fields: [lpExchangeId], references: [id], onDelete: Cascade)
   capitalInjection      CapitalInjection?      @relation("CapitalInjectionFundsOrders", fields: [capitalInjectionId], references: [id], onDelete: Cascade)
   vendorPayment         VendorPayment?         @relation("VendorPaymentFundsOrders", fields: [vendorPaymentId], references: [id], onDelete: Cascade)
+  houseTransfer         HouseTransfer?         @relation("HouseTransferFundsOrders", fields: [houseTransferId], references: [id], onDelete: Cascade)
   asset                 Asset                  @relation(fields: [assetId], references: [id])
   fromWallet            Wallet?                @relation("FundsOrderFromWallet", fields: [fromWalletId], references: [id])
   toWallet              Wallet?                @relation("FundsOrderToWallet", fields: [toWalletId], references: [id])
@@ -1148,6 +1181,7 @@ model FundsOrder {
   @@unique([lpExchangeId, legSeq, attempt])
   @@unique([capitalInjectionId, legSeq, attempt])
   @@unique([vendorPaymentId, legSeq, attempt])
+  @@unique([houseTransferId, legSeq, attempt])
   @@index([depositTransactionId])
   @@index([swapTransactionId, legSeq])
   @@index([withdrawTransactionId])
@@ -1155,6 +1189,7 @@ model FundsOrder {
   @@index([lpExchangeId])
   @@index([capitalInjectionId])
   @@index([vendorPaymentId])
+  @@index([houseTransferId])
   @@index([status])
   @@index([txHash])
   @@index([createdAt])

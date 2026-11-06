@@ -16,6 +16,10 @@ import { VendorPaymentService } from './vendor-payment.service';
 import { VendorPaymentWorkflowService } from './vendor-payment-workflow.service';
 import { VendorPaymentApprovalService } from './vendor-payment-approval.service';
 import { VendorPaymentController } from './vendor-payment.controller';
+import { HouseTransferService } from './house-transfer.service';
+import { HouseTransferWorkflowService } from './house-transfer-workflow.service';
+import { HouseTransferApprovalService } from './house-transfer-approval.service';
+import { HouseTransferController } from './house-transfer.controller';
 
 /**
  * 战役乙波二 · 公司资金（Company Funding）：T1/T2 注资单主体（CapitalInjection）——
@@ -29,13 +33,16 @@ import { VendorPaymentController } from './vendor-payment.controller';
  * 批准即复核余额、建腿走正常 OUT 推进，同 T3 imports 清单（无新依赖）。
  * 乙波三 T2：付款单 initiate 插 NLA 算术门，横向读 PrudentialModule 导出的
  * PrudentialService（铁律③放行，照 OutsourcingVendorsService 先例）。
+ * 戊波二 T5：公司调拨单（HouseTransfer）——公司钱包间挪钱（码 89，手续费户 → 运营户再加扫费结转码 90）。
+ * 无新依赖（FundsLayerModule 导出 FirmWalletPickerService、PrudentialModule 导出 PrudentialService，本清单早已含两者）。
  */
 @Module({
   imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, FundsLayerModule, ApprovalsModule, ReconciliationModule, ComplianceOfficeModule, PrudentialModule],
-  controllers: [CapitalInjectionController, VendorPaymentController],
+  controllers: [CapitalInjectionController, VendorPaymentController, HouseTransferController],
   providers: [
     CapitalInjectionService, CapitalInjectionWorkflowService, CapitalInjectionApprovalService,
     VendorPaymentService, VendorPaymentWorkflowService, VendorPaymentApprovalService,
+    HouseTransferService, HouseTransferWorkflowService, HouseTransferApprovalService,
   ],
   exports: [CapitalInjectionService, VendorPaymentService],
 })

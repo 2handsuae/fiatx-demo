@@ -200,6 +200,14 @@ describe('PushOrderService', () => {
     await expect(svc.syncPush('FO-1', 'a')).rejects.toThrow(/transfer workflow/);
   });
 
+  // 戊波二 T5：调拨腿由调拨单 workflow 落账（码 89 / 90），push-order 的推单不适用——照划转腿显式拒（2026-09-21 甲案）。
+  it('rejects house-transfer-leg orders (push order is not supported for them), both syncPush and manualPush', async () => {
+    const { svc } = build({ order: makeOrder({ houseTransferId: 'htr-1' }) });
+    await expect(svc.syncPush('FO-1', 'a')).rejects.toThrow(BadRequestException);
+    await expect(svc.syncPush('FO-1', 'a')).rejects.toThrow(/House-transfer-leg/);
+    await expect(svc.manualPush('FO-1', 'a', { externalDate: '2026-11-07', receiptRef: 'R1', reason: 'r' } as any)).rejects.toThrow(/House-transfer-leg/);
+  });
+
   it('driveToCleared rethrows non-transition advance errors (e.g. row deleted) — not masked as "no legal advance action"', async () => {
     // M-1: a narrowed catch only continues on "Invalid transition"; a NotFound (row vanished mid-drive)
     // must propagate verbatim, not be swallowed into the generic "no legal advance" BadRequest.

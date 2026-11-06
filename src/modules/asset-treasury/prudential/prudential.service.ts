@@ -132,11 +132,12 @@ export class PrudentialService {
     };
   }
 
-  /** 算术门（spec §3）：付款单/LP 兑换单两个提单口发起时用——当前 NLA 减折算后出款额，
+  /** 算术门（spec §3）：付款单/LP 兑换单/公司调拨单三个提单口发起时用——当前 NLA 减折算后出款额，
    *  低于红线即拒建单（400）。检查只在发起时算一次（单人顺序假设，批准时不复检，既有
    *  余额闸的批准时复核照旧独立运行）。内部划转（义务性）与注资（进项）刻意不接门——
-   *  豁免是业务立场非遗漏（spec §3 表），调用点在 VendorPaymentWorkflowService /
-   *  LpExchangeWorkflowService 两处 initiate，本方法不知道、也不关心调用方是谁。
+   *  豁免是业务立场非遗漏（spec §3 表）。调用点三处 initiate：VendorPaymentWorkflowService（仅 from = 运营户时）、
+   *  LpExchangeWorkflowService（卖出腿恒从运营户出）、HouseTransferWorkflowService（仅 from = 运营户时，
+   *  戊波二 T5：手续费户出钱运营户不动，不过门）；本方法不知道、也不关心调用方是谁。
    *  拦下也留痕——单未建、无单号，照 WITHDRAW_L1_BLOCKED 形制：先写审计后抛异常。 */
   async assertPostOutflowCompliant(input: AssertPostOutflowCompliantInput): Promise<void> {
     const status = await this.computeStatus();

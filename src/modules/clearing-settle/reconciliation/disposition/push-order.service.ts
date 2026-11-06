@@ -113,6 +113,11 @@ export class PushOrderService {
         'Internal-transfer-leg funds orders are advanced by the transfer workflow — push order is not supported for them; open the internal transfer detail page instead',
       );
     }
+    if (order.houseTransferId) {
+      throw new BadRequestException(
+        'House-transfer-leg funds orders are advanced from the funds-order page and posted by the house transfer workflow — push order is not supported for them; open the house transfer detail page instead',
+      );
+    }
     if (TERMINAL.has(order.status)) {
       throw new BadRequestException(`FundsOrder ${fundsOrderNo} is already in a terminal state (${order.status}) — nothing to advance`);
     }

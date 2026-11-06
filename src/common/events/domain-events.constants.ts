@@ -169,6 +169,20 @@ export const DOMAIN_EVENTS = {
       'decisionByUserId, decisionByUserNo, decisionByRole, decisionReason, decidedAt, traceId }',
   },
 
+  // ── House Transfer 审批裁决（戊波二 T5，2026-11-07）──
+  // ApprovalHandlerBase 派生的二级事件（HOUSE_TRANSFER_APPROVAL 审批裁决后）——workflowType 复用
+  // AuditBusinessWorkflowTypes.HOUSE_TRANSFER，派生事件名照 buildSecondaryEventName 的 kebab 规则算出
+  // 'workflow.house-transfer.decided'。划转单 / 付款单 / 注资单的同类事件此前没登记本表（本表历来只收一手事件），
+  // 新主体按近期先例（LP_PROFILE_DECIDED 等）登记。
+  HOUSE_TRANSFER_DECIDED: {
+    name: 'workflow.house-transfer.decided',
+    emitter: 'HouseTransferApprovalService',
+    subscribers: ['HouseTransferWorkflowService'],
+    payload:
+      'ApprovalDecidedEvent — { decision, actionType, entityRef(transferNo), approvalNo, ' +
+      'decisionByUserId, decisionByUserNo, decisionByRole, decisionReason, decidedAt, traceId }',
+  },
+
   // ── Regulatory Filing 标记已提交（甲波六 T1，2026-10-29）──
   // 一手域事件（非审批派生）：报送台把一张报送单标记为已提交（SUBMITTED，带监管回执 externalRef）后，
   // 由 RegulatoryFilingService 发出；服务商准入流程里 MATERIAL 的「VARA 事前报备」告知单（T7 自动开出）

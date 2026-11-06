@@ -47,6 +47,8 @@ export const AuditEntityTypes = {
   CAPITAL_INJECTION: 'CAPITAL_INJECTION',
   // 战役乙波二 T4（2026-09-29）：付款单主体
   VENDOR_PAYMENT: 'VENDOR_PAYMENT',
+  // 戊波二 T5（2026-11-07）：公司调拨单主体——业务键 = transferNo（HTR…）
+  HOUSE_TRANSFER: 'HOUSE_TRANSFER',
   // 战役乙波三 T1（2026-09-30）：审慎（NLA）状态主体——业务键固定 'NLA'，零 UUID
   PRUDENTIAL_STATUS: 'PRUDENTIAL_STATUS',
   // 战役丙波三 T2（2026-10-03）：客户协议版本主体——业务键 = versionKey（'v1'/'v2'，版本非单据，破例不走单号）
@@ -170,6 +172,9 @@ export const AuditBusinessWorkflowTypes = {
   CAPITAL_INJECTION: 'CAPITAL_INJECTION',
   // 战役乙波二 T4（2026-09-29）：付款单主体（财资件，独立主体 VendorPayment）
   VENDOR_PAYMENT: 'VENDOR_PAYMENT',
+  // 戊波二 T5（2026-11-07）：公司调拨单主体（财资件，独立主体 HouseTransfer；同时是 HOUSE_TRANSFER_APPROVAL 的
+  // 审批 workflowType，派生 workflow.house-transfer.decided）
+  HOUSE_TRANSFER: 'HOUSE_TRANSFER',
   // 战役乙波三 T1（2026-09-30）：审慎（NLA）状态主体（财资件，独立主体 PrudentialStatus）
   PRUDENTIAL: 'PRUDENTIAL',
   // 战役丙波三 T2（2026-10-03）：客户协议发布（治理件，审批 workflowType，T3 handler 消费）
@@ -568,6 +573,14 @@ export const AuditActions = {
   VENDOR_PAYMENT_FAILED: 'VENDOR_PAYMENT_FAILED',
   VENDOR_PAYMENT_REJECTED: 'VENDOR_PAYMENT_REJECTED',
   VENDOR_PAYMENT_CANCELLED: 'VENDOR_PAYMENT_CANCELLED',
+  // ── 戊波二 T5（2026-11-07）：公司调拨单七码（财资件，域 TREASURY）──────────
+  HOUSE_TRANSFER_REQUESTED: 'HOUSE_TRANSFER_REQUESTED',
+  HOUSE_TRANSFER_CANCELLED: 'HOUSE_TRANSFER_CANCELLED',
+  HOUSE_TRANSFER_REJECTED: 'HOUSE_TRANSFER_REJECTED',
+  HOUSE_TRANSFER_EXECUTION_STARTED: 'HOUSE_TRANSFER_EXECUTION_STARTED',
+  HOUSE_TRANSFER_LEG_POSTED: 'HOUSE_TRANSFER_LEG_POSTED',
+  HOUSE_TRANSFER_SETTLED: 'HOUSE_TRANSFER_SETTLED',
+  HOUSE_TRANSFER_FAILED: 'HOUSE_TRANSFER_FAILED',
   // ── 战役乙波三 T1（2026-09-30）：审慎（NLA）状态两码（财资件，域 TREASURY）──────
   PRUDENTIAL_CHECK_PERFORMED: 'PRUDENTIAL_CHECK_PERFORMED',
   PRUDENTIAL_GATE_BLOCKED: 'PRUDENTIAL_GATE_BLOCKED',
@@ -1424,6 +1437,22 @@ export const CAMPAIGN_B_VENDOR_PAYMENT_AUDIT_ACTIONS: Record<string, AuditAction
   VENDOR_PAYMENT_FAILED:            { domain: 'TREASURY', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
   VENDOR_PAYMENT_REJECTED:          { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
   VENDOR_PAYMENT_CANCELLED:         { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+};
+
+/** 戊波二 T5（spec §4.2）：公司调拨单七码，域 TREASURY——四属性逐码抄 V7_TREASURY_AUDIT_ACTIONS 同名后缀码
+ * （调拨单状态机就是划转单六态六边原样）：REQUESTED 起调拨单自己的旅程老实标 NONE；CANCELLED 是直接操作、必填
+ * reason；REJECTED / EXECUTION_STARTED 由审批裁决驱动，必填 approvalNo 且要因果；LEG_POSTED 腿确认后分录落账、必填
+ * amount；SETTLED 必填 amount+effectiveDate；FAILED 必填 reasonCode（INSUFFICIENT_FIRM_BALANCE | LEG_FAILED |
+ * POSTING_FAILED）。主体信封：primarySubject=HOUSE_TRANSFER·transferNo，subjects 加 from / to 钱包 WALLET RELATED
+ * + 审批单 INSTRUMENT + 资金单 RELATED；每条带显式 requestId（`${action}_${transferNo}_${randomUUID()}`）。 */
+export const CAMPAIGN_E_HOUSE_TRANSFER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
+  HOUSE_TRANSFER_REQUESTED:         { domain: 'TREASURY', correlationMode: N, requiredFields: ['amount', 'reason'], requiresCausation: false },
+  HOUSE_TRANSFER_CANCELLED:         { domain: 'TREASURY', correlationMode: I, requiredFields: ['reason'], requiresCausation: false },
+  HOUSE_TRANSFER_REJECTED:          { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  HOUSE_TRANSFER_EXECUTION_STARTED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['approvalNo'], requiresCausation: true },
+  HOUSE_TRANSFER_LEG_POSTED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount'], requiresCausation: false },
+  HOUSE_TRANSFER_SETTLED:           { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount', 'effectiveDate'], requiresCausation: false },
+  HOUSE_TRANSFER_FAILED:            { domain: 'TREASURY', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
 };
 
 /** 战役乙波三 T1（spec §1/plan Task1 Step3）：审慎（NLA）状态两码，域 TREASURY——同
