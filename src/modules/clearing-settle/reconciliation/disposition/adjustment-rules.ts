@@ -1,12 +1,18 @@
 // 调账规则（spec §3/§4/§5）——纯函数，无 IO。
-// 关键认知：借贷科目**只由（账簿 × 方向）决定**，成因不参与计算。成因只用于
-// 留痕、客户文案、闸门。故没有 shape/bearer 这类字段（初稿有，已删，见 spec §0）。
+// 戊波一（账本按位置重立）：现金腿 = 案子钱包的现金户，由账簿定（客户池 1 / 公司池 50）；
+// 对手腿客户池恒为应付，公司池按**处置家族**分（成因码经 REASON_SPECS 折到家族）。
+// 成因本身仍不参与计算，只用于留痕、客户文案、闸门——但家族决定公司池的对手科目
+// （更正/冲销 → 公司权益，补记杂费 → 银行与托管费用，补记利息 / 核销多钱 → 其他收入，核销少钱 → 对账核销损失）。
 import { BadRequestException } from '@nestjs/common';
 import { TB_ACCOUNT_CODES } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import type { AdjustFamily } from './cause-registry';
 
 export type Book = 'CLIENT' | 'FIRM';
 export type Direction = 'REDUCE' | 'INCREASE';
+
+/** 调账凭证 evidence.sourceType 的唯一字面。落账（adjustment.service）与对账引擎（匹配器 / 案件流水对照
+ *  排除调账行）共用这一个常量，两侧不许各写各的字面量。 */
+export const RECON_ADJUSTMENT_SOURCE_TYPE = 'RECON_ADJUSTMENT';
 
 export type ReasonCode =
   | 'CUSTOMER_REATTRIBUTION'
@@ -89,15 +95,41 @@ export function assertReasonAllowed(reasonCode: ReasonCode, book: Book, directio
   }
 }
 
-export function resolvePostingLegs(book: Book, direction: Direction): { debitCode: number; creditCode: number } {
-  if (book === 'CLIENT') {
-    return direction === 'REDUCE'
-      ? { debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE, creditCode: TB_ACCOUNT_CODES.CLIENT_CASH }
-      : { debitCode: TB_ACCOUNT_CODES.CLIENT_CASH,   creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE };
+/**
+ * 公司池对手腿（附录 B「平账调账单」）。REDUCE = 公司现金变少、INCREASE = 变多，对手科目看家族：
+ *   CORRECT / REVERSE 两个方向 → 公司权益；
+ *   RECORD：INCREASE（补记银行利息）→ 其他收入，REDUCE（补记银行杂费）→ 银行与托管费用；
+ *   WRITE_OFF：REDUCE（托管里少了）→ 对账核销损失，INCREASE（托管里多出）→ 其他收入
+ *   （不能贷 301：它是借方户，贷不得超借会被 TB 拒——总纲 §4 岔口 7）。
+ */
+function firmCounterCode(family: AdjustFamily, direction: Direction): number {
+  switch (family) {
+    case 'CORRECT':
+    case 'REVERSE':
+      return TB_ACCOUNT_CODES.FIRM_EQUITY;
+    case 'RECORD':
+      return direction === 'INCREASE' ? TB_ACCOUNT_CODES.INCOME_OTHER : TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY;
+    case 'WRITE_OFF':
+      return direction === 'REDUCE' ? TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS : TB_ACCOUNT_CODES.INCOME_OTHER;
+    case 'REATTRIBUTE':
+      // 改记不走 book×direction，分录由 resolveReattributionLegs 定；调用方分流在前，到这里是调用错。
+      throw new Error('REATTRIBUTE has no book × direction legs — use resolveReattributionLegs');
   }
+}
+
+/**
+ * 单腿凭证的借贷科目码。现金码 = 账簿（客户池 1 / 公司池 50），具体落到案子钱包的哪个现金户由调用方经
+ * `AccountingService.resolveCashAccountId(walletRef, ledger)` 取。
+ * REDUCE = 借对手 / 贷现金；INCREASE = 借现金 / 贷对手。
+ */
+export function resolvePostingLegs(book: Book, direction: Direction, reasonCode: ReasonCode): { debitCode: number; creditCode: number } {
+  const cashCode = book === 'CLIENT' ? TB_ACCOUNT_CODES.CLIENT_CASH : TB_ACCOUNT_CODES.FIRM_CASH;
+  const counterCode = book === 'CLIENT'
+    ? TB_ACCOUNT_CODES.CLIENT_PAYABLE
+    : firmCounterCode(REASON_SPECS[reasonCode].family, direction);
   return direction === 'REDUCE'
-    ? { debitCode: TB_ACCOUNT_CODES.FIRM_EQUITY,   creditCode: TB_ACCOUNT_CODES.FIRM_CASH }
-    : { debitCode: TB_ACCOUNT_CODES.FIRM_CASH, creditCode: TB_ACCOUNT_CODES.INCOME_OTHER };
+    ? { debitCode: counterCode, creditCode: cashCode }
+    : { debitCode: cashCode, creditCode: counterCode };
 }
 
 /**
@@ -108,9 +140,19 @@ export function requiresRelatedOrder(book: Book, direction: Direction): boolean 
   return book === 'CLIENT' && direction === 'INCREASE';
 }
 
-/** 第五种分录组合（spec §6）：借 错记方 CLIENT_PAYABLE / 贷 正主方 CLIENT_PAYABLE。
- *  同码不同 ownerUuid——resolveTbAccountId 按 (code, ledger, ownerUuid) 落到两个
- *  不同的客户负债户上。客户资产腿（CLIENT_CASH）刻意不动：托管里的钱没动。 */
-export function resolveReattributionLegs(): { debitCode: number; creditCode: number } {
-  return { debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE, creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE };
+/** 第五种分录组合（改记）：一张凭证两笔码 80，四条腿——
+ *  应付对：借 错记方 CLIENT_PAYABLE / 贷 正主方 CLIENT_PAYABLE（同码不同 ownerUuid，
+ *    resolveTbAccountId 按 (code, ledger, ownerUuid) 落到两个不同的客户负债户）；
+ *  现金对：借 正主方钱包 CLIENT_CASH / 贷 错记方钱包 CLIENT_CASH（同码不同钱包，
+ *    每客户一个钱包，「记错人」就是「记错钱包」——钱实际在正主的钱包里，账却记在错记方的现金户上；
+ *    总纲 §4 岔口 6）。
+ *  现金对不挪的话，两案永远不自愈，正主的应付还会比他的现金多、提现撞不负标志。 */
+export function resolveReattributionLegs(): {
+  payable: { debitCode: number; creditCode: number };
+  cash: { debitCode: number; creditCode: number };
+} {
+  return {
+    payable: { debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE, creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE },
+    cash: { debitCode: TB_ACCOUNT_CODES.CLIENT_CASH, creditCode: TB_ACCOUNT_CODES.CLIENT_CASH },
+  };
 }

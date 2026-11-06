@@ -25,6 +25,8 @@ import { WalletReconRunService } from '../src/modules/clearing-settle/reconcilia
 import { ReconciliationQueryService } from '../src/modules/clearing-settle/reconciliation/domain/reconciliation-query.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
+import { WalletCashAccountService } from '../src/modules/accounting/tigerbeetle/wallet-cash-account.service';
+import { bigintToHex } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_TRANSFER_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-transfer-codes.constant';
 import { ApprovalsService } from '../src/modules/governance/approvals/approvals.service';
@@ -58,10 +60,11 @@ import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.
  *     concurrently, so a dedicated wallet is the only race-free way to reason
  *     about "this wallet's total".
  *   - A customer wallet is "funded" with the exact same two real TB transfers
- *     deposit-workflow.service.ts's own Step 1 (CLIENT_CASH→DEPOSIT_SUSPENSE,
- *     isExternalCrossing:true) + Step 2 (DEPOSIT_SUSPENSE→CLIENT_PAYABLE,
- *     isExternalCrossing:false) post, walletRef stamped on both legs — this is
- *     the real production evidence shape, not an invented shortcut.
+ *     deposit-workflow.service.ts's own Step 1 (DR 客户现金·这只钱包 / CR 暂扣,
+ *     码 1) + Step 2 (DR 暂扣 / CR 应付, 码 2) post — this is the real production
+ *     evidence shape, not an invented shortcut. 戊波一：现金类一钱包一户，Step 1 的
+ *     借方是钱包自己的现金户（只经 resolveCashAccountId 取），夹具钱包开户靠
+ *     WalletCashAccountService.ensureForWallet。
  *   - The "break" is a real `external_balances` row whose closingBalance
  *     deliberately disagrees with the wallet's real internal total (computed via
  *     the funding transfers above) — exactly what an external bank/chain
@@ -178,35 +181,37 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   async function createCustomerWallet(opts: {
     ownerId: string; ownerNo: string; network: string; walletRole: 'C_VIBAN' | 'C_DEP'; iban?: string; address?: string;
   }): Promise<{ id: string }> {
-    return (prisma as any).wallet.create({
+    const created = await (prisma as any).wallet.create({
       data: {
         walletNo: `WA-E2E-ADJ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         ownerType: 'CUSTOMER', ownerId: opts.ownerId, ownerNo: opts.ownerNo,
         vaultCode: 'CLIENT_DEPOSIT', walletRole: opts.walletRole, network: opts.network,
         address: opts.address ?? null, iban: opts.iban ?? null, status: 'ACTIVE',
       },
-      select: { id: true },
     });
+    // 戊波一:每个钱包一个现金户——运行时钱包在开地址流程里开户,这里直接 prisma.create 的夹具要补上,
+    // 否则解析不到该钱包的现金户(调账落账 / 夹具铺底都要用)。
+    await app.get(WalletCashAccountService).ensureForWallet(created);
+    return { id: created.id };
   }
 
   /** Fresh firm (PLATFORM) wallet row — deliberately NOT the seeded F_FEE wallet,
    *  which is a shared aggregate other e2e suites post real fee income to
-   *  concurrently (see file header). ownerType:'PLATFORM' matches the seeded
-   *  convention so the R2 walletRef/registry-owner check in
-   *  AccountFlowProjectorService exempts it (FIRM_SIDE = {PLATFORM, SYSTEM}).
+   *  concurrently (see file header). ownerType:'PLATFORM' → 现金户码 50（公司现金）。
    *  唯一键 (vaultCode, network, ownerNo) 不允许第二条 PLATFORM 行，独立归属号
    *  避开种子的 'PLATFORM'。 */
   async function createFirmWallet(opts: { vaultCode: string; network: string }): Promise<{ id: string }> {
     const tag = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    return (prisma as any).wallet.create({
+    const created = await (prisma as any).wallet.create({
       data: {
         walletNo: `WA-E2E-ADJ-FIRM-${tag}`,
         ownerType: 'PLATFORM', ownerId: null, ownerNo: `PLATFORM-E2E-${tag}`,
         vaultCode: opts.vaultCode, walletRole: opts.vaultCode, network: opts.network,
         status: 'ACTIVE',
       },
-      select: { id: true },
     });
+    await app.get(WalletCashAccountService).ensureForWallet(created); // 同上:夹具钱包补开现金户
+    return { id: created.id };
   }
 
   /** Fresh fixture customer, exclusive to one scenario — mirrors sla.e2e-spec.ts's
@@ -256,16 +261,14 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   }
 
   /** Real production evidence shape — mirrors deposit-workflow.service.ts's own
-   *  Step 1 (CLIENT_CASH→DEPOSIT_SUSPENSE, external crossing) + Step 2
-   *  (DEPOSIT_SUSPENSE→CLIENT_PAYABLE, pure reclass) exactly, walletRef stamped
-   *  on both legs of both steps. Net effect on the wallet's own
-   *  (PAYABLE+SUSPENSE) total, per WalletBalanceCheckerService's accounting, is
-   *  +amount (SUSPENSE nets to 0 across the two steps; PAYABLE ends at +amount). */
+   *  Step 1 (DR 客户现金·落地钱包 / CR 暂扣，码 1) + Step 2 (DR 暂扣 / CR 应付，纯账面
+   *  重分类，码 2) exactly。戊波一:现金类账户一钱包一户——Step 1 的借方是这只钱包自己的
+   *  现金户（A.CLIENT_CASH），只经 AccountingService.resolveCashAccountId 取，不再有按币种
+   *  聚合的客户现金户；钱包由 createCustomerWallet 开好现金户。证据不再带钱包标签 / 跨外部
+   *  标记（该钱包归属由账户自己表达）。Net effect on the wallet's own cash account is
+   *  +amount；PAYABLE ends at +amount, SUSPENSE nets to 0 across the two steps. */
   async function fundCustomerWallet(opts: {
     walletId: string; ownerId: string; assetId: string; ledger: number; currency: string; amount: bigint; tag: string;
-    /** Step 1 是否算外部穿越（默认 false，见下方长注释）。场景 9 传 true —— 那才是
-     *  deposit-workflow.service.ts 生产里的真实形状，也是 COMPENSATING 那条路的入口。 */
-    crossing?: boolean;
     /** 分录的业务生效日（默认跟随写入时刻）。场景 9 需要把铺底流水放到一个**过去**的
      *  业务日上，才能让「截止日在过去、调账单今天才写」这个真实形状跑起来。 */
     effectiveDate?: string;
@@ -275,16 +278,16 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     // is a deterministic hash of exactly those fields and persists across runs
     // (this worktree's TB file survives jest re-invocations); a collision makes
     // executeTransfer() treat the transfer as "already exists" and SILENTLY SKIP
-    // the evidence/account_flow write for THIS run's (fresh) walletRef, leaving
+    // the evidence/account_flow write for THIS run's (fresh) wallet, leaving
     // the wallet's internal total at 0 with no error raised anywhere.
     const sourceNo = `E2E-RECON-ADJ-FUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
 
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const walletCashId = await accounting.resolveCashAccountId(opts.walletId, opts.ledger);
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
 
     await accounting.executeTransfer({
-      debitAccountId: clientAssetId,
+      debitAccountId: walletCashId,
       creditAccountId: suspenseId,
       amount: opts.amount,
       ledger: opts.ledger,
@@ -300,24 +303,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         actorType: 'SYSTEM',
         actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund customer balance for recon-adjustment money-arc tests (Step 1)',
-        debitWalletRef: opts.walletId,
-        creditWalletRef: opts.walletId,
-        // Deliberately false, UNLIKE deposit-workflow.service.ts's own Step 1
-        // (which is a real external crossing). This is backstory setup, not the
-        // thing under test: WalletFlowMatcherService treats every
-        // isExternalCrossing:true / OWNED_CODES flow as needing a matching
-        // external_statement_line, and this fixture doesn't create any — a
-        // "true" here would leave the wallet stuck at bucket=COMPENSATING
-        // (orphan-internal > 0) forever, even after the balance delta hits
-        // zero, and WalletReconRunService.autoHealCases() only heals wallets
-        // that reach bucket=MATCHED.
-        //
-        // ⚠ 2026-08-29：上面这段描述的正是本分支后来在走查里翻车的那个缺陷（业主
-        // 裁定「甲」已修：调账单落账时把它解释的差异从异常数里摘掉）。当时的处理是
-        // 让 fixture 绕开它——于是 1-8 号场景全绿，而「带真实流水异常的案子平账后
-        // 能不能关掉」从来没被测过。场景 9 补的就是这一格：它传 crossing:true，
-        // 走的正是这段注释描述的那条路。1-8 号维持 false（它们测的是余额弧本身）。
-        isExternalCrossing: opts.crossing ?? false,
         ...(opts.effectiveDate ? { effectiveDate: opts.effectiveDate } : {}),
       },
     });
@@ -339,10 +324,6 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         actorType: 'SYSTEM',
         actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund customer balance for recon-adjustment money-arc tests (Step 2)',
-        debitWalletRef: opts.walletId,
-        creditWalletRef: opts.walletId,
-        // Step 2 是纯账面重分类，任何情况下都不是外部穿越（同生产）。
-        isExternalCrossing: false,
         ...(opts.effectiveDate ? { effectiveDate: opts.effectiveDate } : {}),
       },
     });
@@ -350,38 +331,34 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     return sourceNo;
   }
 
-  /** Give a FIRM wallet a real internal balance in the firm-equity codes
-   *  WalletBalanceCheckerService actually sums for a firm wallet (200/201/210/
-   *  211/212 — the aggregate FIRM_CASH leg is deliberately dropped by the
-   *  checker, so only the INCOME_OTHER side moves this wallet's total).
+  /** Give a FIRM wallet a real internal balance in its own cash account (A.FIRM_CASH, 码 50)
+   *  by the real capital-injection shape（附录 B「注资」：DR 现金·收款钱包 / CR 公司权益，码 70）。
+   *  戊波一:公司钱包的余额就是它自己的现金户余额，不再借聚合 FIRM_CASH、贷其他收入。
    *  Same deterministic-transfer-id caution as fundCustomerWallet. */
   async function fundFirmWallet(opts: {
     walletId: string; ledger: number; currency: string; amount: bigint; tag: string;
   }): Promise<void> {
     const sourceNo = `E2E-RECON-ADJ-FIRMFUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
-    const firmAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
-    const incomeOtherId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.INCOME_OTHER, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const walletCashId = await accounting.resolveCashAccountId(opts.walletId, opts.ledger);
+    const equityId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_EQUITY, ledger: opts.ledger, ownerType: 'SYSTEM' });
 
     await accounting.executeTransfer({
-      debitAccountId: firmAssetId,
-      creditAccountId: incomeOtherId,
+      debitAccountId: walletCashId,
+      creditAccountId: equityId,
       amount: opts.amount,
       ledger: opts.ledger,
-      code: TB_TRANSFER_CODES.RECON_ADJUSTMENT,
+      code: TB_TRANSFER_CODES.CAPITAL_INJECTION,
       evidence: {
         sourceType: 'DEPOSIT',
         sourceNo,
         eventCode: 'E2E_FIRM_FIXTURE',
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH],
-        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
+        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY],
         assetCurrency: opts.currency,
         traceId: sourceNo,
         actorType: 'SYSTEM',
         actorId: 'E2E_HARNESS',
-        memo: 'e2e fixture: pre-fund firm wallet income balance',
-        debitWalletRef: opts.walletId,
-        creditWalletRef: opts.walletId,
-        isExternalCrossing: false,
+        memo: 'e2e fixture: pre-fund firm wallet cash (capital-injection shape)',
       },
     });
   }
@@ -422,6 +399,20 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   async function flowsFor(adjustmentNo: string) {
     return (prisma as any).accountFlow.findMany({ where: { sourceType: 'RECON_ADJUSTMENT', sourceNo: adjustmentNo } });
+  }
+
+  /** 戊波一:凭证行的借 / 贷账户 id 是十六进制串。现金户只经 resolveCashAccountId 取;
+   *  应付户按客户取;权益 / 收入 / 开支是该币种的 SYSTEM 户。 */
+  const cashHex = async (walletId: string, ledger: number) => bigintToHex(await accounting.resolveCashAccountId(walletId, ledger));
+  const payableHex = async (customerId: string, ledger: number) =>
+    bigintToHex(await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId }));
+  const systemHex = async (code: number, ledger: number) =>
+    bigintToHex(await accounting.resolveTbAccountId({ code, ledger, ownerType: 'SYSTEM' }));
+  /** 钱包现金户已落账净额(资产类,借增贷减)——调账的现金腿**真的**落在案子钱包自己的现金户上的行为证明
+   *  （每个场景都用专属新钱包，余额从 0 起算，可断言绝对值）。 */
+  async function cashPosted(walletId: string, ledger: number): Promise<bigint> {
+    const b = await accounting.lookupBalance(await accounting.resolveCashAccountId(walletId, ledger));
+    return b.debitsPosted - b.creditsPosted;
   }
 
   /** Fixture ReconciliationRun row — only for scenarios that need a valid
@@ -543,19 +534,21 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     const postedRow = await adjustmentRow(adjustmentNo);
     expect(postedRow.decidedByUserId).toBe('E2E_OPS_APPROVER_C1'); // NOT 'SYSTEM' — proves the decider event field wires correctly
 
+    // ── 过账断言（不依赖对账引擎）──
+    // 戊波一·附录 B「平账调账单」：客户池冲正 = 借 应付·该客户 / 贷 现金·案子钱包。
+    // 现金腿必须落在**这只钱包自己的现金户**，否则这只钱包的差额不归零、案子无法自愈。
     const flows = await flowsFor(adjustmentNo);
     expect(flows).toHaveLength(2);
-    const payableLeg = flows.find((f: any) => f.tbAccountId && f.direction === 'OUT');
-    expect(payableLeg).toBeTruthy();
-    expect(payableLeg.walletRef).toBe(wallet.id);
-    expect(payableLeg.isExternalCrossing).toBe(false);
-    expect(String(payableLeg.amount)).toBe('20000');
-    for (const f of flows) {
-      expect(f.walletRef).toBe(wallet.id); // ⚠ must land on the wallet the case is about, or delta never zeros
-    }
+    for (const f of flows) expect(String(f.amount)).toBe('20000');
 
     const evidence = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);
+    expect(evidence).toHaveLength(1);
     expect(evidence.map((e: any) => e.eventCode)).toContain('RECON_ADJUSTMENT_POSTED');
+    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
+    expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
+    expect(evidence[0].debitTbAccountId).toBe(await payableHex(customer.id, ledger));
+    expect(evidence[0].creditTbAccountId).toBe(await cashHex(wallet.id, ledger));
+    expect(await cashPosted(wallet.id, ledger)).toBe(X1); // 铺底 2×X1，调账从该钱包现金户贷出 20000（= X1），剩 X1 = 外部真值
     expect(evidence[0].actorId).toBe('E2E_OPS_APPROVER_C1'); // 铁律⑥ 回归锁：evidence.actorId 也是三个落点之一
 
     const auditRows = await (prisma as any).auditLogEvent.findMany({
@@ -589,7 +582,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(healedCase.resolutionReason).toBe('AUTO_HEALED');
   });
 
-  it('2. 客户账簿·加（提现撤销退回，带关联原单）：闭环 + 分录方向为 借客户托管/贷客户应付', async () => {
+  it('2. 客户账簿·加（提现撤销退回，带关联原单）：闭环 + 分录方向为 借客户现金（案子钱包）/贷客户应付', async () => {
     const ledger = 1; // AED
     const customer = await makeCustomer('C2');
     await ensureCustomerAedTbAccounts(customer.id, customer.customerNo);
@@ -635,16 +628,15 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 
-    // 分录方向：客户账簿 + 加钱 → 借 客户托管资产 / 贷 客户应付（与场景 1 恰好相反）
+    // 分录方向：客户账簿 + 加钱 → 借 客户现金·案子钱包 / 贷 客户应付（与场景 1 恰好相反）
     const evidence = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);
     expect(evidence).toHaveLength(1);
     expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
     expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
-
-    for (const f of await flowsFor(adjustmentNo)) {
-      expect(f.walletRef).toBe(wallet.id);
-      expect(f.isExternalCrossing).toBe(false);
-    }
+    expect(evidence[0].debitTbAccountId).toBe(await cashHex(wallet.id, ledger));
+    expect(evidence[0].creditTbAccountId).toBe(await payableHex(customer.id, ledger));
+    expect(await cashPosted(wallet.id, ledger)).toBe(REALLY); // 铺底 30000 + 调账借入 15000 = 外部真值 45000
+    expect(await flowsFor(adjustmentNo)).toHaveLength(2);
 
     await walletRecon.run({ cutoff: CUTOFF });
     const healed = await (prisma as any).reconciliationCase.findUnique({ where: { id: kase.id } });
@@ -652,7 +644,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(healed.resolutionReason).toBe('AUTO_HEALED');
   });
 
-  it('3. 公司账簿·加（银行利息）：闭环 + 分录方向为 借公司资产/贷其他收入', async () => {
+  it('3. 公司账簿·加（银行利息）：闭环 + 分录方向为 借公司现金（案子钱包）/贷其他收入', async () => {
     const ledger = 1; // AED
     const wallet = await createFirmWallet({ vaultCode: 'F_FEE', network: 'AED_ZAND' });
 
@@ -690,6 +682,9 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(evidence).toHaveLength(1);
     expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH]);
     expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER]);
+    expect(evidence[0].debitTbAccountId).toBe(await cashHex(wallet.id, ledger));
+    expect(evidence[0].creditTbAccountId).toBe(await systemHex(TB_ACCOUNT_CODES.INCOME_OTHER, ledger));
+    expect(await cashPosted(wallet.id, ledger)).toBe(REALLY); // 铺底 5000 + 利息借入 2000 = 外部真值 7000
 
     const postedRow = await adjustmentRow(adjustmentNo);
     expect(postedRow.book).toBe('FIRM');
@@ -825,9 +820,12 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     const flows = await flowsFor(adjustmentNo);
     expect(flows).toHaveLength(2);
+    // 现金腿落在这只 TRON 钱包自己的现金户（USDT 账本 2），不是 AED 账本、不是别的钱包。
+    const evidence8 = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);
+    expect(evidence8).toHaveLength(1);
+    expect(evidence8[0].creditTbAccountId).toBe(await cashHex(wallet.id, ledger));
+    expect(await cashPosted(wallet.id, ledger)).toBe(X); // 铺底 2X，调账贷出 X，剩 X = 外部真值
     for (const f of flows) {
-      expect(f.walletRef).toBe(wallet.id);
-      expect(f.isExternalCrossing).toBe(false);
       // 末站整改回归锁：account_flows.assetCode 必须落 asset.currency（'USDT'），
       // 不是 row.assetCode（'USDT-TRON'）——admin 按资产筛选（TransferEvidenceList
       // / AccountFlowList）发的就是 currency，传错的话这笔调账分录会在按 USDT
@@ -880,7 +878,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(leftovers).toHaveLength(0);
   });
 
-  it('7. 公司账簿·减（银行杂费）：闭环 + 分录方向为 借公司运营/贷公司资产（V2 补口——四种分录组合里此前从未真落过账的最后一种）', async () => {
+  it('7. 公司账簿·减（银行杂费）：闭环 + 分录方向为 借银行与托管费用/贷公司现金（案子钱包）（V2 补口——此前从未真落过账的一种组合）', async () => {
     const ledger = 1; // AED
     const wallet = await createFirmWallet({ vaultCode: 'F_FEE', network: 'AED_ZAND' });
 
@@ -915,11 +913,15 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     await waitUntil(async () => (await adjustmentRow(adjustmentNo)).status === AdjustmentStatus.POSTED);
 
-    // 分录方向：公司账簿 + 减钱 → 借 公司运营权益 / 贷 公司资产（与场景 3 恰好相反）
+    // 分录方向：公司账簿 + 补记银行杂费 → 借 银行与托管费用 / 贷 公司现金·案子钱包（与场景 3 恰好相反；
+    // 戊波一·附录 B：杂费进开支，不再借公司权益）
     const evidence = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);
     expect(evidence).toHaveLength(1);
-    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY]);
+    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY]);
     expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH]);
+    expect(evidence[0].debitTbAccountId).toBe(await systemHex(TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, ledger));
+    expect(evidence[0].creditTbAccountId).toBe(await cashHex(wallet.id, ledger));
+    expect(await cashPosted(wallet.id, ledger)).toBe(REALLY); // 铺底 7000 − 杂费 2000 = 外部真值 5000
 
     const postedRow = await adjustmentRow(adjustmentNo);
     expect(postedRow.book).toBe('FIRM');
@@ -990,9 +992,9 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   //     额外卡 `createdAt <= cutoff`，把所有回填挡在外面：调账单落了账、重跑对账
   //     内部余额一分没动、差额永远归不了零。
   //
-  //   绕开点 B（流水异常）：铺底流水写成 isExternalCrossing:false，于是钱包上根本
-  //     没有差异行，anomalyCount 恒 0，永远碰不到 COMPENSATING。真实案子都有差异行；
-  //     调账只补余额、不摘差异行的话，桶停在 COMPENSATING，案子永远关不掉。
+  //   绕开点 B（流水异常）：1-8 号的铺底流水没有对应的外部对账单行（外部只给了一个
+  //     期末余额），于是钱包上根本没有差异行，anomalyCount 恒 0，永远碰不到 COMPENSATING。
+  //     真实案子都有差异行；调账只补余额、不摘差异行的话，桶停在 COMPENSATING，案子永远关不掉。
   //
   // 这条用例断言的是业主真正要的那句话：**平完账，案子真的关掉了。**
   // ────────────────────────────────────────────────────────────────────────
@@ -1013,11 +1015,11 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
       iban: `AE_E2E_ADJ_C9_${Date.now()}`,
     });
 
-    // 我们记了一笔 300.00 的充值（真实外部穿越），银行那边根本没这笔钱。
+    // 我们记了一笔 300.00 的充值（真实形状：进钱记在钱包现金户上），银行那边根本没这笔钱。
     const X = 30000n;
     await fundCustomerWallet({
       walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger, currency: aedCode,
-      amount: X, tag: 'C9', crossing: true, effectiveDate: FUND_DATE,
+      amount: X, tag: 'C9', effectiveDate: FUND_DATE,
     });
     // 外部对账单：0（这笔钱从没到过）。也没有任何 external_statement_line。
     await upsertExternalBalance({

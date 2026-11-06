@@ -4,9 +4,10 @@ import { AdjustmentStatus } from '../constants/adjustment-transitions.constant';
 import { AdjustmentService } from './adjustment.service';
 import { DispositionService } from './disposition.service';
 import { TB_ACCOUNT_CODES } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_LEDGERS } from '../../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { V8_RECON_AUDIT_ACTIONS } from '../../../audit-logging/constants/audit-actions.constant';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
-import { REASON_SPECS, assertReasonAllowed } from './adjustment-rules';
+import { REASON_SPECS, RECON_ADJUSTMENT_SOURCE_TYPE, assertReasonAllowed } from './adjustment-rules';
 
 describe('ReconciliationAdjustment schema', () => {
   const prisma = new PrismaClient();
@@ -765,6 +766,23 @@ describe('AdjustmentService.onRejected —— rejection persistence + terminal-s
   });
 });
 
+// 戊波一：现金户一钱包一户，只经 accounting.resolveCashAccountId 取；其余科目走 resolveTbAccountId。
+// 桩给每个「(科目, 归属)」一个互不相同的账户 id，断言才能看出借贷两侧**真的落在哪个户**——
+// 若全返回同一个 1n，借贷写反、现金户取错钱包都测不出来。
+const acctIds = new Map<string, bigint>();
+const acctId = (key: string): bigint => {
+  if (!acctIds.has(key)) acctIds.set(key, BigInt(acctIds.size + 1));
+  return acctIds.get(key)!;
+};
+const payableKey = (ownerUuid: string) => `${TB_ACCOUNT_CODES.CLIENT_PAYABLE}:CUSTOMER:${ownerUuid}`;
+const systemKey = (code: number) => `${code}:SYSTEM:`;
+const cashKey = (walletId: string) => `cash:${walletId}`;
+const makeAccounting = (executeTransfer: jest.Mock = jest.fn().mockResolvedValue({ tbTransferId: 1n })) => ({
+  executeTransfer,
+  resolveTbAccountId: jest.fn(async (p: any) => acctId(`${p.code}:${p.ownerType}:${p.ownerUuid ?? ''}`)),
+  resolveCashAccountId: jest.fn(async (walletId: string) => acctId(cashKey(walletId))),
+});
+
 describe('AdjustmentService.onApproved posting', () => {
   const makeSvc = (row: any, accounting: any, update = jest.fn(), recordByActor = jest.fn()) => {
     const prisma: any = {
@@ -791,32 +809,38 @@ describe('AdjustmentService.onApproved posting', () => {
     reasonInternal: 'Same deposit recorded twice', traceId: 'T1', relatedOrderNo: 'DP2608150042',
   };
 
-  it('evidence must carry the case\'s walletRef and isExternalCrossing=false', async () => {
+  it('evidence: sourceType is the shared RECON_ADJUSTMENT_SOURCE_TYPE constant, effective date follows the adjustment, and wallet refs / crossing flag are no longer passed (the cash leg IS the case wallet\'s cash account)', async () => {
     const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 7n });
-    const accounting = { executeTransfer, resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
-    await makeSvc(clientRow, accounting).onApproved('ADJ2608280001', 'U_OPS');
+    await makeSvc(clientRow, makeAccounting(executeTransfer)).onApproved('ADJ2608280001', 'U_OPS');
 
     const evidence = executeTransfer.mock.calls[0][0].evidence;
-    expect(evidence.debitWalletRef).toBe('W_CUST_1');
-    expect(evidence.creditWalletRef).toBe('W_CUST_1');
-    expect(evidence.isExternalCrossing).toBe(false);
+    expect(RECON_ADJUSTMENT_SOURCE_TYPE).toBe('RECON_ADJUSTMENT');
+    expect(evidence.sourceType).toBe(RECON_ADJUSTMENT_SOURCE_TYPE);
+    expect(evidence.debitWalletRef).toBeUndefined();
+    expect(evidence.creditWalletRef).toBeUndefined();
+    expect(evidence.isExternalCrossing).toBeUndefined();
     expect(evidence.effectiveDate).toBe('2026-08-15');
   });
 
-  it('client-book reduction posts "debit client payable / credit client asset"', async () => {
-    const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
-    const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
+  it('client-book reduction posts "debit client payable (the customer) / credit the CASE WALLET\'s cash account" — the cash account is fetched only via resolveCashAccountId(walletRef, ledger)', async () => {
+    const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 1n });
+    const accounting = makeAccounting(executeTransfer);
     await makeSvc(clientRow, accounting).onApproved('ADJ2608280001', 'U_OPS');
-    const codes = resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
-    expect(codes).toEqual([TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.CLIENT_CASH]);
+
+    const params = executeTransfer.mock.calls[0][0];
+    expect(params.debitAccountId).toBe(acctId(payableKey('uuid-cust')));
+    expect(params.creditAccountId).toBe(acctId(cashKey('W_CUST_1')));
+    expect(accounting.resolveCashAccountId).toHaveBeenCalledTimes(1);
+    expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('W_CUST_1', TB_LEDGERS.AED);
+    // 现金户不经 resolveTbAccountId 手拼：它只被叫来取应付户。
+    expect(accounting.resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code)).toEqual([TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
+    expect(params.evidence.debitCode).toBe('L.CLIENT_PAYABLE');
+    expect(params.evidence.creditCode).toBe('A.CLIENT_CASH');
   });
 
   it('after posting, status becomes POSTED and tbTransferId is recorded', async () => {
     const update = jest.fn();
-    const accounting = {
-      executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 42n }),
-      resolveTbAccountId: jest.fn().mockResolvedValue(1n),
-    };
+    const accounting = makeAccounting(jest.fn().mockResolvedValue({ tbTransferId: 42n }));
     await makeSvc(clientRow, accounting, update).onApproved('ADJ2608280001', 'U_OPS');
     expect(update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'POSTED', tbTransferId: '42', decidedByUserId: 'U_OPS' }),
@@ -826,7 +850,7 @@ describe('AdjustmentService.onApproved posting', () => {
   it('an already-POSTED adjustment posted again is rejected by the status machine, and touches no ledger', async () => {
     const executeTransfer = jest.fn();
     const update = jest.fn();
-    const accounting = { executeTransfer, resolveTbAccountId: jest.fn() };
+    const accounting = makeAccounting(executeTransfer);
     await expect(
       makeSvc({ ...clientRow, status: 'POSTED' }, accounting, update).onApproved('ADJ2608280001', 'U_OPS'),
     ).rejects.toThrow(BadRequestException);
@@ -835,50 +859,43 @@ describe('AdjustmentService.onApproved posting', () => {
     expect(update).not.toHaveBeenCalled();
   });
 
-  // 补测（业主要求）：四种分录组合里，上面三条只端到端断言过 CLIENT 账簿一种；
-  // 公司账簿两种（BANK_CHARGE_UNBOOKED 减/BANK_INTEREST_UNBOOKED 加）在本任务完全没被覆盖，而它们正是
-  // 演示破口场景 5/7（银行杂费/银行利息）要走的路。这条覆盖 FIRM+INCREASE。
-  // 一并断言 ownerType：自审时发现公司科目（FIRM_CASH/INCOME_OTHER）在 TbAccountRegistry
-  // 里的真实登记值是 'SYSTEM'（见 asset-provisioning.service.ts:46、
-  // tb-account-registry.service.ts resolve() 的严格 where 等值匹配），不是 'FIRM'——
-  // 若只断言 code 不断言 ownerType，这处会在 mock 测试下全绿、真实环境里
-  // resolveTbAccountId 却因查不到注册行而抛 NotFoundException。
-  it('firm-book increase posts "debit firm asset / credit other income", and the account ownerType is SYSTEM, not FIRM', async () => {
-    const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
-    const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
-    const firmRow = {
-      ...clientRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST_UNBOOKED',
-      ownerNo: null, ownerId: null, walletRef: 'W_FIRM_AED',
-    };
-    await makeSvc(firmRow, accounting).onApproved('ADJ2608280001', 'U_OPS');
-    const calls = resolveTbAccountId.mock.calls.map((c: any[]) => c[0]);
-    expect(calls.map((c) => c.code)).toEqual([TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.INCOME_OTHER]);
-    expect(calls.map((c) => c.ownerType)).toEqual(['SYSTEM', 'SYSTEM']);
+  // 戊波一·附录 B「平账调账单」逐格接线：现金腿 = 案子钱包的现金户，对手腿看「账簿 × 处置家族 × 方向」。
+  // 公司池对手科目（权益 / 开支 / 其他收入）在 TbAccountRegistry 里的真实归属是 'SYSTEM'
+  // （按币种一户），不是 'FIRM'——只断言 code 不断言 ownerType 的话，mock 下全绿、真环境里
+  // resolveTbAccountId 会因查不到注册行而抛 NotFoundException，所以这里 key 里带着 ownerType 一起断言。
+  const firmRow = (reasonCode: string, direction: 'REDUCE' | 'INCREASE') => ({
+    ...clientRow, book: 'FIRM', direction, reasonCode, ownerNo: null, ownerId: null, walletRef: 'W_FIRM_AED',
   });
-
-  // 评审 Minor 4：四组合此前只端到端断言过 CLIENT/REDUCE + FIRM/INCREASE 两种，
-  // 剩下两种（镜像方向）在接线层完全没测过。补齐后四组合两两科目对都不同
-  // （注意 CLIENT 两条码集合相同、顺序相反——toEqual 对数组顺序敏感，
-  // 硬编码答案没法同时通过这两条）。
-  it('posting-legs coverage · CLIENT/INCREASE: posts "debit client asset / credit client payable" (withdrawal-refund scenario)', async () => {
-    const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
-    const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
-    const row = { ...clientRow, direction: 'INCREASE', reasonCode: 'PAYOUT_NOT_EXECUTED' };
+  it.each([
+    // 客户池
+    ['CLIENT', 'DUP_BOOKING', 'REDUCE', payableKey('uuid-cust'), cashKey('W_CUST_1'), 'L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
+    ['CLIENT', 'PAYOUT_NOT_EXECUTED', 'INCREASE', cashKey('W_CUST_1'), payableKey('uuid-cust'), 'A.CLIENT_CASH', 'L.CLIENT_PAYABLE'],
+    ['CLIENT', 'UNEXPLAINED_CLIENT_LOSS', 'REDUCE', payableKey('uuid-cust'), cashKey('W_CUST_1'), 'L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
+    // 公司池 · 更正 / 冲销 → 公司权益（两个方向）
+    ['FIRM', 'AMT_MISBOOKED', 'REDUCE', systemKey(TB_ACCOUNT_CODES.FIRM_EQUITY), cashKey('W_FIRM_AED'), 'E.FIRM_EQUITY', 'A.FIRM_CASH'],
+    ['FIRM', 'AMT_MISBOOKED', 'INCREASE', cashKey('W_FIRM_AED'), systemKey(TB_ACCOUNT_CODES.FIRM_EQUITY), 'A.FIRM_CASH', 'E.FIRM_EQUITY'],
+    ['FIRM', 'FIRM_MISBOOKED', 'INCREASE', cashKey('W_FIRM_AED'), systemKey(TB_ACCOUNT_CODES.FIRM_EQUITY), 'A.FIRM_CASH', 'E.FIRM_EQUITY'],
+    // 公司池 · 补记 → 杂费进开支、利息进其他收入
+    ['FIRM', 'BANK_CHARGE_UNBOOKED', 'REDUCE', systemKey(TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY), cashKey('W_FIRM_AED'), 'X.EXPENSE_BANK_CUSTODY', 'A.FIRM_CASH'],
+    ['FIRM', 'BANK_INTEREST_UNBOOKED', 'INCREASE', cashKey('W_FIRM_AED'), systemKey(TB_ACCOUNT_CODES.INCOME_OTHER), 'A.FIRM_CASH', 'E.INCOME_OTHER'],
+    // 公司池 · 核销 → 少钱进对账核销损失、多钱进其他收入（不贷 301：借方户贷不得超借）
+    ['FIRM', 'UNEXPLAINED_WRITE_OFF', 'REDUCE', systemKey(TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS), cashKey('W_FIRM_AED'), 'X.EXPENSE_RECON_LOSS', 'A.FIRM_CASH'],
+    ['FIRM', 'UNEXPLAINED_WRITE_OFF', 'INCREASE', cashKey('W_FIRM_AED'), systemKey(TB_ACCOUNT_CODES.INCOME_OTHER), 'A.FIRM_CASH', 'E.INCOME_OTHER'],
+  ])('wiring · %s book · %s · %s: debit/credit land on the right accounts (cash side = the case wallet\'s cash account)', async (book, reasonCode, direction, debitKey, creditKey, debitCoa, creditCoa) => {
+    const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 1n });
+    const accounting = makeAccounting(executeTransfer);
+    const row = book === 'CLIENT' ? { ...clientRow, direction, reasonCode } : firmRow(reasonCode, direction as any);
     await makeSvc(row, accounting).onApproved('ADJ2608280001', 'U_OPS');
-    const codes = resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
-    expect(codes).toEqual([TB_ACCOUNT_CODES.CLIENT_CASH, TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
-  });
 
-  it('posting-legs coverage · FIRM/REDUCE: posts "debit firm ops / credit firm asset" (demo scenario 5: bank charges)', async () => {
-    const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
-    const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
-    const row = {
-      ...clientRow, book: 'FIRM', direction: 'REDUCE', reasonCode: 'BANK_CHARGE_UNBOOKED',
-      ownerNo: null, ownerId: null, walletRef: 'W_FIRM_AED',
-    };
-    await makeSvc(row, accounting).onApproved('ADJ2608280001', 'U_OPS');
-    const codes = resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
-    expect(codes).toEqual([TB_ACCOUNT_CODES.FIRM_EQUITY, TB_ACCOUNT_CODES.FIRM_CASH]);
+    expect(executeTransfer).toHaveBeenCalledTimes(1);
+    const params = executeTransfer.mock.calls[0][0];
+    expect(params.debitAccountId).toBe(acctId(debitKey as string));
+    expect(params.creditAccountId).toBe(acctId(creditKey as string));
+    expect(params.evidence.debitCode).toBe(debitCoa);
+    expect(params.evidence.creditCode).toBe(creditCoa);
+    // 现金腿只经 resolveCashAccountId、且取的是案子钱包。
+    expect(accounting.resolveCashAccountId).toHaveBeenCalledTimes(1);
+    expect(accounting.resolveCashAccountId).toHaveBeenCalledWith(book === 'CLIENT' ? 'W_CUST_1' : 'W_FIRM_AED', TB_LEDGERS.AED);
   });
 
   // ── 评审 Critical 的回归锁：audit-logs.service.ts 的 assertActionSpec 读的是
@@ -894,7 +911,7 @@ describe('AdjustmentService.onApproved posting', () => {
   describe('audit envelope contract consistency (review Critical regression lock)', () => {
     const captureEnvelope = async (row: any) => {
       const recordByActor = jest.fn();
-      const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
+      const accounting = makeAccounting();
       await makeSvc(row, accounting, jest.fn(), recordByActor).onApproved('ADJ2608280001', 'U_OPS');
       expect(recordByActor).toHaveBeenCalledTimes(1);
       return recordByActor.mock.calls[0][0];
@@ -990,6 +1007,28 @@ describe('AdjustmentService.getAdjustment —— detail read model (Task 7)', ()
     const result: any = await svc.getAdjustment('ADJ2608280002');
     expect(result.debitAccountCode).toBe('A.FIRM_CASH');
     expect(result.creditAccountCode).toBe('E.INCOME_OTHER');
+  });
+
+  // 戊波一：公司池对手腿随处置家族变，预览与落账读同一个 resolvePostingLegs（带 reasonCode），两处不许各说各话。
+  it('firm-book reduce (BANK_CHARGE_UNBOOKED): the preview is "debit X.EXPENSE_BANK_CUSTODY / credit A.FIRM_CASH"', async () => {
+    const svc = makeSvc({ ...baseRow, book: 'FIRM', direction: 'REDUCE', reasonCode: 'BANK_CHARGE_UNBOOKED', ownerNo: null, ownerId: null });
+    const result: any = await svc.getAdjustment('ADJ2608280002');
+    expect(result.debitAccountCode).toBe('X.EXPENSE_BANK_CUSTODY');
+    expect(result.creditAccountCode).toBe('A.FIRM_CASH');
+  });
+
+  it('firm-book increase (AMT_MISBOOKED, correct family): the preview is "debit A.FIRM_CASH / credit E.FIRM_EQUITY" (not other income)', async () => {
+    const svc = makeSvc({ ...baseRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'AMT_MISBOOKED', ownerNo: null, ownerId: null });
+    const result: any = await svc.getAdjustment('ADJ2608280002');
+    expect(result.debitAccountCode).toBe('A.FIRM_CASH');
+    expect(result.creditAccountCode).toBe('E.FIRM_EQUITY');
+  });
+
+  it('reattribution: the preview shows the payable pair (debit L.CLIENT_PAYABLE / credit L.CLIENT_PAYABLE); the cash pair moves along with it at posting', async () => {
+    const svc = makeSvc({ ...baseRow, direction: 'REATTRIBUTE', reasonCode: 'CUSTOMER_REATTRIBUTION', toWalletRef: 'W_CUST_2', toOwnerNo: 'C0043' });
+    const result: any = await svc.getAdjustment('ADJ2608280002');
+    expect(result.debitAccountCode).toBe('L.CLIENT_PAYABLE');
+    expect(result.creditAccountCode).toBe('L.CLIENT_PAYABLE');
   });
 });
 
@@ -1191,59 +1230,91 @@ describe('AdjustmentService.onApproved fourth-family posting (reattribution, spe
     relatedOrderNo: 'DP2609010001',
   };
 
-  it('debit from-payable / credit to-payable: both legs share the account CLIENT_PAYABLE, ownerType is CUSTOMER on both, ownerUuid is each side\'s own; the client asset leg never appears', async () => {
-    const resolveTbAccountId = jest.fn().mockResolvedValue(1n);
-    const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 9n }), resolveTbAccountId };
+  it('four legs in two code-80 transfers: payable pair (debit from-payable / credit to-payable, same CLIENT_PAYABLE, ownerType CUSTOMER, each side\'s own ownerUuid) + cash pair (debit the rightful owner\'s wallet cash / credit the misattributed party\'s wallet cash)', async () => {
+    const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 9n });
+    const accounting = makeAccounting(executeTransfer);
     await makeSvc(reattrRow, accounting).onApproved('ADJ2609010001', 'U_OPS');
 
-    const calls = resolveTbAccountId.mock.calls.map((c: any[]) => c[0]);
-    expect(calls).toHaveLength(2);
-    expect(calls.map((c) => c.code)).toEqual([TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
     // CLIENT_PAYABLE 在 TbAccountRegistry 里按客户 UUID 登记——传 'SYSTEM' 会查不到
     // 注册行而抛 NotFoundException（只断言 code 不断言 ownerType 时，这类错在 mock 下全绿）。
-    expect(calls.map((c) => c.ownerType)).toEqual(['CUSTOMER', 'CUSTOMER']);
     // 同科目、不同 ownerUuid —— 这正是「把负债换个主人」的机制。
-    expect(calls.map((c) => c.ownerUuid)).toEqual(['uuid-from', 'uuid-to']);
-    // 钱在托管里一分没动：客户资产腿绝不许出现在改记分录里。
-    expect(calls.map((c) => c.code)).not.toContain(TB_ACCOUNT_CODES.CLIENT_CASH);
+    const payableCalls = accounting.resolveTbAccountId.mock.calls.map((c: any[]) => c[0]);
+    expect(payableCalls).toHaveLength(2);
+    expect(payableCalls.map((c) => c.code)).toEqual([TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
+    expect(payableCalls.map((c) => c.ownerType)).toEqual(['CUSTOMER', 'CUSTOMER']);
+    expect(payableCalls.map((c) => c.ownerUuid)).toEqual(['uuid-from', 'uuid-to']);
+
+    // 现金对：两个钱包的现金户都只经 resolveCashAccountId 取。
+    expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('wallet-to', TB_LEDGERS.AED);
+    expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('wallet-from', TB_LEDGERS.AED);
+
+    // 恰好两笔转账，都是码 80。
+    expect(executeTransfer).toHaveBeenCalledTimes(2);
+    const [payable, cash] = executeTransfer.mock.calls.map((c: any[]) => c[0]);
+    expect(payable.code).toBe(80);
+    expect(cash.code).toBe(80);
+    expect(payable.amount).toBe(730000n);
+    expect(cash.amount).toBe(730000n);
+
+    // 应付对：借 错记方 / 贷 正主。
+    expect(payable.debitAccountId).toBe(acctId(payableKey('uuid-from')));
+    expect(payable.creditAccountId).toBe(acctId(payableKey('uuid-to')));
+    expect(payable.evidence.debitCode).toBe('L.CLIENT_PAYABLE');
+    expect(payable.evidence.creditCode).toBe('L.CLIENT_PAYABLE');
+
+    // 现金对：借 正主的钱包 / 贷 错记方的钱包——钱实际在正主的钱包里，两钱包的差额同时归零。
+    expect(cash.debitAccountId).toBe(acctId(cashKey('wallet-to')));
+    expect(cash.creditAccountId).toBe(acctId(cashKey('wallet-from')));
+    expect(cash.evidence.debitCode).toBe('A.CLIENT_CASH');
+    expect(cash.evidence.creditCode).toBe('A.CLIENT_CASH');
+    expect(cash.evidence.memo).toContain('cash reattribution');
+    expect(payable.evidence.memo).not.toContain('cash reattribution');
+
+    // 两笔属于同一张调账单，但 eventCode 必须不同——TB 转账号由 (sourceType, sourceNo, eventCode) 决定，相同就撞号。
+    expect(payable.evidence.sourceType).toBe(RECON_ADJUSTMENT_SOURCE_TYPE);
+    expect(cash.evidence.sourceType).toBe(RECON_ADJUSTMENT_SOURCE_TYPE);
+    expect(payable.evidence.sourceNo).toBe('ADJ2609010001');
+    expect(cash.evidence.sourceNo).toBe('ADJ2609010001');
+    expect(cash.evidence.eventCode).not.toBe(payable.evidence.eventCode);
   });
 
-  it('evidence: each leg posts to its own wallet (misattributed party down / rightful owner up), isExternalCrossing=false, effective date follows the adjustment', async () => {
+  it('evidence on both transfers: no wallet refs / crossing flag are passed; effective date and actor follow the adjustment', async () => {
     const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 9n });
-    const accounting = { executeTransfer, resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
-    await makeSvc(reattrRow, accounting).onApproved('ADJ2609010001', 'U_OPS');
+    await makeSvc(reattrRow, makeAccounting(executeTransfer)).onApproved('ADJ2609010001', 'U_OPS');
 
-    const params = executeTransfer.mock.calls[0][0];
-    expect(params.amount).toBe(730000n);
-    const evidence = params.evidence;
-    // 两腿钱包写反或写成同一个，两案的差额就不会各自归零，重对账时案子无法自愈。
-    expect(evidence.debitWalletRef).toBe('wallet-from');
-    expect(evidence.creditWalletRef).toBe('wallet-to');
-    expect(evidence.isExternalCrossing).toBe(false);
-    expect(evidence.effectiveDate).toBe('2026-09-01');
-    expect(evidence.debitCode).toBe('L.CLIENT_PAYABLE');
-    expect(evidence.creditCode).toBe('L.CLIENT_PAYABLE');
+    expect(executeTransfer).toHaveBeenCalledTimes(2);
+    for (const [params] of executeTransfer.mock.calls) {
+      expect(params.evidence.debitWalletRef).toBeUndefined();
+      expect(params.evidence.creditWalletRef).toBeUndefined();
+      expect(params.evidence.isExternalCrossing).toBeUndefined();
+      expect(params.evidence.effectiveDate).toBe('2026-09-01');
+      expect(params.evidence.actorId).toBe('U_OPS');
+      expect(params.evidence.traceId).toBe('T-REATTR');
+    }
   });
 
   it('crypto reattribution: both ledger and evidence.assetCurrency use asset.currency (USDT-TRON → USDT), not assetCode', async () => {
     const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 9n });
-    const accounting = { executeTransfer, resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
+    const accounting = makeAccounting(executeTransfer);
     await makeSvc({ ...reattrRow, assetCode: 'USDT-TRON' }, accounting).onApproved('ADJ2609010001', 'U_OPS');
 
-    const params = executeTransfer.mock.calls[0][0];
-    // 拿 assetCode 索引 TB_LEDGERS 会得到 undefined → 抛 NotFoundException，
-    // 而 handler 的异常本仓现状不外传：所有加密币改记单会永远停在 PENDING_APPROVAL。
-    expect(params.ledger).toBe(2);
-    // 传错 assetCurrency 会让这笔分录在管理台按币种筛选时消失（本仓已付过一次学费）。
-    expect(params.evidence.assetCurrency).toBe('USDT');
+    // 应付对与现金对两笔都要对。
+    expect(executeTransfer).toHaveBeenCalledTimes(2);
+    for (const [params] of executeTransfer.mock.calls) {
+      // 拿 assetCode 索引 TB_LEDGERS 会得到 undefined → 抛 NotFoundException，
+      // 而 handler 的异常本仓现状不外传：所有加密币改记单会永远停在 PENDING_APPROVAL。
+      expect(params.ledger).toBe(2);
+      // 传错 assetCurrency 会让这笔分录在管理台按币种筛选时消失（本仓已付过一次学费）。
+      expect(params.evidence.assetCurrency).toBe('USDT');
+    }
+    // 现金户也按币种账本取（USDT 账本 2），不是 AED 账本。
+    expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('wallet-to', TB_LEDGERS.USDT);
+    expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('wallet-from', TB_LEDGERS.USDT);
   });
 
   it('after posting, status becomes POSTED, tbTransferId recorded, the decider lands as a business number (principle ⑥)', async () => {
     const update = jest.fn();
-    const accounting = {
-      executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 88n }),
-      resolveTbAccountId: jest.fn().mockResolvedValue(1n),
-    };
+    const accounting = makeAccounting(jest.fn().mockResolvedValue({ tbTransferId: 88n }));
     await makeSvc(reattrRow, accounting, update).onApproved('ADJ2609010001', 'U_OPS_UUID', 'OPS-001', 'OPS_OFFICER');
     expect(update).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ status: 'POSTED', tbTransferId: '88', decidedByUserId: 'OPS-001' }),
@@ -1253,7 +1324,7 @@ describe('AdjustmentService.onApproved fourth-family posting (reattribution, spe
   it('an already-POSTED reattribution posted again is rejected by the status machine (principle ④), and touches no ledger, writes nothing', async () => {
     const executeTransfer = jest.fn();
     const update = jest.fn();
-    const accounting = { executeTransfer, resolveTbAccountId: jest.fn() };
+    const accounting = makeAccounting(executeTransfer);
     await expect(
       makeSvc({ ...reattrRow, status: 'POSTED' }, accounting, update).onApproved('ADJ2609010001', 'U_OPS'),
     ).rejects.toThrow(BadRequestException);
@@ -1263,7 +1334,7 @@ describe('AdjustmentService.onApproved fourth-family posting (reattribution, spe
 
   it('the rightful owner\'s customer cannot be resolved → throws NotFoundException, ledger stays untouched (better to not post than to credit a liability to an unresolvable account)', async () => {
     const executeTransfer = jest.fn();
-    const accounting = { executeTransfer, resolveTbAccountId: jest.fn().mockResolvedValue(1n) };
+    const accounting = makeAccounting(executeTransfer);
     await expect(
       makeSvc({ ...reattrRow, toOwnerNo: 'CU-NOBODY' }, accounting).onApproved('ADJ2609010001', 'U_OPS'),
     ).rejects.toThrow(NotFoundException);
@@ -1272,10 +1343,7 @@ describe('AdjustmentService.onApproved fourth-family posting (reattribution, spe
 
   it('the audit envelope matches the main path\'s shape: RECON_ADJUSTMENT_POSTED, requiredFields at the top level, explicit requestId, the real assertActionSpec does not reject; metadata carries an extra rightful-owner clue', async () => {
     const recordByActor = jest.fn();
-    const accounting = {
-      executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 9n }),
-      resolveTbAccountId: jest.fn().mockResolvedValue(1n),
-    };
+    const accounting = makeAccounting(jest.fn().mockResolvedValue({ tbTransferId: 9n }));
     await makeSvc(reattrRow, accounting, jest.fn(), recordByActor).onApproved('ADJ2609010001', 'U_OPS');
 
     expect(recordByActor).toHaveBeenCalledTimes(1);
@@ -1307,10 +1375,7 @@ describe('AdjustmentService.onApproved fourth-family posting (reattribution, spe
   // （长度断言会在未来往 subjects 里加任何一条无关主体时误红，也测不出少的是哪一个）。
   it('both customers land in subjects: one CUSTOMER/OWNER entry each for the misattributed party and the rightful owner (this reattribution must also be findable by the rightful owner\'s customer number)', async () => {
     const recordByActor = jest.fn();
-    const accounting = {
-      executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 9n }),
-      resolveTbAccountId: jest.fn().mockResolvedValue(1n),
-    };
+    const accounting = makeAccounting(jest.fn().mockResolvedValue({ tbTransferId: 9n }));
     await makeSvc(reattrRow, accounting, jest.fn(), recordByActor).onApproved('ADJ2609010001', 'U_OPS');
 
     const subjects = recordByActor.mock.calls[0][0].subjects;

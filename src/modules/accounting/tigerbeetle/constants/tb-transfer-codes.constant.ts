@@ -57,9 +57,16 @@ export const TB_TRANSFER_CODES = {
   CAPITAL_INJECTION: 70, // 资本注入:DR 现金·运营钱包(A.FIRM_CASH) / CR 公司权益(E.FIRM_EQUITY)
 
   // ── 平账·调账(80)──
-  // 五种分录组合共用这一个码:前四种随 book×direction 推导(resolvePostingLegs);
-  // 第五种是改记(direction='REATTRIBUTE',成因 CUSTOMER_REATTRIBUTION)——两腿都是
-  // CLIENT_PAYABLE、只换 ownerUuid,不由 book×direction 决定(resolveReattributionLegs)。
+  // 戊波一(附录 B「平账调账单」):调账单共用这一个码,现金腿 = 案子钱包的现金户(客户池 A.CLIENT_CASH / 公司池 A.FIRM_CASH,
+  // 取户走 resolveCashAccountId),对手腿由「账簿 × 处置家族 × 方向」定(resolvePostingLegs):
+  //   客户池冲正 / 冲销 / 认损:REDUCE = DR 应付(L.CLIENT_PAYABLE) / CR 现金;INCREASE = DR 现金 / CR 应付
+  //   公司池错账更正 / 冲销:    REDUCE = DR 公司权益(E.FIRM_EQUITY) / CR 现金;INCREASE = DR 现金 / CR 公司权益
+  //   补记银行杂费:             DR 银行与托管费用(X.EXPENSE_BANK_CUSTODY) / CR 现金
+  //   补记银行利息:             DR 现金 / CR 其他收入(E.INCOME_OTHER,212)
+  //   公司池核销:               托管里少了 DR 对账核销损失(X.EXPENSE_RECON_LOSS) / CR 现金;
+  //                              托管里多出 DR 现金 / CR 其他收入(E.INCOME_OTHER,212;301 是借方户,贷不得超借)
+  // 改记(direction='REATTRIBUTE',成因 CUSTOMER_REATTRIBUTION)是一张凭证两笔码 80、四条腿(resolveReattributionLegs):
+  //   应付对 DR 应付·错记方 / CR 应付·正主;现金对 DR 现金·正主钱包 / CR 现金·错记方钱包(每客户一钱包,记错人 = 记错钱包)。
   RECON_ADJUSTMENT: 80, // 调账单落账(disposition/adjustment-rules.ts)
 
   // ── 平账·划转(81–83)（二期，2026-09-05）：内部划转单（公司 → 客户）三种腿分录。

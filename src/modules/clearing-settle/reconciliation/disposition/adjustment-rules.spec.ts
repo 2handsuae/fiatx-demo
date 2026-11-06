@@ -4,33 +4,74 @@ import {
   REASON_SPECS, assertReasonAllowed, resolvePostingLegs, requiresRelatedOrder, resolveReattributionLegs,
 } from './adjustment-rules';
 
-describe('resolvePostingLegs —— four combinations, cause plays no part in the calculation', () => {
-  it('client book · reduce: debit client payable / credit client asset', () => {
-    expect(resolvePostingLegs('CLIENT', 'REDUCE')).toEqual({
-      debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
-      creditCode: TB_ACCOUNT_CODES.CLIENT_CASH,
-    });
+// 戊波一·附录 B「平账调账单」：现金腿 = 案子钱包的现金户（客户池 1 / 公司池 50），对手腿由「账簿 × 处置家族 × 方向」定。
+// REDUCE = 借对手 / 贷现金；INCREASE = 借现金 / 贷对手。
+describe('resolvePostingLegs —— cash side follows the book, counter side follows the disposition family (campaign E wave 1, appendix B)', () => {
+  const C = TB_ACCOUNT_CODES;
+
+  it('client book · reduce (AMT_MISBOOKED): debit client payable / credit client cash', () => {
+    expect(resolvePostingLegs('CLIENT', 'REDUCE', 'AMT_MISBOOKED')).toEqual({ debitCode: C.CLIENT_PAYABLE, creditCode: C.CLIENT_CASH });
   });
 
-  it('client book · increase: debit client asset / credit client payable', () => {
-    expect(resolvePostingLegs('CLIENT', 'INCREASE')).toEqual({
-      debitCode: TB_ACCOUNT_CODES.CLIENT_CASH,
-      creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
-    });
+  it('client book · increase (AMT_MISBOOKED): debit client cash / credit client payable', () => {
+    expect(resolvePostingLegs('CLIENT', 'INCREASE', 'AMT_MISBOOKED')).toEqual({ debitCode: C.CLIENT_CASH, creditCode: C.CLIENT_PAYABLE });
   });
 
-  it('firm book · reduce: debit firm ops / credit firm asset', () => {
-    expect(resolvePostingLegs('FIRM', 'REDUCE')).toEqual({
-      debitCode: TB_ACCOUNT_CODES.FIRM_EQUITY,
-      creditCode: TB_ACCOUNT_CODES.FIRM_CASH,
-    });
+  it('client book · client loss recognition (UNEXPLAINED_CLIENT_LOSS, write-off family) still hits the customer payable, not a firm account', () => {
+    expect(resolvePostingLegs('CLIENT', 'REDUCE', 'UNEXPLAINED_CLIENT_LOSS')).toEqual({ debitCode: C.CLIENT_PAYABLE, creditCode: C.CLIENT_CASH });
   });
 
-  it('firm book · increase: debit firm asset / credit other income', () => {
-    expect(resolvePostingLegs('FIRM', 'INCREASE')).toEqual({
-      debitCode: TB_ACCOUNT_CODES.FIRM_CASH,
-      creditCode: TB_ACCOUNT_CODES.INCOME_OTHER,
-    });
+  it('firm book · correct / reverse · reduce (AMT_MISBOOKED): debit company equity / credit company cash', () => {
+    expect(resolvePostingLegs('FIRM', 'REDUCE', 'AMT_MISBOOKED')).toEqual({ debitCode: C.FIRM_EQUITY, creditCode: C.FIRM_CASH });
+    expect(resolvePostingLegs('FIRM', 'REDUCE', 'FIRM_MISBOOKED')).toEqual({ debitCode: C.FIRM_EQUITY, creditCode: C.FIRM_CASH });
+  });
+
+  it('firm book · correct / reverse · increase: debit company cash / credit company equity (NOT other income — charter appendix B)', () => {
+    expect(resolvePostingLegs('FIRM', 'INCREASE', 'AMT_MISBOOKED')).toEqual({ debitCode: C.FIRM_CASH, creditCode: C.FIRM_EQUITY });
+    expect(resolvePostingLegs('FIRM', 'INCREASE', 'DUP_BOOKING')).toEqual({ debitCode: C.FIRM_CASH, creditCode: C.FIRM_EQUITY });
+  });
+
+  it('firm book · record · reduce (BANK_CHARGE_UNBOOKED): debit bank & custody expense / credit company cash', () => {
+    expect(resolvePostingLegs('FIRM', 'REDUCE', 'BANK_CHARGE_UNBOOKED')).toEqual({ debitCode: C.EXPENSE_BANK_CUSTODY, creditCode: C.FIRM_CASH });
+  });
+
+  it('firm book · record · increase (BANK_INTEREST_UNBOOKED): debit company cash / credit other income', () => {
+    expect(resolvePostingLegs('FIRM', 'INCREASE', 'BANK_INTEREST_UNBOOKED')).toEqual({ debitCode: C.FIRM_CASH, creditCode: C.INCOME_OTHER });
+  });
+
+  it('firm book · write-off · reduce (custody short, UNEXPLAINED_WRITE_OFF): debit reconciliation write-off loss / credit company cash', () => {
+    expect(resolvePostingLegs('FIRM', 'REDUCE', 'UNEXPLAINED_WRITE_OFF')).toEqual({ debitCode: C.EXPENSE_RECON_LOSS, creditCode: C.FIRM_CASH });
+  });
+
+  it('firm book · write-off · increase (custody over, UNEXPLAINED_WRITE_OFF): debit company cash / credit other income (212 — a debit-normal 301 cannot be credited past its debits, charter §4 fork 7)', () => {
+    expect(resolvePostingLegs('FIRM', 'INCREASE', 'UNEXPLAINED_WRITE_OFF')).toEqual({ debitCode: C.FIRM_CASH, creditCode: C.INCOME_OTHER });
+  });
+
+  // 全格扫：每个「处置家族 × 账簿 × 方向」格子对照一张手写总表。表里是字面数字，不从实现里推。
+  it('every legal reason × book × direction cell matches the hand-written journal table (counter code only; cash code = book)', () => {
+    const counterTable: Record<string, Record<string, Record<string, number>>> = {
+      CORRECT:   { CLIENT: { REDUCE: 100, INCREASE: 100 }, FIRM: { REDUCE: 200, INCREASE: 200 } },
+      REVERSE:   { CLIENT: { REDUCE: 100, INCREASE: 100 }, FIRM: { REDUCE: 200, INCREASE: 200 } },
+      RECORD:    { CLIENT: { REDUCE: 100, INCREASE: 100 }, FIRM: { REDUCE: 300, INCREASE: 212 } },
+      WRITE_OFF: { CLIENT: { REDUCE: 100, INCREASE: 100 }, FIRM: { REDUCE: 301, INCREASE: 212 } },
+    };
+    let cells = 0;
+    for (const [code, spec] of Object.entries(REASON_SPECS)) {
+      if (spec.family === 'REATTRIBUTE') continue; // 改记不走 book×direction
+      for (const book of ['CLIENT', 'FIRM'] as const) {
+        if (spec.book !== 'ANY' && spec.book !== book) continue;
+        for (const direction of spec.directions) {
+          const cash = book === 'CLIENT' ? 1 : 50;
+          const counter = counterTable[spec.family][book][direction];
+          const expected = direction === 'REDUCE' ? { debitCode: counter, creditCode: cash } : { debitCode: cash, creditCode: counter };
+          expect({ cell: `${code}/${book}/${direction}`, legs: resolvePostingLegs(book, direction, code as any) })
+            .toEqual({ cell: `${code}/${book}/${direction}`, legs: expected });
+          cells++;
+        }
+      }
+    }
+    // 非改记的 12 个码在各自合法账簿 × 方向下共 29 格（WRITE_OFF 2 + CLIENT_LOSS 1 + AMT×3 12 + DUP 4 + PHANTOM 1 + PAYOUT 1 + FIRM_MISBOOKED 2 + INTEREST 1 + CHARGE 1 + OTHER 4）——钉死格数，防止循环空转。
+    expect(cells).toBe(29);
   });
 });
 
@@ -144,10 +185,10 @@ describe('Fourth family REATTRIBUTE (spec §6)', () => {
     expect(byFamily.RECORD!.sort()).toEqual(['BANK_CHARGE_UNBOOKED', 'BANK_INTEREST_UNBOOKED']);
     expect(byFamily.REATTRIBUTE).toEqual(['CUSTOMER_REATTRIBUTION']);
   });
-  it('reattribution entry: debit the misattributed party payable / credit the rightful owner payable — the asset leg does not move (fifth combination)', () => {
+  it('reattribution is a four-leg voucher (charter §4 fork 6): payable pair (debit misattributed party / credit rightful owner) + cash pair (debit rightful owner wallet / credit misattributed party wallet)', () => {
     expect(resolveReattributionLegs()).toEqual({
-      debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
-      creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
+      payable: { debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE, creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE },
+      cash: { debitCode: TB_ACCOUNT_CODES.CLIENT_CASH, creditCode: TB_ACCOUNT_CODES.CLIENT_CASH },
     });
   });
   it('reattribution does not follow book×direction semantics: assertReasonAllowed rejects it for any direction', () => {
@@ -161,9 +202,5 @@ describe('Recon batch A: new reason codes (spec §3.1 / §5)', () => {
       book: 'FIRM', directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: 'Unexplained write-off', family: 'WRITE_OFF',
     });
     expect(() => assertReasonAllowed('UNEXPLAINED_WRITE_OFF', 'CLIENT', 'INCREASE')).toThrow(BadRequestException);
-  });
-  it('write-off entry legs pair with record entry: reduce = debit ops/credit firm asset, increase = debit firm asset/credit other income', () => {
-    expect(resolvePostingLegs('FIRM', 'REDUCE')).toEqual({ debitCode: TB_ACCOUNT_CODES.FIRM_EQUITY, creditCode: TB_ACCOUNT_CODES.FIRM_CASH });
-    expect(resolvePostingLegs('FIRM', 'INCREASE')).toEqual({ debitCode: TB_ACCOUNT_CODES.FIRM_CASH, creditCode: TB_ACCOUNT_CODES.INCOME_OTHER });
   });
 });

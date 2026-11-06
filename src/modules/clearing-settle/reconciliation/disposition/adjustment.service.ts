@@ -17,7 +17,7 @@ import { ADJUSTMENT_TRANSITIONS, AdjustmentStatus } from '../constants/adjustmen
 import { AdjustmentListRow, CreateAdjustmentDto } from '../dto/adjustment.dto';
 import { bigintToDecimal } from '../../../funds-layer/accounting/tb-amount.util';
 import {
-  Book, Direction, ReasonCode, REASON_SPECS,
+  Book, Direction, ReasonCode, REASON_SPECS, RECON_ADJUSTMENT_SOURCE_TYPE,
   assertReasonAllowed, requiresRelatedOrder, resolvePostingLegs, resolveReattributionLegs,
 } from './adjustment-rules';
 import { AdjustFamily, DISPOSITION_LABEL, DispositionKind, OUTLET_OF, StoredOutlet, causeDisplayLabel } from './cause-registry';
@@ -699,10 +699,11 @@ export class AdjustmentService {
     });
     // 第四族走第五种组合。落回 resolvePostingLegs 会把 REATTRIBUTE 当成非 REDUCE
     // 的「增加」，预览显示成「借客户托管 / 贷客户应付」——与真实落账的两腿正相反，
-    // 详情页与账本各说各话。
+    // 详情页与账本各说各话。改记是四腿（应付对 + 现金对），详情页只有一对借贷栏位，
+    // 预览显示应付对；现金对随落账同时挪，见 postReattribution。
     const legs = row.direction === 'REATTRIBUTE'
-      ? resolveReattributionLegs()
-      : resolvePostingLegs(row.book as Book, row.direction as Direction);
+      ? resolveReattributionLegs().payable
+      : resolvePostingLegs(row.book as Book, row.direction as Direction, row.reasonCode as ReasonCode);
 
     const {
       id: _id,
@@ -780,7 +781,7 @@ export class AdjustmentService {
     // actorNo·actorDisplayName）一律用它，不直接用 deciderId（JWT UUID）。
     const deciderDisplay = deciderNo ?? deciderId;
 
-    const legs = resolvePostingLegs(row.book as Book, row.direction as Direction);
+    const legs = resolvePostingLegs(row.book as Book, row.direction as Direction, row.reasonCode as ReasonCode);
 
     // ⚠ ledger 必须按资产的 **currency** 取，不是 assetCode。
     // `TB_LEDGERS` 的键是币种（AED / USDT），而 `reconciliation_cases.assetCode`
@@ -800,20 +801,24 @@ export class AdjustmentService {
       );
     }
 
-    // 科目 → TbAccountRegistry 里的真实 ownerType。客户负债类(CLIENT_PAYABLE/
-    // DEPOSIT_SUSPENSE)按客户 UUID 登记；其余（聚合资产 CLIENT_CASH/FIRM_CASH、
-    // 公司权益 FIRM_EQUITY/FIRM_SET、收入 INCOME_*）一律 'SYSTEM'——见
-    // asset-provisioning.service.ts:46 与 seed.business.ts:711 的真实登记调用，
+    // 科目 → TbAccountRegistry 里的真实归属。客户负债类(CLIENT_PAYABLE/DEPOSIT_SUSPENSE)
+    // 按客户 UUID 登记；现金类(CLIENT_CASH/FIRM_CASH)一钱包一户，**只经 resolveCashAccountId 取**
+    // （案子钱包 row.walletRef 的现金户，不手拼四元组）；其余（公司权益、收入、开支）按币种
+    // 一户、ownerType 'SYSTEM'——见 asset-provisioning.service.ts 与 seed.business.ts 的真实登记调用，
     // 'FIRM' 不是本仓库任何地方登记过的 ownerType，传了会导致 resolveTbAccountId
     // 查不到注册行而抛 NotFoundException（mock 测试若只断言 code 不断言
     // ownerType，这类问题不会被测出来——账户找错了，测试却是绿的）。
-    const ownerFor = (code: number) =>
-      code === TB_ACCOUNT_CODES.CLIENT_PAYABLE || code === TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE
-        ? { ownerType: 'CUSTOMER' as const, ownerUuid: row.ownerId ?? undefined }
-        : { ownerType: 'SYSTEM' as const };
+    const resolveAccount = (code: number): Promise<bigint> =>
+      code === TB_ACCOUNT_CODES.CLIENT_CASH || code === TB_ACCOUNT_CODES.FIRM_CASH
+        ? this.accounting.resolveCashAccountId(row.walletRef, ledger)
+        : this.accounting.resolveTbAccountId(
+          code === TB_ACCOUNT_CODES.CLIENT_PAYABLE || code === TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE
+            ? { code, ledger, ownerType: 'CUSTOMER' as const, ownerUuid: row.ownerId ?? undefined }
+            : { code, ledger, ownerType: 'SYSTEM' as const },
+        );
 
-    const debitAccountId = await this.accounting.resolveTbAccountId({ code: legs.debitCode, ledger, ...ownerFor(legs.debitCode) });
-    const creditAccountId = await this.accounting.resolveTbAccountId({ code: legs.creditCode, ledger, ...ownerFor(legs.creditCode) });
+    const debitAccountId = await resolveAccount(legs.debitCode);
+    const creditAccountId = await resolveAccount(legs.creditCode);
 
     const { tbTransferId } = await this.accounting.executeTransfer({
       debitAccountId,
@@ -822,7 +827,7 @@ export class AdjustmentService {
       ledger,
       code: TB_TRANSFER_CODES.RECON_ADJUSTMENT,
       evidence: {
-        sourceType: 'RECON_ADJUSTMENT',
+        sourceType: RECON_ADJUSTMENT_SOURCE_TYPE,
         sourceNo: row.adjustmentNo,
         eventCode: 'RECON_ADJUSTMENT_POSTED',
         traceId: row.traceId || row.adjustmentNo,
@@ -837,12 +842,8 @@ export class AdjustmentService {
         actorType: 'ADMIN',
         actorId: deciderDisplay,
         memo: row.reasonInternal,
-        // ⚠ 必须落到出问题的那个钱包，否则 delta 不归零、case 无法自愈
-        debitWalletRef: row.walletRef,
-        creditWalletRef: row.walletRef,
-        // 调账是纯账面重分类，不出现在任何外部账单上——置 false 才不会被
-        // wallet-flow-matcher 当成「内部有外部无」的孤儿行
-        isExternalCrossing: false,
+        // 钱包归属不再靠证据参数传：现金腿的户本身就是案子钱包的现金户，delta 归零靠账户余额。
+        // 调账行不出现在任何外部账单上，对账引擎按 sourceType 排除（匹配器 / 案件流水对照），不再靠跨外部标记。
         effectiveDate: row.effectiveDate,
       },
     });
@@ -905,21 +906,23 @@ export class AdjustmentService {
   }
 
   /**
-   * 第四族落账（spec §6）：借 错记方应付 / 贷 正主方应付。
+   * 第四族落账（spec §6 + 戊波一总纲 §4 岔口 6）：一张凭证、两笔码 80、四条腿。
+   *   应付对：借 错记方应付 / 贷 正主方应付（同科目 CLIENT_PAYABLE、不同 ownerUuid——负债换主人）；
+   *   现金对：借 现金·正主方钱包（row.toWalletRef）/ 贷 现金·错记方钱包（row.walletRef）
+   *     （每客户一钱包，「记错人」就是「记错钱包」：钱实际在正主的钱包里，账却记在错记方的现金户上；
+   *     只转应付不挪现金，两案永远不自愈，正主的应付还会比他的现金多）。
+   * 两对落完，两个钱包的差额同时归零，重对账时两个案子一起自愈。
    *
-   * 客户资产腿（CLIENT_CASH）刻意不出现——托管里的钱一分没动，动的只是
-   * 「这笔钱是谁的」。两腿是**同一个科目 CLIENT_PAYABLE、不同 ownerUuid**，
-   * 这就是负债换主人的全部机制；写成资产腿参与的组合等于凭空搬动托管余额。
+   * 两笔转账的 TB 转账号由 (sourceType, sourceNo, eventCode) 决定——第二笔必须换 eventCode，
+   * 否则两笔会撞同一个转账号（账户不同，TB 直接拒）。
    *
    * 落账路径上的坑与 onApproved 主路径同源（那边的行内注释逐条论证过成因与
-   * 事故现场，这里不重复誊，只标出四个必须照办的点）：
+   * 事故现场，这里不重复誊，只标出三个必须照办的点）：
    *   ① ledger 按 asset.**currency** 取，不是 assetCode（USDT-TRON vs USDT）；
    *   ② CLIENT_PAYABLE 在 TbAccountRegistry 里按客户 UUID 登记 → ownerType 必须
-   *      是 'CUSTOMER' 并带 ownerUuid；
+   *      是 'CUSTOMER' 并带 ownerUuid；现金户一钱包一户，只经 resolveCashAccountId 取；
    *   ③ evidence.assetCurrency 同样是 currency，传 code 会让加密币分录在按币种
-   *      筛选时从列表里消失；
-   *   ④ evidence 两腿钱包**各落各的**——错记方降、正主方升，两案的差额才各自
-   *      归零，重对账时两个案子一起自愈（这一条是第四族独有的，主路径两腿同钱包）。
+   *      筛选时从列表里消失。
    */
   private async postReattribution(row: any, deciderId: string, deciderNo?: string | null, deciderRole?: string | null): Promise<void> {
     this.assertTransition(row.status, AdjustmentStatus.POSTED);
@@ -946,9 +949,22 @@ export class AdjustmentService {
     }
 
     const legs = resolveReattributionLegs();
-    const debitAccountId = await this.accounting.resolveTbAccountId({ code: legs.debitCode, ledger, ownerType: 'CUSTOMER', ownerUuid: row.ownerId });
-    const creditAccountId = await this.accounting.resolveTbAccountId({ code: legs.creditCode, ledger, ownerType: 'CUSTOMER', ownerUuid: toOwner.id });
+    const debitAccountId = await this.accounting.resolveTbAccountId({ code: legs.payable.debitCode, ledger, ownerType: 'CUSTOMER', ownerUuid: row.ownerId });
+    const creditAccountId = await this.accounting.resolveTbAccountId({ code: legs.payable.creditCode, ledger, ownerType: 'CUSTOMER', ownerUuid: toOwner.id });
+    const cashDebitAccountId = await this.accounting.resolveCashAccountId(row.toWalletRef, ledger);
+    const cashCreditAccountId = await this.accounting.resolveCashAccountId(row.walletRef, ledger);
 
+    const evidenceBase = {
+      sourceType: RECON_ADJUSTMENT_SOURCE_TYPE,
+      sourceNo: row.adjustmentNo,
+      traceId: row.traceId || row.adjustmentNo,
+      assetCurrency: assetRow?.currency ?? row.assetCode,
+      actorType: 'ADMIN' as const,
+      actorId: deciderDisplay,
+      effectiveDate: row.effectiveDate,
+    };
+
+    // 应付对：错记方降、正主方升。
     const { tbTransferId } = await this.accounting.executeTransfer({
       debitAccountId,
       creditAccountId,
@@ -956,23 +972,27 @@ export class AdjustmentService {
       ledger,
       code: TB_TRANSFER_CODES.RECON_ADJUSTMENT,
       evidence: {
-        sourceType: 'RECON_ADJUSTMENT',
-        sourceNo: row.adjustmentNo,
+        ...evidenceBase,
         eventCode: 'RECON_ADJUSTMENT_POSTED',
-        traceId: row.traceId || row.adjustmentNo,
-        debitCode: TB_CODE_TO_COA[legs.debitCode],
-        creditCode: TB_CODE_TO_COA[legs.creditCode],
-        assetCurrency: assetRow?.currency ?? row.assetCode,
-        actorType: 'ADMIN',
-        actorId: deciderDisplay,
+        debitCode: TB_CODE_TO_COA[legs.payable.debitCode],
+        creditCode: TB_CODE_TO_COA[legs.payable.creditCode],
         memo: row.reasonInternal,
-        // 两腿各落各的钱包：错记方余额降、正主方余额升，两案各自的 delta 才归零。
-        debitWalletRef: row.walletRef,
-        creditWalletRef: row.toWalletRef,
-        // 纯账面重分类，不出现在任何外部账单上——置 false 才不会被
-        // wallet-flow-matcher 当成「内部有外部无」的孤儿行。
-        isExternalCrossing: false,
-        effectiveDate: row.effectiveDate,
+      },
+    });
+
+    // 现金对：钱在正主的钱包里——正主钱包现金升、错记方钱包现金降，两钱包各自的差额才同时归零。
+    await this.accounting.executeTransfer({
+      debitAccountId: cashDebitAccountId,
+      creditAccountId: cashCreditAccountId,
+      amount: BigInt(row.amount),
+      ledger,
+      code: TB_TRANSFER_CODES.RECON_ADJUSTMENT,
+      evidence: {
+        ...evidenceBase,
+        eventCode: 'RECON_ADJUSTMENT_POSTED_CASH',
+        debitCode: TB_CODE_TO_COA[legs.cash.debitCode],
+        creditCode: TB_CODE_TO_COA[legs.cash.creditCode],
+        memo: `${row.reasonInternal} (cash reattribution)`,
       },
     });
 
