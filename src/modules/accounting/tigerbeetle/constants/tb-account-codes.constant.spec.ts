@@ -13,21 +13,20 @@ import {
   accountFlagsFor,
   cashAccountCodeFor,
   cashAccountName,
+  accountDisplayName,
 } from './tb-account-codes.constant';
 import { ledgerForNetwork } from './tb-ledgers.constant';
 import { systemAccountCodesFor } from '../../../asset-treasury/assets/asset-provisioning.service';
 
 describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
-  // 戊波一：13 码（含退役中的 201 / 203，T12 删后为 11）。码 2 / 51 / 150 不进本波码表。
-  it('exposes exactly the 13 codes', () => {
+  // 戊波一：11 码（201 / 203 已退役删除）。码 2 / 51 / 150 不进本波码表。
+  it('exposes exactly the 11 codes', () => {
     expect(TB_ACCOUNT_CODES).toEqual({
       CLIENT_CASH: 1,
       FIRM_CASH: 50,
       CLIENT_PAYABLE: 100,
       DEPOSIT_SUSPENSE: 101,
       FIRM_EQUITY: 200,
-      FIRM_SET: 201,
-      FIRM_LIQ: 203,
       INCOME_SWAP_FEE: 210,
       INCOME_WITHDRAW_FEE: 211,
       INCOME_OTHER: 212,
@@ -39,7 +38,7 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
 
   it('drops all legacy codes', () => {
     const names = Object.keys(TB_ACCOUNT_CODES);
-    for (const dead of ['CLIENT_BANK','CLIENT_CUSTODY','TRADE_CLEARING','FIRM_TREASURY','FX_POSITION','PAID_IN_CAPITAL','RETAINED_EARNINGS','FEE_INCOME','SPREAD_INCOME','FX_UNREALIZED_PNL','FX_REALIZED_PNL','FIRM_FEE','FIRM_SEIZED']) {
+    for (const dead of ['CLIENT_BANK','CLIENT_CUSTODY','TRADE_CLEARING','FIRM_TREASURY','FX_POSITION','PAID_IN_CAPITAL','RETAINED_EARNINGS','FEE_INCOME','SPREAD_INCOME','FX_UNREALIZED_PNL','FX_REALIZED_PNL','FIRM_FEE','FIRM_SEIZED','FIRM_SET','FIRM_LIQ']) {
       expect(names).not.toContain(dead);
     }
   });
@@ -54,7 +53,20 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
     expect(COA_TO_TB_CODE['E.FIRM_EQUITY']).toBe(200);
     expect(TB_CODE_TO_COA[1]).toBe('A.CLIENT_CASH');
     expect(TB_CODE_TO_COA[212]).toBe('E.INCOME_OTHER');
-    expect(TB_CODE_TO_COA[203]).toBe('E.FIRM_LIQ');
+  });
+
+  it('退役码 201 / 203 不在码表、名称表、助记码映射里', () => {
+    expect(Object.values(TB_ACCOUNT_CODES)).not.toContain(201);
+    expect(Object.values(TB_ACCOUNT_CODES)).not.toContain(203);
+    expect(TB_ACCOUNT_NAMES[201]).toBeUndefined();
+    expect(TB_ACCOUNT_NAMES[203]).toBeUndefined();
+    expect(TB_CODE_TO_COA[201]).toBeUndefined();
+    expect(TB_CODE_TO_COA[203]).toBeUndefined();
+    expect(COA_TO_TB_CODE['E.FIRM_SET']).toBeUndefined();
+    expect(COA_TO_TB_CODE['E.FIRM_LIQ']).toBeUndefined();
+    expect(Object.keys(TB_ACCOUNT_NAMES).map(Number).sort((a, b) => a - b)).toEqual(
+      [1, 50, 100, 101, 200, 210, 211, 212, 300, 301, 302],
+    );
   });
 
   it('names: 现金类与开支类的英文名（一码一名）', () => {
@@ -115,6 +127,22 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
     expect(
       cashAccountName(1, { vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON', ownerNo: 'CU2601012635' }),
     ).toBe('Client Cash · CU2601012635 · Deposit address');
+  });
+
+  it('accountDisplayName: 现金户(WALLET)显示注册表户名 description；其余户照一码一名；WALLET 缺 description 回落类名', () => {
+    expect(
+      accountDisplayName({ code: 50, ownerType: 'WALLET', description: 'Company Cash · Company Operations · AED_ZAND' }),
+    ).toBe('Company Cash · Company Operations · AED_ZAND');
+    expect(
+      accountDisplayName({ code: 1, ownerType: 'WALLET', description: 'Client Cash · CU2601012635 · vIBAN' }),
+    ).toBe('Client Cash · CU2601012635 · vIBAN');
+    // 非 WALLET 行即便带 description 也不用它（SYSTEM / CUSTOMER 户名 = 类名）
+    expect(accountDisplayName({ code: 200, ownerType: 'SYSTEM', description: 'whatever' })).toBe('Company Equity');
+    expect(accountDisplayName({ code: 100, ownerType: 'CUSTOMER', description: null })).toBe(
+      'Payable to Clients – Available Balance',
+    );
+    expect(accountDisplayName({ code: 50, ownerType: 'WALLET', description: null })).toBe('Company Cash');
+    expect(accountDisplayName(undefined)).toBeNull();
   });
 
   it('systemAccountCodesFor 不再分法币：FIAT 与 CRYPTO 返回同一份 7 码（现金户不在上币时开，201/203 不再开）', () => {

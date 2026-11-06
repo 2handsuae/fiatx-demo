@@ -4,7 +4,7 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { TigerBeetleService } from './tigerbeetle.service';
 import { hexToBigint } from './utils/tb-id.util';
-import { isDebitNormalCode, accountNameOf } from './constants/tb-account-codes.constant';
+import { isDebitNormalCode, accountDisplayName } from './constants/tb-account-codes.constant';
 
 /** class-aware posted 余额(分,字符串)。借方户(现金/开支)借正=debits−credits；贷方户(负债/权益/收入)贷正=credits−debits。 */
 export function postedBalanceForCode(
@@ -195,8 +195,9 @@ export class TbAccountRegistryService {
   }
 
   /** 科目名称随行下发(2026-08-13)——名称的唯一真相源在 tb-account-codes.constant.ts,
-   *  前端不得再自建 code→名字 映射。科目表/流水表显示名称,其余地方显示助记码。 */
+   *  前端不得再自建 code→名字 映射。科目表/流水表显示名称,其余地方显示助记码。
+   *  现金户(WALLET)显示户名 description(戊波一,spec §2.1)。 */
   private attachAccountNames(rows: any[]): any[] {
-    return rows.map((r) => ({ ...r, accountName: accountNameOf(r.code) }));
+    return rows.map((r) => ({ ...r, accountName: accountDisplayName(r) }));
   }
 }

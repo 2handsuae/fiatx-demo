@@ -24,7 +24,7 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 | Eve New | 刚注册未认证 | 开户起点 |
 | Frank HighRisk | 高风险 | 风险分层 |
 | Grace Premium | VIP 费率标签（手打 STATIC，与 PREMIUM 交易档位解绑，2026-09-06） | 费率受众谓词（命中 VIP-USDT-AED） |
-| Henry Acme | 企业客户 | 企业形态占位；**第十幕（客户的账单与资料）演员**（战役丙波四）：带上上月 / 上月种子历史腿，余额 AED 44,950.00 / USDT 2,709.049000，**statement-only**（无钱包 / 无 vIBAN / 无活订单，见下「月结单与资料请求种子」） |
+| Henry Acme | 企业客户 | 企业形态占位；**第十幕（客户的账单与资料）演员**（战役丙波四）：带上上月 / 上月种子历史腿，余额 AED 44,950.00 / USDT 2,709.049000，**statement-only**（无活订单；自戊波一起有 C_DEP + C_VIBAN 两条钱包行与各自现金户——账要有地方记，见下「月结单与资料请求种子」） |
 | Ivy Restricted | **材料过期 · 明示受限**（scopes 仅 WITHDRAW/SWAP，不含 DEPOSIT） | 与 Carol 对照：明示 vs 静默；横幅矩阵下提现/兑换页出条子形态合并横幅、充值页不出（按域过滤演示位，2026-09-13 波三；充值页横幅走第三幕⑥现场限制） |
 | Leo Confirmed | **制裁定性 · 确认命中**（`SANCTION_CONFIRMED`，DISCLOSED，scope=ALL） | 战役甲波三 Task 10：CNMR 已提交样例锚点——客户端 Profile 页横幅可演（`RestrictionBanner` 走既有 DISCLOSED 机制，零代码生效）；与 Ivy 对照：Leo 是全阻（ALL，充值也挡），Ivy 是半阻（WITHDRAW/SWAP，充值不挡） |
 | Mona Partial | **制裁定性 · 部分命中在途**（`SANCTION` SILENT，OPEN；PNMR 挂钟 + 补料在途） | 战役甲波三 Task 10：PNMR 5 工作日钟种子锚点——与 Carol 对照：Carol 是命中待裁（定性之前），Mona 是已出 PARTIAL 结果（定性之后：PNMR 已开、EMIRATES_ID 补料已发，便签仍 SILENT/OPEN 等 EOCN 回指令） |
@@ -41,14 +41,16 @@ admin@fiatx.com 超管 ｜ sm@ 高管(SMO) ｜ ciso@ ｜ mlro@ ｜ dpo@ ｜ comp
 
 **平台钱包地址行**（7 行，审计 `CUSTODIAN_WALLET_SEEDED`，管理台只读）：
 
-| vault | TRON | AED_ZAND |
-|---|---|---|
-| F_OPS 运营 | ✓ 地址 | ✓ IBAN |
-| F_SET 结算 | —（只走法币通道） | ✓ IBAN |
-| F_FEE 手续费 | ✓ 地址 | ✓ IBAN |
-| F_LIQ 流动性 | ✓ 地址 | ✓ IBAN |
+| vault | TRON | AED_ZAND | 现金户（码 50，每钱包一户；户名 = 公司现金 · vault 标签 · 网络，开户即写进账户注册表） |
+|---|---|---|---|
+| F_OPS 运营 | ✓ 地址 | ✓ IBAN | `Company Cash · Company Operations · TRON` ／ `Company Cash · Company Operations · AED_ZAND` |
+| F_SET 结算 | —（只走法币通道） | ✓ IBAN | `Company Cash · Company Settlement · AED_ZAND` |
+| F_FEE 手续费 | ✓ 地址 | ✓ IBAN | `Company Cash · Company Fees · TRON` ／ `Company Cash · Company Fees · AED_ZAND` |
+| F_LIQ 流动性 | ✓ 地址 | ✓ IBAN | `Company Cash · Company Liquidity · TRON` ／ `Company Cash · Company Liquidity · AED_ZAND` |
 
-**客户收款地址行**（`demo:setup`，审计 `CUSTOMER_DEPOSIT_ADDRESS_SEEDED`）：alice / bob / grace / jack / kate / frank 各一条 TRON（C_DEP）+ 一条 AED_ZAND（C_VIBAN），vault `CLIENT_DEPOSIT`；账本科目仍按资产。
+7 个平台钱包 = 7 个公司现金户（账实一比一；账本管理台「Ledger Accounts」Owner 筛 WALLET 直接看到这些户名）。结算在途 / LP 前厅不再是独立科目（201 / 203 退役），就是 F_SET / F_LIQ 这两类钱包自己的现金户。
+
+**客户收款地址行**（`demo:setup`，审计 `CUSTOMER_DEPOSIT_ADDRESS_SEEDED`）：alice / bob / grace / jack / kate / frank 各一条 TRON（C_DEP）+ 一条 AED_ZAND（C_VIBAN），vault `CLIENT_DEPOSIT`；每个客户钱包一个现金户（码 1，户名 `Client Cash · <客户号> · vIBAN` / `Client Cash · <客户号> · Deposit address`，开户随钱包建行）。Henry（`demo_acme`）的两条钱包行不在 `demo:setup`、而由种子在 reset 时直接铺（见下「月结单与资料请求种子」），合计 7 位客户 14 个钱包、14 个客户现金户。
 
 **地址簿种子**（审计 `WITHDRAWAL_ADDRESS_SEEDED`；`demo:setup` 铺，`demo:all` 后共 **12** 条，判别式 = traceId 前缀 `demo-setup-withdrawal-address`）——把「受益人 × 托管」四格各摆一个样本，外加一个被拒展品与一个名录不合格 VASP 展品（#12，2026-10-22 对手方波二加）：
 
@@ -236,15 +238,15 @@ IBAN 复用平台池 IBAN 生成器（`buildSystemPoolIban('LP_FALCON','AED')`�
 
 | 腿 | fundsOrderNo | 资产 | 金额 | 账本分录（code） | 借/贷 | 外部参考 |
 |---|---|---|---|---|---|---|
-| 1 卖出 | `FDO2601017173` | AED | 50,000 | 84 `LP_EXCHANGE_PAY` | DR `E.FIRM_OPS` / CR `A.FIRM_ASSET` | `referenceNo`（FIAT，`fakeBankRef`） |
-| 2 买入落前厅 | `FDO2601017269` | USDT | 13,600 | 85 `LP_EXCHANGE_RECEIVE` | DR `A.FIRM_ASSET` / CR `E.FIRM_LIQ` | `txHash`（CRYPTO，`fakeChainTxHash`） |
-| 3 验收转 | `FDO2601015607` | USDT | 13,600 | 86 `LP_EXCHANGE_ACCEPT` | DR `E.FIRM_LIQ` / CR `E.FIRM_OPS` | `txHash`（CRYPTO） |
+| 1 卖出 | `FDO2601017173` | AED | 50,000 | 84 `LP_EXCHANGE_PAY` | DR `E.FIRM_EQUITY` / CR `A.FIRM_CASH`（公司现金·运营 AED） | `referenceNo`（FIAT，`fakeBankRef`） |
+| 2 买入落前厅 | `FDO2601017269` | USDT | 13,600 | 85 `LP_EXCHANGE_RECEIVE` | DR `A.FIRM_CASH`（公司现金·LP 前厅 USDT）/ CR `E.FIRM_EQUITY` | `txHash`（CRYPTO，`fakeChainTxHash`） |
+| 3 验收转 | `FDO2601015607` | USDT | 13,600 | 86 `LP_EXCHANGE_ACCEPT` | DR `A.FIRM_CASH`（公司现金·运营 USDT）/ CR `A.FIRM_CASH`（公司现金·LP 前厅 USDT） | `txHash`（CRYPTO） |
 
 **LP 两步准入后的单据列**（单据即快照，之后不回读地址簿）：`payoutAddressNo=LPA2601014044`、`payoutIban=AE470865518855649193687`（`payoutAddress` 空——卖出 AED 是法币，坐标抄 IBAN 不抄地址）；到货三件套 `deliveryFromAddress=TDeliverySourcePlaceholder00000000`（买入 USDT 是 crypto，来源落地址列、`deliveryFromIban` 空；即「干净占位」，常量 `DEFAULT_DELIVERY_SOURCE.CRYPTO`）、`deliveryScreeningAnswer=GREEN`、`deliveryScreenedAt`=到货时刻（回拨 2 天，与 `deliveredAt` 同值）——reset 世界里每笔到货都有筛查结论，详情区块不出空洞，也不造「功能前旧单」这种兼容层叙事。腿 1 `toIban` = 该 IBAN，腿 2 `fromAddress` = 该占位串；审批快照多 `payoutAddressNo` + `coordinate` 两键（对齐 `initiate` 的真实快照）。账本三笔分录零改动。
 
-三腿各配 1 条 `tbTransferEvidence` + 2 条 `accountFlow` 镜像（`AccountFlowProjectorService` 的真实行为：debit→OUT / credit→IN）——**3 条 evidence + 6 行 account_flows**（这是三腿的真实记账镜像；真实 workflow 的托管回单本身是 4 行非 6 行，见下一句）。托管回单（`external_statement_lines`/`external_balances`）不铺：`seedCapitalInjection` 模板本身也不写它，且 `recon:demo` 铺场脚本每次都会把外部账单从 `account_flows` 重铸一遍（`simulated-custodian-statement.service.ts` 头注释），本笔的 `account_flows` 镜像已经在库里，无需预先复制——**重铺后对账活证据见 `baseline.md`「F_LIQ 对账直比判据」节**：`recon:demo:pass` 实测 F_LIQ(USDT) 钱包在检且 `bucket=MATCHED matchedCount=2`（腿2 IN + 腿3 OUT 两行配对），`recon:demo:break` 18/18 场景不受干扰。
+三腿各配 1 条 `tbTransferEvidence` + 2 条 `accountFlow` 镜像（`AccountFlowProjectorService` 的真实行为：方向按每行所属**户的类别**判——借方户〔现金 / 开支〕借记 = IN、贷记 = OUT，贷方户〔应付 / 权益 / 收入〕贷记 = IN、借记 = OUT；三腿六行实测 IN 3 / OUT 3）——**3 条 evidence + 6 行 account_flows**（这是三腿的真实记账镜像；真实 workflow 的托管回单本身是 4 行非 6 行，见下一句）。托管回单（`external_statement_lines`/`external_balances`）不铺：`seedCapitalInjection` 模板本身也不写它，且 `recon:demo` 铺场脚本每次都会把外部账单从 `account_flows` 重铸一遍（`simulated-custodian-statement.service.ts` 头注释），本笔的 `account_flows` 镜像已经在库里，无需预先复制——**重铺后对账活证据见 `baseline.md`「F_LIQ 对账直比判据」节**：`recon:demo:pass` 实测 F_LIQ(USDT) 钱包在检且 `bucket=MATCHED matchedCount=2`（腿2 IN + 腿3 OUT 两行配对），`recon:demo:break` 18/18 场景不受干扰。
 
-**种子后（`stack.sh reset self`，`demo:all` 跑之前）的期望余额**（实测坐实）：F_LIQ（USDT）归零（85 进 86 出，净 0）；F_OPS(AED) 从注资起点 1,000,000 减至 **950,000**（−50,000）；F_OPS(USDT) 从注资起点 100,000 加至 **113,600**（+13,600）。三个时间戳字段（`executedAt`/`deliveredAt`/`settledAt`）相对**铺场时刻**回拨 3/2/1 天，不锚死日历日期（同上方各种子节先例）。
+**种子后（`stack.sh reset self`，`demo:all` 跑之前）的期望余额**（实测坐实）：读三个现金户：公司现金·LP 前厅（USDT）归零（85 进 86 出，净 0）；公司现金·运营 AED 从注资起点 1,000,000 减至 **950,000**（−50,000）；公司现金·运营 USDT 从注资起点 100,000 加至 **113,600**（+13,600）；同期公司权益 AED 减至 950,000、USDT 加至 113,600，与对应现金户同步（到下面 PAY 单才分叉）。三个时间戳字段（`executedAt`/`deliveredAt`/`settledAt`）相对**铺场时刻**回拨 3/2/1 天，不锚死日历日期（同上方各种子节先例）。
 
 ## 合作方准入旅程种子（尽调评估 / 筛查记录 / 文件，2026-10-29 甲波六 Task 9）
 
@@ -311,9 +313,9 @@ IBAN 复用平台池 IBAN 生成器（`buildSystemPoolIban('LP_FALCON','AED')`�
 
 `payNo=PAY2601015456`：挂 `vendor-hextrust`（`vendorNo=VEN2601017083`），`payeeAccountRef='AE07 0331 2345 6789 0123 456 (HexTrust AED settlement)'`，`purposeNote='HexTrust 2026-08 custody fee'`，`prudentialPurpose='Discharge outsourced custody service fee obligation'`，`status=SUCCESS`。审批单 `APR2601011194`（`VENDOR_PAYMENT_APPROVAL`，CFO 单步 APPROVED）。资金单 `FDO2601011571`（direction OUT，终态 `CLEARED`，`referenceNo=ZB202608317AB0AB0088`，`fakeBankRef` 派生）。`effectiveDate`/`executedAt`/`settledAt` 钉死常量 `2026-08-31T08:00:00Z`（评审 Imp#1 修复轮：初版按「种子运行时刻的上月末」动态算，与写死的 `purposeNote` 叙事月份必然脱钩、且绕开了 `business-date.util`——改钉固定时刻后 `effectiveDate=2026-08-31`，与 `purposeNote` 逐字对应，不再随重铺月份漂移）。
 
-账本新增一条：code 87 `VENDOR_PAYMENT`，DR `E.FIRM_OPS` / CR `A.FIRM_ASSET`，AED ledger，2,500.00 元（250,000 分）——`deterministicTransferId('SEED_VENDOR_PAYMENT', 'AED', 'VENDOR_PAYMENT', 0)`；配 1 条 `tbTransferEvidence` + 2 条 `accountFlow` 镜像（debit→OUT / credit→IN，同 LP 卖出腿 84 先例）。
+账本新增一条：code 87 `VENDOR_PAYMENT`，DR `X.EXPENSE_BANK_CUSTODY`（银行与托管费用 AED）/ CR `A.FIRM_CASH`（公司现金·运营 AED），AED ledger，2,500.00 元（250,000 分）——`deterministicTransferId('SEED_VENDOR_PAYMENT', 'AED', 'VENDOR_PAYMENT', 0)`；配 1 条 `tbTransferEvidence` + 2 条 `accountFlow` 镜像（按户类别判方向：开支户借记 = IN、公司现金户贷记 = OUT，同 LP 卖出腿 84 先例）。
 
-**种子后（`stack.sh reset self`，`demo:all` 跑之前）的期望余额**（实测坐实）：F_OPS(AED) 从 LP 卖出腿之后的 950,000 再减至 **947,500**（−2,500，即码 87 一条出账）；F_OPS(USDT) 不动（本任务零 USDT 出账）。三张种子表没有 operator，不写审计（同其余种子表先例——LP 兑换单本身也是零审计；准入旅程与 Falcon 打款地址的留痕见各自小节）。
+**种子后（`stack.sh reset self`，`demo:all` 跑之前）的期望余额**（实测坐实）：公司现金·运营 AED 从 LP 卖出腿之后的 950,000 再减至 **947,500**（−2,500，即码 87 一条出账）；公司权益 AED 仍 **950,000**（付款计开支、不冲减权益），差额 2,500 正是开支户 `X.EXPENSE_BANK_CUSTODY`（AED）的余额；公司权益 USDT **113,600**、公司现金·运营 USDT 不动（本任务零 USDT 出账）。三张种子表没有 operator，不写审计（同其余种子表先例——LP 兑换单本身也是零审计；准入旅程与 Falcon 打款地址的留痕见各自小节）。
 
 ## 客户协议种子（business seed，两版本 + 13 条同意，2026-10-03 战役丙波三 Task 1）
 
@@ -332,7 +334,7 @@ IBAN 复用平台池 IBAN 生成器（`buildSystemPoolIban('LP_FALCON','AED')`�
 
 | 种子 | 内容 |
 |---|---|
-| Henry（`demo_acme`，CU2601012635）历史腿 | 相对月份（`businessMonthOf(now)` 推）：**上上月 15 日** AED 充值 50,000.00；**上月 2 日** AED 充值 10,000.00、**5 日** AED→USDT 兑换（卖 10,000.00 AED，毛 2,712.049000 USDT，费 3.000000 USDT）、**20 日** AED 提现 5,050.00（到账 5,000.00 + 费 50.00）。落地 = TB 真写 + `tbTransferEvidence` 回拨时间 + `accountFlow` 镜像（LP 先例三件套）；只铺**客户侧**腿（公司侧对手腿不铺，**费腿不对称是有意的**，见 baseline）；另一行极薄 `swap_transactions` 壳 `SWP2601010349`（仅供账单兑换行取名）。结果余额 **AED 44,950.00 / USDT 2,709.049000**。**无钱包行 / 无 vIBAN / 无订单行**（充值 `DEP…` 与提现 `WDR…` 单号悬空）——只演账单，不演活交易 |
+| Henry（`demo_acme`，CU2601012635）历史腿 | 相对月份（`businessMonthOf(now)` 推）：**上上月 15 日** AED 充值 50,000.00；**上月 2 日** AED 充值 10,000.00、**5 日** AED→USDT 兑换（卖 10,000.00 AED，毛 2,712.049000 USDT，费 3.000000 USDT）、**20 日** AED 提现 5,050.00（到账 5,000.00 + 费 50.00）。落地 = TB 真写 + `tbTransferEvidence` 回拨时间 + `accountFlow` 镜像（LP 先例三件套）；只铺**客户侧**腿（公司侧对手腿不铺，**费腿不对称是有意的**，见 baseline）；另一行极薄 `swap_transactions` 壳 `SWP2601010349`（仅供账单兑换行取名）。结果余额 **AED 44,950.00 / USDT 2,709.049000**。**无订单行**（充值 `DEP…` 与提现 `WDR…` 单号悬空；钱包行有，戊波一起按业主裁定 7 为他铺 C_DEP + C_VIBAN 两条，历史腿落在这两个钱包的客户现金户上）——只演账单，不演活交易 |
 | Grace（`demo_grace`，CU2601014381）一张 DSR | `DSR2601016750`：ACCESS / RESOLVED / `ACCESS_SUMMARY_PROVIDED`，submittedAt = 铺数 −10 天、reviewStartedAt = +1 天、resolvedAt = +3 天、dueAt = +30 天；摘要四键（`generatedAt` / `profile` 14 键白名单 / `agreementConsents` / `kycMaterials` 空）已固化，无 riskRating / eddRequired / hardLine；种子直写，**不补审计**（同投诉种子口径） |
 
 `demo:all` **零动作**：Henry 不在 35 笔花名册，终态比对不受扰；`data.md` 下方生成区的 `COA CLIENT(AED/USDT)` 两行**随 Henry 余额平移**（旧值 29612565 / 4392571811 → **34107565 / 7101620811**，+4495000 / +2709049000，已入库；花名册表与 FIRM 两行零变化；其后 2026-10-22 对手方波二的 USDT 展品再把 USDT 侧抬到 8201620811，Henry 平移部分不变）。第十幕走查产出的 DSR 单 / 材料请求 / 证件号更正是现场戏，不进种子。
@@ -411,8 +413,8 @@ IBAN 复用平台池 IBAN 生成器（`buildSystemPoolIban('LP_FALCON','AED')`�
 
 | 恒等式 | 结果 |
 |---|---|
-| COA CLIENT(AED): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 34107565 == 34107565 |
-| COA FIRM(AED): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 94620335 == 94620335 |
-| COA CLIENT(USDT): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 8201620811 == 8201620811 |
-| COA FIRM(USDT): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER) | ✓ 114035428189 == 114035428189 |
+| COA CLIENT(AED): Σ(CLIENT_CASH) == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 34107565 == 34107565 |
+| COA FIRM(AED): Σ(FIRM_CASH+EXPENSE_*) == Σ(FIRM_EQUITY+INCOME_*) | ✓ 94870335 == 94870335 |
+| COA CLIENT(USDT): Σ(CLIENT_CASH) == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE) | ✓ 8201620811 == 8201620811 |
+| COA FIRM(USDT): Σ(FIRM_CASH+EXPENSE_*) == Σ(FIRM_EQUITY+INCOME_*) | ✓ 114035428189 == 114035428189 |
 <!-- GENERATED:END -->

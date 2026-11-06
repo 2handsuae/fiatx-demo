@@ -61,6 +61,18 @@ describe('TbAdminController', () => {
       expect(result.netBalance).toBe('4000');
     });
 
+    it('accountName:现金户(WALLET)详情标题 = 注册表户名 description;非现金户 = 一码一名(戊波一 T12)', async () => {
+      accountingService.lookupBalance.mockResolvedValue({ debitsPosted: 0n, creditsPosted: 0n, debitsPending: 0n, creditsPending: 0n });
+
+      registryService.findByTbAccountId.mockResolvedValue({
+        ...mockRegistry, code: 50, ownerType: 'WALLET', description: 'Company Cash · Company Operations · AED_ZAND',
+      });
+      expect((await controller.findOneAccount('abc123def456')).accountName).toBe('Company Cash · Company Operations · AED_ZAND');
+
+      registryService.findByTbAccountId.mockResolvedValue({ ...mockRegistry, code: 200, ownerType: 'SYSTEM', description: 'FIRM_EQUITY for AED' });
+      expect((await controller.findOneAccount('abc123def456')).accountName).toBe('Company Equity');
+    });
+
     it('returns registry with null balance when TB is unavailable', async () => {
       registryService.findByTbAccountId.mockResolvedValue(mockRegistry);
       accountingService.lookupBalance.mockRejectedValue(new Error('TB connection refused'));

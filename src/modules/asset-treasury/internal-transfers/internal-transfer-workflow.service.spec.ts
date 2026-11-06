@@ -178,7 +178,7 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
         debitAccountId: cashAcct('w-set', TB_LEDGERS.AED), creditAccountId: cashAcct('w-ops', TB_LEDGERS.AED),
         evidence: expect.objectContaining({ sourceType: 'INTERNAL_TRANSFER', sourceNo: 'ITR1', eventCode: 'INTERNAL_TRANSFER_OPS_TO_SET', debitCode: 'A.FIRM_CASH', creditCode: 'A.FIRM_CASH', externalRef: 'BANK-1', assetCurrency: 'AED' }),
       });
-      // 81 两侧都是钱包现金户,经唯一入口取;不再有聚合 FIRM_CASH / FIRM_SET / FIRM_EQUITY 查询
+      // 81 两侧都是钱包现金户,经唯一入口取;不再有聚合 FIRM_CASH / 退役码 201 / FIRM_EQUITY 查询
       expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-set', TB_LEDGERS.AED);
       expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops', TB_LEDGERS.AED);
       expect(accounting.resolveTbAccountId).not.toHaveBeenCalled();
@@ -208,7 +208,7 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
       expect(accounting.resolveTbAccountId).toHaveBeenCalledWith(expect.objectContaining({ code: TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, ownerType: 'SYSTEM' }));
       expect(accounting.resolveTbAccountId).toHaveBeenCalledWith(expect.objectContaining({ code: 100, ownerType: 'CUSTOMER', ownerUuid: 'uuid-cu' }));
       const resolvedCodes = (accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code);
-      for (const gone of [TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.CLIENT_CASH, TB_ACCOUNT_CODES.FIRM_SET, TB_ACCOUNT_CODES.FIRM_EQUITY]) expect(resolvedCodes).not.toContain(gone);
+      for (const gone of [TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.CLIENT_CASH, 201, TB_ACCOUNT_CODES.FIRM_EQUITY]) expect(resolvedCodes).not.toContain(gone);
       expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'SUCCESS', expect.objectContaining({ settledAt: expect.any(Date) }));
       expect(auditLogs.recordSystem.mock.calls.map((c: any) => c[0].action)).toEqual(['INTERNAL_TRANSFER_LEG_POSTED', 'INTERNAL_TRANSFER_SETTLED']);
     });

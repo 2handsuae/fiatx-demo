@@ -28,13 +28,12 @@ async function main() {
       // 戊波一·总纲附录 A「天平」：现金户按钱包开（每个客户钱包 / 公司钱包一户），按码求和即得合计，按币种（ledger）各算各的。
       //   客户本：Σ(1) == Σ(100) + Σ(101)
       //   公司本：Σ(50) + Σ(300..302) == Σ(200) + Σ(210..212)
-      //   退役中的 201 / 203 在码表删除前余额恒 0，暂并入公司本右边不影响（T12 删码时一并去掉）。
       const sumCodes = (codes: number[]) => sumBal((r) => codes.includes(r.code));
       const clientAsset = sumCodes([TB_ACCOUNT_CODES.CLIENT_CASH]);
       const clientLiab = sumCodes([TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE]);
       const firmLeft = sumCodes([TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, TB_ACCOUNT_CODES.EXPENSE_OTHER]);
       const firmRight = sumCodes([
-        TB_ACCOUNT_CODES.FIRM_EQUITY, TB_ACCOUNT_CODES.FIRM_SET, TB_ACCOUNT_CODES.FIRM_LIQ,
+        TB_ACCOUNT_CODES.FIRM_EQUITY,
         TB_ACCOUNT_CODES.INCOME_SWAP_FEE, TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, TB_ACCOUNT_CODES.INCOME_OTHER,
       ]);
 

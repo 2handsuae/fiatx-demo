@@ -56,8 +56,8 @@ describe('swap-leg-plan — 14 rows of the 戊波一 ledger (码不变,科目换
   it('no retired settlement/liquidity account (201 / 203) is referenced by any swap entry', () => {
     for (const fromIsFiat of [false, true]) {
       for (const a of buildSwapLegPlan({ fromIsFiat }).flatMap((l) => l.accounting)) {
-        expect([a.debitCode, a.creditCode]).not.toContain(C.FIRM_SET);
-        expect([a.debitCode, a.creditCode]).not.toContain(C.FIRM_LIQ);
+        expect([a.debitCode, a.creditCode]).not.toContain(201);
+        expect([a.debitCode, a.creditCode]).not.toContain(203);
       }
     }
   });

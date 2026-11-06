@@ -2,7 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
-import { COA_TO_TB_CODE, isDebitNormalCode, accountNameOf } from './constants/tb-account-codes.constant';
+import { COA_TO_TB_CODE, isDebitNormalCode, accountDisplayName } from './constants/tb-account-codes.constant';
 import { AccountFlowProjectorService } from '../../clearing-settle/reconciliation/projector/account-flow-projector.service';
 import { toBusinessDate } from './utils/business-date.util';
 import { TigerBeetleService } from './tigerbeetle.service';
@@ -360,7 +360,7 @@ export class TbEvidenceService {
     if (ids.length === 0) return rows;
     const regs = await (this.prisma as any).tbAccountRegistry.findMany({
       where: { tbAccountId: { in: ids } },
-      select: { tbAccountId: true, code: true, ownerType: true, ownerNo: true, ownerUuid: true },
+      select: { tbAccountId: true, code: true, ownerType: true, ownerNo: true, ownerUuid: true, description: true },
     });
     const map = new Map<string, any>(regs.map((r: any) => [padTbId(r.tbAccountId), r]));
     return rows.map((r) => {
@@ -370,7 +370,7 @@ export class TbEvidenceService {
         ...r,
         accountCode: reg?.code ?? null,
         // 科目名称随行下发(2026-08-13):唯一真相源在 tb-account-codes.constant.ts
-        accountName: accountNameOf(reg?.code),
+        accountName: accountDisplayName(reg),
         ownerType: reg?.ownerType ?? null,
         ownerNo: isCustomer ? (reg?.ownerNo ?? null) : null,
         ownerUuid: isCustomer ? (reg?.ownerUuid ?? null) : null,

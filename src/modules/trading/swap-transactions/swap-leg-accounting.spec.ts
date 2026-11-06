@@ -135,7 +135,7 @@ describe('SwapLegAccounting — 四腿现金户接线(戊波一)', () => {
       const systemLookups = accounting.resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
       expect(systemLookups).not.toContain(C.CLIENT_CASH);
       expect(systemLookups).not.toContain(C.FIRM_CASH);
-      expect(systemLookups).not.toContain(C.FIRM_SET);
+      expect(systemLookups).not.toContain(201);
       expect(accounting.resolveCashAccountId).toHaveBeenCalled();
     }
   });

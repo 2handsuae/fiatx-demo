@@ -6,7 +6,7 @@
 > `npx jest` 退出码 0）。**任何红都是事故**，没有"这条是旧账"的退路；真有一时修不了的，
 > 须当场决定修或由业主正式豁免并记入 `TOOLING-DEBT.md`，不得默留。
 > 重钉纪律：只在业主批准的行为变化后重钉；每次重钉记 CHANGELOG 一行。
-> 重钉历史：2026-08-26 Step 0 首钉（7c53afd4）→ 2026-08-27 Phase 4 收官重钉（45a4f1a8）→ 2026-09-01 三支合流重钉 → 2026-09-02 平账一期半重钉（本版：对账行 15/15→14/14 + 10/10→11/11）→ 2026-09-03 平账 B 批重钉（对账行 14/14→15/15 + 11/11→10/10）→ 2026-09-05 平账二期重钉（对账行 15/15→17/17 + 10/10→11/11）→ **2026-09-06 平账三期重钉（本版：对账行 17/17→18/18 + 11/11→12/12，break 8→9，casesOpened 11/11→12/12）**。
+> 重钉历史：2026-08-26 Step 0 首钉（7c53afd4）→ 2026-08-27 Phase 4 收官重钉（45a4f1a8）→ 2026-09-01 三支合流重钉 → 2026-09-02 平账一期半重钉（本版：对账行 15/15→14/14 + 10/10→11/11）→ 2026-09-03 平账 B 批重钉（对账行 14/14→15/15 + 11/11→10/10）→ 2026-09-05 平账二期重钉（对账行 15/15→17/17 + 10/10→11/11）→ **2026-09-06 平账三期重钉（本版：对账行 17/17→18/18 + 11/11→12/12，break 8→9，casesOpened 11/11→12/12）**。**2026-11-06 戊波一账本地基重钉**：科目表重立为 COA v3（账按钱包开现金户，旧聚合户与 201 / 203 退役），判据改写到现金户名下——**受检钱包 19→21、`verify:coa` 科目数 67→75（reset 后）/ 87（demo:all 后）、公司权益两户期望值新增**，全部见文末「战役戊波一账本地基判据」；前文各节里的旧助记码与数字是当时的实测，凡与末节冲突以末节为准（本版仅就下列「当前判据」行内联订正）。
 > **2026-09-01 三支合流后重钉（本版为当前生效基线）**：第一幕职权重划 + 环境与工具债收口 + 平账
 > （调账单 / 处置动作 / 破口按成因铺全）三个分支全部并入 main，在 main 栈从零重铺后按新判据「全绿」
 > 实跑通过。env-debt 于 2026-08-31 报的 `verify:coa` 负余额已定位为资本注入被静默跳过造成的假红，
@@ -237,15 +237,15 @@ test/sla.e2e-spec.ts                         # 私库
 | `lp_exchanges` | **1** | `LPX2601016429`（挂 Falcon，卖 50,000 AED 买 13,600 USDT，SUCCESS，`approvalNo=APR2601015999`） |
 | `funds_orders`（`lpExchangeId` 非空） | **3** | `FDO2601017173`（腿1卖出，AED 50,000，CLEARED，`referenceNo=ZB20260101043095EE71`）／`FDO2601017269`（腿2买入，USDT 13,600，CLEARED，`txHash=0x2000fe...`）／`FDO2601015607`（腿3验收，USDT 13,600，CLEARED，`txHash=0x50ac04...`） |
 | `tb_transfer_evidence`（`sourceType='LP_EXCHANGE'`） | **3** | 84/85/86 各一条，`sourceNo=LPX2601016429` |
-| `account_flows`（`sourceType='LP_EXCHANGE'`） | **6** | 三腿各 2 行（debit→OUT / credit→IN），逐行对齐 `AccountFlowProjectorService` 的真实投影行为——**这是「六行回单」在库里的实际形态**；托管回单（`external_statement_lines`/`external_balances`）不预铺，见下方 F_LIQ 对账直比判据 |
+| `account_flows`（`sourceType='LP_EXCHANGE'`） | **6** | 三腿各 2 行（方向按每行所属户的类别判：借方户〔现金 / 开支〕借记 = IN、贷记 = OUT，贷方户〔应付 / 权益 / 收入〕贷记 = IN、借记 = OUT；戊波一起，实测 IN 3 / OUT 3），逐行对齐 `AccountFlowProjectorService` 的真实投影行为——**这是「六行回单」在库里的实际形态**；托管回单（`external_statement_lines`/`external_balances`）不预铺，见下方 F_LIQ 对账直比判据 |
 | `approval_cases`（`approvalNo` 属本任务两值） | **2** | `APR2601015507`（`LP_PROFILE_APPROVAL`，entityRef=`LPP2601010183`，APPROVED）／`APR2601015999`（`LP_EXCHANGE_APPROVAL`，entityRef=`LPX2601016429`，APPROVED）——评审 R15 补种，替换此前无案背书的占位号 |
 | `approval_steps`（属上两案） | **2** | 各一条 stepNo=1，status=APPROVED，`decidedByRole=CFO`，`decidedByUserNo=ADM2501010010` |
 
-**F_LIQ/F_OPS 余额判据**（原「F_LIQ 直比判据」改名——**它是 TigerBeetle 余额直读，不是对账引擎判据**；reset 后、`demo:all` 之前的独立实测，不受花名册流水影响；**乙波二 Task 9 起 F_OPS(AED) 判据改口径**，见下方新判据）：`ledger=1(AED) code=203(E.FIRM_LIQ) balance=0` ／ `ledger=2(USDT) code=203(E.FIRM_LIQ) balance=0`（85 进 86 出，净 0）；~~`ledger=1 code=200(E.FIRM_OPS) balance=95000000`（= 注资起点 100,000,000 分 − 腿1 5,000,000 分 = 950,000.00 AED，**F_OPS(AED) 减 5 万**）~~ → **`ledger=1 code=200(E.FIRM_OPS) balance=94750000`**（= LP 卖出腿后 95,000,000 分 − PAY 历史单码 87 2,500.00 AED（250,000 分）= 947,500.00 AED，**F_OPS(AED) 再减 2,500**——见下方「乙波二种子断言」节）；`ledger=2 code=200(E.FIRM_OPS) balance=113600000000`（= 注资起点 100,000,000,000 分 + 腿3 13,600,000,000 分 = 113,600.000000 USDT，**F_OPS(USDT) 加 1.36 万，本任务不动**）——四项与 spec/plan 的期望值逐位吻合。
+**F_LIQ/F_OPS 余额判据**（原「F_LIQ 直比判据」改名——**它是 TigerBeetle 余额直读，不是对账引擎判据**；reset 后、`demo:all` 之前的独立实测，不受花名册流水影响；**乙波二 Task 9 起 F_OPS(AED) 判据改口径**，见下方新判据）：**2026-11-06 戊波一起改读现金户**（码 203 / 201 退役）：`Company Cash · Company Liquidity · AED_ZAND` ／ `Company Cash · Company Liquidity · TRON` 两个前厅现金户（`code=50`）`balance=0`（85 进 86 出，净 0）；~~`ledger=1 code=200(E.FIRM_OPS) balance=95000000`~~ → **`Company Cash · Company Operations · AED_ZAND`（`code=50`，借方户，余额 = 借 − 贷）`balance=94750000`**（= 注资 100,000,000 分 − LP 卖出腿 5,000,000 分 − PAY 历史单码 87 的 250,000 分 = 947,500.00 AED，**公司现金·运营 AED 再减 2,500**——见下方「乙波二种子断言」节）；**同期公司权益（`ledger=1 code=200 FIRM_EQUITY`）`balance=95000000`（950,000.00 AED，= 注资 − LP 卖出腿；PAY 计开支户、不冲减权益，两者差额 250,000 分 = `EXPENSE_BANK_CUSTODY` AED 余额）**；`Company Cash · Company Operations · TRON` `balance=113600000000`（= 注资起点 100,000,000,000 分 + 腿3 13,600,000,000 分 = 113,600.000000 USDT，**公司现金·运营 USDT 加 1.36 万，本任务不动**），公司权益 USDT 同为 `113600000000`——四项与 spec/plan 的期望值逐位吻合。
 
 **F_LIQ 对账直比判据（新增，评审 R16）**——真正走对账引擎（`WalletReconRunService`，非 TB 直读）验证这笔历史单的账实一致，`reset self` → `up self` → `demo:all` 之后跑：
 
-- `bash scripts/on-stack.sh self recon:demo:pass`：F_LIQ(USDT) 钱包（`walletRef=c1191e9f-81c3-42cc-9551-a57c1b0db2f5`）**在检查范围内**（19 个受检钱包之一，`internal=0 lines=2 coa=E.FIRM_LIQ`），`reconciliation_run_wallets` 表直查该行 `bucket=MATCHED matchedCount=2 orphanInternal=0 orphanExternal=0 mismatchCount=0`——**两行流水（腿2 IN + 腿3 OUT）配对成功，零孤儿零错配**；整体 `status=PASS walletsChecked=19 casesOpened=0`，五条 pass-mode 断言（`status==PASS`/`casesOpened==0`/`orphanInternal==0`/`orphanExternal==0`/`mismatch==0`）全 OK。**这就是 spec §8 承诺的"重铺后对账全绿的活证据"**——回单本身不预铺，靠 `recon:demo` 把 `account_flows` 镜像成外部对账单再判过（`simulated-custodian-statement.service.ts` 头注释所述机制），F_LIQ 是这套机制第一次真正吃进一笔 LP 兑换单流水的实证。
+- `bash scripts/on-stack.sh self recon:demo:pass`：F_LIQ(USDT) 钱包（`walletRef=c1191e9f-81c3-42cc-9551-a57c1b0db2f5`）**在检查范围内**（21 个受检钱包之一〔戊波一起；原 19，Henry 两个钱包入检〕，`internal=0 lines=2 coa=A.FIRM_CASH`），`reconciliation_run_wallets` 表直查该行 `bucket=MATCHED matchedCount=2 orphanInternal=0 orphanExternal=0 mismatchCount=0`——**两行流水（腿2 IN + 腿3 OUT）配对成功，零孤儿零错配**；整体 `status=PASS walletsChecked=21 casesOpened=0`（戊波一起；原 19），五条 pass-mode 断言（`status==PASS`/`casesOpened==0`/`orphanInternal==0`/`orphanExternal==0`/`mismatch==0`）全 OK。**这就是 spec §8 承诺的"重铺后对账全绿的活证据"**——回单本身不预铺，靠 `recon:demo` 把 `account_flows` 镜像成外部对账单再判过（`simulated-custodian-statement.service.ts` 头注释所述机制），F_LIQ 是这套机制第一次真正吃进一笔 LP 兑换单流水的实证。
 - `bash scripts/on-stack.sh self recon:demo:break`：18 个破口场景 `scenarios: 18/18 DETECTED`，`wallets: 12/12 bucket OK`，`casesOpened 12/12`，两条身份恒等式 OK——LP 两笔历史流水（F_LIQ/F_OPS）不在这 18 个注入场景名单内，不干扰既有判据。
 
 **reset 登记表缺口顺带补齐**（Task 9 Step 2）：`scripts/reset-business-data.ts` 的 `BUSINESS_DELEGATES_FK_SAFE` 补 `lpExchange`/`liquidityProvider`（排在 `asset` 之前，`lpExchange` 排在 `liquidityProvider` 之前）；核实 T7 修主张的「`approvalCase`/`approvalStep` 也缺席清单」为真（该两表从建库起就不在清单里，DB 层 `approval_steps → approval_cases` 雖有 `ON DELETE CASCADE`，但从未有任何脚本对 `approval_cases` 本身发起过删除，此前全靠各主体表级联"看起来清了"），已一并补齐两行（`approvalStep` 在 `approvalCase` 之前）。首次实测坐实缺口存在：第一轮 `reset self` 的清理阶段打印 `Deleted 4 from approvalStep` / `Deleted 4 from approvalCase` / `Deleted 1 from lpExchange` / `Deleted 1 from liquidityProvider`——这些正是本任务开工前、T3/T5/T7/T8 各任务人工走查/截图验收残留在库里的探针数据，补登记前 reset 从未清过它们；第二轮 `reset self` 复测四行全部归零（`Deleted 0 from approvalStep` / `Deleted 0 from approvalCase` / `Deleted 1 from lpExchange` / `Deleted 2 from liquidityProvider`——后两个稳定在"本次种子刚写入的量"，不再是历史残留）。**已修范围仅 `approvalCase`/`approvalStep` + LP 两表**，另有四张表带 `approvalCaseId` 列未覆盖（`role` 按设计不碰、`adminRoleChangeRequest`/`approvalPolicyChangeRequest`/`roleDefinitionModifyRequest` 三张业务表本轮未补），详见 `doc-final/TOOLING-DEBT.md` 该行「已修范围/未覆盖范围」注记。
@@ -266,15 +266,15 @@ test/sla.e2e-spec.ts                         # 私库
 | `approval_cases`（`approvalNo` 属本任务三值） | **3** | `APR2601011192`（`CAPITAL_INJECTION_APPROVAL`，entityRef=`CIN2601011488`，APPROVED）／`APR2601015426`（`CAPITAL_INJECTION_APPROVAL`，entityRef=`CIN2601013475`，APPROVED）／`APR2601011194`（`VENDOR_PAYMENT_APPROVAL`，entityRef=`PAY2601015456`，APPROVED） |
 | `approval_steps`（属上三案） | **3** | 各一条 stepNo=1，status=APPROVED，`decidedByRole=CFO`，`decidedByUserNo=ADM2501010010` |
 | `tb_transfer_evidence`（`sourceType='VENDOR_PAYMENT'`） | **1** | 码 87 一条，`sourceNo=PAY2601015456`（CIN 两张壳单零新增，复用既有 `sourceType='SEED_CAPITAL'` 两行） |
-| `account_flows`（`sourceType='VENDOR_PAYMENT'`） | **2** | debit(`E.FIRM_OPS`)→OUT / credit(`A.FIRM_ASSET`)→IN 各一行 |
+| `account_flows`（`sourceType='VENDOR_PAYMENT'`） | **2** | debit(`X.EXPENSE_BANK_CUSTODY`)→IN / credit(`A.FIRM_CASH` 公司现金·运营 AED)→OUT 各一行（戊波一起；按户类别判方向） |
 
-**F_OPS(AED) 新判据**（TigerBeetle 余额直读，reset 后、`demo:all` 之前的独立实测，不受花名册流水影响——实测口径见下）：`ledger=1 code=200(E.FIRM_OPS) balance=94750000`（= LP 卖出腿后 95,000,000 分 − 码 87 一笔 2,500.00 AED（250,000 分）= 947,500.00 AED）。F_OPS(USDT)/F_LIQ 两行本任务不动（分别仍为 113,600,000,000 分 / 0）。可复现命令（`reset self` 之后、`up self`/`demo:all` 之前跑，取的正是这个数）：
+**F_OPS(AED) 新判据**（TigerBeetle 余额直读，reset 后、`demo:all` 之前的独立实测，不受花名册流水影响——实测口径见下；**2026-11-06 戊波一起改读现金户**）：`Company Cash · Company Operations · AED_ZAND`（`code=50`，借方户）`balance=94750000`（= LP 卖出腿后 95,000,000 分 − 码 87 一笔 2,500.00 AED（250,000 分）= 947,500.00 AED）；**公司权益 AED（`code=200`）`balance=95000000`（950,000.00 AED）**，两者差额 250,000 分 = `EXPENSE_BANK_CUSTODY` AED 余额。公司现金·运营 USDT / 公司现金·LP 前厅两户本任务不动（分别仍为 113,600,000,000 分 / 0），公司权益 USDT `113600000000`。可复现命令（`reset self` 之后、`up self`/`demo:all` 之前跑，取的正是这个数；把 `DATABASE_URL` 与 `TB_ADDRESS` 换成本栈的库与账本端口）：
 
 ```bash
-DATABASE_URL="file:/tmp/exchange_js_wt_campaign_b_wave2_funding/dev.db" TB_ADDRESS="127.0.0.1:3123" node -e "const{PrismaClient}=require('@prisma/client');const{createClient}=require('tigerbeetle-node');(async()=>{const p=new PrismaClient();const reg=await p.tbAccountRegistry.findFirst({where:{code:200,ledger:1,ownerType:'SYSTEM'},select:{tbAccountId:true}});const c=createClient({cluster_id:0n,replica_addresses:[process.env.TB_ADDRESS]});const[a]=await c.lookupAccounts([BigInt('0x'+reg.tbAccountId)]);console.log((a.credits_posted-a.debits_posted).toString());c.destroy();await p.\$disconnect();})();"
+DATABASE_URL="file:/tmp/exchange_js_wt_<名>/dev.db" TB_ADDRESS="127.0.0.1:<账本端口>" node -e "const{PrismaClient}=require('@prisma/client');const{createClient}=require('tigerbeetle-node');(async()=>{const p=new PrismaClient();const c=createClient({cluster_id:0n,replica_addresses:[process.env.TB_ADDRESS]});const rd=async(w,debitNormal)=>{const reg=await p.tbAccountRegistry.findFirst({where:w,select:{tbAccountId:true}});const[a]=await c.lookupAccounts([BigInt('0x'+reg.tbAccountId)]);return(debitNormal?a.debits_posted-a.credits_posted:a.credits_posted-a.debits_posted).toString();};console.log('公司现金·运营 AED',await rd({code:50,ledger:1,ownerType:'WALLET',description:'Company Cash · Company Operations · AED_ZAND'},true));console.log('公司权益 AED',await rd({code:200,ledger:1,ownerType:'SYSTEM'},false));c.destroy();await p.\$disconnect();})();"
 ```
 
-**recon 判据（评审纪律：恒等式绿不等于放行，负余额断言才是「期初/种子缺一笔」事故的唯一探针）**：`demo:all` 之后 `bash scripts/on-stack.sh self recon:demo:pass` 直查 F_OPS(AED) 钱包（`walletRef=425b4769-bdda-4c79-b933-5593d4535074`）——`internal=94608935 lines=6`（较波一基线多 1 行，新增的码 87 OUT 流水被 `recon:demo` 重铸回单吃进）；整体 `status=PASS walletsChecked=19 casesOpened=0`，五条 pass-mode 断言全 OK——**新增流水仍 MATCHED，未产生孤儿/错配**。`recon:demo:break`：`scenarios 18/18 DETECTED`、`wallets 12/12 bucket OK`、`casesOpened 12/12`；场景 ⑩「查无果」候选钱包检查（spec §4 承诺）——候选逻辑（`recon-demo.ts` 按 `walletRef` 字典序取 `firmCandidates` 里第一个满足条件的 FIRM 钱包）**依赖 reset 时新生成的钱包 UUID 排序，非固定**：三次独立 `reset self` 实测分别选中 F_OPS(USDT)、F_OPS(USDT)、`E.INCOME_SWAP_FEE`(USDT)，三次都**不是**本任务新增流水所在的 F_OPS(AED) 钱包，但这不是一条恒定判据——候选池成员本身未变（本波零新增钱包），只是哪个钱包被挑中会随每次 reset 的 UUID 排序漂移，评审勿把这个易变量当字面判据。
+**recon 判据（评审纪律：恒等式绿不等于放行，负余额断言才是「期初/种子缺一笔」事故的唯一探针）**：`demo:all` 之后 `bash scripts/on-stack.sh self recon:demo:pass` 直查 F_OPS(AED) 钱包（`walletRef=425b4769-bdda-4c79-b933-5593d4535074`）——`internal=94608935 lines=6`（较波一基线多 1 行，新增的码 87 OUT 流水被 `recon:demo` 重铸回单吃进）；整体 `status=PASS walletsChecked=21 casesOpened=0`（戊波一起；写本节时为 19），五条 pass-mode 断言全 OK——**新增流水仍 MATCHED，未产生孤儿/错配**。`recon:demo:break`：`scenarios 18/18 DETECTED`、`wallets 12/12 bucket OK`、`casesOpened 12/12`；场景 ⑩「查无果」候选钱包检查（spec §4 承诺）——候选逻辑（`recon-demo.ts` 按 `walletRef` 字典序取 `firmCandidates` 里第一个满足条件的 FIRM 钱包）**依赖 reset 时新生成的钱包 UUID 排序，非固定**：三次独立 `reset self` 实测分别选中 F_OPS(USDT)、F_OPS(USDT)、`E.INCOME_SWAP_FEE`(USDT)，三次都**不是**本任务新增流水所在的 F_OPS(AED) 钱包，但这不是一条恒定判据——候选池成员本身未变（本波零新增钱包），只是哪个钱包被挑中会随每次 reset 的 UUID 排序漂移，评审勿把这个易变量当字面判据。
 
 **实测口径（重铺闸全序，2026-09-29 Task 9）**：`bash scripts/stack.sh reset self` → 全绿（`verify:demo-data ALL PASS`，打印 `Seeded 2 capital injection rows (SUCCESS) + 2 APPROVED approval cases + 2 funds orders (CLEARED, zero new ledger entries...)` / `Seeded 1 vendor payment (PAY2601015456, SUCCESS) + 1 APPROVED payment approval case + 1 funds order (CLEARED)` / `Vendor payment evidence: 1 evidence row + 2 flow row(s) (code 87, DR E.FIRM_OPS / CR A.FIRM_ASSET, AED 2500.00)`）→ 独立查 TB：`ledger=1 code=200 balance=94750000`（demo:all 前）→ `bash scripts/stack.sh up self` → `bash scripts/on-stack.sh self demo:all` → 花名册 29/29 + COA 4/4 恒等式全过（`COA FIRM(AED)` 94620335==94620335，`data.md` 生成区随之改写，非代码红）→ `bash scripts/on-stack.sh self recon:demo:pass` → `status=PASS casesOpened=0`，F_OPS(AED) `lines=6` MATCHED → `bash scripts/on-stack.sh self recon:demo:break` → `scenarios 18/18` `wallets 12/12` `casesOpened 12/12`，场景⑩候选钱包随 UUID 排序漂移（见上段，三跑均未落在 F_OPS(AED)）→ `bash scripts/on-stack.sh self verify:coa` → `ALL INVARIANTS PASS`（两恒等式 + 负余额检查 **67 个科目全部 ≥ 0**——本任务未触发负余额红，见函数头注释「事故唯一探针」纪律）→ `npx tsc --noEmit -p tsconfig.json` + `admin-web`/`client-web` 两侧 `tsc -b --noEmit` 全绿。词表 `npm run audit:vocab` **已实跑**：`EXIT=1`，报「有码没说明 12 个」（`CAPITAL_INJECTION_*` ×6 + `VENDOR_PAYMENT_*` ×6），与预告一致——CIN/PAY 词表入库属 Task 10 范围，本任务未修。
 
@@ -315,14 +315,14 @@ sqlite3 <栈库> "select count(*) from audit_log_events where \"action\" like 'A
 
 `bash scripts/stack.sh reset self` 从零建库重铺后（`seedBusiness()` 末尾追加 `seedStatementHistoryLegs()` + `seedGraceAccessRequest()`，紧随 `seedCompanyFunding()` 之后；打印 `Seeded Henry (CU2601012635) statement history: 9 TB transfers, 9 evidence row(s) + 18 flow row(s) …` / `Seeded 1 data subject request for Grace (DSR2601016750 …)`），`stack.sh up` 后端起稳、**≤60 秒内**出具 sweep 跑完（实测 ≤5 秒即齐），下列判据成立。**月结单一律由 sweep 经真实生成器出具，种子不直插 `customer_monthly_statements`**；两轮独立 reset 单号与数字逐字一致（`buildDeterministicNo` 派生）。
 
-**Henry（`demo_acme`，CU2601012635）历史腿**——只铺客户域（`CLIENT_PAYABLE`/`DEPOSIT_SUSPENSE` ↔ `CLIENT_ASSET`），腿的 `createdAt` 回拨到相对月份（`businessMonthOf(now)` 推：上月 = 刚结束的迪拜业务月，上上月再往前一月），`walletRef=null`/非外部穿越（Henry 无钱包行，不进 recon 钱包桶）；公司侧对手腿不铺（理由：会漂移 F_OPS/NLA 等场景 31/32 钉死数字，见种子函数头注释）：
+**Henry（`demo_acme`，CU2601012635）历史腿**——只铺客户域（`CLIENT_PAYABLE`/`DEPOSIT_SUSPENSE` ↔ `CLIENT_CASH`，落在 Henry 自己两个钱包〔C_VIBAN AED_ZAND / C_DEP TRON〕的现金户上），腿的 `createdAt` 回拨到相对月份（`businessMonthOf(now)` 推：上月 = 刚结束的迪拜业务月，上上月再往前一月）；**戊波一起 Henry 有 C_DEP + C_VIBAN 两条钱包行（业主裁定 7：现金户按钱包开，账要有地方记），`walletRef` 由投影器按现金户的钱包归属派生，两个钱包进 recon 钱包桶（受检钱包 19→21）**；公司侧对手腿不铺（理由：会漂移 F_OPS/NLA 等场景 31/32 钉死数字，见种子函数头注释）：
 
 | 业务月 | 日 | 腿（evidence `eventCode`，客户侧借贷） | 金额 |
 |---|---|---|---|
-| 上上月（2026-08） | 15 | `DEPOSIT_ASSET_TO_SUSPENSE`（DR CLIENT_ASSET / CR DEPOSIT_SUSPENSE）+ `DEPOSIT_SUSPENSE_TO_PAYABLE`（DR DEPOSIT_SUSPENSE / CR CLIENT_PAYABLE），单号 `DEP2601014127` | AED 50,000.00 |
+| 上上月（2026-08） | 15 | `DEPOSIT_ASSET_TO_SUSPENSE`（DR CLIENT_CASH / CR DEPOSIT_SUSPENSE）+ `DEPOSIT_SUSPENSE_TO_PAYABLE`（DR DEPOSIT_SUSPENSE / CR CLIENT_PAYABLE），单号 `DEP2601014127` | AED 50,000.00 |
 | 上月（2026-09） | 2 | 同上两腿，单号 `DEP2601017605` | AED 10,000.00 |
-| 上月 | 5 | `SWAP_SELL_CLIENT`（AED，DR CLIENT_PAYABLE / CR CLIENT_ASSET）+ `SWAP_BUY_CLIENT`（USDT 毛额，DR CLIENT_ASSET / CR CLIENT_PAYABLE）+ `SWAP_FEE_CLIENT`（USDT，DR CLIENT_PAYABLE / CR CLIENT_ASSET），单号 `SWP2601010349`（另有一行极薄 `swap_transactions` 壳，仅供月结单兑换行标题反查 `AED → USDT`） | 卖 AED 10,000.00 → 毛 USDT 2,712.049000，费 USDT 3.000000 |
-| 上月 | 20 | `WITHDRAW_NET_POST` + `WITHDRAW_FEE_POST`（均 DR CLIENT_PAYABLE / CR CLIENT_ASSET），单号 `WDR2601019900` | 到账 AED 5,000.00 + 费 AED 50.00（申请额 5,050.00，STD-AED 第 2 档服务费 50） |
+| 上月 | 5 | `SWAP_SELL_CLIENT`（AED，DR CLIENT_PAYABLE / CR CLIENT_CASH）+ `SWAP_BUY_CLIENT`（USDT 毛额，DR CLIENT_CASH / CR CLIENT_PAYABLE）+ `SWAP_FEE_CLIENT`（USDT，DR CLIENT_PAYABLE / CR CLIENT_CASH），单号 `SWP2601010349`（另有一行极薄 `swap_transactions` 壳，仅供月结单兑换行标题反查 `AED → USDT`） | 卖 AED 10,000.00 → 毛 USDT 2,712.049000，费 USDT 3.000000 |
+| 上月 | 20 | `WITHDRAW_NET_POST` + `WITHDRAW_FEE_POST`（均 DR CLIENT_PAYABLE / CR CLIENT_CASH），单号 `WDR2601019900` | 到账 AED 5,000.00 + 费 AED 50.00（申请额 5,050.00，STD-AED 第 2 档服务费 50） |
 
 兑换毛额口径（示例价，同 LP 种子手填先例）：`round8(1/3.6725) × (1 − 40bps)` = 0.27120490 USDT/AED（STD-AED-USDT 第 3 档：加价 40bps、固定费 3 USDT），× 10,000 向下取 6 位 = 2,712.049000。
 
@@ -336,7 +336,7 @@ sqlite3 <栈库> "select count(*) from audit_log_events where \"action\" like 'A
 | 2c | Henry 上上月单（`…202608`）与更早 | 上上月有一笔充值；之前无流水 | 2026-08：AED rows=1，期初 0、期末 5,000,000；USDT rows=0；2026-06/07 两币种皆空（期初=期末=0） |
 | 3 | `customer_notifications` 里 `relatedOrderType='STATEMENT'` | 每客户仅最新月一条（sweep 补发多月只通知最末月） | **11** 条（每条 `relatedOrderNo=STM-<customerNo>-202609`） |
 | 4 | `data_subject_requests` | 种子恰一张 | **1**：`DSR2601016750`（Grace，ACCESS，RESOLVED，`resolutionCode=ACCESS_SUMMARY_PROVIDED`，submittedAt = 铺场 −10 天、reviewStartedAt = +1 天、resolvedAt = submittedAt + 3 天、dueAt = submittedAt + 30 天；summary 四键 `generatedAt/profile/agreementConsents/kycMaterials`，profile 14 键白名单，无 riskRating/eddRequired/hardLine*；同意史 `v1 ACCEPTED` 按注册批准时点封顶，`kycMaterials=[]`） |
-| 5 | 账本（`verify:coa`，reset 后、`up` 前后均可测） | 客户域净增 = Henry 期末；公司域零变化 | `ledger 1 CLIENT 恒等 4495000`（= Henry AED 44,950.00）/ `ledger 1 FIRM 恒等 94750000`（= 波二 F_OPS(AED) 基线，**不变**）/ `ledger 2 CLIENT 恒等 2709049000`（= Henry USDT）/ `ledger 2 FIRM 恒等 113600000000`（**不变**）/ `负余额检查 通过 (67 个科目全部 ≥ 0)` |
+| 5 | 账本（`verify:coa`，reset 后、`up` 前后均可测） | 客户域净增 = Henry 期末；公司域零变化 | `ledger 1 CLIENT 恒等 4495000`（= Henry AED 44,950.00）/ `ledger 1 FIRM 恒等 95000000`（戊波一起：= 公司现金·运营 AED 94750000 + 开支户 250000，波二写本行时为 94750000）/ `ledger 2 CLIENT 恒等 2709049000`（= Henry USDT）/ `ledger 2 FIRM 恒等 113600000000`（**不变**）/ `负余额检查 通过 (75 个科目全部 ≥ 0)`（戊波一起；原 67） |
 
 查法（`<栈库>` = self 栈 `DATABASE_URL` 指向的 `dev.db`，只读；statements 行数与期末值查 payload JSON）：
 
@@ -355,7 +355,7 @@ sqlite3 -readonly <栈库> "select count(*) from data_subject_requests;"        
 - `verify:coa`：reset 后 / `up` 后 / `demo:all`+`recon:demo:break` 后三个时点均 `ALL INVARIANTS PASS`（末点 `ledger 1 CLIENT 34307565` = `demo:all` 后的 34107565 + `recon:demo:break` 场景 6 真写账本的 200000，恒等式两边相等，67 科目 ≥ 0）。
 - **失效验证**（判据不是自证绿）：对 self 栈账本分别注入 ① 只铺 `DEPOSIT_SUSPENSE_TO_PAYABLE`、缺 STEP_1（DR 暂扣 / CR 应付 各 1.00 AED）→ 恒等式仍绿、`✗ 负余额 L.DEPOSIT_SUSPENSE ledger=1 CUSTOMER:CU2601012635 balance=-100`，`verify:coa` 退出码 1（**负余额断言是「起点缺一笔」的唯一探针，恒等式绿不豁免它**）；② 只贷客户应付、借公司 `FIRM_OPS`（DR FIRM_OPS / CR Henry CLIENT_PAYABLE）→ `✗ ledger 1 CLIENT: asset=4495000 liab=4495100`、`✗ ledger 1 FIRM: asset=94750000 equity=94749900`，退出码 1。变异后已 `reset self` 重铺还原。
 - `swap-money-arc.e2e-spec.ts`（取 `demo_acme`）**只读核查**：断言全为相对差值（`before`/`after` 余额，`availableBalances()` 前后比）、证据行按本单 `swapNo` 取（`findBySource('SWAP', swap.swapNo)`，7 行），`beforeAll` 自己 `fundCustomer` 预充 1,000,000——不依赖 Henry 期初为零，**无需改断言**；且该文件在本机当前起不来（`app.init()` 抛监听器 52 > 50 的 `TypeError`，见上节同日订正与 `TOOLING-DEBT.md`），故未实跑，不得称绿。
-- **费腿不对称（有意，勿「修平」）**：Henry 的兑换费（`SWAP_FEE_CLIENT` USDT 3.000000）与提现费（`WITHDRAW_FEE_POST` AED 50.00）只铺了**客户侧**一条腿（DR `CLIENT_PAYABLE` / CR `CLIENT_ASSET`），没有真流程里对应的公司侧收入腿（`SWAP_FEE_FIRM` / `WITHDRAW_FEE_FIRM` → `INCOME_SWAP_FEE` / `INCOME_WITHDRAW_FEE`）；同理兑换卖出腿 / 买入腿的公司侧 `F_SET` / `F_OPS` 对手腿也不铺。后果：两恒等式按账本各自守恒（客户账本净增 = Henry 期末余额，公司账本零变化），但 Henry 的历史手续费**不进公司收入科目**——这一笔笔小账在演示叙事里不可见。若有人想把公司侧对手腿「补齐」，会立刻漂移 `F_OPS(AED)` 947,500.00、NLA 1,364,752.25 / 1,114,752.25 / 1,414,752.25、运营户 696,089.35 / 996,089.35 等场景 31/32 钉死的一串数；现状（不补）公司域四个数与旧值逐位相同（T11 实测，T12 重铺后 `demo:all` 复核同值）——不补。
+- **费腿不对称（有意，勿「修平」）**：Henry 的兑换费（`SWAP_FEE_CLIENT` USDT 3.000000）与提现费（`WITHDRAW_FEE_POST` AED 50.00）只铺了**客户侧**一条腿（DR `CLIENT_PAYABLE` / CR `CLIENT_CASH`），没有真流程里对应的公司侧收入腿（`SWAP_FEE_FIRM` / `WITHDRAW_FEE_FIRM` → `INCOME_SWAP_FEE` / `INCOME_WITHDRAW_FEE`）；同理兑换卖出腿 / 买入腿的公司侧 `F_SET` / `F_OPS` 对手腿也不铺。后果：两恒等式按账本各自守恒（客户账本净增 = Henry 期末余额，公司账本零变化），但 Henry 的历史手续费**不进公司收入科目**——这一笔笔小账在演示叙事里不可见。若有人想把公司侧对手腿「补齐」，会立刻漂移 `F_OPS(AED)` 947,500.00、NLA 1,364,752.25 / 1,114,752.25 / 1,414,752.25、运营户 696,089.35 / 996,089.35 等场景 31/32 钉死的一串数；现状（不补）公司域四个数与旧值逐位相同（T11 实测，T12 重铺后 `demo:all` 复核同值）——不补。
 - 下游钉死数字的漂移清单（T11 出具，**T12 已于 2026-10-03 处理完毕**）：`script.md` 场景 31 / 32 的 `✓ ledger 1 CLIENT 恒等 29612565` → **34107565**、`✓ ledger 2 CLIENT 恒等 4392571811` → **7101620811**（已改并在原行标注"推导值、未重走场景 31/32 复读"；漂移量恒为 Henry 余额 +4495000 / +2709049000，FIRM 两数不变）；`script.md` 协议幕演员点名里的「Henry Acme 无便签但余额 0」已删（改为"自波四起有种子历史余额，但他是第十幕主角，不借"）；`data.md` 生成区两行 CLIENT 数字随 `demo:all` 自动改写（T11 已入库，T12 重铺后 `demo:all` 复跑 **零 diff**）。
 
 **判据 6（干净库审计，T12 补）**：`rm -f <栈库>` → `stack.sh reset self` → `up` 后 ≤60 秒，`audit_log_events` 里 `action='STATEMENT_ISSUED'` = **44** 条（= statements 行数，requestId = statementNo；`stack.sh reset` 不清审计表，脏库上同 statementNo 的新写会被审计幂等键静默吞掉，故这一条与协议种子第 3 条同样要**先 rm 库**）、`action like 'AGREEMENT_%'` = 0、`like 'DSR_%'` = 0。
@@ -486,3 +486,69 @@ sqlite3 "$DB" "select actionType,status,count(*) from approval_cases where actio
 | 私库铺库 | 六个要跑 `db:biz:init` 的 e2e 私库逐个按头注释铺 | `prisma migrate deploy` / `db:base:sync` exit 0，`db:biz:init` **exit 1**（`seedStatementHistoryLegs` 撞栈库已写的账本，`TOOLING-DEBT.md` 末条；基线同），库是半成品但套件可跑 |
 
 **失效验证**（2026-10-29，均为临时改 `rbac.catalog.ts`、跑完整份还原、`git diff` 空）：① 拿掉 CFO 的 `VENDOR_READ` → `S9` 红（`VENDOR_APPROVAL: 裁决人 CFO 不持 VENDOR_READ ｜ VENDOR_MATERIAL_APPROVAL: …`）且 `S11d` 红；② 同轮给金库加 `DUE_DILIGENCE_WRITE`、给服务商名册列表 GET 多挂 `FUNDING_WRITE`、拿掉高管的 `LP_READ` → `S11b` / `S14d` / `S13c` 各自红、`S9` 因高管不持 `LP_READ` 再红一条（`API_BASE=http://127.0.0.1:1` 只跑静态段）；③ 改写前的旧判据在新代码上实跑红 3 条（`S13c` / `S13d` / `S14d`），即「判据没跟上」可见。**未做**：新增的 12 条行为探针没有逐条做「守卫恒开 / 恒关」的失效验证（要改权限表并重启后端）；它们每组都是「持有者非 403 + 非持有者 403」对照，守卫恒开则 DENY 探针红、恒关则 ALLOW 探针红，对照本身即判别力。⚠️ 其中「运营可以重提服务商申请」的 ALLOW 探针实得 `400`（占位单号 + 空体被校验管线先拦，守卫已放行），只证明过了权限闸，没走到服务层 404。
+
+## 战役戊波一账本地基判据（reset 判据，2026-11-06 Task 12 起）
+
+本节是「账本按钱包位置重立」（COA v3：每个钱包一个现金户，旧聚合户与 201 / 203 退役）落地后的 reset / 收尾判据，**与前文冲突处以本节为准**（前文各战役节里的旧助记码、`walletsChecked=19`、`67 个科目` 等是当时的实测，保持原样，仅「当前判据」行已就地订正并标注）。本节同时是总纲 §6.4 要求的「公司权益两户期望值」所在。
+
+**名称对照**（读前文历史段时用）：
+
+| 前文所用旧名 | 现名 |
+|---|---|
+| `CLIENT_ASSET`（码 1，每币种一个聚合户） | `CLIENT_CASH`（码 1，**每个客户钱包一户**，户名 `Client Cash · <客户号> · vIBAN` / `Client Cash · <客户号> · Deposit address`） |
+| `FIRM_ASSET`（码 50，每币种一个聚合户） | `FIRM_CASH`（码 50，**每个公司钱包一户**，共 7 户，户名 `Company Cash · <vault 标签> · <网络>`） |
+| `FIRM_OPS`（码 200，既是 F_OPS 的钱、又是兑换对手盘） | `FIRM_EQUITY`（码 200，每币种一户，**只是权益**）；F_OPS 的钱在现金户「公司现金·运营」里 |
+| `FIRM_SET`（码 201）／`FIRM_LIQ`（码 203） | **科目退役**；钱住在 F_SET / F_LIQ 钱包自己的现金户：`Company Cash · Company Settlement · AED_ZAND`、`Company Cash · Company Liquidity · AED_ZAND` / `… · TRON` |
+| 开支原借 `FIRM_OPS` | `EXPENSE_BANK_CUSTODY` / `EXPENSE_RECON_LOSS` / `EXPENSE_OTHER`（码 300 / 301 / 302，借方户，助记码前缀 `X.`） |
+
+**reset 后、`demo:all` 之前（TigerBeetle 余额直读，两次独立重铺逐位一致；借方户余额 = 借 − 贷，贷方户 = 贷 − 借）**：
+
+| 户 | AED（ledger 1） | USDT（ledger 2） |
+|---|---|---|
+| 公司现金·运营（`Company Cash · Company Operations · AED_ZAND` / `… · TRON`） | **94750000**（947,500.00 AED） | **113600000000**（113,600.000000 USDT） |
+| 公司现金·LP 前厅 / 结算 / 手续费 | 0 / 0 / 0 | 0 / — / 0（F_SET 只走法币，无 USDT 户） |
+| **公司权益 `FIRM_EQUITY`（总纲 §6.4 新增判据）** | **95000000**（950,000.00 AED） | **113600000000**（113,600.000000 USDT） |
+| 银行与托管费用 `EXPENSE_BANK_CUSTODY` | **250000**（2,500.00 AED，PAY 历史单） | 0 |
+| 兑换费 / 提现费 / 其他收入、对账核销损失、其他开支 | 全 0 | 全 0 |
+| Henry 两个客户现金户（`CLIENT_CASH`） | 4495000（44,950.00 AED） | 2709049000（2,709.049000 USDT） |
+
+公司权益 AED 比公司现金·运营 AED 多 250000 = 开支户余额：PAY 单 2,500.00 AED 计开支、不冲减权益（总纲附录 A「公司权益 ≥ 公司现金·运营」的差额项之一）。可复现命令见上文「F_OPS(AED) 新判据」节（该命令读公司现金·运营 AED 与公司权益 AED，复跑所得与本表逐位相同）。
+
+**`demo:all` 之后（同口径，花名册 35/35、`asserts: 5/5 PASS`、`data.md` 生成区两次重铺零 diff）**：
+
+| 户 | AED | USDT |
+|---|---|---|
+| 公司现金·运营 | **94608935**（946,089.35 AED） | **113999428189** |
+| 公司现金·手续费 | 11400 | 36000000 |
+| 公司现金·LP 前厅 / 结算 | 0 / 0 | 0 / — |
+| **公司权益 `FIRM_EQUITY`** | **94858935**（948,589.35 AED） | **113999428189**（113,999.428189 USDT） |
+| 兑换费收入 / 提现费收入 / 其他收入 | 2000 / 5200 / 4200 | 8000000 / 28000000 / 0 |
+| 银行与托管费用 | 250000 | 0 |
+
+公司本恒等校验：AED 左边 94608935 + 11400 + 250000 = **94870335** = 右边 94858935 + 2000 + 5200 + 4200；USDT 左边 113999428189 + 36000000 = **114035428189** = 右边 113999428189 + 8000000 + 28000000。
+
+**`verify:coa`**（`bash scripts/on-stack.sh self verify:coa`，退出码取自命令本身；公式两恒等 + 负余额遍历，201 / 203 项已随码删除）：
+
+| 时点 | 判据 |
+|---|---|
+| reset + `up` 后、`demo:all` 前 | exit 0：`ledger 1 CLIENT 恒等 4495000` / `ledger 1 FIRM 恒等 95000000` / `ledger 2 CLIENT 恒等 2709049000` / `ledger 2 FIRM 恒等 113600000000` / `负余额检查 通过 (75 个科目全部 ≥ 0)` / `ALL INVARIANTS PASS` |
+| `demo:all` 后 | exit 0：`34107565` / `94870335` / `8201620811` / `114035428189` / `87 个科目全部 ≥ 0`（比 reset 后多 12 个 = 6 位 demo 客户 × 2 个钱包现金户） |
+| 其后 `recon:demo:break` | exit 0：`ledger 1 CLIENT 34307565`（= `demo:all` 后 + 场景 6 真写账本的 200000），FIRM 两数不变，87 科目 ≥ 0 |
+
+**对账**（`demo:all` 后）：`recon:demo:pass` exit 0，`status=PASS walletsChecked=21 casesOpened=0`，五条断言全 OK——**21 = 7 个公司钱包 + 14 个客户钱包**（原 19 = 7 + 12；Henry 两个钱包入检，业主裁定 7）；公司钱包行 `coa=A.FIRM_CASH`，F_OPS(AED) `internal=94608935 lines=6`，F_LIQ(USDT) `internal=0 lines=2`（与前文判据同数，改读现金户后不变）。`recon:demo:break` exit 0：`scenarios 18/18 DETECTED`、`wallets 12/12 bucket OK`、`casesOpened 12/12`。
+
+**前文数字的订正一览**（前文原文不改，读时按此换算）：
+
+| 前文写的 | 现值 |
+|---|---|
+| `walletsChecked=19`（乙波一 / 乙波二 / 对手方波二 / 丙波四 / LP 两步准入各节） | **21** |
+| `verify:coa` `67 个科目全部 ≥ 0`（前文各节，reset 后与 `demo:all` 后同数） | **75**（reset 后）/ **87**（`demo:all` 后） |
+| `ledger 1 FIRM 恒等 94750000`（reset 后） | **95000000**（= 现金 94750000 + 开支户 250000） |
+| `COA FIRM(AED) 94620335`（`demo:all` 后） | **94870335**（同样 +250000 开支户）；`COA FIRM(USDT)` 以对手方波二的 114035428189 为准，两数的客户侧（34107565 / 8201620811）不变 |
+| 公式带 `FIRM_LIQ` / `FIRM_SET` 项 | 两项已随码删除，公式见上 |
+| 「F_OPS(AED) 947,500.00」「F_LIQ 0」「F_OPS(USDT) 113,600」 | 数不变，**读的户改为**对应的公司现金户（见上表）；公司权益两户是新增判据 |
+| Henry「无钱包行、不进 recon 钱包桶」 | 戊波一起有 C_DEP + C_VIBAN 两条钱包行（业主裁定 7），进桶 |
+
+**失效验证**（判据不是自证绿）：① 临时把 `FIRM_EQUITY` 从 `verify:coa` 公司本右边求和里拿掉 → exit 1，`✗ ledger 1 FIRM: Σ(50)+Σ(300..302)=94870335 Σ(200)+Σ(210..212)=11400` 与 USDT 同款一行，还原后 exit 0；② 把读面 `accountDisplayName` 退化回「只看科目码」→ 账本读面四个用例（注册表列表 / 账户详情 / 流水行 / 码表 spec）全红，还原后全绿。**未做**：201 / 203 项从恒等式里删除（这两项余额恒为 0、删除不改变任何一边的值），没有对应的失效验证；`verify:coa` 对「手工往客户现金户记无对手借方应变红」的变异归 T3。
+
+**读面显示**：账本「Ledger Accounts」页现金户（Owner = WALLET）的账户名显示注册表户名——公司现金户 7 个（`Company Cash · Company Operations · AED_ZAND` 等）、客户现金户按 `Client Cash · <客户号> · vIBAN / Deposit address`，不再是 7 个看不出区别的「Company Cash – AED/USDT」；前端不自造名字，只显示后端下发的 `accountName`。物证：`doc-final/superpowers/checkups/2026-11-06-campaign-e-wave1-evidence/t12-ledger-accounts.png`。

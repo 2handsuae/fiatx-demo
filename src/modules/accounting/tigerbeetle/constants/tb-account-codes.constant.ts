@@ -17,8 +17,6 @@ export const TB_ACCOUNT_CODES = {
   DEPOSIT_SUSPENSE: 101, // 充值合规暂扣
   // ── 权益 E ──
   FIRM_EQUITY: 200, // 公司权益(每币种一户,兑换对手盘;本钱 + 交易净额)
-  FIRM_SET: 201, // 退役中(T12 删)：法币结算户,并入 50 类「公司现金·结算 AED」
-  FIRM_LIQ: 203, // 退役中(T12 删)：LP 在途验收户,并入 50 类「公司现金·LP 前厅」
   // ── COA v2 收入段(210–219,2026-08-13)：取代退役的 202 FIRM_FEE,按业务线三分 ──
   INCOME_SWAP_FEE: 210, // 兑换手续费收入(接类型码 36)
   INCOME_WITHDRAW_FEE: 211, // 提现手续费收入(接类型码 16)
@@ -51,8 +49,6 @@ export const TB_ACCOUNT_NAMES: Record<number, string> = {
   [TB_ACCOUNT_CODES.CLIENT_PAYABLE]: 'Payable to Clients – Available Balance',
   [TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE]: 'Client Deposits Held – Pending Release',
   [TB_ACCOUNT_CODES.FIRM_EQUITY]: 'Company Equity',
-  [TB_ACCOUNT_CODES.FIRM_SET]: 'Settlement in Transit – Fiat',
-  [TB_ACCOUNT_CODES.FIRM_LIQ]: 'LP Delivery in Transit',
   [TB_ACCOUNT_CODES.INCOME_SWAP_FEE]: 'Trading Fee Income',
   [TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE]: 'Withdrawal Fee Income',
   [TB_ACCOUNT_CODES.INCOME_OTHER]: 'Other Service Income',
@@ -65,12 +61,23 @@ export const TB_ACCOUNT_NAMES: Record<number, string> = {
 export const accountNameOf = (code: number | null | undefined): string | null =>
   code == null ? null : (TB_ACCOUNT_NAMES[code] ?? null);
 
+/**
+ * 读面下发的 `accountName`(科目表 / 流水表 / 详情标题)：
+ *   现金户(ownerType WALLET)= 注册表 description(开户时已拼好的户名 `类名 · 钱包名`,见 cashAccountName);
+ *   其余户 = 「一码一名」accountNameOf(code)。
+ * 前端只显示这个字段,不得再造 code/钱包 → 名字 的映射。
+ */
+export const accountDisplayName = (
+  row: { code?: number | null; ownerType?: string | null; description?: string | null } | null | undefined,
+): string | null =>
+  row?.ownerType === 'WALLET' && row.description ? row.description : accountNameOf(row?.code);
+
 /** 202 FIRM_FEE / 204 FIRM_SEIZED 已于 2026-08-13 COA v2 废弃,
  *  由 210 INCOME_SWAP_FEE / 211 INCOME_WITHDRAW_FEE / 212 INCOME_OTHER 接班。
- *  203 FIRM_LIQ 已于 2026-09-29 战役乙复活为 LP 在途验收户(原退役理由不再适用,
- *  翻案见乙总纲 §2;主表定义见上方 TB_ACCOUNT_CODES.FIRM_LIQ)。
+ *  201(法币结算户)/ 203(LP 在途验收户)已于 2026-11-06 戊战役波一退役：科目并入 50 类现金户
+ *  (「公司现金·结算」「公司现金·LP 前厅」),对应的钱包 F_SET / F_LIQ 存续,钱住在各自的现金户里。
  *  demo 数据随时 reset,不保留任何过渡兼容层(退役码常量/标签映射/迁移脚本均已删除)。
- *  防回归断言见 tb-account-codes.constant.spec.ts —— FIRM_FEE/FIRM_SEIZED 这两个名字不得回到主表。 */
+ *  防回归断言见 tb-account-codes.constant.spec.ts —— 上述 4 个退役名字不得回到主表。 */
 
 /** Human-readable COA code → TB numeric code */
 export const COA_TO_TB_CODE: Record<string, number> = {
@@ -79,8 +86,6 @@ export const COA_TO_TB_CODE: Record<string, number> = {
   'L.CLIENT_PAYABLE': TB_ACCOUNT_CODES.CLIENT_PAYABLE,
   'L.DEPOSIT_SUSPENSE': TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
   'E.FIRM_EQUITY': TB_ACCOUNT_CODES.FIRM_EQUITY,
-  'E.FIRM_SET': TB_ACCOUNT_CODES.FIRM_SET,
-  'E.FIRM_LIQ': TB_ACCOUNT_CODES.FIRM_LIQ,
   'E.INCOME_SWAP_FEE': TB_ACCOUNT_CODES.INCOME_SWAP_FEE,
   'E.INCOME_WITHDRAW_FEE': TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE,
   'E.INCOME_OTHER': TB_ACCOUNT_CODES.INCOME_OTHER,

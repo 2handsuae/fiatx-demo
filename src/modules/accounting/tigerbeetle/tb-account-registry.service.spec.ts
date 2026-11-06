@@ -147,6 +147,27 @@ describe('TbAccountRegistryService', () => {
       expect(items[0].ownerUuid).toBe('w-ops');
     });
 
+    it('accountName:现金户(WALLET)下发注册表户名 description,其余户照一码一名(戊波一 T12,spec §2.1)', async () => {
+      mockPrisma.tbAccountRegistry.findMany.mockResolvedValue([
+        { tbAccountId: 'a1', code: 50, ownerType: 'WALLET', ownerUuid: 'w-ops', ownerNo: 'WA-OPS', description: 'Company Cash · Company Operations · AED_ZAND' },
+        { tbAccountId: 'a2', code: 1, ownerType: 'WALLET', ownerUuid: 'w-cust', ownerNo: 'WA-CUST', description: 'Client Cash · CU2601012635 · vIBAN' },
+        { tbAccountId: 'a3', code: 200, ownerType: 'SYSTEM', ownerUuid: null, ownerNo: null, description: 'whatever' },
+        { tbAccountId: 'a4', code: 100, ownerType: 'CUSTOMER', ownerUuid: 'u1', ownerNo: 'CU1', description: null },
+      ]);
+      mockPrisma.tbAccountRegistry.count.mockResolvedValue(4);
+      mockPrisma.wallet.findMany.mockResolvedValue([]);
+      mockPrisma.customerMain.findMany.mockResolvedValue([]);
+
+      const { items } = await service.findAll({});
+
+      expect(items.map((r: any) => r.accountName)).toEqual([
+        'Company Cash · Company Operations · AED_ZAND',
+        'Client Cash · CU2601012635 · vIBAN',
+        'Company Equity',
+        'Payable to Clients – Available Balance',
+      ]);
+    });
+
     it('页内没有 WALLET 行 → 不查 wallets', async () => {
       mockPrisma.tbAccountRegistry.findMany.mockResolvedValue([
         { tbAccountId: 'a4', code: 200, ownerType: 'SYSTEM', ownerUuid: null, ownerNo: null },

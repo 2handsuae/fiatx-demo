@@ -238,6 +238,7 @@ const LedgerAccountList = () => {
           <option value="">All owners</option>
           <option value="SYSTEM">SYSTEM</option>
           <option value="CUSTOMER">CUSTOMER</option>
+          <option value="WALLET">WALLET</option>
           <option value="LP">LP</option>
         </select>
 

@@ -1563,7 +1563,6 @@ export async function verifyEndState(
   //    CLIENT: Σ(CLIENT_CASH) == Σ(CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per ledger
   //    FIRM:   Σ(FIRM_CASH + EXPENSE_BANK_CUSTODY + EXPENSE_RECON_LOSS + EXPENSE_OTHER)
   //              == Σ(FIRM_EQUITY + INCOME_SWAP_FEE + INCOME_WITHDRAW_FEE + INCOME_OTHER) per ledger
-  //            （退役中的 201 / 203 在码表删除前余额恒 0，并入右边不影响，T12 删码时一并去掉）
   //    (asset + expense accounts are debit-normal; liabilities/equity/income are credit-normal)
   const coaMap = await buildCoaBalanceMap(ctx);
   const LEDGER_NAMES: Record<number, string> = { [TB_LEDGERS.AED]: 'AED', [TB_LEDGERS.USDT]: 'USDT' };
@@ -1580,7 +1579,7 @@ export async function verifyEndState(
     coaRows.push({ label: clientLabel, ok: clientOk, detail: clientDetail });
     const firmLeft = sum(TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, TB_ACCOUNT_CODES.EXPENSE_OTHER);
     const firmRight = sum(
-      TB_ACCOUNT_CODES.FIRM_EQUITY, TB_ACCOUNT_CODES.FIRM_SET, TB_ACCOUNT_CODES.FIRM_LIQ,
+      TB_ACCOUNT_CODES.FIRM_EQUITY,
       TB_ACCOUNT_CODES.INCOME_SWAP_FEE, TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, TB_ACCOUNT_CODES.INCOME_OTHER,
     );
     const firmLabel = `COA FIRM(${name}): Σ(FIRM_CASH+EXPENSE_*) == Σ(FIRM_EQUITY+INCOME_*)`;

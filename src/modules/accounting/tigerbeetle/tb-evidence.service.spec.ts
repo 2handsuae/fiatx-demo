@@ -493,6 +493,26 @@ describe('TbEvidenceService', () => {
   });
 
   describe('findAllFlows (Task 5)', () => {
+    it('流水行 accountName:现金户(WALLET)= 注册表户名 description,其余户 = 一码一名;公司现金户不暴露 ownerNo(戊波一 T12)', async () => {
+      mockPrisma.accountFlow.findMany.mockResolvedValue([
+        { id: 'f1', tbAccountId: 'a'.repeat(32) },
+        { id: 'f2', tbAccountId: 'b'.repeat(32) },
+      ]);
+      mockPrisma.tbAccountRegistry.findMany.mockResolvedValue([
+        { tbAccountId: 'a'.repeat(32), code: 50, ownerType: 'WALLET', ownerNo: 'WA-OPS', ownerUuid: 'w-ops', description: 'Company Cash · Company Operations · AED_ZAND' },
+        { tbAccountId: 'b'.repeat(32), code: 212, ownerType: 'SYSTEM', ownerNo: null, ownerUuid: null, description: 'INCOME_OTHER for AED' },
+      ]);
+
+      const res = await service.findAllFlows({});
+
+      expect(res.items.map((r: any) => r.accountName)).toEqual([
+        'Company Cash · Company Operations · AED_ZAND',
+        'Other Service Income',
+      ]);
+      expect(res.items[0].ownerNo).toBeNull();
+      expect(res.items[0].ownerUuid).toBeNull();
+    });
+
     it('findAllFlows filters by tbAccountId and returns items+total+singleAccount', async () => {
       const res = await service.findAllFlows({ tbAccountId: 'a1', take: 10, skip: 0 });
       expect(res).toHaveProperty('items');

@@ -384,9 +384,9 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
         debitAccountId: cashAcct('w-liq-aed', TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_EQUITY, TB_LEDGERS.AED),
         evidence: expect.objectContaining({ eventCode: 'LP_EXCHANGE_RECEIVE', debitCode: 'A.FIRM_CASH', creditCode: 'E.FIRM_EQUITY', assetCurrency: 'AED' }),
       });
-      // 85:借 现金·buyViaWalletId(F_LIQ 前厅,买入币账本)/ 贷 FIRM_EQUITY(买入币账本);FIRM_LIQ(203)不再出现
+      // 85:借 现金·buyViaWalletId(F_LIQ 前厅,买入币账本)/ 贷 FIRM_EQUITY(买入币账本);退役码 203 不再出现
       expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-liq-aed', TB_LEDGERS.AED);
-      expect((accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code)).not.toContain(TB_ACCOUNT_CODES.FIRM_LIQ);
+      expect((accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code)).not.toContain(203);
       expect(fundsOrders.advance).toHaveBeenCalledWith('fo-2', 'CLEAR', 'LP_EXCHANGE_WORKFLOW');
       expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({ fundsOrderNo: 'FDO2', fromWalletId: null, toWalletId: 'w-liq-aed', assetCode: 'AED', assetType: 'FIAT', amountMinor: 7_328_000n }));
       // 评审 Imp#1/R12：回单必须先于落账（invocationCallOrder 越小越早发生）。
@@ -592,11 +592,11 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
         debitAccountId: cashAcct('w-ops-aed', TB_LEDGERS.AED), creditAccountId: cashAcct('w-liq-aed', TB_LEDGERS.AED),
         evidence: expect.objectContaining({ eventCode: 'LP_EXCHANGE_ACCEPT', debitCode: 'A.FIRM_CASH', creditCode: 'A.FIRM_CASH', assetCurrency: 'AED' }),
       });
-      // 86:借 现金·buyToWalletId(F_OPS 运营,买入币账本)/ 贷 现金·buyViaWalletId(F_LIQ 前厅)——两侧都是钱包现金户,不碰权益、不碰 FIRM_LIQ
+      // 86:借 现金·buyToWalletId(F_OPS 运营,买入币账本)/ 贷 现金·buyViaWalletId(F_LIQ 前厅)——两侧都是钱包现金户,不碰权益、不碰退役码 203
       expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops-aed', TB_LEDGERS.AED);
       expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-liq-aed', TB_LEDGERS.AED);
       const resolvedCodes86 = (accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code);
-      expect(resolvedCodes86).not.toContain(TB_ACCOUNT_CODES.FIRM_LIQ);
+      expect(resolvedCodes86).not.toContain(203);
       expect(resolvedCodes86).not.toContain(TB_ACCOUNT_CODES.FIRM_EQUITY);
       expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({
         fundsOrderNo: 'FDO3', fromWalletId: 'w-liq-aed', toWalletId: 'w-ops-aed', assetCode: 'AED', assetType: 'FIAT', amountMinor: 7_328_000n,

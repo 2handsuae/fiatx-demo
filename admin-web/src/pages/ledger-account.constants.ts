@@ -14,11 +14,9 @@
 const TB_CODE_LABELS: Record<number, string> = {
   1: 'CLIENT_CASH', 50: 'FIRM_CASH',
   100: 'CLIENT_PAYABLE', 101: 'DEPOSIT_SUSPENSE',
-  200: 'FIRM_EQUITY', 201: 'FIRM_SET',
-  // 战役乙波一（评审裁定 R4）：203 FIRM_LIQ 复活为 LP 在途验收户（原 2026-08-13 COA v2
-  // 退役，翻案见乙总纲 §2）——补回筛选下拉，否则复活的科目在账本科目页选不到。
-  203: 'FIRM_LIQ',
+  200: 'FIRM_EQUITY',
   210: 'INCOME_SWAP_FEE', 211: 'INCOME_WITHDRAW_FEE', 212: 'INCOME_OTHER',
+  300: 'EXPENSE_BANK_CUSTODY', 301: 'EXPENSE_RECON_LOSS', 302: 'EXPENSE_OTHER',
 };
 
 /**
@@ -34,7 +32,7 @@ export const withAssetSuffix = (
   return assetCode ? `${accountName} – ${assetCode}` : accountName;
 };
 
-const ACTIVE_CODES = [1, 50, 100, 101, 200, 201, 203, 210, 211, 212];
+const ACTIVE_CODES = [1, 50, 100, 101, 200, 210, 211, 212, 300, 301, 302];
 const labelOf = (code: number) => `${code} · ${TB_CODE_LABELS[code] ?? `CODE_${code}`}`;
 
 export const TB_CODE_OPTIONS = [
@@ -44,7 +42,8 @@ export const TB_CODE_OPTIONS = [
 
 const CLASS_PREFIX: Record<number, string> = {
   1: 'A', 50: 'A', 100: 'L', 101: 'L',
-  200: 'E', 201: 'E', 203: 'E', 210: 'E', 211: 'E', 212: 'E',
+  200: 'E', 210: 'E', 211: 'E', 212: 'E',
+  300: 'X', 301: 'X', 302: 'X',
 };
 
 export const COA_OPTIONS = ACTIVE_CODES.map((c) => ({

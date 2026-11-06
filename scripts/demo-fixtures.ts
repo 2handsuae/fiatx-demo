@@ -274,7 +274,7 @@ export interface StuckSwapResult {
  * 入库洗成分（× 10^decimals），grossTo 是不是整数主单位不再要紧，故 to-USDT（6 位）方向也能造。
  *
  * 卡腿在其 fromWalletId 上方向为 OUT（findNonTerminalByWallet：fromWalletId===walletRef → OUT）。
- * 该腿 POST 未做（handler 只在 CONFIRMED 才 postLeg），故这条 OUT 的 code-201/200 记账没落地；
+ * 该腿 POST 未做（handler 只在 CONFIRMED 才 postLeg），故这条 OUT 的现金户/权益记账没落地；
  * 但 leg2 已 CLEAR，把 grossTo 打进了该 F_ 钱包（IN）——所以内部 POSTED 净额此刻 = +grossTo（分）。
  * 外部镜像按 OUT 把 closing 相对内部减 grossTo（洗成分），插一条 OUT statement line（分，托管/银行
  * 已过账该腿）：delta = external − internal = −grossTo(分)；在途 Pass3 认领 leg3（extMinor(line 分) ==
