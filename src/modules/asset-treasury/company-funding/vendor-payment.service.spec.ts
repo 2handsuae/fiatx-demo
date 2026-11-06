@@ -51,6 +51,12 @@ function makePrisma() {
       }),
     },
     fundsOrder: { findMany: jest.fn(async () => []) },
+    // 戊波二 T4：toView 按 fromWalletId 批量取 walletNo（只认业务键出投影）。
+    wallet: {
+      findMany: jest.fn(async ({ where }: any) => (where.id.in as string[])
+        .map((id) => ({ 'w-ops-aed': { id: 'w-ops-aed', walletNo: 'WAL-OPS-AED' }, 'w-fee-aed': { id: 'w-fee-aed', walletNo: 'WAL-FEE-AED' } } as Record<string, any>)[id])
+        .filter(Boolean)),
+    },
   };
 }
 
@@ -210,9 +216,10 @@ describe('VendorPaymentService (乙波二 T4)', () => {
       const json = JSON.stringify(view);
       expect(json).not.toContain(created.id);
       expect(json).not.toContain(activeVendor.id);
+      expect(json).not.toContain('w-ops-aed'); // from 钱包只以 walletNo 出投影
       expect(view).toMatchObject({
         payNo: created.payNo, vendorNo: activeVendor.vendorNo, vendorName: activeVendor.name,
-        status: S.PENDING_APPROVAL, assetCode: 'AED', amount: '12000.00', legs: [],
+        status: S.PENDING_APPROVAL, assetCode: 'AED', amount: '12000.00', fromWalletNo: 'WAL-OPS-AED', legs: [],
       });
     });
   });
@@ -226,6 +233,17 @@ describe('VendorPaymentService (乙波二 T4)', () => {
       const { items, total } = await service.list();
       expect(total).toBe(2);
       expect(items[0].createdAt >= items[1].createdAt).toBe(true);
+    });
+
+    it('every list row carries its own fromWalletNo (one batched wallet lookup, ops and fee side by side)', async () => {
+      const prisma = makePrisma();
+      const service = svc(prisma);
+      const a = await service.create(baseInput);
+      const b = await service.create({ ...baseInput, fromWalletId: 'w-fee-aed' });
+      const { items } = await service.list();
+      expect(items.find((i) => i.payNo === a.payNo)?.fromWalletNo).toBe('WAL-OPS-AED');
+      expect(items.find((i) => i.payNo === b.payNo)?.fromWalletNo).toBe('WAL-FEE-AED');
+      expect(prisma.wallet.findMany).toHaveBeenCalledTimes(1);
     });
 
     it('filters by status', async () => {

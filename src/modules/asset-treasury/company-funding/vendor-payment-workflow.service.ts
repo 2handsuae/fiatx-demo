@@ -1,14 +1,17 @@
 // 战役乙波二 T5 · 付款单 workflow（本任务心脏）：审批裁决 / 单腿出款(码87) / 撤回。
-// 单腿出项（钱付给在册外包商，运营户直出）——批准即复核余额，够则建腿（CREATED 出生，
+// 单腿出项（钱付给在册外包商，从金库人选的那只运营户 / 手续费户直出——戊波二 T4）——批准即复核余额，够则建腿（CREATED 出生，
 // 走正常 OUT 推进，SUBMIT/CONFIRM 由 admin ⚡模拟推进驱动，本 workflow 只接
 // handleFundsOrderChanged 的 SUBMITTED/CONFIRMED/FAILED/TIMEOUT——照 LP 卖出腿 84 全套
 // 纪律：回单先于落账、先账后状态、落账失败停在原地不重试）；腿确认即码 87 落账、CLEAR、
 // 单腿直达 SUCCESS（没有 LP 那样的悬空验收期——付款单出生就是终态前唯一一腿）。腿 1
 // 推进走资金单页 ⚡，付款详情页不设推单按钮。铁律③各管各的：本文件只调
-// VendorPaymentService/AccountingService/FundsOrderService/SystemWalletResolver/
+// VendorPaymentService/AccountingService/FundsOrderService/FirmWalletPickerService/
 // SimulatedCustodianStatementService 的公开方法，不直写域外表——唯一例外是按事件带的
 // 内部 id 读 VendorPayment 行（事件只带 id，主体服务只暴露按业务号查，照
 // LpExchangeWorkflowService.handleFundsOrderChanged 先例，横向读放行）。
+// 戊波二 T4：from 钱包不再固定 F_OPS——开单时 FirmWalletPickerService 验人选的那只（运营户 / 手续费户，
+// 其余 400），余额闸与 87 的贷方都跟 row.fromWalletId；NLA 算术门只在 from = 运营户时过
+// （手续费户出钱运营户不动，spec 裁定 12），从手续费户付不结转（裁定 5）。
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
@@ -26,7 +29,7 @@ import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from
 import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handler.base';
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
-import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
+import { FirmWalletPickerService } from '../../funds-layer/domain/firm-wallet-picker.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { FundsOrderAction, FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 import { SimulatedCustodianStatementService } from '../../clearing-settle/reconciliation/simulation/simulated-custodian-statement.service';
@@ -41,12 +44,14 @@ interface FundsOrderStatusChangedEvent {
 }
 
 /** initiate() 入参——只认业务键（vendorNo/资产 id），零 UUID 由调用方外部拼；
- *  fromWalletId（F_OPS）由本 workflow 解析（照 T3/T4 InitiateCapitalInjectionInput /
+ *  fromWalletId 是金库在表单里选的公司钱包（运营户 / 手续费户），由本 workflow 经
+ *  FirmWalletPickerService 验过再落库（照 T3/T4 InitiateCapitalInjectionInput /
  *  CreateVendorPaymentInput 的分工：主体服务不解析钱包）。 */
 export interface InitiateVendorPaymentInput {
   vendorNo: string;
   payeeAccountRef: string;
   assetId: string;
+  fromWalletId: string;
   amount: string; // 元
   purposeNote: string;
   prudentialPurpose: string;
@@ -66,7 +71,7 @@ export class VendorPaymentWorkflowService {
     private readonly accounting: AccountingService,
     private readonly auditLogs: AuditLogsService,
     private readonly fundsOrders: FundsOrderService,
-    private readonly systemWallets: SystemWalletResolver,
+    private readonly firmWallets: FirmWalletPickerService,
     private readonly custodianStatement: SimulatedCustodianStatementService,
     private readonly prudential: PrudentialService,
   ) {}
@@ -80,25 +85,30 @@ export class VendorPaymentWorkflowService {
     if (!asset) throw new NotFoundException(`Asset not found: ${dto.assetId}`);
 
     const amountMinor = majorToMinor(dto.amount, asset.decimals);
-    await this.assertOpsBalance(asset, amountMinor);
-    // 算术门（乙波三 T2 spec §3）：余额闸=付得起，NLA 门=付完还合规，两闸各管各的，
-    // 顺序先余额后 NLA——插在同一层同一形制（紧邻既有前置检查之后，出生守卫尚未建行）。
-    await this.prudential.assertPostOutflowCompliant({
-      currency: asset.currency as 'AED' | 'USDT', amountMinor, orderKind: 'VENDOR_PAYMENT', counterpartyNo: dto.vendorNo, assetNo: asset.assetNo, actor,
-    });
-
-    const fromWallet = await this.systemWallets.resolve(dto.assetId, 'F_OPS');
+    // 先验人选的 from 钱包配不配（运营户 / 手续费户，其余 400），再按它查余额闸，最后 NLA 门——
+    // 余额闸=付得起，NLA 门=付完还合规，两闸各管各的（乙波三 T2 spec §3）；插在同一层同一形制
+    // （紧邻既有前置检查之后，出生守卫尚未建行）。
+    const fromWallet = await this.firmWallets.assertEligible(dto.fromWalletId, dto.assetId);
+    await this.assertFromBalance(asset, dto.fromWalletId, amountMinor);
+    // NLA 只算运营户（spec §2 不做：公式口径不改）——手续费户出钱运营户不动，不过门（裁定 12）。
+    if (fromWallet.vaultCode === 'F_OPS') {
+      await this.prudential.assertPostOutflowCompliant({
+        currency: asset.currency as 'AED' | 'USDT', amountMinor, orderKind: 'VENDOR_PAYMENT', counterpartyNo: dto.vendorNo, assetNo: asset.assetNo, actor,
+      });
+    }
 
     const row = await this.payments.create({
       vendorNo: dto.vendorNo, payeeAccountRef: dto.payeeAccountRef, assetId: dto.assetId, amount: dto.amount,
       purposeNote: dto.purposeNote, prudentialPurpose: dto.prudentialPurpose, reason: dto.reason,
-      fromWalletId: fromWallet.id as string,
+      fromWalletId: fromWallet.id,
       traceId: dto.traceId ?? undefined, createdByUserId: actor.userNo ?? actor.userId,
     });
 
     const amountFormatted = new Prisma.Decimal(dto.amount).toFixed(asset.decimals);
+    // 影响摘要按 from 钱包角色说话：运营户沿用原话（demo/script.md 幕五引着它），手续费户说 fee balance。
+    const fromKind = fromWallet.vaultCode === 'F_OPS' ? 'operating' : 'fee';
     const impact = `Pay ${amountFormatted} ${asset.currency} to outsourcing vendor ${row.vendorNo} (${row.vendorName}) `
-      + `(purpose: ${dto.prudentialPurpose}); the firm's ${asset.currency} operating balance decreases once the payment clears`;
+      + `(purpose: ${dto.prudentialPurpose}); the firm's ${asset.currency} ${fromKind} balance decreases once the payment clears`;
 
     const approval = await this.approvals.createAndSubmit(
       {
@@ -112,6 +122,7 @@ export class VendorPaymentWorkflowService {
         objectSnapshot: {
           payNo: row.payNo, vendorNo: row.vendorNo, vendorName: row.vendorName,
           payeeAccountRef: row.payeeAccountRef,
+          fromWalletNo: fromWallet.walletNo, // 付出的公司钱包（业务键，非 UUID）：CFO 要看到钱从哪只钱包出
           amount: `${amountFormatted} ${asset.currency}`,
           purposeNote: dto.purposeNote, prudentialPurpose: dto.prudentialPurpose, impact,
         },
@@ -122,17 +133,15 @@ export class VendorPaymentWorkflowService {
     await this.payments.stampApprovalNo(row.payNo, approval.approvalNo);
     await this.paymentAudit({ ...row, asset }, {
       action: AuditActions.VENDOR_PAYMENT_REQUESTED, reason: dto.reason, approvalNo: approval.approvalNo,
-      metadata: { impact }, actor,
+      metadata: { impact, fromWalletNo: fromWallet.walletNo }, actor, // 人选的 from 钱包进审计（铁律①：这个选择是持久化的）
     });
     return { payNo: row.payNo as string, approvalNo: approval.approvalNo as string, status: VendorPaymentStatus.PENDING_APPROVAL };
   }
 
-  /** 运营户余额闸（出生守卫 / 批准时复核共用）：该币种 F_OPS 钱包的现金户够不够付。闸本体是
-   *  AccountingService.assertWalletBalance（戊波二 T3：划转 / 付款 / LP 兑换三份收成一份）；
-   *  今天 from 固定是 F_OPS，后续任务让付款单 / 划转单改读单上人选的 from 钱包时，只换这里查哪只钱包。 */
-  private async assertOpsBalance(asset: { id: string; currency: string }, amountMinor: bigint): Promise<void> {
-    const ops = await this.systemWallets.resolve(asset.id, 'F_OPS');
-    await this.accounting.assertWalletBalance(ops.id, TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS], amountMinor);
+  /** from 钱包余额闸（出生守卫 / 批准时复核共用）：人选的那只钱包的现金户够不够付。闸本体是
+   *  AccountingService.assertWalletBalance（戊波二 T3：划转 / 付款 / LP 兑换三份收成一份）。 */
+  private async assertFromBalance(asset: { currency: string }, fromWalletId: string, amountMinor: bigint): Promise<void> {
+    await this.accounting.assertWalletBalance(fromWalletId, TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS], amountMinor);
   }
 
   // ── 撤回（金库，待批时）────────────────────────────────────────────────
@@ -164,10 +173,10 @@ export class VendorPaymentWorkflowService {
       return;
     }
 
-    // 批准时再查一次运营户（付款币）余额——同 LpExchangeWorkflowService.onDecided 纪律。
+    // 批准时再查一次 from 钱包（付款币）余额——同 LpExchangeWorkflowService.onDecided 纪律。
     const amountMinor = majorToMinor(row.amount, row.asset.decimals);
     try {
-      await this.assertOpsBalance(row.asset, amountMinor);
+      await this.assertFromBalance(row.asset, row.fromWalletId, amountMinor);
     } catch (err) {
       const updated = await this.payments.transition(row.payNo, VendorPaymentStatus.FAILED, { failureReasonCode: 'INSUFFICIENT_FIRM_BALANCE', failureNote: (err as Error).message });
       await this.paymentAudit(row, { action: AuditActions.VENDOR_PAYMENT_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'INSUFFICIENT_FIRM_BALANCE', reason: (err as Error).message, approvalNo: event.approvalNo, causationId: event.approvalId, fromStatus: row.status, toStatus: updated.status });
@@ -179,7 +188,7 @@ export class VendorPaymentWorkflowService {
     await this.paymentAudit(row, { action: AuditActions.VENDOR_PAYMENT_EXECUTION_STARTED, reason: 'Approved by CFO, payment leg funds order created', approvalNo: event.approvalNo, causationId: event.approvalId, fundsOrderNo: leg.fundsOrderNo, fromStatus: row.status, toStatus: updated.status });
   }
 
-  /** 腿 1（唯一腿）：F_OPS → 外部（收款方坐标，付款币 CRYPTO→cryptoAddress｜FIAT→fiatIban，
+  /** 腿 1（唯一腿）：row.fromWalletId（运营户或手续费户）→ 外部（收款方坐标，付款币 CRYPTO→cryptoAddress｜FIAT→fiatIban，
    *  一行文本落在 payeeAccountRef）。CREATED 出生，走正常 OUT 推进（SUBMIT/CONFIRM 由 admin
    *  ⚡模拟推进驱动，本 workflow 只接 handleFundsOrderChanged 的 SUBMITTED/CONFIRMED/FAILED/
    *  TIMEOUT）。 */
@@ -215,7 +224,7 @@ export class VendorPaymentWorkflowService {
     }
   }
 
-  /** 提交那一步铸参考号，随后模拟托管方写一行（只有 F_OPS 这一侧是我们的钱包——外包商的
+  /** 提交那一步铸参考号，随后模拟托管方写一行（只有 from 钱包这一侧是我们的钱包——外包商的
    *  外部坐标不落 externalBalance，recordLegMovement 的 toWalletId 传 null 只写 OUT 行）。 */
   private async onPaymentLegSubmitted(row: any, leg: any) {
     const isCrypto = row.asset.type === 'CRYPTO';
@@ -264,7 +273,8 @@ export class VendorPaymentWorkflowService {
   }
 
   /** 码 87：DR EXPENSE_BANK_CUSTODY（银行与托管费用，付款币 ledger 的 SYSTEM 开支户）/ CR 现金·row.fromWalletId
-   *  （付出的那只钱包，F_OPS 运营）。外包商的外部坐标不是钱包，不开户（戊波一·附录 B「支出」）。 */
+   *  （付出的那只钱包，运营户或手续费户——形状不随 from 变；从手续费户付不结转，裁定 5）。外包商的外部坐标
+   *  不是钱包，不开户（戊波一·附录 B「支出」）。 */
   private async postPaymentLeg(row: any, leg: any) {
     const ledger = this.ledgerOf(row.asset.currency);
     const amount = majorToMinor(leg.amount, row.asset.decimals);

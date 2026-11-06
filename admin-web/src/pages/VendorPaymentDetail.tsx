@@ -44,6 +44,7 @@ interface Detail {
   assetCode: string;
   currency: string;
   amount: string;
+  fromWalletNo: string | null;
   purposeNote: string;
   prudentialPurpose: string;
   reason: string;
@@ -260,6 +261,7 @@ const VendorPaymentDetail = () => {
               link={canViewVendorProfile ? `${SERVICE_PROVIDERS_PATH}/${encodeURIComponent(detail.vendorNo)}` : undefined}
             />
             <InfoField label="Payee Account Reference" value={detail.payeeAccountRef} mono />
+            <InfoField label="Paid From (company wallet)" value={detail.fromWalletNo} mono />
             <InfoField label="Purpose" value={detail.purposeNote} />
             <InfoField label="Prudential Purpose" value={detail.prudentialPurpose} />
             <InfoField label="Reason" value={detail.reason} />

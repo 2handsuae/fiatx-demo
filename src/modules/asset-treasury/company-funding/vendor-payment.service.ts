@@ -1,4 +1,4 @@
-// 战役乙波二 T4 · 付款单主体（VendorPayment）：建单 / 六态六边迁移表 / 读投影。余额闸在 AccountingService.assertWalletBalance（戊波二 T3 收成一份，由 workflow 调）。
+// 战役乙波二 T4 · 付款单主体（VendorPayment）：建单 / 六态六边迁移表 / 读投影。余额闸在 AccountingService.assertWalletBalance（戊波二 T3 收成一份，由 workflow 调）；from 钱包可选（运营户 / 手续费户）的守卫在 FirmWalletPickerService（戊波二 T4，同由 workflow 调）。
 // 铁律③：本服务只写 vendor_payments；收款方=在册外包商，横向读走
 // OutsourcingVendorsService.assertActiveByNo/findByNo，不直写 outsourcing_vendors 表。
 // 资金单腿、账本记账、审批、审计全在 Task 5 的 workflow 编排（同 CapitalInjectionService
@@ -101,7 +101,8 @@ export class VendorPaymentService {
       this.prisma.vendorPayment.findMany({ where, skip, take, orderBy: { createdAt: 'desc' }, include: { asset: true } }),
       this.prisma.vendorPayment.count({ where }),
     ]);
-    const items = rows.map((r: any) => this.toView(r, []));
+    const walletNos = await this.walletNosOf(rows);
+    const items = rows.map((r: any) => this.toView(r, [], walletNos));
     return { items, total };
   }
 
@@ -112,15 +113,24 @@ export class VendorPaymentService {
       orderBy: [{ legSeq: 'asc' }, { attempt: 'asc' }],
       include: { fromWallet: { select: { walletNo: true } }, toWallet: { select: { walletNo: true } }, asset: { select: { type: true } } },
     });
-    return this.toView(row, legs);
+    return this.toView(row, legs, await this.walletNosOf([row]));
+  }
+
+  /** from 钱包 id → walletNo（一次批量取；付款单表上 fromWalletId 是裸列，没有 Prisma 关系可 include，
+   *  照 InternalTransferService.toView 同款取法）。 */
+  private async walletNosOf(rows: Array<{ fromWalletId: string }>): Promise<Map<string, string | null>> {
+    const ids = [...new Set(rows.map((r) => r.fromWalletId))];
+    const wallets = (await this.prisma.wallet.findMany({ where: { id: { in: ids } }, select: { id: true, walletNo: true } })) as Array<{ id: string; walletNo: string | null }>;
+    return new Map(wallets.map((w) => [w.id, w.walletNo]));
   }
 
   /** 铁律⑥：投影里没有任何 id / assetId / walletId / vendorId。 */
-  private toView(row: any, legs: any[]): VendorPaymentView {
+  private toView(row: any, legs: any[], walletNos: Map<string, string | null>): VendorPaymentView {
     return {
       payNo: row.payNo, vendorNo: row.vendorNo, vendorName: row.vendorName, payeeAccountRef: row.payeeAccountRef,
       assetCode: row.asset.code, currency: row.asset.currency,
       amount: new Prisma.Decimal(row.amount).toFixed(row.asset.decimals),
+      fromWalletNo: walletNos.get(row.fromWalletId) ?? null,
       purposeNote: row.purposeNote, prudentialPurpose: row.prudentialPurpose, reason: row.reason,
       status: row.status, approvalNo: row.approvalNo ?? null,
       failureReasonCode: row.failureReasonCode ?? null, failureNote: row.failureNote ?? null,

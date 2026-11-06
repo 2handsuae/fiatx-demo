@@ -8,6 +8,11 @@
 // {items,total}）；读门 VENDOR_READ（金库在内，甲波六 T6）。
 // 甲波六 T8：下拉列出所有非 TERMINATED 的服务商，非 ACTIVE 的置灰并标状态（如「Pending VARA notification」）——
 // 「待报备的付不了款」是报备门的演示点：先让同事看见它在、却点不了，再去报送台签发，回来就能选。后端开单守卫不动。
+//
+// 戊波二 T4：付款从哪只公司钱包出由金库人选——资产下拉之后加「Pay From」下拉，数据来自
+// GET /admin/tb/accounts?ownerType=WALLET&code=50&assetCurrency=<币种>（公司现金户，已带 walletRole /
+// walletNo / balance，不加端点），前端只留运营户 F_OPS 与手续费户 F_FEE，默认运营户；钱包 id 是该注册表行的
+// ownerUuid（下拉里只显示 walletNo，不显示 id，铁律⑥）。选错钱包后端 400 FROM_WALLET_NOT_ELIGIBLE。
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
@@ -18,6 +23,8 @@ import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { partnerStatusMeta } from '../utils/partnerStatusMap';
+import { WALLET_ROLE_LABEL } from '../utils/walletRole.util';
+import { formatMinorToMajor } from './companyFundsFormat';
 
 interface Item {
   payNo: string;
@@ -43,6 +50,18 @@ interface AssetOption {
   type: string;
 }
 
+/** `GET /admin/tb/accounts?ownerType=WALLET&code=50` 的行（公司现金户）：ownerUuid = 钱包 id（表单提交用），
+ *  walletNo / walletRole / balance（最小单位）显示用。 */
+interface FromWalletOption {
+  ownerUuid: string;
+  walletNo: string;
+  walletRole: string;
+  balance: string;
+}
+
+/** 付款只能从运营户或手续费户出（结算户的钱正往客户走、LP 前厅的钱还没验收）；运营户排前、做默认。 */
+const PAYABLE_FROM_ROLES = ['F_OPS', 'F_FEE'];
+
 const fi =
   'mt-1 w-full rounded border border-adm-border bg-adm-panel px-2 py-1 text-xs';
 
@@ -58,6 +77,8 @@ const InitiatePaymentModal = ({
   const [vendorNo, setVendorNo] = useState('');
   const [payeeAccountRef, setPayeeAccountRef] = useState('');
   const [assetId, setAssetId] = useState('');
+  const [fromWalletId, setFromWalletId] = useState('');
+  const [fromWallets, setFromWallets] = useState<FromWalletOption[]>([]);
   const [amount, setAmount] = useState('');
   const [purposeNote, setPurposeNote] = useState('');
   const [prudentialPurpose, setPrudentialPurpose] = useState('');
@@ -99,6 +120,34 @@ const InitiatePaymentModal = ({
     })();
   }, [open]);
 
+  // 选定资产后取该币种的公司现金户，留运营户 / 手续费户，默认运营户。
+  const selectedAsset = assets.find((a) => a.id === assetId);
+  const selectedCurrency = selectedAsset?.currency;
+  useEffect(() => {
+    setFromWallets([]);
+    setFromWalletId('');
+    if (!open || !selectedCurrency) return undefined;
+    let stale = false;
+    void (async () => {
+      try {
+        const res = await adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/tb/accounts?ownerType=WALLET&code=50&assetCurrency=${encodeURIComponent(selectedCurrency)}&take=100`,
+        );
+        if (!res.ok || stale) return;
+        const data = await res.json();
+        const rows: FromWalletOption[] = (Array.isArray(data.items) ? data.items : [])
+          .filter((r: FromWalletOption) => PAYABLE_FROM_ROLES.includes(r.walletRole) && r.ownerUuid)
+          .sort((a: FromWalletOption, b: FromWalletOption) => PAYABLE_FROM_ROLES.indexOf(a.walletRole) - PAYABLE_FROM_ROLES.indexOf(b.walletRole));
+        setFromWallets(rows);
+        setFromWalletId(rows.find((r) => r.walletRole === 'F_OPS')?.ownerUuid ?? '');
+      } catch (e) {
+        if (e instanceof AdminSessionError) return;
+        console.error(e);
+      }
+    })();
+    return () => { stale = true; };
+  }, [open, selectedCurrency]);
+
   if (!open) return null;
 
   const submit = async () => {
@@ -106,6 +155,7 @@ const InitiatePaymentModal = ({
     if (!vendorNo) { setError('Select a payee (registered outsourcing vendor)'); return; }
     if (!payeeAccountRef.trim()) { setError('Payee account reference is required'); return; }
     if (!assetId) { setError('Select an asset'); return; }
+    if (!fromWalletId) { setError('Select the company wallet to pay from'); return; }
     if (!amount.trim() || Number(amount) <= 0) { setError('Amount must be greater than zero'); return; }
     if (!purposeNote.trim()) { setError('Purpose is required'); return; }
     if (!prudentialPurpose.trim()) { setError('Prudential purpose is required'); return; }
@@ -118,6 +168,7 @@ const InitiatePaymentModal = ({
           vendorNo,
           payeeAccountRef: payeeAccountRef.trim(),
           assetId,
+          fromWalletId,
           amount: amount.trim(),
           purposeNote: purposeNote.trim(),
           prudentialPurpose: prudentialPurpose.trim(),
@@ -179,6 +230,20 @@ const InitiatePaymentModal = ({
             />
           </label>
         </div>
+
+        <label className="mb-3 block text-xs">Pay From
+          <select value={fromWalletId} onChange={(e) => setFromWalletId(e.target.value)} className={fi} disabled={!assetId}>
+            <option value="">{assetId ? 'Select…' : 'Select an asset first'}</option>
+            {fromWallets.map((w) => (
+              <option key={w.ownerUuid} value={w.ownerUuid}>
+                {w.walletNo} · {WALLET_ROLE_LABEL[w.walletRole] ?? w.walletRole} · balance {formatMinorToMajor(w.balance, selectedAsset?.decimals ?? 2)} {selectedCurrency}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1 block font-mono text-[10px] text-adm-t3">
+            Operating wallet by default. Paying from the fee wallet uses collected fees and leaves the operating balance untouched.
+          </span>
+        </label>
 
         <label className="mb-3 block text-xs">Purpose
           <input
@@ -260,7 +325,7 @@ const VendorPaymentList = () => {
     <div className="flex h-full flex-col">
       <PageTitleBar
         title="Vendor Payments"
-        subtitle="Pay a registered outsourcing vendor out of the firm's operating account"
+        subtitle="Pay a registered outsourcing vendor out of the firm's operating or fee wallet"
         meta={`${items.length} payment(s)`}
       >
         {canCreate && (
