@@ -47,8 +47,6 @@ function makePrisma() {
   return {
     asset: {
       findUnique: jest.fn(async ({ where }: any) => assetsById[where.id] ?? null),
-      // 戊波一 T8：余额闸按币种找资产（行为化：真按 where.currency 过滤）
-      findFirst: jest.fn(async ({ where }: any) => Object.values(assetsById).find((a: any) => a.currency === where.currency) ?? null),
     },
     wallet: { findUnique: jest.fn(async ({ where }: any) => walletsById[where.id] ?? null) },
     outsourcingVendor: { findUnique: jest.fn(async ({ where }: any) => vendorRows[where.vendorNo] ?? null) },
@@ -93,13 +91,13 @@ function makePrisma() {
   };
 }
 
-function makeAccounting(debitsPosted: bigint, creditsPosted: bigint, creditsPending = 0n) {
+function makeAccounting() {
   return {
     resolveTbAccountId: jest.fn(async ({ code, ledger }: any) => acct(code, ledger)),
     // 戊波一:现金户只经这个入口取——传错钱包或账本,断言里的期望 id 对不上
     resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => cashAcct(walletId, ledger)),
-    // 戊波一 T8:余额闸读 F_OPS 现金户(借方户),可用 = 借 − 贷 − 贷挂起
-    lookupBalance: jest.fn(async () => ({ debitsPosted, creditsPosted, debitsPending: 0n, creditsPending })),
+    // 戊波二 T3:余额闸收成 AccountingService 上这一份(读数细节在 accounting.service.spec),默认放行;不足场景用 mockRejectedValueOnce 单次拒绝。
+    assertWalletBalance: jest.fn(async () => undefined),
     executeTransfer: jest.fn(async () => ({ tbTransferId: 1n })),
   };
 }
@@ -107,12 +105,9 @@ function makeAccounting(debitsPosted: bigint, creditsPosted: bigint, creditsPend
 function makeWorkflow() {
   const prisma: any = makePrisma();
   const vendors = new OutsourcingVendorsService(prisma as any, {} as any);
-  // 余额充裕（100_000 AED 级），assertFirmOpsBalance 天然放行；不足场景用 jest.spyOn 单次拒绝。
-  const accounting: any = makeAccounting(100_000_000_000n, 0n);
-  // 戊波一 T8:余额闸自己 resolve F_OPS 钱包取现金户——给 payments 单独一份桩,不与下面 workflow 的
-  // systemWallets 共用(否则「NLA 拦下后 workflow 没 resolve 钱包」的断言会被闸的 resolve 污染)。
-  const gateWallets: any = { resolve: jest.fn(async () => OPS_WALLET) };
-  const payments = new VendorPaymentService(prisma, vendors, accounting, gateWallets);
+  // 余额闸默认放行；不足场景用 accounting.assertWalletBalance.mockRejectedValueOnce 单次拒绝。
+  const accounting: any = makeAccounting();
+  const payments = new VendorPaymentService(prisma, vendors);
   const approvals: any = { createAndSubmit: jest.fn(async () => ({ approvalNo: 'APR1' })), cancel: jest.fn(async () => ({})) };
   const auditLogs: any = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn(async () => ({})) };
   // fundsOrders 桩：create/findById 直写/直读同一份 prisma.fundsOrder 内存表，让
@@ -148,9 +143,9 @@ const decided = (decision: any, payNo: string) => ({ decision, actionType: 'VEND
 
 describe('VendorPaymentWorkflowService (Task 5)', () => {
   describe('initiate — birth guards + happy path', () => {
-    it('operating account balance is not enough → 400 (guard comes from the entity); NLA gate never reached — 余额闸独立运行', async () => {
-      const { wf, payments, prudential } = makeWorkflow();
-      jest.spyOn(payments, 'assertFirmOpsBalance').mockRejectedValueOnce(new Error('Insufficient AED balance in the operating account'));
+    it('operating account balance is not enough → 400 (guard is the shared AccountingService gate); NLA gate never reached — 余额闸独立运行', async () => {
+      const { wf, accounting, prudential } = makeWorkflow();
+      accounting.assertWalletBalance.mockRejectedValueOnce(new Error('Insufficient AED balance in wallet WAL-OPS-AED'));
       await expect(wf.initiate(baseInput, treasury)).rejects.toThrow(/Insufficient/);
       expect(prudential.assertPostOutflowCompliant).not.toHaveBeenCalled();
     });
@@ -163,23 +158,27 @@ describe('VendorPaymentWorkflowService (Task 5)', () => {
       });
     });
 
-    it('NLA gate blocks → initiate rejects with the gate\'s own 400, no row created, no wallet resolved, no approval submitted (拒建单)', async () => {
+    it('NLA gate blocks → initiate rejects with the gate\'s own 400, no row created, no create-path wallet resolved, no approval submitted (拒建单)', async () => {
       const { wf, prudential, prisma, systemWallets, approvals } = makeWorkflow();
       prudential.assertPostOutflowCompliant.mockRejectedValueOnce(
         new BadRequestException('Blocked by prudential floor (Company Rulebook VI.C): this payment would take Net Liquid Assets below the regulatory floor — NLA now 1500000.00 AED, after 1100000.00 AED, floor 1200000.00 AED.'),
       );
       await expect(wf.initiate(baseInput, treasury)).rejects.toThrow(/Blocked by prudential floor/);
-      expect(systemWallets.resolve).not.toHaveBeenCalled();
+      // 只有余额闸自己读的那一次 F_OPS；建单路径的 fromWallet 解析没走到。
+      expect(systemWallets.resolve).toHaveBeenCalledTimes(1);
+      expect(systemWallets.resolve).toHaveBeenCalledWith(AED.id, 'F_OPS');
       expect(approvals.createAndSubmit).not.toHaveBeenCalled();
       expect(prisma.vendorPayment.create).not.toHaveBeenCalled();
     });
 
     it('resolves the F_OPS wallet, creates the row, submits CFO approval, audit REQUESTED, snapshot has zero UUIDs, subjects mirror the vendor', async () => {
-      const { wf, payments, approvals, auditLogs, systemWallets } = makeWorkflow();
+      const { wf, payments, approvals, auditLogs, systemWallets, accounting } = makeWorkflow();
       const r = await wf.initiate(baseInput, treasury);
       expect(r.status).toBe(S.PENDING_APPROVAL);
       expect(r.approvalNo).toBe('APR1');
       expect(systemWallets.resolve).toHaveBeenCalledWith(AED.id, 'F_OPS');
+      // 余额闸查的是 F_OPS 钱包在付款币账本上的现金户，金额 = 最小单位
+      expect(accounting.assertWalletBalance).toHaveBeenCalledWith(OPS_WALLET.id, TB_LEDGERS.AED, 1_200_000n);
       const created = await payments.findByNo(r.payNo);
       expect(created.fromWalletId).toBe('w-ops-aed');
       expect(created.createdByUserId).toBe('ADM-TRE'); // T4 交接第 1 条：actor.userNo ?? actor.userId
@@ -233,7 +232,7 @@ describe('VendorPaymentWorkflowService (Task 5)', () => {
     it('approved but operating account balance is not enough → FAILED(INSUFFICIENT_FIRM_BALANCE), zero funds orders, audit carries reasonCode + explicit requestId', async () => {
       const ctx = makeWorkflow();
       const payNo = await seedPending(ctx);
-      jest.spyOn(ctx.payments, 'assertFirmOpsBalance').mockRejectedValueOnce(new Error('Insufficient AED balance in the operating account'));
+      ctx.accounting.assertWalletBalance.mockRejectedValueOnce(new Error('Insufficient AED balance in wallet WAL-OPS-AED'));
       await ctx.wf.onDecided(decided('APPROVED', payNo) as any);
       const row = await ctx.payments.findByNo(payNo);
       expect(row.status).toBe(S.FAILED);

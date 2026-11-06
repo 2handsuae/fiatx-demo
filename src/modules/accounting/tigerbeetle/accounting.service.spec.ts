@@ -343,4 +343,60 @@ describe('AccountingService', () => {
       expect(mockRegistryService.resolve).not.toHaveBeenCalled();
     });
   });
+
+  // 戊波二 T3：公司侧三张单（划转 / 付款 / LP 兑换，T5 起加调拨）共用的钱包余额闸，原来三个主体服务里各自一份同形的运营户余额闸，收成这一份。
+  // 借方户口径：可用 = 借已过账 − 贷已过账 − 贷挂起（出款挂起是贷方挂起；借挂起 = 待入账，不可花、不抬高可用）。
+  // mock 落在 TB 边界（lookupAccounts / 注册表），resolveCashAccountId 与 lookupBalance 走真代码。
+  describe('assertWalletBalance', () => {
+    const tbAccount = (debits_posted: bigint, credits_posted: bigint, credits_pending = 0n, debits_pending = 0n) => ({
+      debits_posted, credits_posted, debits_pending, credits_pending,
+    });
+    const arrange = (acct: ReturnType<typeof tbAccount>, walletNo = 'WAL-OPS-AED') => {
+      mockPrisma.wallet.findUnique.mockResolvedValue({ ownerType: 'PLATFORM', walletNo });
+      mockRegistryService.resolve.mockResolvedValue({ tbAccountId: 'a' });
+      mockTbService.lookupAccounts.mockResolvedValue([acct]);
+    };
+
+    it('enough → resolves; reads the wallet cash account (code 50) on the given ledger — never a SYSTEM account', async () => {
+      arrange(tbAccount(100_000_000_000n, 571_811_000n));
+      await expect(service.assertWalletBalance('w-ops', 2, 7_500_000n)).resolves.toBeUndefined();
+      expect(mockRegistryService.resolve).toHaveBeenCalledWith({ code: 50, ledger: 2, ownerType: 'WALLET', ownerUuid: 'w-ops' }, undefined);
+      expect(mockTbService.lookupAccounts).toHaveBeenCalledWith([10n]);
+    });
+
+    it('exactly enough (available == need) → resolves', async () => {
+      arrange(tbAccount(2_000n, 0n));
+      await expect(service.assertWalletBalance('w-ops', 1, 2_000n)).resolves.toBeUndefined();
+    });
+
+    it('not enough → 400 INSUFFICIENT_FIRM_BALANCE; message carries currency, wallet number, available and need', async () => {
+      arrange(tbAccount(1_000n, 0n));
+      const err: any = await service.assertWalletBalance('w-ops', 1, 2_000n).catch((e) => e);
+      expect(err.getStatus()).toBe(400);
+      expect(err.getResponse()).toMatchObject({ code: 'INSUFFICIENT_FIRM_BALANCE' });
+      expect(err.message).toMatch(/Insufficient AED balance in wallet WAL-OPS-AED.*available 1000.*need 2000/);
+      expect(err.message).not.toContain('w-ops');
+    });
+
+    it('outflow-locked amount (credits pending) already counts as committed', async () => {
+      arrange(tbAccount(3_000n, 0n, 2_000n));
+      await expect(service.assertWalletBalance('w-ops', 1, 1_500n)).rejects.toThrow(/Insufficient.*available 1000/);
+    });
+
+    it('credits posted reduce what is available', async () => {
+      arrange(tbAccount(3_000n, 2_500n));
+      await expect(service.assertWalletBalance('w-ops', 1, 600n)).rejects.toThrow(/Insufficient.*available 500/);
+    });
+
+    it('debits pending (inflow not yet posted) is not spendable and does not raise available', async () => {
+      arrange(tbAccount(1_000n, 0n, 0n, 9_000n));
+      await expect(service.assertWalletBalance('w-ops', 1, 2_000n)).rejects.toThrow(/Insufficient.*available 1000/);
+    });
+
+    it('a wallet without a cash account (not opened) fails loudly instead of passing', async () => {
+      mockPrisma.wallet.findUnique.mockResolvedValue({ ownerType: 'PLATFORM', walletNo: 'WAL-OPS-AED' });
+      mockRegistryService.resolve.mockResolvedValue(null);
+      await expect(service.assertWalletBalance('w-ops', 1, 1n)).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
 });

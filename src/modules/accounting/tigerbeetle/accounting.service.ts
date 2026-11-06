@@ -429,6 +429,26 @@ export class AccountingService {
     return this.resolveTbAccountId({ code, ledger, ownerType: 'WALLET', ownerUuid: walletId }, tx);
   }
 
+  /**
+   * 钱包余额闸 —— 公司侧出款类单据（划转 / 付款 / LP 兑换，戊波二起加调拨）共用的唯一一份（戊波二 T3）。
+   * 读该钱包的现金户（借方户，经 resolveCashAccountId 取，不回落别的户）：
+   *   可用 = 借已过账 − 贷已过账 − 贷挂起（出款挂起是贷方挂起；借挂起是待入账，不可花、不抬高可用）≥ 金额（最小单位）。
+   * 不够 → 400 INSUFFICIENT_FIRM_BALANCE（话术带币种 / 钱包号 / 可用 / 需要，铁律⑥：不带 UUID）。
+   * 调用方决定「查哪只钱包」；今天三张单都是该币种的 F_OPS，T4 / T7 起改读单上人选的 from 钱包。
+   */
+  async assertWalletBalance(walletId: string, ledger: number, amountMinor: bigint): Promise<void> {
+    const cashId = await this.resolveCashAccountId(walletId, ledger);
+    const bal = await this.lookupBalance(cashId);
+    const available = bal.debitsPosted - bal.creditsPosted - bal.creditsPending;
+    if (available >= amountMinor) return;
+    const wallet = await this.prisma.wallet.findUnique({ where: { id: walletId }, select: { walletNo: true } });
+    const currency = Object.entries(TB_LEDGERS).find(([, id]) => id === ledger)?.[0] ?? `ledger ${ledger}`;
+    throw new BadRequestException({
+      code: 'INSUFFICIENT_FIRM_BALANCE',
+      message: `Insufficient ${currency} balance in wallet ${wallet?.walletNo ?? '-'} (available ${available.toString()}, need ${amountMinor.toString()}, smallest unit) — the firm cannot pay out funds it does not have`,
+    });
+  }
+
   // ── Helpers ──
 
   private uuidToBigint(uuid: string): bigint {

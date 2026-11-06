@@ -53,7 +53,6 @@ function makeWorkflow(o: Partial<Record<'exchangeRow' | 'buyLegs' | 'payoutAddre
     lpExchange: { findUnique: jest.fn(async () => exchangeRow) },
   };
   const exchanges: any = {
-    assertFirmOpsBalance: jest.fn(async () => undefined),
     create: jest.fn(async (input: any) => ({ ...exchangeRow, ...input })),
     findByNo: jest.fn(async () => exchangeRow),
     transition: jest.fn(async (_no: string, to: string, patch: any = {}) => ({ ...exchangeRow, status: to, ...patch })),
@@ -65,6 +64,8 @@ function makeWorkflow(o: Partial<Record<'exchangeRow' | 'buyLegs' | 'payoutAddre
     resolveTbAccountId: jest.fn(async ({ code, ledger }: any) => acct(code, ledger)),
     // 戊波一:现金户只经这个入口取——传错钱包或账本,断言里的期望 id 对不上
     resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => cashAcct(walletId, ledger)),
+    // 戊波二 T3：余额闸收成 AccountingService 上这一份，默认放行；不足场景用 mockRejectedValueOnce 单次拒绝。
+    assertWalletBalance: jest.fn(async () => undefined),
     executeTransfer: jest.fn(async () => ({ tbTransferId: 1n })),
   };
   // 生产那道词表校验亲自跑每条信封（缺必填 / 缺 causation / 域不符 / INHERIT 无 correlationId 当场抛）。
@@ -110,9 +111,9 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
   describe('initiate — birth guards + happy path', () => {
     const dto = { lpNo: 'LPP1', sellAssetId: USDT.id, sellAmount: '20000', buyAssetId: AED.id, buyAmount: '73280', payoutAddressNo: 'LPA1', prudentialPurpose: 'Liquidity management', reason: 'Rebalance USDT into AED' };
 
-    it('operating account balance is not enough → 400 (guard comes from the entity); NLA gate never reached — 余额闸独立运行', async () => {
-      const { wf, exchanges, prudential } = makeWorkflow();
-      exchanges.assertFirmOpsBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in the operating account'));
+    it('operating account balance is not enough → 400 (guard is the shared AccountingService gate); NLA gate never reached — 余额闸独立运行', async () => {
+      const { wf, accounting, prudential } = makeWorkflow();
+      accounting.assertWalletBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in wallet WAL-OPS'));
       await expect(wf.initiate(dto, treasury)).rejects.toThrow(/Insufficient/);
       expect(prudential.assertPostOutflowCompliant).not.toHaveBeenCalled();
     });
@@ -128,22 +129,25 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       expect(Object.keys(call)).toEqual(['currency', 'amountMinor', 'orderKind', 'counterpartyNo', 'assetNo', 'actor']);
     });
 
-    it('NLA gate blocks → initiate rejects with the gate\'s own 400, no row created, no wallets resolved, no approval submitted (拒建单)', async () => {
+    it('NLA gate blocks → initiate rejects with the gate\'s own 400, no row created, no create-path wallets resolved, no approval submitted (拒建单)', async () => {
       const { wf, prudential, exchanges, systemWallets, approvals } = makeWorkflow();
       prudential.assertPostOutflowCompliant.mockRejectedValueOnce(
         new BadRequestException('Blocked by prudential floor (Company Rulebook VI.C): this LP exchange would take Net Liquid Assets below the regulatory floor — NLA now 1500000.00 AED, after 1100000.00 AED, floor 1200000.00 AED.'),
       );
       await expect(wf.initiate(dto, treasury)).rejects.toThrow(/Blocked by prudential floor/);
-      expect(systemWallets.resolve).not.toHaveBeenCalled();
+      // 只有余额闸自己读的那一次卖出币 F_OPS；建单路径的三钱包解析（F_OPS / F_LIQ / F_OPS）没走到。
+      expect(systemWallets.resolve).toHaveBeenCalledTimes(1);
+      expect(systemWallets.resolve).toHaveBeenCalledWith(USDT.id, 'F_OPS');
       expect(approvals.createAndSubmit).not.toHaveBeenCalled();
       expect(exchanges.create).not.toHaveBeenCalled();
     });
 
     it('happy path: resolves 3 wallets (F_OPS sell / F_LIQ buy / F_OPS buy), creates the row, submits to CFO approval, audit REQUESTED, snapshot has zero UUIDs', async () => {
-      const { wf, exchanges, approvals, auditLogs, systemWallets } = makeWorkflow();
+      const { wf, exchanges, approvals, auditLogs, systemWallets, accounting } = makeWorkflow();
       const r = await wf.initiate(dto, treasury);
       expect(r).toEqual({ exchangeNo: 'LPX1', approvalNo: 'APR1', status: 'PENDING_APPROVAL' });
-      expect(exchanges.assertFirmOpsBalance).toHaveBeenCalledWith('USDT', 20_000_000_000n);
+      // 余额闸查卖出币 F_OPS 钱包（w-ops-usdt）在卖出币账本上的现金户，金额 = 最小单位
+      expect(accounting.assertWalletBalance).toHaveBeenCalledWith('w-ops-usdt', TB_LEDGERS.USDT, 20_000_000_000n);
       expect(systemWallets.resolve).toHaveBeenCalledWith(USDT.id, 'F_OPS');
       expect(systemWallets.resolve).toHaveBeenCalledWith(AED.id, 'F_LIQ');
       expect(systemWallets.resolve).toHaveBeenCalledWith(AED.id, 'F_OPS');
@@ -250,8 +254,8 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
     });
 
     it('approved but operating account balance is not enough → FAILED(INSUFFICIENT_FIRM_BALANCE), no funds order created, audit carries reasonCode + explicit requestId', async () => {
-      const { wf, exchanges, fundsOrders, auditLogs } = makeWorkflow();
-      exchanges.assertFirmOpsBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in the operating account'));
+      const { wf, exchanges, fundsOrders, auditLogs, accounting } = makeWorkflow();
+      accounting.assertWalletBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in wallet WAL-OPS'));
       await wf.onDecided(decided('APPROVED') as any);
       expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'FAILED', expect.objectContaining({ failureReasonCode: 'INSUFFICIENT_FIRM_BALANCE' }));
       expect(fundsOrders.create).not.toHaveBeenCalled();

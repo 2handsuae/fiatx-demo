@@ -80,7 +80,7 @@ export class VendorPaymentWorkflowService {
     if (!asset) throw new NotFoundException(`Asset not found: ${dto.assetId}`);
 
     const amountMinor = majorToMinor(dto.amount, asset.decimals);
-    await this.payments.assertFirmOpsBalance(asset.currency, amountMinor);
+    await this.assertOpsBalance(asset, amountMinor);
     // 算术门（乙波三 T2 spec §3）：余额闸=付得起，NLA 门=付完还合规，两闸各管各的，
     // 顺序先余额后 NLA——插在同一层同一形制（紧邻既有前置检查之后，出生守卫尚未建行）。
     await this.prudential.assertPostOutflowCompliant({
@@ -127,6 +127,14 @@ export class VendorPaymentWorkflowService {
     return { payNo: row.payNo as string, approvalNo: approval.approvalNo as string, status: VendorPaymentStatus.PENDING_APPROVAL };
   }
 
+  /** 运营户余额闸（出生守卫 / 批准时复核共用）：该币种 F_OPS 钱包的现金户够不够付。闸本体是
+   *  AccountingService.assertWalletBalance（戊波二 T3：划转 / 付款 / LP 兑换三份收成一份）；
+   *  今天 from 固定是 F_OPS，后续任务让付款单 / 划转单改读单上人选的 from 钱包时，只换这里查哪只钱包。 */
+  private async assertOpsBalance(asset: { id: string; currency: string }, amountMinor: bigint): Promise<void> {
+    const ops = await this.systemWallets.resolve(asset.id, 'F_OPS');
+    await this.accounting.assertWalletBalance(ops.id, TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS], amountMinor);
+  }
+
   // ── 撤回（金库，待批时）────────────────────────────────────────────────
 
   async cancel(payNo: string, dto: { reason: string }, actor: ApprovalActorContext) {
@@ -159,7 +167,7 @@ export class VendorPaymentWorkflowService {
     // 批准时再查一次运营户（付款币）余额——同 LpExchangeWorkflowService.onDecided 纪律。
     const amountMinor = majorToMinor(row.amount, row.asset.decimals);
     try {
-      await this.payments.assertFirmOpsBalance(row.asset.currency, amountMinor);
+      await this.assertOpsBalance(row.asset, amountMinor);
     } catch (err) {
       const updated = await this.payments.transition(row.payNo, VendorPaymentStatus.FAILED, { failureReasonCode: 'INSUFFICIENT_FIRM_BALANCE', failureNote: (err as Error).message });
       await this.paymentAudit(row, { action: AuditActions.VENDOR_PAYMENT_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'INSUFFICIENT_FIRM_BALANCE', reason: (err as Error).message, approvalNo: event.approvalNo, causationId: event.approvalId, fromStatus: row.status, toStatus: updated.status });

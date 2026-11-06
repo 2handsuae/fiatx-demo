@@ -66,7 +66,7 @@ export class InternalTransferWorkflowService {
     const wallet = await this.prisma.wallet.findUnique({ where: { id: adj.walletRef }, select: { id: true, ownerId: true } });
     if (!wallet || wallet.ownerId !== adj.ownerId) throw new BadRequestException("The loss-recognition adjustment's wallet does not belong to this customer");
     const amountMinor = BigInt(adj.amount);
-    await this.transfers.assertFirmOpsBalance(asset.currency, amountMinor);
+    await this.assertOpsBalance(asset, amountMinor);
     const route = await this.resolveRoute(asset, wallet.id);
     const amountMajor = minorToMajor(adj.amount, asset.decimals);
     const row = await this.transfers.create({
@@ -91,7 +91,7 @@ export class InternalTransferWorkflowService {
     if (blocking) throw new ConflictException(`This statement line already has advance ${blocking.transferNo} (${blocking.status}) — another cannot be opened`);
     const asset = await this.prisma.asset.findUnique({ where: { id: line.assetId } });
     if (!asset) throw new NotFoundException(`Asset not found: ${line.assetId}`);
-    await this.transfers.assertFirmOpsBalance(asset.currency, shortfall);
+    await this.assertOpsBalance(asset, shortfall);
     const route = await this.resolveRoute(asset, line.walletId);
     const amountMajor = minorToMajor(shortfall.toString(), asset.decimals);
     const row = await this.transfers.create({
@@ -102,6 +102,14 @@ export class InternalTransferWorkflowService {
     const impact = `Advance ${amountMajor} ${asset.currency} to customer ${line.ownerNo ?? '-'} to cover the bounced-refund shortfall (case ${dto.caseNo}, statement line ${line.externalRef ?? '-'}; `
       + `customer available ${minorToMajor(available.toString(), asset.decimals)}, recalled ${line.amountMajor}); the advance must be recovered by Treasury`;
     return this.submitForApproval({ ...row, asset }, impact, dto.reason, actor, { externalRef: line.externalRef ?? null });
+  }
+
+  /** 运营户余额闸（出生守卫 / 批准时复核共用）：该币种 F_OPS 钱包的现金户够不够付。闸本体是
+   *  AccountingService.assertWalletBalance（戊波二 T3：划转 / 付款 / LP 兑换三份收成一份）；
+   *  今天 from 固定是 F_OPS，后续任务让付款单 / 划转单改读单上人选的 from 钱包时，只换这里查哪只钱包。 */
+  private async assertOpsBalance(asset: { id: string; currency: string }, amountMinor: bigint): Promise<void> {
+    const ops = await this.systemWallets.resolve(asset.id, 'F_OPS');
+    await this.accounting.assertWalletBalance(ops.id, TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS], amountMinor);
   }
 
   /** 出方运营户 + 中转结算户（法币）+ 入方客户钱包——提交时解析落库，批准时不再查。 */
@@ -165,7 +173,7 @@ export class InternalTransferWorkflowService {
     // 批准时再查一次运营户余额（提交查一次、批准查一次——与 B 批退汇同一纪律）
     const amountMinor = majorToMinor(row.amount, row.asset.decimals);
     try {
-      await this.transfers.assertFirmOpsBalance(row.asset.currency, amountMinor);
+      await this.assertOpsBalance(row.asset, amountMinor);
     } catch (err) {
       const updated = await this.transfers.transition(row.transferNo, InternalTransferStatus.FAILED, { failureReasonCode: 'INSUFFICIENT_FIRM_BALANCE', failureNote: (err as Error).message });
       await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'INSUFFICIENT_FIRM_BALANCE', reason: (err as Error).message, approvalNo: event.approvalNo, causationId: event.approvalId, fromStatus: row.status, toStatus: updated.status });

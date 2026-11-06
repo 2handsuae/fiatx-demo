@@ -31,7 +31,6 @@ function makeWorkflow(o: Partial<Record<'adjustment' | 'asset' | 'wallet' | 'dis
   };
   const transfers: any = {
     findBlockingBySource: jest.fn(async () => null),
-    assertFirmOpsBalance: jest.fn(async () => undefined),
     create: jest.fn(async (input: any) => ({ ...transferRow, ...input, amount: input.amountMajor })),
     findByNo: jest.fn(async () => transferRow),
     transition: jest.fn(async (_no: string, to: string, patch: any) => ({ ...transferRow, status: to, ...patch })),
@@ -42,6 +41,8 @@ function makeWorkflow(o: Partial<Record<'adjustment' | 'asset' | 'wallet' | 'dis
     getCustomerAvailableBalance: jest.fn(async () => ({ available: 30_000n, held: 0n, total: 30_000n })),
     resolveTbAccountId: jest.fn(async ({ code, ledger }: any) => acct(code, ledger)),
     resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => cashAcct(walletId, ledger)),
+    // 戊波二 T3：余额闸收成 AccountingService 上这一份，默认放行；不足场景用 mockRejectedValueOnce 单次拒绝。
+    assertWalletBalance: jest.fn(async () => undefined),
     executeTransfer: jest.fn(async () => ({ tbTransferId: 1n })),
   };
   const auditLogs: any = { recordByActor: jest.fn(async () => ({})), recordSystem: jest.fn(async () => ({})) };
@@ -74,9 +75,9 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
       transfers.findBlockingBySource.mockResolvedValueOnce({ transferNo: 'ITR0', status: 'SUCCESS' });
       await expect(wf.initiateCompensation({ adjustmentNo: 'ADJ1', reason: 'r' }, treasury)).rejects.toBeInstanceOf(ConflictException);
     });
-    it('operating account balance is not enough → 400 (guard comes from the entity)', async () => {
-      const { wf, transfers } = makeWorkflow();
-      transfers.assertFirmOpsBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in the operating account'));
+    it('operating account balance is not enough → 400 (guard is the shared AccountingService gate)', async () => {
+      const { wf, accounting } = makeWorkflow();
+      accounting.assertWalletBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in wallet WA-OPS'));
       await expect(wf.initiateCompensation({ adjustmentNo: 'ADJ1', reason: 'r' }, treasury)).rejects.toThrow(/Insufficient/);
     });
     it('happy path: one crypto leg (no via wallet), amount = the recognized loss, sent to CFO approval, audit REQUESTED, snapshot has zero UUIDs', async () => {
@@ -108,10 +109,12 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
       await expect(wf.initiateAdvance({ caseNo: 'REC2', externalLineId: 'line-1', reason: 'r' }, treasury)).rejects.toThrow(/Deposit recalled/);
     });
     it('happy path: two fiat legs (via the settlement account), amount = bounced 1200 − available 300 = 900', async () => {
-      const { wf, transfers, approvals } = makeWorkflow({ disposition, asset: AED });
+      const { wf, transfers, approvals, accounting, systemWallets } = makeWorkflow({ disposition, asset: AED });
       const r = await wf.initiateAdvance({ caseNo: 'REC2', externalLineId: 'line-1', reason: 'Advance funds' }, treasury);
       expect(r.status).toBe('PENDING_APPROVAL');
-      expect(transfers.assertFirmOpsBalance).toHaveBeenCalledWith('AED', 90_000n);
+      // 余额闸查的是该币种 F_OPS 钱包（w-ops）在该币种账本上的现金户，金额 = 最小单位
+      expect(systemWallets.resolve).toHaveBeenCalledWith(AED.id, 'F_OPS');
+      expect(accounting.assertWalletBalance).toHaveBeenCalledWith('w-ops', TB_LEDGERS.AED, 90_000n);
       expect(transfers.create).toHaveBeenCalledWith(expect.objectContaining({ purpose: 'CLIENT_ADVANCE', amountMajor: '900.00', fromWalletId: 'w-ops', viaWalletId: 'w-set', toWalletId: 'w-cust', sourceExternalLineId: 'line-1', sourceCaseNo: 'REC2' }));
       expect(approvals.createAndSubmit.mock.calls[0][0].objectSnapshot.impact).toContain('Advance 900.00 AED');
     });
@@ -131,8 +134,8 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
       expect(transfers.transition).not.toHaveBeenCalled();
     });
     it('approved but operating account balance is not enough → FAILED(INSUFFICIENT_FIRM_BALANCE), no funds order created', async () => {
-      const { wf, transfers, fundsOrders } = makeWorkflow();
-      transfers.assertFirmOpsBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in the operating account'));
+      const { wf, transfers, fundsOrders, accounting } = makeWorkflow();
+      accounting.assertWalletBalance.mockRejectedValueOnce(new Error('Insufficient USDT balance in wallet WA-OPS'));
       await wf.onDecided(decided('APPROVED') as any);
       expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'FAILED', expect.objectContaining({ failureReasonCode: 'INSUFFICIENT_FIRM_BALANCE' }));
       expect(fundsOrders.create).not.toHaveBeenCalled();

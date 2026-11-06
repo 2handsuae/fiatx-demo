@@ -3,7 +3,6 @@ import { BadRequestException } from '@nestjs/common';
 import { LpExchangeService } from './lp-exchange.service';
 import { LpExchangeStatus as S } from './dto/lp-exchange.dto';
 import { LpProfileStatus } from './dto/lp-profile.dto';
-import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 
 /** 行为化内存行 mock（照 lp-profile.service.spec.ts 的 makePrisma 先例）。
  *  clock 用递增计数器而非 `new Date()`——避免同一 tick 内连续两次写入撞同一毫秒。 */
@@ -44,8 +43,6 @@ function makePrisma() {
       count: jest.fn(async () => rows.size),
     },
     fundsOrder: { findMany: jest.fn(async () => []) },
-    // 戊波一 T8：余额闸按币种找资产（行为化：真按 where.currency 过滤，找不到返回 null）
-    asset: { findFirst: jest.fn(async ({ where }: any) => Object.values(assets).find((a: any) => a.currency === where.currency) ?? null) },
   };
 }
 
@@ -70,13 +67,12 @@ const baseInput = {
 };
 
 describe('LpExchangeService (乙波一 T4)', () => {
-  const svc = (prisma: any = makePrisma(), accounting: any = {}, lpProfiles: any = makeLpProfiles(), systemWallets: any = {}) =>
-    new LpExchangeService(prisma, accounting, lpProfiles, systemWallets);
+  const svc = (prisma: any = makePrisma(), lpProfiles: any = makeLpProfiles()) => new LpExchangeService(prisma, lpProfiles);
 
   describe('create — 出生守卫', () => {
     it('rejects create when profile is SUSPENDED', async () => {
       const suspended = { id: 'uuid-lp-2', lpNo: 'LPP2', status: LpProfileStatus.SUSPENDED };
-      const service = svc(makePrisma(), {}, makeLpProfiles(suspended));
+      const service = svc(makePrisma(), makeLpProfiles(suspended));
       await expect(service.create({ ...baseInput, lpNo: 'LPP2' })).rejects.toThrow(/not ACTIVE/);
     });
 
@@ -103,7 +99,7 @@ describe('LpExchangeService (乙波一 T4)', () => {
 
     it('happy path: writes an LPX-prefixed row, PENDING_APPROVAL, resolves lpId from lpNo via LpProfileService.findByNo', async () => {
       const lpProfiles = makeLpProfiles();
-      const service = svc(makePrisma(), {}, lpProfiles);
+      const service = svc(makePrisma(), lpProfiles);
       const row = await service.create(baseInput);
       expect(row.exchangeNo).toMatch(/^LPX\d{12}$/);
       expect(row.status).toBe(S.PENDING_APPROVAL);
@@ -192,40 +188,6 @@ describe('LpExchangeService (乙波一 T4)', () => {
       } else {
         expect(() => svc().assertTransition(from, to)).toThrow(/Illegal LP exchange status transition/);
       }
-    });
-  });
-
-  describe('assertFirmOpsBalance — 卖出币运营户（F_OPS 钱包现金户，借方口径）可用余额闸（同划转单同名方法形状）', () => {
-    const walletsOf = () => ({ resolve: jest.fn(async (assetId: string) => ({ id: `w-ops-${assetId}` })) });
-    const accounting = (debitsPosted: bigint, creditsPosted: bigint, creditsPending = 0n, debitsPending = 0n) => ({
-      // 权益户（resolveTbAccountId）故意抛：闸不许再读它
-      resolveTbAccountId: jest.fn(async () => { throw new Error('the gate must read the F_OPS cash account, not a SYSTEM account'); }),
-      resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => BigInt(ledger) * 1000n + BigInt(walletId.length)),
-      lookupBalance: jest.fn(async () => ({ debitsPosted, creditsPosted, debitsPending, creditsPending })),
-    });
-    const gate = (acc: any, wallets: any = walletsOf()) => svc(makePrisma(), acc, makeLpProfiles(), wallets);
-    it('enough → allowed', async () => {
-      await expect(gate(accounting(100_000_000_000n, 571_811_000n)).assertFirmOpsBalance('AED', 5_000_000n)).resolves.toBeUndefined();
-    });
-    it('not enough → 400, message carries available / needed', async () => {
-      await expect(gate(accounting(1_000n, 0n)).assertFirmOpsBalance('AED', 2_000n)).rejects.toThrow(/Insufficient.*available 1000.*need 2000/);
-    });
-    it('outflow-locked amount (credits pending) already counts as committed', async () => {
-      await expect(gate(accounting(3_000n, 0n, 2_000n)).assertFirmOpsBalance('AED', 1_500n)).rejects.toThrow(/Insufficient.*available 1000/);
-    });
-    it('debits pending (inflow not yet posted) is not spendable and does not raise available', async () => {
-      await expect(gate(accounting(1_000n, 0n, 0n, 9_000n)).assertFirmOpsBalance('AED', 2_000n)).rejects.toThrow(/Insufficient.*available 1000/);
-    });
-    it('reads the F_OPS wallet of the currency\'s asset, then that wallet\'s cash account on the currency ledger', async () => {
-      const wallets = walletsOf();
-      const acc = accounting(10n, 0n);
-      await gate(acc, wallets).assertFirmOpsBalance('USDT', 1n);
-      expect(wallets.resolve).toHaveBeenCalledWith('asset-usdt', 'F_OPS');
-      expect(acc.resolveCashAccountId).toHaveBeenCalledWith('w-ops-asset-usdt', TB_LEDGERS.USDT);
-      expect(acc.resolveTbAccountId).not.toHaveBeenCalled();
-    });
-    it('currency not on the ledger → 400', async () => {
-      await expect(gate(accounting(1n, 0n)).assertFirmOpsBalance('BTC', 1n)).rejects.toThrow(/Unsupported currency/);
     });
   });
 

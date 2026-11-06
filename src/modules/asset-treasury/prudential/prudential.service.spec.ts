@@ -292,6 +292,24 @@ describe('PrudentialService.assertPostOutflowCompliant（乙波三 T2 · 算术�
     ]);
   });
 
+  // 戊波二 T3（spec §5.5 / §11）：公司调拨单没有外部对手方——对手方子主体 = 收钱的 to 钱包（WALLET 实体），
+  // counterpartyNo 装 to 钱包的 walletNo；T5 的调拨单从运营户出款时过这道门。
+  it('HOUSE_TRANSFER: blocking-audit envelope has no external counterparty — the to-wallet (walletNo) is the WALLET RELATED subject, then the ASSET; label "house transfer"', async () => {
+    const { service, auditLogs } = makeService(50_000_000n);
+    const err: any = await service
+      .assertPostOutflowCompliant({ currency: 'AED', amountMinor: 1_000_000n, orderKind: 'HOUSE_TRANSFER', counterpartyNo: 'WAL-FEE-AED', assetNo: 'AS-AED-1', actor })
+      .catch((e) => e);
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect(err.message).toContain('this house transfer');
+    const audit = auditLogs.recordByActor.mock.calls[0][0];
+    expect(audit).toMatchObject({ action: 'PRUDENTIAL_GATE_BLOCKED', outcome: 'DENIED', reasonCode: 'NLA_FLOOR', primarySubjectType: 'PRUDENTIAL_STATUS', primarySubjectNo: 'NLA' });
+    expect(audit.subjects).toEqual([
+      expect.objectContaining({ subjectType: 'WALLET', subjectNo: 'WAL-FEE-AED', subjectRole: 'RELATED' }),
+      expect.objectContaining({ subjectType: 'ASSET', subjectNo: 'AS-AED-1', subjectRole: 'RELATED' }),
+    ]);
+    expect(audit.metadata).toMatchObject({ orderKind: 'HOUSE_TRANSFER', counterpartyNo: 'WAL-FEE-AED', currency: 'AED', amountMinor: '1000000' });
+  });
+
   it('metadata carries the three figures + currency/orderKind/counterpartyNo (amountMinor as the minor-unit string)', async () => {
     const { service, auditLogs } = makeService(150_000_000n);
     await service.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 40_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', assetNo: 'AS-AED-1', actor }).catch(() => {});

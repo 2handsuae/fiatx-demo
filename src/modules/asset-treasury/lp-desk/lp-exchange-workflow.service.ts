@@ -114,7 +114,7 @@ export class LpExchangeWorkflowService {
     }
 
     const sellAmountMinor = majorToMinor(dto.sellAmount, sellAsset.decimals);
-    await this.exchanges.assertFirmOpsBalance(sellAsset.currency, sellAmountMinor);
+    await this.assertOpsBalance(sellAsset, sellAmountMinor);
     // 算术门（乙波三 T2 spec §3）：按卖出边金额折算——买入腿是未来进项，不抵扣（保守口径，
     // 与「在途不计」同轴）。余额闸=付得起，NLA 门=付完还合规，两闸各管各的。
     await this.prudential.assertPostOutflowCompliant({
@@ -166,6 +166,13 @@ export class LpExchangeWorkflowService {
     return { exchangeNo: row.exchangeNo as string, approvalNo: approval.approvalNo as string, status: LpExchangeStatus.PENDING_APPROVAL };
   }
 
+  /** 运营户余额闸（出生守卫 / 批准时复核共用）：卖出币 F_OPS 钱包的现金户够不够付。闸本体是
+   *  AccountingService.assertWalletBalance（戊波二 T3：划转 / 付款 / LP 兑换三份收成一份）；LP 兑换的卖出腿恒从 F_OPS 出，不开放人选。 */
+  private async assertOpsBalance(asset: { id: string; currency: string }, amountMinor: bigint): Promise<void> {
+    const ops = await this.systemWallets.resolve(asset.id, 'F_OPS');
+    await this.accounting.assertWalletBalance(ops.id, TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS], amountMinor);
+  }
+
   // ── 撤回（金库，待批时）────────────────────────────────────────────────
 
   async cancel(exchangeNo: string, dto: { reason: string }, actor: ApprovalActorContext) {
@@ -208,7 +215,7 @@ export class LpExchangeWorkflowService {
     // 批准时再查一次运营户（卖出币）余额——同 InternalTransferWorkflowService.onDecided 纪律。
     const sellAmountMinor = majorToMinor(row.sellAmount, row.sellAsset.decimals);
     try {
-      await this.exchanges.assertFirmOpsBalance(row.sellAsset.currency, sellAmountMinor);
+      await this.assertOpsBalance(row.sellAsset, sellAmountMinor);
     } catch (err) {
       const updated = await this.exchanges.transition(row.exchangeNo, LpExchangeStatus.FAILED, { failureReasonCode: 'INSUFFICIENT_FIRM_BALANCE', failureNote: (err as Error).message });
       await this.exchangeAudit(row, { action: AuditActions.LP_EXCHANGE_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'INSUFFICIENT_FIRM_BALANCE', reason: (err as Error).message, approvalNo: event.approvalNo, causationId: event.approvalId, fromStatus: row.status, toStatus: updated.status });

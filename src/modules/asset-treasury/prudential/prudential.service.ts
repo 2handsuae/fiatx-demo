@@ -14,12 +14,13 @@ import { AuditCategory, AuditOutcome, AuditSubjectRole } from '../../audit-loggi
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { AED_USD_PEG_RATE, MONTHLY_OPEX_BASE_AED_MINOR, NLA_FLOOR_AED_MINOR, usdtMinorToAedMinor } from './prudential.constants';
 
-export type PrudentialOrderKind = 'VENDOR_PAYMENT' | 'LP_EXCHANGE';
+export type PrudentialOrderKind = 'VENDOR_PAYMENT' | 'LP_EXCHANGE' | 'HOUSE_TRANSFER';
 
 export interface AssertPostOutflowCompliantInput {
   currency: 'AED' | 'USDT';
   amountMinor: bigint;
   orderKind: PrudentialOrderKind;
+  /** 对手方业务键：付款单=外包商号、LP 单=LP 号；调拨单没有外部对手方，装 to 钱包的 walletNo（戊波二 T3）。 */
   counterpartyNo: string;
   /** 出款资产业务键（付款单=付款资产、LP 单=卖出资产）——拦截审计挂一个 ASSET RELATED
    *  主体，照 withdraw-workflow.service.ts:417 先例（第七幕按资产号能拉出被它拦下的单）。 */
@@ -39,13 +40,21 @@ function fmtAed(minor: bigint | string): string {
 }
 
 /** 对手方业务键在信封里挂哪个实体码——外包商/LP 档案两码本仓已在册（评审交接第 2 条：
- *  开工 grep AuditEntityTypes 实测过，非臆造）。 */
+ *  开工 grep AuditEntityTypes 实测过，非臆造）。公司调拨单没有外部对手方，挂收钱的 to 钱包（WALLET 实体）。 */
 function counterpartySubjectType(orderKind: PrudentialOrderKind): string {
-  return orderKind === 'VENDOR_PAYMENT' ? AuditEntityTypes.OUTSOURCING_VENDOR : AuditEntityTypes.LIQUIDITY_PROVIDER;
+  switch (orderKind) {
+    case 'VENDOR_PAYMENT': return AuditEntityTypes.OUTSOURCING_VENDOR;
+    case 'LP_EXCHANGE': return AuditEntityTypes.LIQUIDITY_PROVIDER;
+    case 'HOUSE_TRANSFER': return AuditEntityTypes.WALLET;
+  }
 }
 
 function orderLabel(orderKind: PrudentialOrderKind): string {
-  return orderKind === 'VENDOR_PAYMENT' ? 'payment' : 'LP exchange';
+  switch (orderKind) {
+    case 'VENDOR_PAYMENT': return 'payment';
+    case 'LP_EXCHANGE': return 'LP exchange';
+    case 'HOUSE_TRANSFER': return 'house transfer';
+  }
 }
 
 export interface PrudentialAssetStatus {

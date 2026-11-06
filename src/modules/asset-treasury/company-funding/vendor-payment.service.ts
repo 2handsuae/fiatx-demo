@@ -1,4 +1,4 @@
-// 战役乙波二 T4 · 付款单主体（VendorPayment）：建单 / 六态六边迁移表 / 读投影 / 运营户余额闸。
+// 战役乙波二 T4 · 付款单主体（VendorPayment）：建单 / 六态六边迁移表 / 读投影。余额闸在 AccountingService.assertWalletBalance（戊波二 T3 收成一份，由 workflow 调）。
 // 铁律③：本服务只写 vendor_payments；收款方=在册外包商，横向读走
 // OutsourcingVendorsService.assertActiveByNo/findByNo，不直写 outsourcing_vendors 表。
 // 资金单腿、账本记账、审批、审计全在 Task 5 的 workflow 编排（同 CapitalInjectionService
@@ -8,9 +8,6 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
-import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
-import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
-import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { OutsourcingVendorsService } from '../../governance/compliance-office/outsourcing-vendors.service';
 import { VENDOR_PAYMENT_TRANSITIONS } from './constants/vendor-payment-transitions.constant';
 import {
@@ -25,8 +22,6 @@ export class VendorPaymentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly vendors: OutsourcingVendorsService,
-    private readonly accounting: AccountingService,
-    private readonly systemWallets: SystemWalletResolver,
   ) {}
 
   // ── 建单 ────────────────────────────────────────────────────────────
@@ -92,27 +87,6 @@ export class VendorPaymentService {
   /** 铁律③同款：approvalNo 回填走主体服务，workflow 不直写自己域外的表。 */
   async stampApprovalNo(payNo: string, approvalNo: string): Promise<void> {
     await this.prisma.vendorPayment.update({ where: { payNo }, data: { approvalNo } });
-  }
-
-  /** 批准时复核：运营户（F_OPS 钱包现金户，借方户）该币种可用（借 − 贷 − 贷挂起）≥ 金额（最小单位）。
-   *  照 internal-transfer.service.ts:76-90 同款注释。 */
-  async assertFirmOpsBalance(currency: string, amountMinor: bigint): Promise<void> {
-    const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];
-    if (!ledger) throw new BadRequestException(`Unsupported currency: ${currency}`);
-    // 戊波一 T8：运营户 = F_OPS 钱包的现金户（借方户）；权益户 FIRM_EQUITY 只是对手盘，读它数字不对。
-    // 今天一币种一资产（AED→AED_ZAND、USDT→TRON），按币种找资产再找 F_OPS 钱包即唯一。
-    const asset = await this.prisma.asset.findFirst({ where: { currency } });
-    if (!asset) throw new BadRequestException(`Unsupported currency: ${currency}`);
-    const opsWallet = await this.systemWallets.resolve(asset.id, 'F_OPS');
-    const cashId = await this.accounting.resolveCashAccountId(opsWallet.id, ledger);
-    const bal = await this.accounting.lookupBalance(cashId);
-    // 借方口径：可用 = 借已过账 − 贷已过账 − 贷挂起（出款挂起是贷方挂起；debitsPending 是待入账，不可花）
-    const available = bal.debitsPosted - bal.creditsPosted - bal.creditsPending;
-    if (available < amountMinor) {
-      throw new BadRequestException(
-        `Insufficient ${currency} balance in the operating account (available ${available.toString()}, need ${amountMinor.toString()}, smallest unit) — the firm cannot pay out funds it does not have`,
-      );
-    }
   }
 
   // ── 读 ──────────────────────────────────────────────────────────────
