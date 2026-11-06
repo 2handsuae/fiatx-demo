@@ -1,23 +1,34 @@
 // src/modules/clearing-settle/reconciliation/projector/account-flow-projector.service.ts
 //
-// Phase B / T3: projects each TbTransferEvidence row into 2 AccountFlow rows
-// (debit→OUT, credit→IN). Lets per-wallet drill-down do a single indexed query
-// instead of OR-filtering tb_transfer_evidence + computing direction at read
-// time.
+// 把每条 TbTransferEvidence 投影成两行 AccountFlow（借方账户一行、贷方账户一行），
+// 让单个钱包 / 单个账户的流水下钻是一次走索引的查询，而不是读时 OR 过滤 + 现算方向。
 //
-// Idempotency: `(tbTransferId, tbAccountId)` is unique. Both `persist` and the
-// backfill are safe to call repeatedly — re-projection (e.g. enrichForPost
-// promoting LOCK→POST) updates the existing rows to reflect new evidence
-// fields.
+// 戊波一起的两条规则：
+//   1. 方向按账户类别，含义统一为「钱进这个户 = IN」：
+//      借方户（现金 1 / 50、开支 300–302）借 = IN、贷 = OUT；
+//      贷方户（应付 / 暂挂 / 权益 / 收入）贷 = IN、借 = OUT。
+//      类别从凭证自带的助记码（debitCode / creditCode）判，不查注册表。
+//   2. walletRef 是派生值：该行账户在注册表里若是 WALLET 归属（现金户，一钱包一户），
+//      填其 ownerUuid（= 钱包 id），否则 null。调用方不再自己算、也不再传钱包标签。
+//
+// `(tbTransferId, tbAccountId)` 唯一：persist 重复调用（例如 enrichForPost 把 LOCK 提到 POST）
+// 是 upsert，更新已有两行，不会重复插入。
 
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import {
+  COA_TO_TB_CODE,
+  isDebitNormalCode,
+} from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 
 interface EvidenceLike {
   tbTransferId: string;
   sourceType: string;
   sourceNo: string;
   eventCode: string;
+  /** 助记码（'A.CLIENT_CASH' 等），决定两侧各自的账户类别 */
+  debitCode: string;
+  creditCode: string;
   debitTbAccountId: string | null;
   creditTbAccountId: string | null;
   amount: number | Prisma.Decimal | string;
@@ -25,10 +36,7 @@ interface EvidenceLike {
   transferType: string;
   createdAt: Date | string;
   effectiveDate: string;
-  debitWalletRef?: string | null;
-  creditWalletRef?: string | null;
   externalRef?: string | null;
-  isExternalCrossing?: boolean | null;
   debitBalanceAfter?: string | null;
   creditBalanceAfter?: string | null;
 }
@@ -39,7 +47,6 @@ export interface AccountFlowRow {
   walletRef: string | null;
   direction: 'IN' | 'OUT';
   amount: number | Prisma.Decimal | string;
-  isExternalCrossing: boolean;
   externalRef: string | null;
   eventCode: string;
   sourceType: string;
@@ -52,64 +59,39 @@ export interface AccountFlowRow {
 }
 
 // Narrow client surface — accepts both PrismaClient and Prisma.TransactionClient.
-// R2 invariant guard reads wallet + tbAccountRegistry, so both lookups are part
-// of the client contract.
 type AccountFlowClient = {
   accountFlow: {
     upsert: (args: any) => Promise<any>;
   };
-  wallet: {
-    findUnique: (args: any) => Promise<any>;
-  };
   tbAccountRegistry: {
-    findUnique: (args: any) => Promise<any>;
+    findMany: (args: any) => Promise<any[]>;
   };
 };
 
-/**
- * R2 invariant violation: AccountFlow row would be written with a walletRef
- * that either dangles (no wallets row) or whose owner doesn't match the
- * tbAccountRegistry entry for the row's tbAccountId.
- *
- * Throwing this stops persistence — the projection row never lands in
- * account_flows, so downstream wallet-balance / reconciliation read paths
- * never see the corrupt link. Caller must surface this to the upstream
- * service (withdraw / swap workflow etc.) so the writer's bug, not the
- * projector, is fixed.
- *
- * Aggregate accounts (CLIENT_CASH code=1, FIRM_CASH code=50) carry no
- * owner — the assertion skips them.
- */
-export class WalletRefMismatchError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'WalletRefMismatchError';
-  }
+/** 钱进这个户 = IN：借方户上的借方行 / 贷方户上的贷方行 = IN，反之 OUT。 */
+function directionOf(side: 'DEBIT' | 'CREDIT', coaCode: string): 'IN' | 'OUT' {
+  const accountIsDebitNormal = isDebitNormalCode(COA_TO_TB_CODE[coaCode] ?? -1);
+  return (side === 'DEBIT') === accountIsDebitNormal ? 'IN' : 'OUT';
 }
-
-// TB account codes that represent firm-wide aggregate ledgers (no per-customer
-// owner attached). Per-row owner check is meaningless for these — skip.
-const AGGREGATE_TB_CODES = new Set<number>([
-  1,  // CLIENT_CASH aggregate
-  50, // FIRM_CASH aggregate
-]);
 
 @Injectable()
 export class AccountFlowProjectorService {
   /**
-   * Pure projection: evidence → 2 flow rows (debit→OUT, credit→IN).
-   * If a side has no TB account id (legacy / partial rows), that side is
-   * dropped — the unique index would reject `tbAccountId = null` anyway.
+   * Pure projection: evidence → up to 2 flow rows，方向按各自账户类别。
+   * `walletRefByAccountId`：tbAccountId → 钱包 id（仅 WALLET 归属的账户有值）；
+   * 不传则 walletRef 全为 null（纯投影不查库，派生由 persist 负责）。
+   * 某侧没有 TB 账户 id（历史 / 残缺行）则丢掉该侧——唯一索引也不接受 tbAccountId = null。
    */
-  projectEvidence(evidence: EvidenceLike): AccountFlowRow[] {
+  projectEvidence(
+    evidence: EvidenceLike,
+    walletRefByAccountId: ReadonlyMap<string, string | null> = new Map(),
+  ): AccountFlowRow[] {
     const createdAt = evidence.createdAt instanceof Date
       ? evidence.createdAt
       : new Date(evidence.createdAt);
-    const isExternalCrossing = evidence.isExternalCrossing === true;
     const shared = {
       tbTransferId: evidence.tbTransferId,
       amount: evidence.amount,
-      isExternalCrossing,
       externalRef: evidence.externalRef ?? null,
       eventCode: evidence.eventCode,
       sourceType: evidence.sourceType,
@@ -126,8 +108,8 @@ export class AccountFlowProjectorService {
       rows.push({
         ...shared,
         tbAccountId: evidence.debitTbAccountId,
-        walletRef: evidence.debitWalletRef ?? null,
-        direction: 'OUT',
+        walletRef: walletRefByAccountId.get(evidence.debitTbAccountId) ?? null,
+        direction: directionOf('DEBIT', evidence.debitCode),
         balanceAfter: evidence.debitBalanceAfter ?? null,
       });
     }
@@ -136,8 +118,8 @@ export class AccountFlowProjectorService {
       rows.push({
         ...shared,
         tbAccountId: evidence.creditTbAccountId,
-        walletRef: evidence.creditWalletRef ?? null,
-        direction: 'IN',
+        walletRef: walletRefByAccountId.get(evidence.creditTbAccountId) ?? null,
+        direction: directionOf('CREDIT', evidence.creditCode),
         balanceAfter: evidence.creditBalanceAfter ?? null,
       });
     }
@@ -146,25 +128,33 @@ export class AccountFlowProjectorService {
   }
 
   /**
-   * Idempotent upsert of the 2 projection rows. `where` uses the
-   * (tbTransferId, tbAccountId) unique constraint so re-projection updates
-   * the existing rows rather than inserting duplicates.
+   * Upsert the projection rows. `where` uses the (tbTransferId, tbAccountId)
+   * unique constraint so re-projection updates the existing rows.
+   *
+   * walletRef 派生：按两侧 tbAccountId 一次批量查注册表，ownerType = 'WALLET'
+   * 则取 ownerUuid（钱包 id），其余（SYSTEM / CUSTOMER / LP / 注册表无此行）为 null。
    *
    * The caller is responsible for atomicity with the evidence write — pass
-   * the same Prisma.TransactionClient so the evidence row and its 2 flow
-   * rows commit together.
-   *
-   * R2 guard: each row's (walletRef, tbAccountId) pair is validated before
-   * write. Mismatch → `WalletRefMismatchError`, no row persists.
+   * the same Prisma.TransactionClient so the evidence row and its flow rows
+   * commit together.
    */
   async persist(client: AccountFlowClient, evidence: EvidenceLike): Promise<void> {
-    const rows = this.projectEvidence(evidence);
-    for (const row of rows) {
-      // R2 guard runs BEFORE upsert so corrupt projections never land in
-      // account_flows (which would then poison wallet-balance + reconciliation
-      // reads downstream).
-      await this.assertWalletRefMatchesTbAccount(client, row.walletRef, row.tbAccountId);
+    const accountIds = [evidence.debitTbAccountId, evidence.creditTbAccountId]
+      .filter((id): id is string => !!id);
+    const registryRows = accountIds.length
+      ? await client.tbAccountRegistry.findMany({
+          where: { tbAccountId: { in: accountIds } },
+          select: { tbAccountId: true, ownerType: true, ownerUuid: true },
+        })
+      : [];
+    const walletRefByAccountId = new Map<string, string | null>(
+      registryRows.map((r: any) => [
+        r.tbAccountId as string,
+        r.ownerType === 'WALLET' ? (r.ownerUuid ?? null) : null,
+      ]),
+    );
 
+    for (const row of this.projectEvidence(evidence, walletRefByAccountId)) {
       await client.accountFlow.upsert({
         where: {
           tbTransferId_tbAccountId: {
@@ -177,7 +167,6 @@ export class AccountFlowProjectorService {
           walletRef: row.walletRef,
           direction: row.direction,
           amount: row.amount,
-          isExternalCrossing: row.isExternalCrossing,
           externalRef: row.externalRef,
           eventCode: row.eventCode,
           sourceType: row.sourceType,
@@ -193,73 +182,6 @@ export class AccountFlowProjectorService {
           // evidence timestamp across re-projections (LOCK→POST etc.).
         },
       });
-    }
-  }
-
-  /**
-   * R2 invariant: walletRef in account_flows must (a) resolve to a real
-   * wallets row, and (b) for per-customer/per-firm accounts, the wallet's
-   * owner must equal the tbAccountRegistry owner for the row's tbAccountId.
-   *
-   * Skipped cases (intentional, mirrors verify-demo-data scanner):
-   *   - walletRef is null → not an R2 violation; null walletRef is its own
-   *     class of bookkeeping flaw handled elsewhere.
-   *   - tbAccountId not in registry → can't disprove ownership, let it pass.
-   *   - Registry row is an aggregate ledger (code 1 / 50) → no owner attached.
-   *
-   * Thrown:
-   *   - wallets has no row for walletRef (dangling pointer).
-   *   - per-owner account but wallet.(ownerType, ownerNo) doesn't match
-   *     registry.(ownerType, ownerNo).
-   */
-  private async assertWalletRefMatchesTbAccount(
-    client: AccountFlowClient,
-    walletRef: string | null,
-    tbAccountId: string,
-  ): Promise<void> {
-    if (!walletRef) return;
-
-    const wallet = await client.wallet.findUnique({
-      where: { id: walletRef },
-      select: { id: true, ownerType: true, ownerNo: true },
-    });
-    if (!wallet) {
-      throw new WalletRefMismatchError(
-        `R2: walletRef=${walletRef} (for tbAccountId=${tbAccountId}) ` +
-          `does not exist in wallets table — dangling reference would corrupt ` +
-          `wallet-statement and reconciliation reads.`,
-      );
-    }
-
-    const registry = await client.tbAccountRegistry.findUnique({
-      where: { tbAccountId },
-      select: { code: true, ownerType: true, ownerNo: true },
-    });
-    if (!registry) return; // no registry entry → cannot enforce ownership
-
-    if (AGGREGATE_TB_CODES.has(registry.code)) return; // aggregate ledger, owner-free
-
-    const walletOwnerType = wallet.ownerType ?? null;
-    const walletOwnerNo = wallet.ownerNo ?? null;
-    const regOwnerType = registry.ownerType ?? null;
-    const regOwnerNo = registry.ownerNo ?? null;
-
-    // Firm-side owner口径不统一：wallets 表把 firm wallet 标 'PLATFORM'，
-    // tb_account_registry 把 firm-side 账户标 'SYSTEM'。两者业务上是同一回事
-    // (都是 firm 内部账户，不属于客户)。统一对待，避免在合法的 firm-leg 上
-    // 误抛 R2。客户腿仍严卡 (ownerType=CUSTOMER + ownerNo 必须一致)。
-    const FIRM_SIDE = new Set(['PLATFORM', 'SYSTEM']);
-    const bothFirmSide =
-      FIRM_SIDE.has(walletOwnerType ?? '') && FIRM_SIDE.has(regOwnerType ?? '');
-    if (bothFirmSide) return;
-
-    if (walletOwnerType !== regOwnerType || walletOwnerNo !== regOwnerNo) {
-      throw new WalletRefMismatchError(
-        `R2: walletRef=${walletRef} (owner=${walletOwnerType}/${walletOwnerNo ?? 'NULL'}) ` +
-          `does not match tbAccountId=${tbAccountId} ` +
-          `(registry owner=${regOwnerType}/${regOwnerNo ?? 'NULL'}, code=${registry.code}). ` +
-          `This would mis-attribute a flow to the wrong account in account_flows.`,
-      );
     }
   }
 }

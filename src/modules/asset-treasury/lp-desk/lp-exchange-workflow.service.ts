@@ -1,9 +1,9 @@
 // 战役乙波一 T5 · LP 兑换 workflow（本波心脏）：审批裁决 / 三腿落账(84/85/86) / 验收 / ⚡到货。
-// 先款后货：批准即建卖出腿（腿 1，付给 LP，外穿）；腿 1 清算后进悬空期（等 LP 发货）；
+// 先款后货：批准即建卖出腿（腿 1，付给 LP，托管方账单上有这一行）；腿 1 清算后进悬空期（等 LP 发货）；
 // LP 打款落前厅为腿 2（⚡simulateDelivery，同一动作内建单+落账+advance+审计，直达
 // CONFIRMED——照充值域 fiat-at-birth 模拟推腿先例；LP 两步准入 Task 6：⚡可带来源坐标，
 // 来源落腿 2 from 与单据快照并过一遍来源筛查，结论只标记、不拦状态）；验收（accept）建腿 3（F_LIQ → F_OPS，
-// 外穿+两侧回单——修复轮 1 评审 R13：原「内转不外穿」违反逐钱包对账模型，验收后 F_LIQ/F_OPS
+// 两侧都写模拟托管方回单——修复轮 1 评审 R13：只记账不写回单违反逐钱包对账模型，验收后 F_LIQ/F_OPS
 // 两条钱包行各留一个破口）。三腿回单一律先于落账（修复轮 1 评审 R12：后置会使 bumpClosing
 // 「当日无余额行」兜底基准已含本笔落账流水，非重铺当日外部余额双计）。铁律③各管各的：
 // 本文件只调 LpExchangeService/LpProfileService/LpPayoutAddressService
@@ -357,7 +357,7 @@ export class LpExchangeWorkflowService {
     return { exchangeNo, status: updated.status as string };
   }
 
-  // ── 验收（腿 3）：F_LIQ → F_OPS，外穿+两侧回单（评审 R13：内转不外穿违反逐钱包对账模型，
+  // ── 验收（腿 3）：F_LIQ → F_OPS，两侧都写模拟托管方回单（评审 R13：只记账不写回单违反逐钱包对账模型，
   //     F_LIQ/F_OPS 是两条钱包行，验收后账面挪了外部账单没动，两侧各留一个破口）─────────
 
   async accept(exchangeNo: string, actor: ApprovalActorContext) {

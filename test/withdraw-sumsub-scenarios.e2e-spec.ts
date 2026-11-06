@@ -298,7 +298,6 @@ describe('Withdraw Sumsub verdict buttons (e2e, Task 12)', () => {
         actorType: 'SYSTEM',
         actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund customer balance for withdraw sumsub-scenario tests',
-        isExternalCrossing: false,
       },
     });
   }

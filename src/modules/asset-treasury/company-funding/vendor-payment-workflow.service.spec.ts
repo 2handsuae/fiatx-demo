@@ -315,11 +315,10 @@ describe('VendorPaymentWorkflowService (Task 5)', () => {
       expect(resolved).toContainEqual(expect.objectContaining({ code: TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY, ledger: TB_LEDGERS.AED, ownerType: 'SYSTEM' }));
       expect(resolved.map((a) => a.code)).not.toContain(TB_ACCOUNT_CODES.FIRM_CASH);
       expect(resolved.map((a) => a.code)).not.toContain(TB_ACCOUNT_CODES.FIRM_EQUITY);
-      // 戊波一:钱包标签 / 外穿标记三字段退役,不再写
+      // 戊波一:钱包标签退役(由投影器按注册表派生),凭证不再写
       const ev = ctx.accounting.executeTransfer.mock.calls[0][0].evidence;
       expect(ev).not.toHaveProperty('debitWalletRef');
       expect(ev).not.toHaveProperty('creditWalletRef');
-      expect(ev).not.toHaveProperty('isExternalCrossing');
       // 评审 R12 同款纪律：回单必须先于落账（invocationCallOrder 越小越早发生，本次调用
       // 是 CONFIRMED 事件里的 postPaymentLeg，custodian 记录发生在 SUBMITTED 那一跳）。
       expect(ctx.custodianStatement.recordLegMovement.mock.invocationCallOrder[0]).toBeLessThan(ctx.accounting.executeTransfer.mock.invocationCallOrder[0]);

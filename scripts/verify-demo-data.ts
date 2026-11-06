@@ -5,9 +5,8 @@
 //
 // R1: InternalFund.from/toWalletId — SWAP IF must have at least one customer-side
 //     wallet wired (both NULL = projection-orphan); WITHDRAW IF must have both.
-// R2: account_flows.walletRef ↔ tbAccountId — when registry has an owner, the
-//     wallet's (ownerType, ownerNo) must match registry.(ownerType, ownerNo).
-//     Aggregate accounts (code 1/50) are owner-free → skip.
+// R2: （戊波一 T10 退役）account_flows.walletRef 现由投影器按注册表派生，
+//     不会再与账户归属不一致，原「标签 ↔ 账户归属」守卫随之删除。
 // R3: Payout/Payin in CLEARED state must carry referenceNo, and CRYPTO must
 //     also carry txHash.
 // R4: WithdrawTransaction.fromWalletId must point to a wallet OWNED by the
@@ -43,61 +42,12 @@ requireStackEnv({ requireTb: false });
 import { PrismaClient } from '@prisma/client';
 
 interface Violation {
-  rule: 'R1' | 'R2' | 'R3' | 'R4' | 'R5';
+  rule: 'R1' | 'R3' | 'R4' | 'R5';
   entity: string;
   detail: string;
 }
 
 const violations: Violation[] = [];
-
-// ─────────────────────────────────────────────────────────────
-// R1: InternalFund.from/toWalletId
-async function scanR2(prisma: PrismaClient): Promise<void> {
-  const flows: any[] = await (prisma as any).accountFlow.findMany({
-    select: { id: true, walletRef: true, tbAccountId: true },
-  });
-  const wallets: any[] = await (prisma as any).wallet.findMany({
-    select: { id: true, ownerType: true, ownerNo: true },
-  });
-  const regs: any[] = await (prisma as any).tbAccountRegistry.findMany({
-    select: { tbAccountId: true, code: true, ownerType: true, ownerNo: true },
-  });
-  const wMap = new Map(wallets.map((w) => [w.id, w]));
-  const rMap = new Map(regs.map((r) => [r.tbAccountId, r]));
-
-  for (const f of flows) {
-    if (!f.walletRef) continue; // null walletRef is handled by other invariants
-    const w = wMap.get(f.walletRef);
-    if (!w) {
-      violations.push({
-        rule: 'R2',
-        entity: f.id,
-        detail: `walletRef=${f.walletRef} not in wallets table`,
-      });
-      continue;
-    }
-    const reg = rMap.get(f.tbAccountId);
-    if (!reg) continue; // tbAccountId not in registry — aggregate or phantom, skip
-    if (reg.code === 1 || reg.code === 50) continue; // aggregate, owner-free
-
-    // Firm-side owner 口径不统一：wallets 表 firm wallet = 'PLATFORM'，
-    // tb_account_registry firm-side 账户 = 'SYSTEM'。两个都是 firm 内部账户，
-    // 业务上同一概念。projector 已统一对待，scanner 同步以保持一致。
-    const FIRM_SIDE = new Set(['PLATFORM', 'SYSTEM']);
-    if (FIRM_SIDE.has(w.ownerType ?? '') && FIRM_SIDE.has(reg.ownerType ?? '')) continue;
-
-    // Per-owner account — owner must match.
-    if (w.ownerType !== reg.ownerType || (w.ownerNo ?? null) !== (reg.ownerNo ?? null)) {
-      violations.push({
-        rule: 'R2',
-        entity: f.id,
-        detail:
-          `wallet owner=${w.ownerType}/${w.ownerNo ?? 'NULL'} ` +
-          `!= tb owner=${reg.ownerType}/${reg.ownerNo ?? 'NULL'}`,
-      });
-    }
-  }
-}
 
 // ─────────────────────────────────────────────────────────────
 // R3: Payout/Payin CLEARED must have referenceNo (+ txHash for CRYPTO)
@@ -339,14 +289,13 @@ async function scanR5(prisma: PrismaClient): Promise<void> {
 async function main(): Promise<void> {
   const prisma = new PrismaClient();
   try {
-    await scanR2(prisma);
     await scanR4(prisma);
     await scanR5(prisma);
   } finally {
     await prisma.$disconnect();
   }
 
-  const byRule: Record<string, number> = { R1: 0, R2: 0, R3: 0, R4: 0, R5: 0 };
+  const byRule: Record<string, number> = { R1: 0, R3: 0, R4: 0, R5: 0 };
   for (const v of violations) byRule[v.rule]++;
 
   if (violations.length === 0) {
@@ -356,7 +305,7 @@ async function main(): Promise<void> {
 
   console.error(`\nverify:demo-data FAILED — ${violations.length} violation(s)`);
   console.error(
-    `  R1=${byRule.R1}  R2=${byRule.R2}  R3=${byRule.R3}  R4=${byRule.R4}  R5=${byRule.R5}\n`,
+    `  R1=${byRule.R1}  R3=${byRule.R3}  R4=${byRule.R4}  R5=${byRule.R5}\n`,
   );
   for (const v of violations) {
     console.error(`  [${v.rule}] ${v.entity}: ${v.detail}`);

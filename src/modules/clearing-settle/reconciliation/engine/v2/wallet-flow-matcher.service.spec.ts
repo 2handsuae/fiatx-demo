@@ -1,7 +1,7 @@
 // Phase B / T7: WalletFlowMatcherService unit tests (TDD).
 //
 // Matches the per-wallet internal source-of-truth (account_flows where
-// walletRef=? AND isExternalCrossing=true) against external statement lines
+// walletRef=?) against external statement lines
 // for the same wallet, using ref-equality first and amount/time-window fuzzy
 // fallback.
 
@@ -23,7 +23,6 @@ function makePrismaMock(flows: any[]) {
       findMany: jest.fn(async ({ where }: any) => {
         return flows.filter((f) => {
           if (where.walletRef && f.walletRef !== where.walletRef) return false;
-          if (where.isExternalCrossing !== undefined && (f.isExternalCrossing ?? false) !== where.isExternalCrossing) return false;
           const eff = (x: any) => x.effectiveDate ?? x.createdAt.toISOString().slice(0, 10);
           if (where.OR) {
             // 忠实复刻 effectiveCutoffFilter 的三支（同 wallet-balance-checker 那份）。
@@ -85,7 +84,6 @@ describe('WalletFlowMatcherService', () => {
         direction: 'IN',
         amount: 1000,
         externalRef: '0xabc',
-        isExternalCrossing: true,
         eventCode: 'DEPOSIT_CONFIRMED',
         createdAt: new Date('2026-06-26T10:00:00Z'),
       },
@@ -114,7 +112,6 @@ describe('WalletFlowMatcherService', () => {
         direction: 'IN',
         amount: 500,
         externalRef: '0xdef',
-        isExternalCrossing: true,
         eventCode: 'DEPOSIT_CONFIRMED',
         createdAt: new Date('2026-06-26T11:00:00Z'),
       },
@@ -165,7 +162,6 @@ describe('WalletFlowMatcherService', () => {
         direction: 'IN',
         amount: 100,
         externalRef: '0xsame',
-        isExternalCrossing: true,
         eventCode: 'DEPOSIT_CONFIRMED',
         createdAt: new Date('2026-06-26T10:00:00Z'),
       },
@@ -198,7 +194,6 @@ describe('WalletFlowMatcherService', () => {
         direction: 'IN',
         amount: 750,
         externalRef: null,
-        isExternalCrossing: true,
         eventCode: 'DEPOSIT_CONFIRMED',
         createdAt: new Date('2026-06-26T10:00:00Z'),
       },
@@ -225,7 +220,6 @@ describe('WalletFlowMatcherService', () => {
         direction: 'IN',
         amount: 750,
         externalRef: null,
-        isExternalCrossing: true,
         eventCode: 'DEPOSIT_CONFIRMED',
         createdAt: new Date('2026-06-26T10:00:00Z'),
       },
@@ -258,7 +252,6 @@ describe('WalletFlowMatcherService', () => {
         direction: 'IN',
         amount: 1000,
         externalRef: '0xaggregate',
-        isExternalCrossing: true,
         eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
         createdAt: new Date('2026-06-26T10:00:00Z'),
         tbAccountId: DEFAULT_TB_AGGREGATE, // → registry code=1 (CLIENT_CASH)
@@ -289,7 +282,6 @@ describe('WalletFlowMatcherService', () => {
         direction: 'IN',
         amount: 1000,
         externalRef: '0xunknown',
-        isExternalCrossing: true,
         eventCode: 'WITHDRAW_FEE_POST',
         createdAt: new Date('2026-06-26T10:00:00Z'),
         tbAccountId: 'tb-not-in-registry',
@@ -306,33 +298,6 @@ describe('WalletFlowMatcherService', () => {
     expect(result.matched).toHaveLength(0);
   });
 
-  it('excludes flows where isExternalCrossing=false (internal reclasses)', async () => {
-    const prisma = makePrismaMock([
-      // This is e.g. SUSPENSE→PAYABLE — has walletRef but does not cross external boundary
-      {
-        id: 'flow-internal',
-        walletRef: 'w-cust',
-        direction: 'IN',
-        amount: 1000,
-        externalRef: null,
-        isExternalCrossing: false,
-        eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE',
-        createdAt: new Date('2026-06-26T11:00:00Z'),
-      },
-    ]);
-    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
-    const result = await svc.matchFlows({
-      walletRef: 'w-cust',
-      externalLines: [],
-      cutoff,
-      decimals: 0,
-    });
-    // The internal reclass must not show up as orphan_internal — it never
-    // crossed external so external statement is not expected to know about it.
-    expect(result.orphanInternal).toHaveLength(0);
-    expect(result.matched).toHaveLength(0);
-  });
-
   it('back-valued internal flow (effectiveDate < cutoff day) enters the candidate pool', async () => {
     const prisma = makePrismaMock([
       {
@@ -341,7 +306,6 @@ describe('WalletFlowMatcherService', () => {
         direction: 'IN',
         amount: 700,
         externalRef: '0xbv',
-        isExternalCrossing: true,
         eventCode: 'DEPOSIT_CONFIRMED',
         createdAt: new Date('2026-06-27T09:00:00Z'), // 物理写入在 cutoff 之后
         effectiveDate: '2026-06-25',                  // 生效日回填到截止日之前 → 必须进池

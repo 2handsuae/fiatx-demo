@@ -20,11 +20,10 @@ const profile = { id: 'uuid-lp', lpNo: 'LPP1', name: 'Acme LP', agreementRef: 'A
 const acct = (code: number, ledger: number): bigint => BigInt(code) * 100n + BigInt(ledger);
 // 钱包现金户(戊波一:一钱包一户):按 (钱包 id, ledger) 单射编码,与 acct() 的小整数 id 互不相撞。
 const cashAcct = (walletId: string, ledger: number): bigint => BigInt(`0x${Buffer.from(`cash:${walletId}@${ledger}`).toString('hex')}`);
-// 三字段(钱包标签 / 外穿标记)戊波一起退役,凭证不得再写。
+// 钱包标签戊波一起退役(现金户一钱包一户,标签由投影器按注册表派生),凭证不得再写。
 const expectNoRetiredEvidenceFields = (call: any) => {
   expect(call.evidence).not.toHaveProperty('debitWalletRef');
   expect(call.evidence).not.toHaveProperty('creditWalletRef');
-  expect(call.evidence).not.toHaveProperty('isExternalCrossing');
 };
 
 // LP 两步准入 Task 5：收款地址簿条目 fixture（链上 USDT / 法币 AED 各一）。
@@ -574,7 +573,7 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
     });
   });
 
-  describe('accept (leg 3 — F_LIQ → F_OPS, R13: external-crossing + two-sided custodian lines)', () => {
+  describe('accept (leg 3 — F_LIQ → F_OPS, R13: both sides write simulated custodian statement lines)', () => {
     const delivered = { ...exchangeRowBase, status: S.DELIVERED };
 
     it('not yet delivered → 400 (still awaiting delivery)', async () => {

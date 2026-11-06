@@ -31,9 +31,9 @@
 // compares evidence against the SAME slice of account_flows that the
 // balance checker uses to compute internal.total; any drift creates
 // phantom orphans that won't show up in the balance delta):
-//   (a) isExternalCrossing=true — internal reclasses (e.g.
-//       DEPOSIT_SUSPENSE_TO_PAYABLE) live entirely inside the ledger; the
-//       external statement is not expected to mention them.
+//   (a) 戊波一 T10 已删除逐行「跨外部」标记过滤（该标记退役）；T11 把本次读取
+//       改成按钱包的现金户读——现金户上的每一行都是托管方会在对账单上看到的，
+//       账本内部的应付 / 暂挂重分类不在现金户上，天然不进来。
 //   (b) tbAccountRegistry code ∈ {100, 101, 200, 201, 203, 210, 211, 212} — drop
 //       aggregate legs (CLIENT_CASH=1 / FIRM_CASH=50) and any row whose
 //       tbAccountId isn't in the registry. Aggregate legs share walletRef
@@ -176,8 +176,7 @@ export class WalletFlowMatcherService {
     const rawInternal = (await this.prisma.accountFlow.findMany({
       where: {
         walletRef,
-        isExternalCrossing: true,
-        transferType: 'POSTED', // PENDING transfers haven't externally crossed yet — same filter as balanceChecker
+        transferType: 'POSTED', // PENDING transfers aren't on any statement yet — same filter as balanceChecker
         ...effectiveCutoffFilter(cutoff),
       },
       select: {

@@ -6,7 +6,7 @@
 // `account_flows` projection (T3).
 //
 //   --mode=pass    External statement EXACTLY mirrors every wallet's
-//                  isExternalCrossing flows (same amount/direction/ref) +
+//                  cash-account flows (same amount/direction/ref) +
 //                  external closing balance == internal balance.
 //                  Expected: status=PASS, casesOpened=0, orphan/mismatch=0.
 //
@@ -65,7 +65,7 @@
 // Anchor-free: every walletRef / asset / amount comes from the *current*
 // account_flows snapshot. The script will work on any seeded dataset; the
 // only requirement is ≥1 FIRM wallet + enough CUSTOMER wallets with
-// isExternalCrossing flows to host the injected scenarios (一个钱包可以挂多条，
+// cash-account flows to host the injected scenarios (一个钱包可以挂多条，
 // 具体分配见 Task 4 起改用的按人设显式指定)。
 //
 // Run:
@@ -377,9 +377,9 @@ async function clearWalletDemo(prisma: PrismaService): Promise<{
 
 // ── Phase 1: walk account_flows, build per-wallet mirror data ───────────
 //
-// For each wallet that has crossing flows, derive:
+// For each wallet that has statement-visible flows, derive:
 //   - balance via the same engine the recon uses (so PASS is guaranteed)
-//   - crossing rows = the external lines we will write
+//   - statement rows = the external lines we will write
 //   - book ('CUSTOMER' | 'FIRM') from the WalletBalanceCheckerService
 interface WalletPlan {
   walletRef: string;
@@ -389,7 +389,7 @@ interface WalletPlan {
   internalTotal: bigint;
   coaCode: string;
   ownerNo: string | null;
-  // Mirrored statement lines for this wallet (one per crossing flow).
+  // Mirrored statement lines for this wallet (one per statement-visible flow).
   lines: Array<{
     direction: 'IN' | 'OUT';
     amount: Prisma.Decimal;
@@ -429,12 +429,9 @@ async function planWallets(
   // right-side-of-BS accounts → same single rule for both books, no
   // role/event override.
   //
-  // The isExternalCrossing filter is INTENTIONALLY NOT applied:
-  //   Internal-only postings (e.g. DEPOSIT_SUSPENSE_TO_PAYABLE) are part of
-  //   the wallet's TB net balance. Filtering them out makes
-  //   Σ(IN − OUT) ≠ TB net. Empirical check on Alice's payable:
-  //     with-filter   net = −1050  (wrong)
-  //     no-filter     net = +1950  (matches TB net = image-1 closing)
+  // 戊波一 T10：逐行「跨外部」标记过滤已随该标记退役而删除（T11 把本步读取改成按钱包现金户读）。
+  // 账本内部的重分类（如 DEPOSIT_SUSPENSE_TO_PAYABLE）也计入钱包的 TB 净额，
+  // 不过滤才有 Σ(IN − OUT) = TB 净额。
   //
   // Result: closing = opening(0) + Σ(IN − OUT) = TB net, by construction,
   // for every wallet.
@@ -462,17 +459,13 @@ async function planWallets(
       const isFirm = w.ownerType !== 'CUSTOMER';
       const ownedCodes = isFirm ? FIRM_CODES : CUSTOMER_CODES;
 
-      // Step 1 — pull every POSTED *crossing* account_flow on this walletRef up
-      // to cutoff. isExternalCrossing=true is the demarcation between what an
-      // external system (Zand for fiat / HexTrust for crypto) actually observes
-      // vs internal book-to-book movements (e.g. DEPOSIT_SUSPENSE_TO_PAYABLE)
-      // that the bank/custodian never sees. Including the latter would put
-      // phantom rows on the customer's external statement.
+      // Step 1 — pull every POSTED account_flow on this walletRef up to cutoff.
+      // 戊波一 T10 删掉了逐行「跨外部」标记过滤；T11 改成按钱包的现金户读——
+      // 外部系统（Zand 法币 / HexTrust 加密）真正看得见的只有现金户上的行。
       const rawFlows = (await (prisma as any).accountFlow.findMany({
         where: {
           walletRef: w.id,
           transferType: 'POSTED',
-          isExternalCrossing: true,
           createdAt: { lte: cutoff },
         },
         select: {
@@ -603,7 +596,7 @@ async function writeMirror(
     });
     balances += 1;
 
-    // Statement lines — one per crossing flow.
+    // Statement lines — one per mirrored flow.
     let seq = 0;
     for (const l of p.lines) {
       seq += 1;
@@ -910,7 +903,7 @@ async function injectScenarios(
         : `All ${firmCandidatesAll.length} FIRM wallet(s) already carry a non-terminal funds order ` +
           `(e.g. an in-transit withdraw fee leg) — none left clean for scenarios ⑪⑫. Refusing to ` +
           `silently reuse a dirty wallet (it would mask #⑪/#⑫ as BREAK instead of COMPENSATING). Seed a ` +
-          `FIRM wallet with crossing flows but no open funds_orders, or clear the stray non-terminal order.`,
+          `FIRM wallet with statement-visible flows but no open funds_orders, or clear the stray non-terminal order.`,
     );
   }
   const firmHedgedPlan = firmCandidates[0];
@@ -1132,8 +1125,6 @@ async function injectScenarios(
         assetCurrency: slotShowcaseB.currency, traceId: dupSourceNo,
         actorType: 'SYSTEM', actorId: 'RECON_DEMO',
         memo: 'Demo duplicate deposit — bank reported ONE credit, our books took it twice',
-        debitWalletRef: slotShowcaseB.walletRef, creditWalletRef: slotShowcaseB.walletRef,
-        isExternalCrossing: true,           // 这一腿要参与流水匹配
         externalRef: lDup.externalRef,      // 与银行那条同 ref → 一笔匹配、一笔成孤儿
         effectiveDate: cutoffDate,
       },
@@ -1148,8 +1139,6 @@ async function injectScenarios(
         assetCurrency: slotShowcaseB.currency, traceId: dupSourceNo,
         actorType: 'SYSTEM', actorId: 'RECON_DEMO',
         memo: 'Demo duplicate deposit (reclass)',
-        debitWalletRef: slotShowcaseB.walletRef, creditWalletRef: slotShowcaseB.walletRef,
-        isExternalCrossing: false,          // 纯账面重分类，不参与匹配
         effectiveDate: cutoffDate,
       },
     });
@@ -1197,36 +1186,18 @@ async function injectScenarios(
     // 所以键要按 dupSourceNo 把刚造的 account_flow 反查回来：
     //
     // ⚠️ 本地订正 #1：需求书原文这里写的是 `walletId: slotShowcaseB.walletRef`，
-    // 但 AccountFlow 模型（prisma/schema.prisma）没有 walletId 字段，只有
-    // walletRef（本文件 421 行、wallet-flow-matcher.service.ts 176 行等处的
-    // accountFlow 查询全都用 walletRef）——按原文写会在这一行直接抛
-    // PrismaClientValidationError，已改成 walletRef。
+    // 但 AccountFlow 模型没有 walletId 字段，只有 walletRef——已改成 walletRef。
     //
-    // ⚠️ 本地订正 #2（实跑发现，比订正 #1 更隐蔽）：光改 walletRef 还不够。
-    // 上面两次 executeTransfer（STEP_1 ASSET_TO_SUSPENSE / STEP_2
-    // SUSPENSE_TO_PAYABLE）用的是**同一个** sourceNo=dupSourceNo，且都把
-    // debitWalletRef/creditWalletRef 设成了同一个 Frank 钱包——AccountFlowProjectorService
-    // 每次 executeTransfer 落两行（借/贷各一行，walletRef 相同）。所以
-    // `{ sourceNo: dupSourceNo, walletRef }` 这一查询条件其实会命中 **4 行**：
-    // STEP_1 借（CLIENT_CASH 聚合户,OUT,crossing=true）/ STEP_1 贷
-    // （DEPOSIT_SUSPENSE,IN,crossing=true——这行才是我们要的)/ STEP_2 借
-    // （DEPOSIT_SUSPENSE,OUT,crossing=false）/ STEP_2 贷（CLIENT_PAYABLE,IN,
-    // crossing=false)。`orderBy: createdAt desc` 挑的是**最晚**写入的一行——
-    // 而 STEP_2 在 STEP_1 之后落库，於是挑中的是 STEP_2 的某一行（crossing=
-    // false）。匹配器的候选集固定过滤 isExternalCrossing=true（wallet-flow-
-    // matcher.service.ts 176 行），STEP_2 两行永远不会出现在
-    // reconciliation_line_items 里——钉的键指向一个匹配器压根看不见的流水，
-    // ⑥ 因此**必定** MISSED，与"谁跟谁配对"的匹配器行为完全无关（实跑核对：
-    // account_flows 里 sourceNo=dupSourceNo 的 4 行，isExternalCrossing=1
-    // 的只有 STEP_1 那两行；不加 isExternalCrossing/direction 过滤，findFirst
-    // 在这 4 行里挑到的确实是 STEP_2 的一行）。加 isExternalCrossing:true 还不够
-    // 唯一（STEP_1 的借贷两行都是 crossing=true，createdAt 相同，谁在前不确定），
-    // 需要再加 direction:'IN' 精确锁定 STEP_1 的贷方（DEPOSIT_SUSPENSE）那一行——
-    // 即真正会被 planWallets/matcher 视为"这笔充值的内部证据"的那一行。
+    // ⚠️ 本地订正 #2：上面两次 executeTransfer（STEP_1 ASSET_TO_SUSPENSE / STEP_2
+    // SUSPENSE_TO_PAYABLE）共用同一个 sourceNo=dupSourceNo，每次落两行（借/贷各一行），
+    // 所以只按 `{ sourceNo, walletRef }` 查会命中多行，`orderBy: createdAt desc` 挑到的
+    // 是最晚落库的 STEP_2 的某一行，而不是这笔充值的入账腿。必须再加 direction:'IN'
+    // 锁定「钱进钱包」的那一行——即 planWallets / 匹配器视为这笔充值的内部证据的那一行。
+    // （戊波一 T10：逐行「跨外部」标记退役，原先靠它划界的条件已删；T11 把这个查询改成按钱包现金户 + 方向取。）
     const dupFlow = (await (prisma as any).accountFlow.findFirst({
       where: {
         sourceNo: dupSourceNo, walletRef: slotShowcaseB.walletRef,
-        isExternalCrossing: true, direction: 'IN',
+        direction: 'IN',
       },
       select: { id: true },
       orderBy: { createdAt: 'desc' },
@@ -1693,7 +1664,7 @@ async function injectScenarios(
   // 一笔已经成功出款的提现，几天后被银行原路退回：账单上多一条 IN、带原出款关联号，我方账上那笔提现仍是 SUCCESS。
   // 原单 = 花名册 #16（Grace AED 提现成功，花名册记的 900 是税前 amount）。叠进展示位甲（一案四行）。
   // ⚠️ 用 amount=900 钉行（花名册字面量、不随手续费漂移），但外部真正过账、日后会被退回的
-  // 是 netAmount（付款腿 isExternalCrossing=true 用的就是它，见 withdraw-workflow.service.ts
+  // 是 netAmount（付款腿记到现金户的就是它，见 withdraw-workflow.service.ts
   // 的 payout principal leg）——两者因 2 AED 提现手续费而不相等，s15Amount 必须从 original
   // 现读取 netAmount 换算，不能对着花名册的 900 硬编（那是税前数，会查不到行）。
   {

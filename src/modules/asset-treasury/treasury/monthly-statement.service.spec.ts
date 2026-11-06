@@ -22,7 +22,6 @@ type LegFixture = {
   runningBalance: number;
   assetCode: string;
   memo: string | null;
-  isExternalCrossing: boolean;
   externalRef: string | null;
   createdAt: string;
 };
@@ -51,7 +50,6 @@ function leg(
     runningBalance,
     assetCode: 'AED',
     memo: null,
-    isExternalCrossing: false,
     externalRef: null,
     createdAt,
     ...extra,

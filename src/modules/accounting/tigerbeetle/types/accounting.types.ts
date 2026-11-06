@@ -20,14 +20,9 @@ export interface EvidenceParams {
   actorType: string;
   actorId: string;
   memo?: string;
-  // Phase B per-physical-wallet reconciliation fields — all optional, backward compatible.
-  //   debit/creditWalletRef → which physical wallet each leg sits on
-  //   externalRef           → blockchain txHash / bank statement ref for legs that cross an external boundary
-  //   isExternalCrossing    → true only for legs whose movement actually appears on an external statement
-  debitWalletRef?: string | null;
-  creditWalletRef?: string | null;
+  // externalRef：区块链 txHash / 银行流水号，对账用。钱包归属不再靠凭证带标签——
+  // 现金户一钱包一户，投影器按注册表（WALLET 归属）派生 account_flows.walletRef。
   externalRef?: string | null;
-  isExternalCrossing?: boolean;
   // 平账推单回填口：不传=写入当天；仅资金单推单链路（deposit STEP_1/2 + withdraw FEE_FIRM）传入（YYYY-MM-DD）
   effectiveDate?: string;
 }

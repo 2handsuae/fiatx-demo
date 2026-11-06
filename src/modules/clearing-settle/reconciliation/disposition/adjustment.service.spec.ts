@@ -810,7 +810,7 @@ describe('AdjustmentService.onApproved posting', () => {
     reasonInternal: 'Same deposit recorded twice', traceId: 'T1', relatedOrderNo: 'DP2608150042',
   };
 
-  it('evidence: sourceType is the shared RECON_ADJUSTMENT_SOURCE_TYPE constant, effective date follows the adjustment, and wallet refs / crossing flag are no longer passed (the cash leg IS the case wallet\'s cash account)', async () => {
+  it('evidence: sourceType is the shared RECON_ADJUSTMENT_SOURCE_TYPE constant, effective date follows the adjustment, and wallet refs are no longer passed (the cash leg IS the case wallet\'s cash account)', async () => {
     const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 7n });
     await makeSvc(clientRow, makeAccounting(executeTransfer)).onApproved('ADJ2608280001', 'U_OPS');
 
@@ -819,7 +819,6 @@ describe('AdjustmentService.onApproved posting', () => {
     expect(evidence.sourceType).toBe(RECON_ADJUSTMENT_SOURCE_TYPE);
     expect(evidence.debitWalletRef).toBeUndefined();
     expect(evidence.creditWalletRef).toBeUndefined();
-    expect(evidence.isExternalCrossing).toBeUndefined();
     expect(evidence.effectiveDate).toBe('2026-08-15');
   });
 
@@ -1310,7 +1309,7 @@ describe('AdjustmentService.onApproved fourth-family posting (reattribution, spe
     expect(cash.evidence.eventCode).not.toBe(payable.evidence.eventCode);
   });
 
-  it('evidence on both transfers: no wallet refs / crossing flag are passed; effective date and actor follow the adjustment', async () => {
+  it('evidence on both transfers: no wallet refs are passed; effective date and actor follow the adjustment', async () => {
     const executeTransfer = jest.fn().mockResolvedValue({ tbTransferId: 9n });
     await makeSvc(reattrRow, makeAccounting(executeTransfer)).onApproved('ADJ2609010001', 'U_OPS');
 
@@ -1318,7 +1317,6 @@ describe('AdjustmentService.onApproved fourth-family posting (reattribution, spe
     for (const [params] of executeTransfer.mock.calls) {
       expect(params.evidence.debitWalletRef).toBeUndefined();
       expect(params.evidence.creditWalletRef).toBeUndefined();
-      expect(params.evidence.isExternalCrossing).toBeUndefined();
       expect(params.evidence.effectiveDate).toBe('2026-09-01');
       expect(params.evidence.actorId).toBe('U_OPS');
       expect(params.evidence.traceId).toBe('T-REATTR');

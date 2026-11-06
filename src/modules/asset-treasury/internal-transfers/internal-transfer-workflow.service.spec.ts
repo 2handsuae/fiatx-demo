@@ -11,11 +11,10 @@ const AED = { id: 'a-aed', code: 'AED', currency: 'AED', decimals: 2, type: 'FIA
 // 现金户(戊波一:一钱包一户)走 cashAcct,只经 resolveCashAccountId 取;其余科目走 acct。
 const acct = (code: number, ledger: number): bigint => BigInt(code) * 100n + BigInt(ledger);
 const cashAcct = (walletId: string, ledger: number): bigint => BigInt(`0x${Buffer.from(`cash:${walletId}@${ledger}`).toString('hex')}`);
-// 三字段(钱包标签 / 外穿标记)戊波一起退役,凭证不得再写。
+// 钱包标签戊波一起退役(现金户一钱包一户,标签由投影器按注册表派生),凭证不得再写。
 const expectNoRetiredEvidenceFields = (call: any) => {
   expect(call.evidence).not.toHaveProperty('debitWalletRef');
   expect(call.evidence).not.toHaveProperty('creditWalletRef');
-  expect(call.evidence).not.toHaveProperty('isExternalCrossing');
 };
 const treasury = { actorType: 'ADMIN' as const, userId: 'uuid-tre', userNo: 'ADM-TRE', roleCodes: ['TREASURY_OFFICER'] };
 

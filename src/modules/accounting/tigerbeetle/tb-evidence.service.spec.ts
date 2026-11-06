@@ -2,6 +2,9 @@
 import { TbEvidenceService } from './tb-evidence.service';
 import { toBusinessDate } from './utils/business-date.util';
 
+// 戊波一：「跨外部」标记已退役——用键名模式断言各处不再带它（不在源码里留退役字段的字面名）。
+const retiredFlagKeys = (o: object) => Object.keys(o).filter((k) => /crossing/i.test(k));
+
 describe('TbEvidenceService', () => {
   let service: TbEvidenceService;
   let mockPrisma: any;
@@ -75,38 +78,29 @@ describe('TbEvidenceService', () => {
       });
     });
 
-    it('should persist debitWalletRef/creditWalletRef/externalRef/isExternalCrossing when provided', async () => {
+    it('persists externalRef when provided, and writes no wallet-tag or retired-flag fields (the projector derives walletRef from the registry)', async () => {
       mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
 
       await service.writeEvidence({
         ...params,
-        debitWalletRef: 'wallet-debit-001',
-        creditWalletRef: 'wallet-credit-002',
         externalRef: '0xabcdef123456',
-        isExternalCrossing: true,
       } as any);
 
-      expect(mockPrisma.tbTransferEvidence.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({
-          debitWalletRef: 'wallet-debit-001',
-          creditWalletRef: 'wallet-credit-002',
-          externalRef: '0xabcdef123456',
-          isExternalCrossing: true,
-        }),
-      });
+      const data = mockPrisma.tbTransferEvidence.create.mock.calls[0][0].data;
+      expect(data.externalRef).toBe('0xabcdef123456');
+      expect(retiredFlagKeys(data)).toEqual([]);
+      expect('debitWalletRef' in data).toBe(false);
+      expect('creditWalletRef' in data).toBe(false);
     });
 
-    it('should default the new wallet/external fields to null/false when omitted', async () => {
+    it('should default externalRef to null when omitted', async () => {
       mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
 
       await service.writeEvidence(params);
 
       expect(mockPrisma.tbTransferEvidence.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
-          debitWalletRef: null,
-          creditWalletRef: null,
           externalRef: null,
-          isExternalCrossing: false,
         }),
       });
     });
@@ -171,6 +165,25 @@ describe('TbEvidenceService', () => {
       expect(evidenceArg.creditBalanceAfter).toBe('-900');
     });
 
+    it('X. expense accounts are debit-normal: balanceAfter = debits − credits (T1 carry — the X. prefix fix)', async () => {
+      const projector = { persist: jest.fn().mockResolvedValue(undefined) } as any;
+      mockTbService.lookupAccounts.mockResolvedValue([{ debits_posted: 1500n, credits_posted: 600n }]);
+      const svc = new TbEvidenceService(mockPrisma, mockTbService, projector);
+      mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
+
+      await svc.writeEvidence({
+        ...params,
+        debitCode: 'L.CLIENT_PAYABLE', // 贷方户 → 600 − 1500 = -900
+        creditCode: 'X.EXPENSE_RECON_LOSS', // 借方户(开支) → 1500 − 600 = 900，不是 -900
+        debitTbAccountId: '0a1',
+        creditTbAccountId: '0b2',
+      } as any);
+
+      const [, evidenceArg] = projector.persist.mock.calls[0];
+      expect(evidenceArg.debitBalanceAfter).toBe('-900');
+      expect(evidenceArg.creditBalanceAfter).toBe('900');
+    });
+
     it('Phase B / T3: writeEvidence with no projector (legacy DI) still succeeds', async () => {
       const svc = new TbEvidenceService(mockPrisma, mockTbService); // projector omitted
       mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
@@ -209,14 +222,12 @@ describe('TbEvidenceService', () => {
         tbTransferId: 'abc123',
         eventCode: 'EVT_WITHDRAW_SUCCESS',
         externalRef: '0xnew',
-        isExternalCrossing: true,
       });
       const svc = new TbEvidenceService(mockPrisma, mockTbService, projector);
 
       await svc.enrichForPost('abc123', {
         eventCode: 'EVT_WITHDRAW_SUCCESS',
         externalRef: '0xnew',
-        isExternalCrossing: true,
       });
 
       expect(mockPrisma.tbTransferEvidence.update).toHaveBeenCalled();
@@ -309,24 +320,17 @@ describe('TbEvidenceService', () => {
     });
   });
 
-  describe('getAccountStatement crossingOnly toggle (T4)', () => {
-    it('crossingOnly=true adds isExternalCrossing filter to the where clause', async () => {
-      mockPrisma.tbAccountRegistry.findUnique.mockResolvedValue({ code: 100 });
-      mockPrisma.tbTransferEvidence.findMany.mockResolvedValue([]);
-      await service.getAccountStatement('acct-1', { crossingOnly: true });
-      const where = mockPrisma.tbTransferEvidence.findMany.mock.calls[0][0].where;
-      expect(where.isExternalCrossing).toBe(true);
-    });
-
-    it('crossingOnly=false (default) does NOT add the filter', async () => {
+  describe('getAccountStatement (T4)', () => {
+    it('queries POSTED evidence on either side of the account, with no retired-flag filter', async () => {
       mockPrisma.tbAccountRegistry.findUnique.mockResolvedValue({ code: 100 });
       mockPrisma.tbTransferEvidence.findMany.mockResolvedValue([]);
       await service.getAccountStatement('acct-1');
       const where = mockPrisma.tbTransferEvidence.findMany.mock.calls[0][0].where;
-      expect(where.isExternalCrossing).toBeUndefined();
+      expect(where.transferType).toBe('POSTED');
+      expect(retiredFlagKeys(where)).toEqual([]);
     });
 
-    it('items include isExternalCrossing + externalRef passthrough fields', async () => {
+    it('items carry the externalRef passthrough and no retired-flag field', async () => {
       mockPrisma.tbAccountRegistry.findUnique.mockResolvedValue({ code: 100 });
       mockPrisma.tbTransferEvidence.findMany.mockResolvedValue([
         {
@@ -339,56 +343,64 @@ describe('TbEvidenceService', () => {
           amount: 100,
           assetCode: 'AED',
           memo: null,
-          isExternalCrossing: true,
           externalRef: '0xabc',
           createdAt: '2026-06-26T00:00:00Z',
         },
       ]);
       const out = await service.getAccountStatement('acct-1');
-      expect(out.items[0].isExternalCrossing).toBe(true);
       expect(out.items[0].externalRef).toBe('0xabc');
+      expect(retiredFlagKeys(out.items[0])).toEqual([]);
+    });
+
+    it('direction follows the account class: a debit on a debit-normal cash account is IN, a credit is OUT', async () => {
+      mockPrisma.tbAccountRegistry.findUnique.mockResolvedValue({ code: 1 });
+      mockPrisma.tbTransferEvidence.findMany.mockResolvedValue([
+        { tbTransferId: 'tx1', sourceType: 'DEPOSIT', sourceNo: 'D1', eventCode: 'E', debitTbAccountId: 'acct-1', creditTbAccountId: 'other', amount: 100, assetCode: 'AED', memo: null, externalRef: null, createdAt: '2026-06-26T00:00:00Z' },
+        { tbTransferId: 'tx2', sourceType: 'WITHDRAWAL', sourceNo: 'W1', eventCode: 'E', debitTbAccountId: 'other', creditTbAccountId: 'acct-1', amount: 30, assetCode: 'AED', memo: null, externalRef: null, createdAt: '2026-06-26T00:01:00Z' },
+      ]);
+      const out = await service.getAccountStatement('acct-1');
+      expect(out.items.map((i) => i.direction)).toEqual(['IN', 'OUT']);
+      expect(out.currentBalance).toBe(70);
     });
   });
 
   describe('getWalletStatement (T4)', () => {
+    // 戊波一：walletRef 只出现在 WALLET 归属的现金户流水上（一钱包一户），
+    // 流水方向在入库时已是「钱进这个户 = IN」，读面不再翻转。
     const wallet = {
       id: 'w-1',
       ownerType: 'CUSTOMER',
       ownerNo: 'CU001',
       asset: { currency: 'USDT-TRON' },
     };
-    const payableReg = {
+    const cashReg = {
       tbAccountId: '00000000000000000000000000aacc11', // 32-char registry id
-      code: 100,
-      ownerType: 'CUSTOMER',
-      ownerNo: 'CU001',
-      ownerName: 'Alice',
-      assetCode: 'USDT-TRON',
-    };
-    const suspenseReg = {
-      tbAccountId: '00000000000000000000000000bbdd22',
-      code: 101,
-      ownerType: 'CUSTOMER',
-      ownerNo: 'CU001',
-      ownerName: 'Alice',
-      assetCode: 'USDT-TRON',
-    };
-    const clientAssetReg = {
-      tbAccountId: '00000000000000000000000000cceeff', // SYSTEM aggregate — should be DROPPED for a customer wallet
       code: 1,
-      ownerType: 'SYSTEM',
-      ownerNo: null,
+      ownerType: 'WALLET',
+      ownerNo: 'WA001',
       ownerName: null,
       assetCode: 'USDT-TRON',
     };
 
+    const flow = (over: Record<string, unknown>) => ({
+      tbTransferId: 'tx1',
+      tbAccountId: cashReg.tbAccountId,
+      walletRef: 'w-1',
+      direction: 'IN',
+      amount: 100,
+      externalRef: null,
+      eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
+      sourceType: 'DEPOSIT',
+      sourceNo: 'DEP1',
+      transferType: 'POSTED',
+      assetCode: 'USDT-TRON',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      ...over,
+    });
+
     beforeEach(() => {
       mockPrisma.wallet.findUnique.mockResolvedValue(wallet);
-      mockPrisma.tbAccountRegistry.findMany.mockResolvedValue([
-        payableReg,
-        suspenseReg,
-        clientAssetReg,
-      ]);
+      mockPrisma.tbAccountRegistry.findMany.mockResolvedValue([cashReg]);
       mockPrisma.customerMain.findFirst.mockResolvedValue({
         firstName: 'Alice',
         lastName: null,
@@ -396,142 +408,39 @@ describe('TbEvidenceService', () => {
       mockPrisma.asset.findFirst.mockResolvedValue({ decimals: 6 });
     });
 
-    it('combines SUSPENSE+PAYABLE flows for a customer wallet, drops aggregate-account legs, computes running balance', async () => {
+    it('reads the wallet cash-account flows and runs the balance from the stored direction (IN +, OUT −), no flip', async () => {
       mockPrisma.accountFlow.findMany.mockResolvedValue([
-        // Deposit step 1: DR FIRM_CASH (SYSTEM, dropped), CR DEPOSIT_SUSPENSE (kept)
-        {
-          tbTransferId: 'tx1',
-          tbAccountId: clientAssetReg.tbAccountId,
-          walletRef: 'w-1',
-          direction: 'OUT',
-          amount: 100,
-          isExternalCrossing: true,
-          externalRef: '0xdep',
-          eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
-          sourceType: 'DEPOSIT',
-          sourceNo: 'DEP1',
-          transferType: 'POSTED',
-          assetCode: 'USDT-TRON',
-          createdAt: new Date('2026-01-01T00:00:00Z'),
-        },
-        {
-          tbTransferId: 'tx1',
-          tbAccountId: suspenseReg.tbAccountId,
-          walletRef: 'w-1',
-          direction: 'IN',
-          amount: 100,
-          isExternalCrossing: true,
-          externalRef: '0xdep',
-          eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
-          sourceType: 'DEPOSIT',
-          sourceNo: 'DEP1',
-          transferType: 'POSTED',
-          assetCode: 'USDT-TRON',
-          createdAt: new Date('2026-01-01T00:00:01Z'),
-        },
-        // Reclass: DR SUSPENSE, CR PAYABLE (both kept, both L-class)
-        {
-          tbTransferId: 'tx2',
-          tbAccountId: suspenseReg.tbAccountId,
-          walletRef: 'w-1',
-          direction: 'OUT',
-          amount: 100,
-          isExternalCrossing: false,
-          externalRef: null,
-          eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE',
-          sourceType: 'DEPOSIT',
-          sourceNo: 'DEP1',
-          transferType: 'POSTED',
-          assetCode: 'USDT-TRON',
-          createdAt: new Date('2026-01-01T00:01:00Z'),
-        },
-        {
-          tbTransferId: 'tx2',
-          tbAccountId: payableReg.tbAccountId,
-          walletRef: 'w-1',
-          direction: 'IN',
-          amount: 100,
-          isExternalCrossing: false,
-          externalRef: null,
-          eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE',
-          sourceType: 'DEPOSIT',
-          sourceNo: 'DEP1',
-          transferType: 'POSTED',
-          assetCode: 'USDT-TRON',
-          createdAt: new Date('2026-01-01T00:01:01Z'),
-        },
+        flow({ tbTransferId: 'tx1', direction: 'IN', amount: 100, createdAt: new Date('2026-01-01T00:00:00Z') }),
+        flow({ tbTransferId: 'tx2', direction: 'OUT', amount: 30, eventCode: 'WITHDRAW_NET_LOCK', sourceType: 'WITHDRAWAL', sourceNo: 'WD1', createdAt: new Date('2026-01-01T00:01:00Z') }),
       ]);
 
       const result = await service.getWalletStatement('w-1');
 
-      // FIRM_CASH (SYSTEM) leg dropped → 3 rows remain.
-      expect(result.items).toHaveLength(3);
-      expect(result.items.map((i: any) => i.tbAccountId)).toEqual([
-        suspenseReg.tbAccountId,
-        suspenseReg.tbAccountId,
-        payableReg.tbAccountId,
-      ]);
-
-      // Running balance on customer wallet:
-      //   +100 (suspense IN) → 100
-      //   −100 (suspense OUT) → 0
-      //   +100 (payable IN) → 100
-      expect(result.items[0].runningBalance).toBe(100);
-      expect(result.items[1].runningBalance).toBe(0);
-      expect(result.items[2].runningBalance).toBe(100);
-      expect(result.currentBalance).toBe(100);
+      expect(result.items.map((i: any) => i.direction)).toEqual(['IN', 'OUT']);
+      expect(result.items.map((i: any) => i.runningBalance)).toEqual([100, 70]);
+      expect(result.currentBalance).toBe(70);
+      expect(result.items[0].accountCode).toBe(1);
 
       // Owner header from wallet.
       expect(result.account.ownerNo).toBe('CU001');
       expect(result.account.ownerType).toBe('CUSTOMER');
       expect(result.account.assetCode).toBe('USDT-TRON');
       expect(result.assetCurrency).toBe('USDT-TRON');
-      expect(result.crossingOnly).toBe(false);
+      expect(retiredFlagKeys(result)).toEqual([]);
     });
 
-    it('crossingOnly=true filters out the SUSPENSE→PAYABLE reclass (isExternalCrossing=false)', async () => {
+    it('queries POSTED flows of the walletRef only, with no retired-flag filter', async () => {
       mockPrisma.accountFlow.findMany.mockResolvedValue([]);
-      await service.getWalletStatement('w-1', { crossingOnly: true });
+      await service.getWalletStatement('w-1');
       const where = mockPrisma.accountFlow.findMany.mock.calls[0][0].where;
-      expect(where.isExternalCrossing).toBe(true);
-      expect(where.walletRef).toBe('w-1');
-      expect(where.transferType).toBe('POSTED');
+      expect(where).toEqual({ walletRef: 'w-1', transferType: 'POSTED' });
     });
 
-    it('asset-class row direction is flipped relative to the projector direction', async () => {
-      // Construct a wallet whose owner is a SYSTEM aggregate so the asset leg
-      // is kept. The projector's "OUT" (debit side) on an asset account =
-      // balance UP under DEBIT-normal sign → user-facing direction "IN".
-      mockPrisma.wallet.findUnique.mockResolvedValue({
-        id: 'firm-wallet',
-        ownerType: 'SYSTEM',
-        ownerNo: null,
-        asset: { currency: 'USDT-TRON' },
-      });
-      mockPrisma.tbAccountRegistry.findMany.mockResolvedValue([clientAssetReg]);
-      mockPrisma.accountFlow.findMany.mockResolvedValue([
-        {
-          tbTransferId: 'tx1',
-          tbAccountId: clientAssetReg.tbAccountId,
-          walletRef: 'firm-wallet',
-          direction: 'OUT', // projector: debit side
-          amount: 50,
-          isExternalCrossing: true,
-          externalRef: null,
-          eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
-          sourceType: 'DEPOSIT',
-          sourceNo: 'DEP1',
-          transferType: 'POSTED',
-          assetCode: 'USDT-TRON',
-          createdAt: new Date('2026-01-01T00:00:00Z'),
-        },
-      ]);
-
-      const result = await service.getWalletStatement('firm-wallet');
-      expect(result.items).toHaveLength(1);
-      // ASSET account: projector 'OUT' (debit) → user-facing 'IN' (balance up).
-      expect(result.items[0].direction).toBe('IN');
-      expect(result.items[0].runningBalance).toBe(50);
+    it('items carry externalRef and no retired-flag field', async () => {
+      mockPrisma.accountFlow.findMany.mockResolvedValue([flow({ externalRef: '0xdep' })]);
+      const result = await service.getWalletStatement('w-1');
+      expect(result.items[0].externalRef).toBe('0xdep');
+      expect(retiredFlagKeys(result.items[0])).toEqual([]);
     });
   });
 

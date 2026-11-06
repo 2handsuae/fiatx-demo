@@ -1624,7 +1624,6 @@ describe('WithdrawTransactionsService', () => {
       );
       expect(netCall[0].evidence).not.toHaveProperty('debitWalletRef');
       expect(netCall[0].evidence).not.toHaveProperty('creditWalletRef');
-      expect(netCall[0].evidence).not.toHaveProperty('isExternalCrossing');
     });
 
     it('fee pending credits the same source wallet cash account (A.CLIENT_CASH) with WITHDRAW_FEE_PENDING code (crypto)', async () => {

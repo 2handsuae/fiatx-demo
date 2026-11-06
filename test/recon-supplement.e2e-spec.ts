@@ -213,11 +213,11 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   }
 
   /** Real production evidence shape — mirrors deposit-workflow.service.ts's own
-   *  Step 1 (CLIENT_CASH→DEPOSIT_SUSPENSE, external crossing) + Step 2
+   *  Step 1 (CLIENT_CASH→DEPOSIT_SUSPENSE, the leg an external statement shows) + Step 2
    *  (DEPOSIT_SUSPENSE→CLIENT_PAYABLE, pure reclass) exactly. */
   async function fundCustomerWallet(opts: {
     walletId: string; ownerId: string; assetId: string; ledger: number; currency: string; amount: bigint; tag: string;
-    externalRef?: string; crossing?: boolean; effectiveDate?: string;
+    externalRef?: string; effectiveDate?: string;
   }): Promise<string> {
     const sourceNo = `E2E-SUPP-FUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
 
@@ -233,8 +233,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         assetCurrency: opts.currency, traceId: sourceNo, actorType: 'SYSTEM', actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund customer balance for recon-supplement tests (Step 1)',
-        debitWalletRef: opts.walletId, creditWalletRef: opts.walletId,
-        externalRef: opts.externalRef ?? null, isExternalCrossing: opts.crossing ?? false,
+        externalRef: opts.externalRef ?? null,
         ...(opts.effectiveDate ? { effectiveDate: opts.effectiveDate } : {}),
       },
     });
@@ -247,8 +246,6 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
         assetCurrency: opts.currency, traceId: sourceNo, actorType: 'SYSTEM', actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund customer balance for recon-supplement tests (Step 2)',
-        debitWalletRef: opts.walletId, creditWalletRef: opts.walletId,
-        isExternalCrossing: false,
         ...(opts.effectiveDate ? { effectiveDate: opts.effectiveDate } : {}),
       },
     });
@@ -427,7 +424,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   /** 真造一笔 SUCCESS 法币充值：真实客户入口 createForCustomer + QUICK_DEMO
    *  扫描 → 等 COMPLIANCE_PENDING → 真 KYT 通道（花名册 ⚡① 同一条通道）→ 等 SUCCESS；
    *  随后把这笔充值自己的外部对账镜像补上（同参考号的 IN 行）——不补的话，充值
-   *  Step 1 那条 isExternalCrossing 内部流水在后续对账里找不到对应外部行，
+   *  Step 1 那条内部流水在后续对账里找不到对应外部行，
    *  永远是一条「我有外无」孤儿，桶判定卡在 COMPENSATING 而不是 MATCHED（哪怕总额
    *  已经用退汇/退回冲平），调用方最后一步「案子该愈」的断言会等不到 RESOLVED——
    *  e2e 首次真实数据跑通时当场复现（brief Step 4 原文本就点名了这一步，是我
@@ -457,7 +454,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   /** 真造一笔 SUCCESS 法币提现（Bob）：真实客户入口 createWithdrawal（经真报价）
    *  → 真 KYT 通道 → 两条腿（本金 + 手续费，手续费按费率可能为 0）真实 CONFIRMED
    *  → 等 SUCCESS；随后把 NET_POST / FEE_POST 两条腿各自的外部对账镜像补上（两条
-   *  evidence 都标了 isExternalCrossing=true，withdraw-money-arcs 既有的记账
+   *  evidence 都带 externalRef，withdraw-money-arcs 既有的记账
    *  形状，本文件不改）——同 makeSuccessfulFiatDeposit 的道理，不补的话这两条
    *  内部流水各是一条「我有外无」孤儿，桶判定卡在 COMPENSATING。TigerBeetle 在本系统
    *  没启用不可透支约束（C2，见 doc-final/PRODUCTION-NOTES.md），createWithdrawal
@@ -537,7 +534,6 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
         assetCurrency: 'AED', traceId: sourceNo, actorType: 'SYSTEM', actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: drain customer balance for Step 6(b) insufficient-balance guard test',
-        isExternalCrossing: false,
       },
     });
   }

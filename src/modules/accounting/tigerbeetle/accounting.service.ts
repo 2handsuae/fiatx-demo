@@ -144,11 +144,7 @@ export class AccountingService {
       transferType: 'POSTED',
       debitTbAccountId: bigintToHex(params.debitAccountId),
       creditTbAccountId: bigintToHex(params.creditAccountId),
-      // Phase B forwarding: per-physical-wallet refs + external crossing flag (all optional)
-      debitWalletRef: params.evidence.debitWalletRef ?? null,
-      creditWalletRef: params.evidence.creditWalletRef ?? null,
       externalRef: params.evidence.externalRef ?? null,
-      isExternalCrossing: params.evidence.isExternalCrossing ?? false,
       // 平账回填口透传：不传=writeEvidence 写当天；仅资金单推单链路带值
       effectiveDate: params.evidence.effectiveDate,
     }, params.tx);
@@ -213,11 +209,7 @@ export class AccountingService {
       transferType: 'PENDING',
       debitTbAccountId: bigintToHex(params.debitAccountId),
       creditTbAccountId: bigintToHex(params.creditAccountId),
-      // Phase B forwarding: per-physical-wallet refs + external crossing flag (all optional)
-      debitWalletRef: params.evidence.debitWalletRef ?? null,
-      creditWalletRef: params.evidence.creditWalletRef ?? null,
       externalRef: params.evidence.externalRef ?? null,
-      isExternalCrossing: params.evidence.isExternalCrossing ?? false,
       // 平账回填口透传：不传=writeEvidence 写当天；仅资金单推单链路带值
       effectiveDate: params.evidence.effectiveDate,
     }, params.tx);

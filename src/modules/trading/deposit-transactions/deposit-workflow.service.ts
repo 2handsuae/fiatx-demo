@@ -1875,7 +1875,7 @@ export class DepositWorkflowService implements OnModuleInit {
     const ledger = asset.tbLedgerId;
     const amountBigint = this.decimalToBigint(deposit.amount, asset.decimals);
 
-    // externalRef 归 funds_order 所有(CONFIRMED 时按资产类型铸)。STEP_1 是外部穿越腿,
+    // externalRef 归 funds_order 所有(CONFIRMED 时按资产类型铸)。STEP_1 是托管方账单上有一行的腿,
     // 读单一源,不再本地 coalesce。STEP_2(下方)是纯重分类,保持 externalRef:null。
     const externalRef: string | null = fundsOrder
       ? this.fundsOrders.resolveExternalRef(fundsOrder)
@@ -2455,8 +2455,8 @@ export class DepositWorkflowService implements OnModuleInit {
    * Mirrors startConfiscation's structure but with ONE leg, not two: return only
    * reverses the customer's suspense (DR DEPOSIT_SUSPENSE(CUSTOMER) / CR
    * CLIENT_CASH(充值落地钱包的现金户) — exact reverse of the payin STEP_1, same direction as
-   * confiscation's leg1). Unlike confiscation (an internal reclass), this leg is a
-   * genuine external crossing — the funds order's destination is the ORIGINAL
+   * confiscation's leg1). Unlike confiscation (an internal reclass), this leg really
+   * leaves the platform — the funds order's destination is the ORIGINAL
    * SENDER (deposit.fromAddress/fromIban), not a firm wallet, and toWalletId is
    * null (external, not platform-owned). Idempotent: reuse an existing legSeq 3
    * order rather than creating a duplicate on replay.

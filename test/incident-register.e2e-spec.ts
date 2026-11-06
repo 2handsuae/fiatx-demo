@@ -184,7 +184,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
 
   async function fundCustomerWallet(opts: {
     walletId: string; ownerId: string; assetId: string; ledger: number; currency: string; amount: bigint; tag: string;
-    externalRef?: string; crossing?: boolean; effectiveDate?: string;
+    externalRef?: string; effectiveDate?: string;
   }): Promise<string> {
     const sourceNo = `E2E-INC-FUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
 
@@ -200,8 +200,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         assetCurrency: opts.currency, traceId: sourceNo, actorType: 'SYSTEM', actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund customer balance for incident-register tests (Step 1)',
-        debitWalletRef: opts.walletId, creditWalletRef: opts.walletId,
-        externalRef: opts.externalRef ?? null, isExternalCrossing: opts.crossing ?? false,
+        externalRef: opts.externalRef ?? null,
         ...(opts.effectiveDate ? { effectiveDate: opts.effectiveDate } : {}),
       },
     });
@@ -214,8 +213,6 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
         assetCurrency: opts.currency, traceId: sourceNo, actorType: 'SYSTEM', actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund customer balance for incident-register tests (Step 2)',
-        debitWalletRef: opts.walletId, creditWalletRef: opts.walletId,
-        isExternalCrossing: false,
         ...(opts.effectiveDate ? { effectiveDate: opts.effectiveDate } : {}),
       },
     });

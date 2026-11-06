@@ -228,11 +228,11 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
 
   /**
    * 客户钱包铺底：与 deposit-workflow.service.ts 生产里的两跳完全同形
-   * （Step 1 CLIENT_CASH→DEPOSIT_SUSPENSE 真实外部穿越，Step 2
-   * DEPOSIT_SUSPENSE→CLIENT_PAYABLE 纯账面重分类），两腿都盖 walletRef。
+   * （Step 1 CLIENT_CASH→DEPOSIT_SUSPENSE 外部对账单上看得见的入账，Step 2
+   * DEPOSIT_SUSPENSE→CLIENT_PAYABLE 纯账面重分类）。
    * 对这个钱包 (PAYABLE+SUSPENSE) 的净效果 = +amount。
    *
-   * Step 1 传 isExternalCrossing:true + externalRef —— 本文件要的正是「一条真实
+   * Step 1 传 externalRef —— 本文件要的正是「一条真实
    * 的、外部对账单上本该有的入账」：外部对账单上没有它，它就是那条
    * 「我有外无」的差异行（ORPHAN_INTERNAL），也就是改记单要锚住的证据。
    */
@@ -265,11 +265,8 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
         traceId: sourceNo,
         actorType: 'SYSTEM',
         actorId: 'E2E_HARNESS',
-        memo: 'e2e fixture: 记在错记方名下的那笔真实入账（Step 1，真实外部穿越）',
-        debitWalletRef: opts.walletId,
-        creditWalletRef: opts.walletId,
+        memo: 'e2e fixture: 记在错记方名下的那笔真实入账（Step 1，外部对账单上看得见的入账）',
         externalRef: opts.externalRef,
-        isExternalCrossing: true,
       },
     });
 
@@ -290,10 +287,6 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
         actorType: 'SYSTEM',
         actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: 记在错记方名下的那笔真实入账（Step 2，纯账面重分类）',
-        debitWalletRef: opts.walletId,
-        creditWalletRef: opts.walletId,
-        // 生产同款：Step 2 不是外部穿越，外部对账单上不会有它。
-        isExternalCrossing: false,
       },
     });
 
@@ -304,7 +297,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
    * 公司钱包铺底（场景 B 用）：DR FIRM_CASH / CR INCOME_OTHER。
    * WalletBalanceChecker 对公司钱包只认 200/201/203/210/211/212，聚合腿 FIRM_CASH(50)
    * 被丢掉，所以这个钱包的内部余额 = +amount。
-   * 这里刻意传 isExternalCrossing:true + externalRef —— 场景 B 要的是一条
+   * 这里刻意传 externalRef —— 场景 B 要的是一条
    * **能与外部对账单行按单号配上、但金额对不上**的真实流水（AMOUNT_MISMATCH）。
    */
   async function fundFirmWallet(opts: {
@@ -331,10 +324,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
         actorType: 'SYSTEM',
         actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: 公司钱包一笔银行入账（金额与银行单对不上）',
-        debitWalletRef: opts.walletId,
-        creditWalletRef: opts.walletId,
         externalRef: opts.externalRef,
-        isExternalCrossing: true,
       },
     });
   }
@@ -604,8 +594,6 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(String(inLeg.amount)).toBe(String(X));
     for (const f of flows) {
       expect(f.sourceNo).toBe(adjustmentNo);
-      // 纯账面重分类，不出现在任何外部账单上——置 true 会被匹配器当成新的孤儿行。
-      expect(f.isExternalCrossing).toBe(false);
       expect(f.assetCode).toBe(aedCode);
       expect(f.effectiveDate).toBe(TODAY);
     }

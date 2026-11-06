@@ -85,7 +85,6 @@ export class FlowComparisonBuilder {
     const internalRows = (await this.prisma.accountFlow.findMany({
       where: {
         walletRef: kase.walletRef,
-        isExternalCrossing: true,
         ...effectiveCutoffFilter(cutoff),
       },
       select: {

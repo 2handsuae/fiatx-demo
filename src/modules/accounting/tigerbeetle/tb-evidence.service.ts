@@ -25,14 +25,8 @@ interface WriteEvidenceParams {
   transferType?: string;
   debitTbAccountId?: string;
   creditTbAccountId?: string;
-  // Phase B per-physical-wallet reconciliation fields (all optional / default null|false):
-  //   debit/creditWalletRef → which physical wallet each leg sits on
-  //   externalRef           → blockchain txHash / bank statement ref when this leg crosses an external boundary
-  //   isExternalCrossing    → true only for legs whose movement actually appears on an external statement
-  debitWalletRef?: string | null;
-  creditWalletRef?: string | null;
+  // externalRef：区块链 txHash / 银行流水号（可空）。钱包标签由投影器按注册表派生，凭证不带。
   externalRef?: string | null;
-  isExternalCrossing?: boolean;
   effectiveDate?: string; // 平账回填口：不传=写入当天；仅资金单推单链路传入（YYYY-MM-DD）
 }
 
@@ -90,10 +84,7 @@ export class TbEvidenceService {
         transferType: params.transferType ?? 'POSTED',
         debitTbAccountId: params.debitTbAccountId ?? null,
         creditTbAccountId: params.creditTbAccountId ?? null,
-        debitWalletRef: params.debitWalletRef ?? null,
-        creditWalletRef: params.creditWalletRef ?? null,
         externalRef: params.externalRef ?? null,
-        isExternalCrossing: params.isExternalCrossing ?? false,
         createdAt: now,
         effectiveDate: params.effectiveDate ?? toBusinessDate(now),
       };
@@ -176,22 +167,19 @@ export class TbEvidenceService {
   }
 
   /**
-   * Phase B: when a pending LOCK transitions to POSTED, the row now represents a
-   * real external crossing (e.g. a withdrawal that actually moved on-chain). The
-   * caller passes the POST-event eventCode + the Phase B recon fields so the row
-   * records the crossing semantics. `postPendingTransfer` itself doesn't write a
-   * new evidence row (it only flips transferType), so this is the hook that lets
-   * the workflow promote a LOCK row to a POST event without duplicating evidence.
+   * When a pending LOCK transitions to POSTED, the caller passes the POST-event
+   * eventCode / memo / externalRef (+ effectiveDate for the back-value funnel) so
+   * the row records what actually happened. `postPendingTransfer` itself doesn't
+   * write a new evidence row (it only flips transferType), so this is the hook
+   * that lets the workflow promote a LOCK row to a POST event without
+   * duplicating evidence.
    */
   async enrichForPost(
     tbTransferId: string,
     fields: {
       eventCode?: string;
       memo?: string | null;
-      debitWalletRef?: string | null;
-      creditWalletRef?: string | null;
       externalRef?: string | null;
-      isExternalCrossing?: boolean;
       effectiveDate?: string; // 平账回填口：不传=写入当天；仅资金单推单链路传入（YYYY-MM-DD）
     },
     tx?: Prisma.TransactionClient,
@@ -200,10 +188,7 @@ export class TbEvidenceService {
     const data: any = {};
     if (fields.eventCode !== undefined) data.eventCode = fields.eventCode;
     if (fields.memo !== undefined) data.memo = fields.memo;
-    if (fields.debitWalletRef !== undefined) data.debitWalletRef = fields.debitWalletRef;
-    if (fields.creditWalletRef !== undefined) data.creditWalletRef = fields.creditWalletRef;
     if (fields.externalRef !== undefined) data.externalRef = fields.externalRef;
-    if (fields.isExternalCrossing !== undefined) data.isExternalCrossing = fields.isExternalCrossing;
     if (fields.effectiveDate !== undefined) data.effectiveDate = fields.effectiveDate;
     if (Object.keys(data).length === 0) return;
     await (client as any).tbTransferEvidence.update({
@@ -212,7 +197,7 @@ export class TbEvidenceService {
     });
 
     // Phase B / T3: re-project so AccountFlow rows reflect the enriched fields
-    // (eventCode/externalRef/isExternalCrossing/wallet refs). Re-read the row
+    // (eventCode / externalRef / effectiveDate). Re-read the row
     // post-update so the projection input is the canonical persisted state.
     if (this.flowProjector) {
       const updated = await (client as any).tbTransferEvidence.findUnique({
@@ -395,7 +380,6 @@ export class TbEvidenceService {
 
   async getAccountStatement(
     tbAccountId: string,
-    opts: { crossingOnly?: boolean } = {},
   ): Promise<{
     items: Array<{
       tbTransferId: string;
@@ -407,7 +391,6 @@ export class TbEvidenceService {
       runningBalance: number;
       assetCode: string;
       memo: string | null;
-      isExternalCrossing: boolean;
       externalRef: string | null;
       createdAt: string;
     }>;
@@ -438,7 +421,6 @@ export class TbEvidenceService {
         ...idVariants.map((id) => ({ debitTbAccountId: id })),
       ],
     };
-    if (opts.crossingOnly) where.isExternalCrossing = true;
 
     const rows = await (this.prisma as any).tbTransferEvidence.findMany({
       where,
@@ -469,7 +451,6 @@ export class TbEvidenceService {
         runningBalance: balance,
         assetCode: row.assetCode,
         memo: row.memo,
-        isExternalCrossing: row.isExternalCrossing === true,
         externalRef: row.externalRef ?? null,
         createdAt: row.createdAt,
         effectiveDate: row.effectiveDate,
@@ -480,21 +461,15 @@ export class TbEvidenceService {
   }
 
   /**
-   * Phase B / T4: aggregate flow of all account legs landing on a single
-   * physical wallet (identified by `walletRef`). For a customer wallet this
-   * merges that customer's SUSPENSE + PAYABLE legs naturally — both legs
-   * carry the same walletRef per T2a's "same-ref" convention.
-   *
-   * Filters out aggregate-account legs (e.g. CLIENT_CASH / FIRM_CASH) whose
-   * registry owner does not match this wallet's owner — those legs share the
-   * walletRef purely for traceability, but their balance changes belong to
-   * the aggregate book, not to this wallet's view.
+   * Flow of the cash account behind one physical wallet (identified by
+   * `walletRef`). 戊波一起 walletRef 由注册表派生——只有 WALLET 归属的现金户
+   * （一钱包一户）的流水带它，所以这里读到的就是该钱包现金户的全部过账行。
    *
    * Reads from the AccountFlow projection (T3) for O(1) indexed lookup.
+   * 流水方向入库时已是「钱进这个户 = IN」，这里直接累加，不再翻转。
    */
   async getWalletStatement(
     walletRef: string,
-    opts: { crossingOnly?: boolean } = {},
   ): Promise<{
     items: Array<{
       tbTransferId: string;
@@ -507,7 +482,6 @@ export class TbEvidenceService {
       runningBalance: number;
       assetCode: string;
       accountCode: number | null;
-      isExternalCrossing: boolean;
       externalRef: string | null;
       createdAt: string;
     }>;
@@ -522,7 +496,6 @@ export class TbEvidenceService {
     };
     decimals: number;
     assetCurrency: string | null;
-    crossingOnly: boolean;
   }> {
     // 1. Resolve the wallet → owner (so we can drop aggregate-account legs that
     //    share the walletRef but don't belong to this wallet's view).
@@ -530,11 +503,9 @@ export class TbEvidenceService {
       where: { id: walletRef },
     });
 
-    // 2. Pull AccountFlow rows for this walletRef (POSTED only, optional crossing filter).
-    const where: any = { walletRef, transferType: 'POSTED' };
-    if (opts.crossingOnly) where.isExternalCrossing = true;
+    // 2. Pull AccountFlow rows for this walletRef (POSTED only).
     const flows = await (this.prisma as any).accountFlow.findMany({
-      where,
+      where: { walletRef, transferType: 'POSTED' },
       orderBy: { createdAt: 'asc' },
     });
 
@@ -570,25 +541,13 @@ export class TbEvidenceService {
       return true;
     });
 
-    // 5. Compute class-aware direction and running balance.
-    //    The AccountFlow.direction field is set by the projector based on
-    //    debit/credit side (not class). For balance arithmetic we need the
-    //    class-aware "IN means balance up" view:
-    //      asset class (DEBIT-normal): debit side = balance up
-    //      L/E class  (CREDIT-normal): credit side = balance up
-    //    Translation: for an asset row, flip the projector's direction so the
-    //    rendered direction is the user-facing one.
+    // 5. Running balance. AccountFlow.direction is already class-aware (money
+    //    into the account = IN, set by the projector), so no flip here.
     let balance = 0;
     const items = filtered.map((row: any) => {
       const reg = regOf(row.tbAccountId);
       const code = reg?.code ?? null;
-      const isDebitNormal = code != null ? isDebitNormalCode(code) : false;
-      // AccountFlow.direction: 'IN' = was on credit side; 'OUT' = was on debit side.
-      // For asset accounts we flip to keep "IN = balance up".
-      const projDirection = row.direction as 'IN' | 'OUT';
-      const direction: 'IN' | 'OUT' = isDebitNormal
-        ? (projDirection === 'IN' ? 'OUT' : 'IN')
-        : projDirection;
+      const direction = row.direction as 'IN' | 'OUT';
       const amount = Number(row.amount);
       balance += direction === 'IN' ? amount : -amount;
       return {
@@ -602,7 +561,6 @@ export class TbEvidenceService {
         runningBalance: balance,
         assetCode: row.assetCode,
         accountCode: code,
-        isExternalCrossing: row.isExternalCrossing === true,
         externalRef: row.externalRef ?? null,
         createdAt: row.createdAt,
         effectiveDate: row.effectiveDate,
@@ -675,7 +633,6 @@ export class TbEvidenceService {
       },
       decimals,
       assetCurrency: assetCode,
-      crossingOnly: opts.crossingOnly === true,
     };
   }
 

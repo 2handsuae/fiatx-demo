@@ -2391,7 +2391,6 @@ describe('WithdrawWorkflowService.onBounce (Task 7: RETURNED bounce entry)', () 
     const bounceEvidence = accountingService.executeTransfer.mock.calls[0][0].evidence;
     expect(bounceEvidence).not.toHaveProperty('debitWalletRef');
     expect(bounceEvidence).not.toHaveProperty('creditWalletRef');
-    expect(bounceEvidence).not.toHaveProperty('isExternalCrossing');
 
     expect(withdrawService.updateStatus).toHaveBeenCalledWith(
       bounceWithdrawal.id,
@@ -3587,7 +3586,6 @@ describe('WithdrawWorkflowService — 平账 B 批③：退回认领', () => {
     expect(call.evidence).toMatchObject({ debitCode: 'A.CLIENT_CASH', creditCode: 'L.CLIENT_PAYABLE', externalRef: 'PAYRET-1', effectiveDate: '2026-09-01' });
     expect(call.evidence).not.toHaveProperty('debitWalletRef');
     expect(call.evidence).not.toHaveProperty('creditWalletRef');
-    expect(call.evidence).not.toHaveProperty('isExternalCrossing');
     expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
     expect(withdrawService.updateStatus).toHaveBeenCalledWith('wd1', expect.objectContaining({ action: WithdrawTransactionAction.RETURN }), expect.anything());
   });

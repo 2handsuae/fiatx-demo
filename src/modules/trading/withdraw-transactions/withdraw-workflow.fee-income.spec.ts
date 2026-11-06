@@ -419,7 +419,7 @@ describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () 
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// TEST C: externalRef 配对 + 戊波一(钱包落点由现金户本身表达,证据不再带钱包标签 / 外部穿越标记)
+// TEST C: externalRef 配对 + 戊波一(钱包落点由现金户本身表达,证据不再带钱包标签)
 // ═══════════════════════════════════════════════════════════════════
 
 describe('WithdrawWorkflowService — 费腿配对(同一 externalRef)+ 现金户落点', () => {
@@ -470,9 +470,9 @@ describe('WithdrawWorkflowService — 费腿配对(同一 externalRef)+ 现金�
     await (service as any).onFeeLegConfirmed('wd-1', 'fo-fee-1');
   }
 
-  const NO_WALLET_TAGS = ['debitWalletRef', 'creditWalletRef', 'isExternalCrossing'] as const;
+  const NO_WALLET_TAGS = ['debitWalletRef', 'creditWalletRef'] as const;
 
-  it('POST rows carry externalRef and no wallet-tag / crossing fields', async () => {
+  it('POST rows carry externalRef and no wallet-tag fields', async () => {
     const mocks = buildPhaseBMocks();
     const service = makeService(mocks);
 
@@ -544,7 +544,7 @@ describe('WithdrawWorkflowService — 费腿配对(同一 externalRef)+ 现金�
     expect(mocks.accountingService.resolveCashAccountId).toHaveBeenCalledWith('wallet-f-fee-1', 1);
   });
 
-  it('enrichForPost promotes LOCK rows to POST eventCode + externalRef (no wallet-tag / crossing fields)', async () => {
+  it('enrichForPost promotes LOCK rows to POST eventCode + externalRef (no wallet-tag fields)', async () => {
     const mocks = buildPhaseBMocks();
     const service = makeService(mocks);
 
@@ -590,7 +590,7 @@ describe('WithdrawWorkflowService — 费腿配对(同一 externalRef)+ 现金�
 // ═══════════════════════════════════════════════════════════════════
 
 describe('WithdrawWorkflowService.createWithdrawal — LOCK rows', () => {
-  it('LOCK_NET + LOCK_FEE pendings carry externalRef=null and no wallet-tag / crossing fields', async () => {
+  it('LOCK_NET + LOCK_FEE pendings carry externalRef=null and no wallet-tag fields', async () => {
     const mocks = buildServiceMocks();
     const service = makeWorkflowForCreate(mocks);
 
@@ -607,12 +607,11 @@ describe('WithdrawWorkflowService.createWithdrawal — LOCK rows', () => {
     const codes = lockEvidence.map(e => e.eventCode).sort();
     expect(codes).toEqual(['WITHDRAW_LOCK_FEE', 'WITHDRAW_LOCK_NET']);
 
-    // Every LOCK evidence row: externalRef null;钱包落点由锁定贷方的现金户本身表达,不再有钱包标签 / 外部穿越标记
+    // Every LOCK evidence row: externalRef null;钱包落点由锁定贷方的现金户本身表达,不再有钱包标签
     for (const ev of lockEvidence) {
       expect(ev).toMatchObject({ externalRef: null });
       expect(ev).not.toHaveProperty('debitWalletRef');
       expect(ev).not.toHaveProperty('creditWalletRef');
-      expect(ev).not.toHaveProperty('isExternalCrossing');
     }
   });
 });
