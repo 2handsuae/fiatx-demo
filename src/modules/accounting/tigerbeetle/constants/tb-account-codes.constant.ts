@@ -5,13 +5,17 @@ import { VAULTS, VaultCode } from '../../../../config/manifests/vaults.manifest'
 /**
  * TB account type codes (u16). Immutable once assigned.
  * 科目表 v3（戊战役波一，2026-11-06）：账本按「钱包所在位置」重立——每个钱包一个现金户。
+ * 戊波二（2026-11-07）加 2 托管短缺待补 / 51 应收 LP 两个借方户。
  * 编码段:A 资产 1–99、L 负债 100–199、E 权益 200–299(200–209 权益,210–219 收入段)、X 开支 300–399。
- * 币种用 ledger 区分(AED/USDT),code 只编类型。码 2 / 51 / 150 本波不进码表。
+ * 币种用 ledger 区分(AED/USDT),code 只编类型。码 150 本战役不进码表。
  */
 export const TB_ACCOUNT_CODES = {
   // ── 资产 A·现金类(每个钱包一户,ownerType WALLET)──
   CLIENT_CASH: 1, // 客户现金(借方户)：每个客户钱包一户
   FIRM_CASH: 50, // 公司现金(借方户)：每个公司钱包一户
+  // ── 资产 A·非现金类(借方户,不与物理钱包一比一)──
+  CLIENT_SHORTFALL: 2, // 托管短缺待补(借方户)：每个客户钱包一户(ownerType WALLET,与码 1 同开)，托管方少了客户的钱、公司认下待补的那一截
+  LP_RECEIVABLE: 51, // 应收 LP 交货(借方户)：每 LP 每币种一户(ownerType LP)，LP 已收我方付款、货还没到的那一截
   // ── 负债 L(每客户)──
   CLIENT_PAYABLE: 100, // 客户应付,与客户钱包 1:1
   DEPOSIT_SUSPENSE: 101, // 充值合规暂扣
@@ -45,7 +49,9 @@ export type TbAccountCode = (typeof TB_ACCOUNT_CODES)[keyof typeof TB_ACCOUNT_CO
  */
 export const TB_ACCOUNT_NAMES: Record<number, string> = {
   [TB_ACCOUNT_CODES.CLIENT_CASH]: 'Client Cash',
+  [TB_ACCOUNT_CODES.CLIENT_SHORTFALL]: 'Custody Shortfall Receivable',
   [TB_ACCOUNT_CODES.FIRM_CASH]: 'Company Cash',
+  [TB_ACCOUNT_CODES.LP_RECEIVABLE]: 'Due from LP',
   [TB_ACCOUNT_CODES.CLIENT_PAYABLE]: 'Payable to Clients – Available Balance',
   [TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE]: 'Client Deposits Held – Pending Release',
   [TB_ACCOUNT_CODES.FIRM_EQUITY]: 'Company Equity',
@@ -82,7 +88,9 @@ export const accountDisplayName = (
 /** Human-readable COA code → TB numeric code */
 export const COA_TO_TB_CODE: Record<string, number> = {
   'A.CLIENT_CASH': TB_ACCOUNT_CODES.CLIENT_CASH,
+  'A.CLIENT_SHORTFALL': TB_ACCOUNT_CODES.CLIENT_SHORTFALL,
   'A.FIRM_CASH': TB_ACCOUNT_CODES.FIRM_CASH,
+  'A.LP_RECEIVABLE': TB_ACCOUNT_CODES.LP_RECEIVABLE,
   'L.CLIENT_PAYABLE': TB_ACCOUNT_CODES.CLIENT_PAYABLE,
   'L.DEPOSIT_SUSPENSE': TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,
   'E.FIRM_EQUITY': TB_ACCOUNT_CODES.FIRM_EQUITY,
@@ -100,7 +108,7 @@ export const TB_CODE_TO_COA: Record<number, string> = Object.fromEntries(
 );
 
 /**
- * 借方户(DEBIT-normal)= 现金类 1 / 50 + 开支类 300–302;其余(L / E 的 100–212)皆贷方户。
+ * 借方户(DEBIT-normal)= 资产类 1 / 2 / 50 / 51 + 开支类 300–302;其余(L / E 的 100–212)皆贷方户。
  * 余额与流水方向的符号必须按此判定,否则借方户会显示成负数:
  *   借方户 balance = debits − credits   (借 = 增加 / IN)
  *   贷方户 balance = credits − debits   (贷 = 增加 / IN)
@@ -109,7 +117,9 @@ export const TB_CODE_TO_COA: Record<number, string> = Object.fromEntries(
  */
 export const DEBIT_NORMAL_TB_CODES: ReadonlySet<number> = new Set<number>([
   TB_ACCOUNT_CODES.CLIENT_CASH,
+  TB_ACCOUNT_CODES.CLIENT_SHORTFALL,
   TB_ACCOUNT_CODES.FIRM_CASH,
+  TB_ACCOUNT_CODES.LP_RECEIVABLE,
   TB_ACCOUNT_CODES.EXPENSE_BANK_CUSTODY,
   TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS,
   TB_ACCOUNT_CODES.EXPENSE_OTHER,
@@ -117,7 +127,8 @@ export const DEBIT_NORMAL_TB_CODES: ReadonlySet<number> = new Set<number>([
 
 export const isDebitNormalCode = (code: number): boolean => DEBIT_NORMAL_TB_CODES.has(code);
 
-/** 现金类 = 与物理钱包一比一的两类户(1 客户现金 / 50 公司现金),开户粒度是钱包。 */
+/** 现金类 = 与物理钱包一比一的两类户(1 客户现金 / 50 公司现金),开户粒度是钱包。
+ *  2 托管短缺待补虽也挂在钱包下(ownerType WALLET)、也是借方户，但它不是现金户——对账不把它的流水当钱包流水读，故不在此集合。 */
 export const CASH_TB_CODES: ReadonlySet<number> = new Set<number>([
   TB_ACCOUNT_CODES.CLIENT_CASH,
   TB_ACCOUNT_CODES.FIRM_CASH,
@@ -147,14 +158,29 @@ export const cashAccountCodeFor = (
 };
 
 /**
- * 现金户户名 = `类名 · 钱包名`(现金类 1 / 50 的户名,开户时写入注册表 description)。
+ * 钱包下要开的户 = 现金户 + (客户钱包另开)码 2 托管短缺待补。全仓「这个钱包开哪几个户」只认这一处(运行时开户 / 种子共用)。
+ *   客户钱包 → [1, 2]；平台钱包 → [50]；未知归属直接抛(同 cashAccountCodeFor)。
+ */
+export const walletAccountCodesFor = (walletOwnerType: string): Array<1 | 2 | 50> => {
+  const cash = cashAccountCodeFor(walletOwnerType);
+  return cash === TB_ACCOUNT_CODES.CLIENT_CASH ? [cash, TB_ACCOUNT_CODES.CLIENT_SHORTFALL] : [cash];
+};
+
+/**
+ * 钱包户户名 = `类名 · 钱包名`(现金类 1 / 50 与客户钱包下的码 2 户名,开户时写入注册表 description)。
  *   平台钱包:`Company Cash · <vault 标签> · <网络>`      例 Company Cash · Company Operations · AED_ZAND
  *   客户钱包:`Client Cash · <客户号> · <vIBAN | Deposit address>`
+ *   客户钱包(码 2):`Custody Shortfall · <客户号> · <vIBAN | Deposit address>`  角色字样与同钱包的客户现金户一致
  */
 export const cashAccountName = (
-  code: 1 | 50,
+  code: 1 | 2 | 50,
   wallet: { vaultCode: string; walletRole: string; network: string; ownerNo: string },
-): string =>
-  code === TB_ACCOUNT_CODES.FIRM_CASH
-    ? `${TB_ACCOUNT_NAMES[TB_ACCOUNT_CODES.FIRM_CASH]} · ${VAULTS[wallet.vaultCode as VaultCode].label} · ${wallet.network}`
-    : `${TB_ACCOUNT_NAMES[TB_ACCOUNT_CODES.CLIENT_CASH]} · ${wallet.ownerNo} · ${wallet.walletRole === 'C_VIBAN' ? 'vIBAN' : 'Deposit address'}`;
+): string => {
+  if (code === TB_ACCOUNT_CODES.FIRM_CASH) {
+    return `${TB_ACCOUNT_NAMES[TB_ACCOUNT_CODES.FIRM_CASH]} · ${VAULTS[wallet.vaultCode as VaultCode].label} · ${wallet.network}`;
+  }
+  const role = wallet.walletRole === 'C_VIBAN' ? 'vIBAN' : 'Deposit address';
+  return code === TB_ACCOUNT_CODES.CLIENT_SHORTFALL
+    ? `Custody Shortfall · ${wallet.ownerNo} · ${role}`
+    : `${TB_ACCOUNT_NAMES[TB_ACCOUNT_CODES.CLIENT_CASH]} · ${wallet.ownerNo} · ${role}`;
+};

@@ -13,17 +13,20 @@ import {
   accountFlagsFor,
   cashAccountCodeFor,
   cashAccountName,
+  walletAccountCodesFor,
   accountDisplayName,
 } from './tb-account-codes.constant';
 import { ledgerForNetwork } from './tb-ledgers.constant';
 import { systemAccountCodesFor } from '../../../asset-treasury/assets/asset-provisioning.service';
 
 describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
-  // 戊波一：11 码（201 / 203 已退役删除）。码 2 / 51 / 150 不进本波码表。
-  it('exposes exactly the 11 codes', () => {
+  // 戊波一：11 码（201 / 203 已退役删除）；戊波二：加 2 托管短缺待补 / 51 应收 LP，共 13 码。150 仍不进码表。
+  it('exposes exactly the 13 codes', () => {
     expect(TB_ACCOUNT_CODES).toEqual({
       CLIENT_CASH: 1,
+      CLIENT_SHORTFALL: 2,
       FIRM_CASH: 50,
+      LP_RECEIVABLE: 51,
       CLIENT_PAYABLE: 100,
       DEPOSIT_SUSPENSE: 101,
       FIRM_EQUITY: 200,
@@ -51,7 +54,11 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
     expect(COA_TO_TB_CODE['X.EXPENSE_OTHER']).toBe(302);
     expect(COA_TO_TB_CODE['A.FIRM_CASH']).toBe(50);
     expect(COA_TO_TB_CODE['E.FIRM_EQUITY']).toBe(200);
+    expect(COA_TO_TB_CODE['A.CLIENT_SHORTFALL']).toBe(2);
+    expect(COA_TO_TB_CODE['A.LP_RECEIVABLE']).toBe(51);
     expect(TB_CODE_TO_COA[1]).toBe('A.CLIENT_CASH');
+    expect(TB_CODE_TO_COA[2]).toBe('A.CLIENT_SHORTFALL');
+    expect(TB_CODE_TO_COA[51]).toBe('A.LP_RECEIVABLE');
     expect(TB_CODE_TO_COA[212]).toBe('E.INCOME_OTHER');
   });
 
@@ -65,40 +72,48 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
     expect(COA_TO_TB_CODE['E.FIRM_SET']).toBeUndefined();
     expect(COA_TO_TB_CODE['E.FIRM_LIQ']).toBeUndefined();
     expect(Object.keys(TB_ACCOUNT_NAMES).map(Number).sort((a, b) => a - b)).toEqual(
-      [1, 50, 100, 101, 200, 210, 211, 212, 300, 301, 302],
+      [1, 2, 50, 51, 100, 101, 200, 210, 211, 212, 300, 301, 302],
     );
   });
 
   it('names: 现金类与开支类的英文名（一码一名）', () => {
     expect(TB_ACCOUNT_NAMES[1]).toBe('Client Cash');
+    expect(TB_ACCOUNT_NAMES[2]).toBe('Custody Shortfall Receivable');
     expect(TB_ACCOUNT_NAMES[50]).toBe('Company Cash');
+    expect(TB_ACCOUNT_NAMES[51]).toBe('Due from LP');
     expect(TB_ACCOUNT_NAMES[200]).toBe('Company Equity');
     expect(TB_ACCOUNT_NAMES[300]).toBe('Bank & Custody Charges');
     expect(TB_ACCOUNT_NAMES[301]).toBe('Reconciliation Write-off Loss');
     expect(TB_ACCOUNT_NAMES[302]).toBe('Other Expenses');
   });
 
-  it('借方户 = {1, 50, 300, 301, 302}，其余贷方户', () => {
-    expect([...DEBIT_NORMAL_TB_CODES].sort((a, b) => a - b)).toEqual([1, 50, 300, 301, 302]);
+  it('借方户 = {1, 2, 50, 51, 300, 301, 302}，其余贷方户', () => {
+    expect([...DEBIT_NORMAL_TB_CODES].sort((a, b) => a - b)).toEqual([1, 2, 50, 51, 300, 301, 302]);
     expect(isDebitNormalCode(300)).toBe(true);
     expect(isDebitNormalCode(1)).toBe(true);
+    expect(isDebitNormalCode(2)).toBe(true);
     expect(isDebitNormalCode(50)).toBe(true);
+    expect(isDebitNormalCode(51)).toBe(true);
     expect(isDebitNormalCode(200)).toBe(false);
     expect(isDebitNormalCode(100)).toBe(false);
     expect(isDebitNormalCode(210)).toBe(false);
   });
 
-  it('现金类 = {1, 50}', () => {
+  it('现金类 = {1, 50}（短缺待补 2 与应收 LP 51 虽是借方户，但不是现金户）', () => {
     expect([...CASH_TB_CODES].sort((a, b) => a - b)).toEqual([1, 50]);
     expect(isCashCode(1)).toBe(true);
     expect(isCashCode(50)).toBe(true);
+    expect(isCashCode(2)).toBe(false);
+    expect(isCashCode(51)).toBe(false);
     expect(isCashCode(300)).toBe(false);
     expect(isCashCode(200)).toBe(false);
   });
 
   it('accountFlagsFor: 借方户禁贷超 = 4，贷方户禁借超 = 2（账本不得为负）', () => {
     expect(accountFlagsFor(1)).toBe(4);
+    expect(accountFlagsFor(2)).toBe(4);
     expect(accountFlagsFor(50)).toBe(4);
+    expect(accountFlagsFor(51)).toBe(4);
     expect(accountFlagsFor(300)).toBe(4);
     expect(accountFlagsFor(100)).toBe(2);
     expect(accountFlagsFor(200)).toBe(2);
@@ -110,6 +125,12 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
     expect(cashAccountCodeFor('PLATFORM')).toBe(50);
     expect(() => cashAccountCodeFor('LP')).toThrow(/No cash account code for wallet ownerType LP/);
     expect(() => cashAccountCodeFor('')).toThrow();
+  });
+
+  it('walletAccountCodesFor: CUSTOMER 钱包开 1 + 2，PLATFORM 钱包只开 50，未知归属抛错', () => {
+    expect(walletAccountCodesFor('CUSTOMER')).toEqual([1, 2]);
+    expect(walletAccountCodesFor('PLATFORM')).toEqual([50]);
+    expect(() => walletAccountCodesFor('LP')).toThrow(/No cash account code for wallet ownerType LP/);
   });
 
   it('ledgerForNetwork: TRON → USDT 账本 2，AED_ZAND → AED 账本 1', () => {
@@ -129,6 +150,15 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
     ).toBe('Client Cash · CU2601012635 · Deposit address');
   });
 
+  it('cashAccountName 码 2：Custody Shortfall · 客户号 · 角色（角色字样与同钱包的客户现金户一致）', () => {
+    expect(
+      cashAccountName(2, { vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_VIBAN', network: 'AED_ZAND', ownerNo: 'CU2601012635' }),
+    ).toBe('Custody Shortfall · CU2601012635 · vIBAN');
+    expect(
+      cashAccountName(2, { vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON', ownerNo: 'CU2601012635' }),
+    ).toBe('Custody Shortfall · CU2601012635 · Deposit address');
+  });
+
   it('accountDisplayName: 现金户(WALLET)显示注册表户名 description；其余户照一码一名；WALLET 缺 description 回落类名', () => {
     expect(
       accountDisplayName({ code: 50, ownerType: 'WALLET', description: 'Company Cash · Company Operations · AED_ZAND' }),
@@ -142,6 +172,11 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
       'Payable to Clients – Available Balance',
     );
     expect(accountDisplayName({ code: 50, ownerType: 'WALLET', description: null })).toBe('Company Cash');
+    // 码 2 也是 WALLET 归属：显示开户时拼好的户名；LP 归属的码 51 照一码一名
+    expect(
+      accountDisplayName({ code: 2, ownerType: 'WALLET', description: 'Custody Shortfall · CU2601012635 · vIBAN' }),
+    ).toBe('Custody Shortfall · CU2601012635 · vIBAN');
+    expect(accountDisplayName({ code: 51, ownerType: 'LP', description: 'Due from LP · Falcon Liquidity FZE' })).toBe('Due from LP');
     expect(accountDisplayName(undefined)).toBeNull();
   });
 

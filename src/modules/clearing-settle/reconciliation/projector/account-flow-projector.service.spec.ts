@@ -88,6 +88,30 @@ describe('AccountFlowProjectorService', () => {
       expect(rowOn(rows, 'tb-credit-002').direction).toBe('OUT');
     });
 
+    it('戊波二：A.CLIENT_SHORTFALL（码 2）与 A.LP_RECEIVABLE（码 51）是借方户——借 = IN、贷 = OUT', () => {
+      const shortfall = service.projectEvidence({
+        ...baseEvidence,
+        debitCode: 'A.CLIENT_SHORTFALL',
+        creditCode: 'A.CLIENT_CASH',
+      } as any);
+      expect(rowOn(shortfall, 'tb-debit-001').direction).toBe('IN');
+      expect(rowOn(shortfall, 'tb-credit-002').direction).toBe('OUT');
+
+      const receivable = service.projectEvidence({
+        ...baseEvidence,
+        debitCode: 'A.LP_RECEIVABLE',
+        creditCode: 'E.FIRM_EQUITY',
+      } as any);
+      expect(rowOn(receivable, 'tb-debit-001').direction).toBe('IN');
+      expect(rowOn(receivable, 'tb-credit-002').direction).toBe('IN'); // 权益是贷方户，贷 = IN
+      const settled = service.projectEvidence({
+        ...baseEvidence,
+        debitCode: 'A.FIRM_CASH',
+        creditCode: 'A.LP_RECEIVABLE',
+      } as any);
+      expect(rowOn(settled, 'tb-credit-002').direction).toBe('OUT');
+    });
+
     it('expense accounts (X.*) are debit-normal: a debit on X.EXPENSE_BANK_CUSTODY projects IN', () => {
       const rows = service.projectEvidence({
         ...baseEvidence,
@@ -198,6 +222,39 @@ describe('AccountFlowProjectorService', () => {
 
       expect(createOn(mockClient, 'tb-debit-001').walletRef).toBe('wallet-w1'); // WALLET 归属 → ownerUuid
       expect(createOn(mockClient, 'tb-credit-002').walletRef).toBeNull(); // CUSTOMER 归属 → null
+    });
+
+    // 裁定 21：码 2（托管短缺待补）与码 1 一样挂在钱包下（ownerType WALLET、ownerUuid = 钱包 id），
+    // 但它不是现金户——流水若带 walletRef 就会混进钱包流水与钱包对账单累加。判据 = WALLET 归属 ∧ 现金码。
+    it('码 2 户（WALLET 归属、非现金码）的流水不打 walletRef；同一笔凭证里的码 1 现金户照打（首投影与重投影一致）', async () => {
+      mockClient.tbAccountRegistry.findMany.mockResolvedValue([
+        { tbAccountId: 'tb-debit-001', code: 2, ownerType: 'WALLET', ownerUuid: 'wallet-w1', ownerNo: 'WA-001' },
+        { tbAccountId: 'tb-credit-002', code: 1, ownerType: 'WALLET', ownerUuid: 'wallet-w1', ownerNo: 'WA-001' },
+      ]);
+      const recognised = {
+        ...baseEvidence,
+        sourceType: 'INTERNAL_TRANSFER',
+        eventCode: 'INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED',
+        debitCode: 'A.CLIENT_SHORTFALL',
+        creditCode: 'A.CLIENT_CASH',
+      };
+      await service.persist(mockClient, recognised as any);
+
+      expect(createOn(mockClient, 'tb-debit-001').walletRef).toBeNull(); // 码 2：无 walletRef
+      expect(createOn(mockClient, 'tb-credit-002').walletRef).toBe('wallet-w1'); // 码 1：照旧
+      for (const args of upsertCalls(mockClient)) {
+        expect(args.update.walletRef).toBe(args.create.tbAccountId === 'tb-credit-002' ? 'wallet-w1' : null);
+      }
+    });
+
+    it('码 51 户（LP 归属）的流水 walletRef 为 null', async () => {
+      mockClient.tbAccountRegistry.findMany.mockResolvedValue([
+        { tbAccountId: 'tb-debit-001', code: 51, ownerType: 'LP', ownerUuid: 'lp-uuid-1', ownerNo: 'LPP-001' },
+        { tbAccountId: 'tb-credit-002', code: 200, ownerType: 'SYSTEM', ownerUuid: null, ownerNo: null },
+      ]);
+      await service.persist(mockClient, { ...baseEvidence, debitCode: 'A.LP_RECEIVABLE', creditCode: 'E.FIRM_EQUITY' } as any);
+      expect(createOn(mockClient, 'tb-debit-001').walletRef).toBeNull();
+      expect(createOn(mockClient, 'tb-credit-002').walletRef).toBeNull();
     });
 
     it('walletRef is null for SYSTEM-owned accounts and for accounts missing from the registry', async () => {

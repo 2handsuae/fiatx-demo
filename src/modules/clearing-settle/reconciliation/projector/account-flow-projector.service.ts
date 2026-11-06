@@ -5,11 +5,13 @@
 //
 // 戊波一起的两条规则：
 //   1. 方向按账户类别，含义统一为「钱进这个户 = IN」：
-//      借方户（现金 1 / 50、开支 300–302）借 = IN、贷 = OUT；
+//      借方户（现金 1 / 50、托管短缺待补 2、应收 LP 51、开支 300–302）借 = IN、贷 = OUT；
 //      贷方户（应付 / 暂挂 / 权益 / 收入）贷 = IN、借 = OUT。
 //      类别从凭证自带的助记码（debitCode / creditCode）判，不查注册表。
-//   2. walletRef 是派生值：该行账户在注册表里若是 WALLET 归属（现金户，一钱包一户），
+//   2. walletRef 是派生值：该行账户在注册表里若是 WALLET 归属**且是现金码**（1 / 50，一钱包一户），
 //      填其 ownerUuid（= 钱包 id），否则 null。调用方不再自己算、也不再传钱包标签。
+//      戊波二起码 2（托管短缺待补）也挂在钱包下（ownerType WALLET），但它不是现金户——
+//      带 walletRef 会混进钱包流水与钱包对账单累加，故只认现金码（isCashCode）。
 //
 // `(tbTransferId, tbAccountId)` 唯一：persist 重复调用（例如 enrichForPost 把 LOCK 提到 POST）
 // 是 upsert，更新已有两行，不会重复插入。
@@ -18,6 +20,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   COA_TO_TB_CODE,
+  isCashCode,
   isDebitNormalCode,
 } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 
@@ -131,8 +134,8 @@ export class AccountFlowProjectorService {
    * Upsert the projection rows. `where` uses the (tbTransferId, tbAccountId)
    * unique constraint so re-projection updates the existing rows.
    *
-   * walletRef 派生：按两侧 tbAccountId 一次批量查注册表，ownerType = 'WALLET'
-   * 则取 ownerUuid（钱包 id），其余（SYSTEM / CUSTOMER / LP / 注册表无此行）为 null。
+   * walletRef 派生：按两侧 tbAccountId 一次批量查注册表，ownerType = 'WALLET' 且科目码是现金码（1 / 50）
+   * 则取 ownerUuid（钱包 id），其余（SYSTEM / CUSTOMER / LP / WALLET 归属的码 2 / 注册表无此行）为 null。
    *
    * The caller is responsible for atomicity with the evidence write — pass
    * the same Prisma.TransactionClient so the evidence row and its flow rows
@@ -144,13 +147,13 @@ export class AccountFlowProjectorService {
     const registryRows = accountIds.length
       ? await client.tbAccountRegistry.findMany({
           where: { tbAccountId: { in: accountIds } },
-          select: { tbAccountId: true, ownerType: true, ownerUuid: true },
+          select: { tbAccountId: true, code: true, ownerType: true, ownerUuid: true },
         })
       : [];
     const walletRefByAccountId = new Map<string, string | null>(
       registryRows.map((r: any) => [
         r.tbAccountId as string,
-        r.ownerType === 'WALLET' ? (r.ownerUuid ?? null) : null,
+        r.ownerType === 'WALLET' && isCashCode(r.code) ? (r.ownerUuid ?? null) : null,
       ]),
     );
 
