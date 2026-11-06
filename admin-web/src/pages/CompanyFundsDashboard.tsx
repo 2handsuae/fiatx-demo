@@ -38,7 +38,7 @@ const IDENTITY_ASSET_LOOKUP: AssetLookup = { currencyOf: (raw) => raw, decimalsO
    用 API 下发的 accountName（唯一真相源，见 ledger-account.constants.ts 头注释同款纪律），
    不在前端另造名字。 */
 const TREASURY_CODES = {
-  FIRM_OPS: 200, // E.FIRM_OPS — 运营/流动性（兑换对手盘）
+  FIRM_EQUITY: 200, // E.FIRM_EQUITY — 运营/流动性（兑换对手盘）
   FIRM_LIQ: 203, // E.FIRM_LIQ — LP 在途验收户
   FIRM_SET: 201, // E.FIRM_SET — 法币结算户（仅法币 ledger）
   INCOME_SWAP_FEE: 210, // E.INCOME_SWAP_FEE
@@ -53,7 +53,7 @@ const INCOME_CODES = [
 ];
 
 const COMPANY_CODES: number[] = [
-  TREASURY_CODES.FIRM_OPS,
+  TREASURY_CODES.FIRM_EQUITY,
   TREASURY_CODES.FIRM_LIQ,
   TREASURY_CODES.FIRM_SET,
   ...INCOME_CODES,
@@ -323,7 +323,7 @@ const CompanyFundsDashboard = () => {
   const accountsByCode = (code: number): AccountRow[] =>
     accounts.filter((a) => a.code === code).sort((a, b) => a.assetCode.localeCompare(b.assetCode));
 
-  const opsAccounts = accountsByCode(TREASURY_CODES.FIRM_OPS);
+  const opsAccounts = accountsByCode(TREASURY_CODES.FIRM_EQUITY);
   const liqAccounts = accountsByCode(TREASURY_CODES.FIRM_LIQ);
   const setAccountsRows = accountsByCode(TREASURY_CODES.FIRM_SET);
 

@@ -31,7 +31,7 @@ import {
 import {
   TB_ACCOUNT_CODES,
   TB_CODE_TO_COA,
-  ASSET_TB_CODES,
+  isDebitNormalCode,
 } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TigerBeetleService } from '../../../accounting/tigerbeetle/tigerbeetle.service';
 import { computeBucket, ReconBucket } from '../engine/v2/bucket-classifier';
@@ -361,7 +361,7 @@ export class WalletReconRunService {
     });
 
     // 2a'. Enrich UNKNOWN — when the checker can't classify (firm wallet
-    // whose flows landed only on aggregate FIRM_ASSET legs, or a fresh
+    // whose flows landed only on aggregate FIRM_CASH legs, or a fresh
     // wallet with zero activity), look up walletRole + ownerType + ownerNo
     // from the wallet table so the case row gets meaningful coaCode/book/
     // owner instead of empty strings + 'CUSTOMER' book.
@@ -630,8 +630,8 @@ export class WalletReconRunService {
    *   asset (debit-normal):    debits_posted − credits_posted
    *   L / E (credit-normal):   credits_posted − debits_posted
    * Then per ledger:
-   *   sum(CLIENT_ASSET) == sum(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)
-   *   sum(FIRM_ASSET)   == sum(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)
+   *   sum(CLIENT_CASH) == sum(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)
+   *   sum(FIRM_CASH)   == sum(FIRM_EQUITY+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)
    *
    * `cutoff` is intentionally NOT honored here — TB doesn't expose historical
    * snapshots without account-history reads, and Phase B treats identity as
@@ -659,8 +659,8 @@ export class WalletReconRunService {
 
     const balById = new Map<string, bigint>();
     for (const a of accounts) {
-      const isAsset = ASSET_TB_CODES.has(a.code);
-      const bal = isAsset ? a.debits_posted - a.credits_posted : a.credits_posted - a.debits_posted;
+      const isDebitNormal = isDebitNormalCode(a.code);
+      const bal = isDebitNormal ? a.debits_posted - a.credits_posted : a.credits_posted - a.debits_posted;
       balById.set(a.id.toString(), bal);
     }
 
@@ -675,11 +675,11 @@ export class WalletReconRunService {
       const key = BigInt('0x' + r.tbAccountId).toString();
       const bal = balById.get(key) ?? 0n;
       const s = sums.get(r.ledger) ?? { clientAsset: 0n, clientLiab: 0n, firmAsset: 0n, firmEquity: 0n };
-      if (r.code === TB_ACCOUNT_CODES.CLIENT_ASSET) s.clientAsset += bal;
+      if (r.code === TB_ACCOUNT_CODES.CLIENT_CASH) s.clientAsset += bal;
       else if (r.code === TB_ACCOUNT_CODES.CLIENT_PAYABLE || r.code === TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE) s.clientLiab += bal;
-      else if (r.code === TB_ACCOUNT_CODES.FIRM_ASSET) s.firmAsset += bal;
+      else if (r.code === TB_ACCOUNT_CODES.FIRM_CASH) s.firmAsset += bal;
       else if (
-        r.code === TB_ACCOUNT_CODES.FIRM_OPS ||
+        r.code === TB_ACCOUNT_CODES.FIRM_EQUITY ||
         r.code === TB_ACCOUNT_CODES.FIRM_SET ||
         r.code === TB_ACCOUNT_CODES.FIRM_LIQ ||
         r.code === TB_ACCOUNT_CODES.INCOME_SWAP_FEE ||
@@ -772,14 +772,14 @@ export class WalletReconRunService {
 
   /**
    * When balanceChecker returns walletKind=UNKNOWN (firm wallet whose flows
-   * only landed on aggregate FIRM_ASSET legs, or a fresh wallet with no
+   * only landed on aggregate FIRM_CASH legs, or a fresh wallet with no
    * activity), it can't classify the wallet — coaCode comes back '' and
    * ownerNo comes back null. Look up the wallet row and derive sensible
    * defaults from walletRole + ownerType + ownerNo so case rows aren't
    * written with empty strings.
    */
   private static readonly COA_BY_ROLE: Record<string, string> = {
-    F_OPS:   'E.FIRM_OPS',
+    F_OPS:   'E.FIRM_EQUITY',
     F_SET:   'E.FIRM_SET',
     F_LIQ:   'E.FIRM_LIQ', // LP 在途验收户（乙波一复活）
     F_FEE:   'E.INCOME_SWAP_FEE+E.INCOME_WITHDRAW_FEE+E.INCOME_OTHER',

@@ -58,7 +58,7 @@ import { ensureTbAccountRegistry, provisionTbAccounts } from '../prisma/seed-tb.
  *     concurrently, so a dedicated wallet is the only race-free way to reason
  *     about "this wallet's total".
  *   - A customer wallet is "funded" with the exact same two real TB transfers
- *     deposit-workflow.service.ts's own Step 1 (CLIENT_ASSET→DEPOSIT_SUSPENSE,
+ *     deposit-workflow.service.ts's own Step 1 (CLIENT_CASH→DEPOSIT_SUSPENSE,
  *     isExternalCrossing:true) + Step 2 (DEPOSIT_SUSPENSE→CLIENT_PAYABLE,
  *     isExternalCrossing:false) post, walletRef stamped on both legs — this is
  *     the real production evidence shape, not an invented shortcut.
@@ -256,7 +256,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   }
 
   /** Real production evidence shape — mirrors deposit-workflow.service.ts's own
-   *  Step 1 (CLIENT_ASSET→DEPOSIT_SUSPENSE, external crossing) + Step 2
+   *  Step 1 (CLIENT_CASH→DEPOSIT_SUSPENSE, external crossing) + Step 2
    *  (DEPOSIT_SUSPENSE→CLIENT_PAYABLE, pure reclass) exactly, walletRef stamped
    *  on both legs of both steps. Net effect on the wallet's own
    *  (PAYABLE+SUSPENSE) total, per WalletBalanceCheckerService's accounting, is
@@ -279,7 +279,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     // the wallet's internal total at 0 with no error raised anywhere.
     const sourceNo = `E2E-RECON-ADJ-FUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
 
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
 
@@ -293,7 +293,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         sourceType: 'DEPOSIT',
         sourceNo,
         eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
         creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         assetCurrency: opts.currency,
         traceId: sourceNo,
@@ -352,14 +352,14 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
   /** Give a FIRM wallet a real internal balance in the firm-equity codes
    *  WalletBalanceCheckerService actually sums for a firm wallet (200/201/210/
-   *  211/212 — the aggregate FIRM_ASSET leg is deliberately dropped by the
+   *  211/212 — the aggregate FIRM_CASH leg is deliberately dropped by the
    *  checker, so only the INCOME_OTHER side moves this wallet's total).
    *  Same deterministic-transfer-id caution as fundCustomerWallet. */
   async function fundFirmWallet(opts: {
     walletId: string; ledger: number; currency: string; amount: bigint; tag: string;
   }): Promise<void> {
     const sourceNo = `E2E-RECON-ADJ-FIRMFUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
-    const firmAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const firmAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
     const incomeOtherId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.INCOME_OTHER, ledger: opts.ledger, ownerType: 'SYSTEM' });
 
     await accounting.executeTransfer({
@@ -372,7 +372,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
         sourceType: 'DEPOSIT',
         sourceNo,
         eventCode: 'E2E_FIRM_FIXTURE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH],
         creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
         assetCurrency: opts.currency,
         traceId: sourceNo,
@@ -638,7 +638,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     // 分录方向：客户账簿 + 加钱 → 借 客户托管资产 / 贷 客户应付（与场景 1 恰好相反）
     const evidence = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);
     expect(evidence).toHaveLength(1);
-    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
     expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
 
     for (const f of await flowsFor(adjustmentNo)) {
@@ -688,7 +688,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     const evidence = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);
     expect(evidence).toHaveLength(1);
-    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET]);
+    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH]);
     expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER]);
 
     const postedRow = await adjustmentRow(adjustmentNo);
@@ -918,8 +918,8 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     // 分录方向：公司账簿 + 减钱 → 借 公司运营权益 / 贷 公司资产（与场景 3 恰好相反）
     const evidence = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);
     expect(evidence).toHaveLength(1);
-    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_OPS]);
-    expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET]);
+    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY]);
+    expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH]);
 
     const postedRow = await adjustmentRow(adjustmentNo);
     expect(postedRow.book).toBe('FIRM');

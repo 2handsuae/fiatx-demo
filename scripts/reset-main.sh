@@ -24,7 +24,7 @@ bash "${SCRIPT_DIR}/stack-stop.sh" main >/dev/null 2>&1 || true
 # TB keeps every transfer ever written (including from old/deleted code
 # paths), so its account balances drift from the freshly-seeded dev.db.
 # The wallet engine's internal-identity check reads TB directly and
-# reports CLIENT_ASSET ≠ CLIENT_PAYABLE+DEPOSIT_SUSPENSE breaks that
+# reports CLIENT_CASH ≠ CLIENT_PAYABLE+DEPOSIT_SUSPENSE breaks that
 # don't actually exist in the current business data. stack-up.sh
 # re-formats a fresh TB file when missing.
 if [ -n "${TB_DATA_FILE:-}" ] && [ -f "${TB_DATA_FILE}" ]; then

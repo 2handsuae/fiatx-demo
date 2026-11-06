@@ -1,9 +1,7 @@
 // scripts/verify-realtime-coa.ts
 import { PrismaClient } from '@prisma/client';
 import { createClient as tbCreateClient } from 'tigerbeetle-node';
-import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
-
-const ASSET = new Set<number>([TB_ACCOUNT_CODES.CLIENT_ASSET, TB_ACCOUNT_CODES.FIRM_ASSET]);
+import { TB_ACCOUNT_CODES, TB_CODE_TO_COA, isDebitNormalCode } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 
 async function main() {
   const prisma = new PrismaClient();
@@ -15,8 +13,7 @@ async function main() {
     const accounts = await tb.lookupAccounts(regs.map((r: any) => BigInt('0x' + r.tbAccountId)));
     const balById = new Map<string, bigint>();
     for (const a of accounts) {
-      const isAsset = ASSET.has(a.code);
-      const bal = isAsset
+      const bal = isDebitNormalCode(a.code)
         ? a.debits_posted - a.credits_posted
         : a.credits_posted - a.debits_posted;
       balById.set(a.id.toString(), bal);
@@ -28,10 +25,10 @@ async function main() {
       const sumBal = (pred: (r: any) => boolean) =>
         inLedger.filter(pred).reduce((s: bigint, r: any) => s + (balById.get(BigInt('0x' + r.tbAccountId).toString()) ?? 0n), 0n);
 
-      const clientAsset = sumBal((r) => r.code === TB_ACCOUNT_CODES.CLIENT_ASSET);
+      const clientAsset = sumBal((r) => r.code === TB_ACCOUNT_CODES.CLIENT_CASH);
       const clientLiab = sumBal((r) => r.code === TB_ACCOUNT_CODES.CLIENT_PAYABLE || r.code === TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE);
-      const firmAsset = sumBal((r) => r.code === TB_ACCOUNT_CODES.FIRM_ASSET);
-      const firmEquity = sumBal((r) => [TB_ACCOUNT_CODES.FIRM_OPS, TB_ACCOUNT_CODES.FIRM_SET, TB_ACCOUNT_CODES.FIRM_LIQ, TB_ACCOUNT_CODES.INCOME_SWAP_FEE, TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, TB_ACCOUNT_CODES.INCOME_OTHER].includes(r.code));
+      const firmAsset = sumBal((r) => r.code === TB_ACCOUNT_CODES.FIRM_CASH);
+      const firmEquity = sumBal((r) => [TB_ACCOUNT_CODES.FIRM_EQUITY, TB_ACCOUNT_CODES.FIRM_SET, TB_ACCOUNT_CODES.FIRM_LIQ, TB_ACCOUNT_CODES.INCOME_SWAP_FEE, TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, TB_ACCOUNT_CODES.INCOME_OTHER].includes(r.code));
 
       if (clientAsset !== clientLiab) { failures++; console.log(`✗ ledger ${ledger} CLIENT: asset=${clientAsset} liab=${clientLiab}`); }
       else console.log(`✓ ledger ${ledger} CLIENT 恒等 ${clientAsset}`);

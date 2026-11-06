@@ -2,7 +2,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
-import { COA_TO_TB_CODE, isAssetCode, accountNameOf } from './constants/tb-account-codes.constant';
+import { COA_TO_TB_CODE, isDebitNormalCode, accountNameOf } from './constants/tb-account-codes.constant';
 import { AccountFlowProjectorService } from '../../clearing-settle/reconciliation/projector/account-flow-projector.service';
 import { toBusinessDate } from './utils/business-date.util';
 import { TigerBeetleService } from './tigerbeetle.service';
@@ -59,8 +59,8 @@ export class TbEvidenceService {
     try {
       const [a] = await this.tbService.lookupAccounts([hexToBigint(tbAccountId)]);
       if (!a) return null;
-      const isAsset = coaCode.startsWith('A.');
-      const net = isAsset
+      const isDebitNormal = isDebitNormalCode(COA_TO_TB_CODE[coaCode] ?? -1);
+      const net = isDebitNormal
         ? a.debits_posted - a.credits_posted
         : a.credits_posted - a.debits_posted;
       return net.toString();
@@ -413,14 +413,14 @@ export class TbEvidenceService {
     }>;
     currentBalance: number;
   }> {
-    // Sign convention by account class: assets are DEBIT-normal (a debit = IN/+,
-    // balance = debits − credits); liabilities & equity are CREDIT-normal
-    // (a credit = IN/+). Without this an asset account shows a negative balance.
+    // Sign convention by account class: debit-normal accounts (cash / expense) have
+    // balance = debits − credits (a debit = IN/+); credit-normal (L / E / income)
+    // have balance = credits − debits (a credit = IN/+). Without this a cash account shows negative.
     const reg = await (this.prisma as any).tbAccountRegistry.findUnique({
       where: { tbAccountId },
       select: { code: true },
     });
-    const isAsset = reg ? isAssetCode(reg.code) : false;
+    const isDebitNormal = reg ? isDebitNormalCode(reg.code) : false;
 
     // tb_transfer_evidence historically stored debit/creditTbAccountId in BOTH
     // 32-char padded ("0886…") and 31-char unpadded ("886…") forms across rows.
@@ -454,7 +454,7 @@ export class TbEvidenceService {
       // vice versa), which silently flipped every leg to OUT.
       const isCreditSide = idVariantSet.has(row.creditTbAccountId);
       // asset: debit = IN ; liability/equity: credit = IN
-      const direction: 'IN' | 'OUT' = isAsset
+      const direction: 'IN' | 'OUT' = isDebitNormal
         ? (isCreditSide ? 'OUT' : 'IN')
         : (isCreditSide ? 'IN' : 'OUT');
       const amount = Number(row.amount);
@@ -485,7 +485,7 @@ export class TbEvidenceService {
    * merges that customer's SUSPENSE + PAYABLE legs naturally — both legs
    * carry the same walletRef per T2a's "same-ref" convention.
    *
-   * Filters out aggregate-account legs (e.g. CLIENT_ASSET / FIRM_ASSET) whose
+   * Filters out aggregate-account legs (e.g. CLIENT_CASH / FIRM_CASH) whose
    * registry owner does not match this wallet's owner — those legs share the
    * walletRef purely for traceability, but their balance changes belong to
    * the aggregate book, not to this wallet's view.
@@ -565,7 +565,7 @@ export class TbEvidenceService {
       // Drop rows that hit a registry entry owned by someone else (the
       // aggregate-account legs are SYSTEM-owned, not this customer).
       if (reg.ownerType === 'CUSTOMER' && reg.ownerNo !== ownerNo) return false;
-      // For a customer wallet, drop SYSTEM-owned account legs (CLIENT_ASSET etc).
+      // For a customer wallet, drop SYSTEM-owned account legs (CLIENT_CASH etc).
       if (wallet?.ownerType === 'CUSTOMER' && reg.ownerType === 'SYSTEM') return false;
       return true;
     });
@@ -582,11 +582,11 @@ export class TbEvidenceService {
     const items = filtered.map((row: any) => {
       const reg = regOf(row.tbAccountId);
       const code = reg?.code ?? null;
-      const isAsset = code != null ? isAssetCode(code) : false;
+      const isDebitNormal = code != null ? isDebitNormalCode(code) : false;
       // AccountFlow.direction: 'IN' = was on credit side; 'OUT' = was on debit side.
       // For asset accounts we flip to keep "IN = balance up".
       const projDirection = row.direction as 'IN' | 'OUT';
-      const direction: 'IN' | 'OUT' = isAsset
+      const direction: 'IN' | 'OUT' = isDebitNormal
         ? (projDirection === 'IN' ? 'OUT' : 'IN')
         : projDirection;
       const amount = Number(row.amount);

@@ -1,22 +1,37 @@
 // src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant.spec.ts
 import * as fs from 'fs';
 import * as path from 'path';
-import { TB_ACCOUNT_CODES, COA_TO_TB_CODE, TB_CODE_TO_COA } from './tb-account-codes.constant';
+import {
+  TB_ACCOUNT_CODES,
+  TB_ACCOUNT_NAMES,
+  COA_TO_TB_CODE,
+  TB_CODE_TO_COA,
+  DEBIT_NORMAL_TB_CODES,
+  CASH_TB_CODES,
+  isDebitNormalCode,
+  isCashCode,
+  accountFlagsFor,
+  cashAccountName,
+} from './tb-account-codes.constant';
 import { systemAccountCodesFor } from '../../../asset-treasury/assets/asset-provisioning.service';
 
 describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
-  it('exposes exactly the 10 codes', () => {
+  // 戊波一：13 码（含退役中的 201 / 203，T12 删后为 11）。码 2 / 51 / 150 不进本波码表。
+  it('exposes exactly the 13 codes', () => {
     expect(TB_ACCOUNT_CODES).toEqual({
-      CLIENT_ASSET: 1,
-      FIRM_ASSET: 50,
+      CLIENT_CASH: 1,
+      FIRM_CASH: 50,
       CLIENT_PAYABLE: 100,
       DEPOSIT_SUSPENSE: 101,
-      FIRM_OPS: 200,
+      FIRM_EQUITY: 200,
       FIRM_SET: 201,
       FIRM_LIQ: 203,
       INCOME_SWAP_FEE: 210,
       INCOME_WITHDRAW_FEE: 211,
       INCOME_OTHER: 212,
+      EXPENSE_BANK_CUSTODY: 300,
+      EXPENSE_RECON_LOSS: 301,
+      EXPENSE_OTHER: 302,
     });
   });
 
@@ -28,10 +43,64 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
   });
 
   it('round-trips COA labels', () => {
-    expect(COA_TO_TB_CODE['A.CLIENT_ASSET']).toBe(1);
+    expect(COA_TO_TB_CODE['A.CLIENT_CASH']).toBe(1);
     expect(COA_TO_TB_CODE['E.INCOME_SWAP_FEE']).toBe(210);
+    expect(COA_TO_TB_CODE['X.EXPENSE_RECON_LOSS']).toBe(301);
+    expect(COA_TO_TB_CODE['X.EXPENSE_BANK_CUSTODY']).toBe(300);
+    expect(COA_TO_TB_CODE['X.EXPENSE_OTHER']).toBe(302);
+    expect(COA_TO_TB_CODE['A.FIRM_CASH']).toBe(50);
+    expect(COA_TO_TB_CODE['E.FIRM_EQUITY']).toBe(200);
+    expect(TB_CODE_TO_COA[1]).toBe('A.CLIENT_CASH');
     expect(TB_CODE_TO_COA[212]).toBe('E.INCOME_OTHER');
     expect(TB_CODE_TO_COA[203]).toBe('E.FIRM_LIQ');
+  });
+
+  it('names: 现金类与开支类的英文名（一码一名）', () => {
+    expect(TB_ACCOUNT_NAMES[1]).toBe('Client Cash');
+    expect(TB_ACCOUNT_NAMES[50]).toBe('Company Cash');
+    expect(TB_ACCOUNT_NAMES[200]).toBe('Company Equity');
+    expect(TB_ACCOUNT_NAMES[300]).toBe('Bank & Custody Charges');
+    expect(TB_ACCOUNT_NAMES[301]).toBe('Reconciliation Write-off Loss');
+    expect(TB_ACCOUNT_NAMES[302]).toBe('Other Expenses');
+  });
+
+  it('借方户 = {1, 50, 300, 301, 302}，其余贷方户', () => {
+    expect([...DEBIT_NORMAL_TB_CODES].sort((a, b) => a - b)).toEqual([1, 50, 300, 301, 302]);
+    expect(isDebitNormalCode(300)).toBe(true);
+    expect(isDebitNormalCode(1)).toBe(true);
+    expect(isDebitNormalCode(50)).toBe(true);
+    expect(isDebitNormalCode(200)).toBe(false);
+    expect(isDebitNormalCode(100)).toBe(false);
+    expect(isDebitNormalCode(210)).toBe(false);
+  });
+
+  it('现金类 = {1, 50}', () => {
+    expect([...CASH_TB_CODES].sort((a, b) => a - b)).toEqual([1, 50]);
+    expect(isCashCode(1)).toBe(true);
+    expect(isCashCode(50)).toBe(true);
+    expect(isCashCode(300)).toBe(false);
+    expect(isCashCode(200)).toBe(false);
+  });
+
+  it('accountFlagsFor: 借方户禁贷超 = 4，贷方户禁借超 = 2（账本不得为负）', () => {
+    expect(accountFlagsFor(1)).toBe(4);
+    expect(accountFlagsFor(50)).toBe(4);
+    expect(accountFlagsFor(300)).toBe(4);
+    expect(accountFlagsFor(100)).toBe(2);
+    expect(accountFlagsFor(200)).toBe(2);
+    expect(accountFlagsFor(212)).toBe(2);
+  });
+
+  it('cashAccountName: 平台钱包 = 公司现金 · vault 标签 · 网络；客户钱包 = 客户现金 · 客户号 · 角色', () => {
+    expect(
+      cashAccountName(50, { vaultCode: 'F_OPS', walletRole: 'F_OPS', network: 'AED_ZAND', ownerNo: 'PLATFORM' }),
+    ).toBe('Company Cash · Company Operations · AED_ZAND');
+    expect(
+      cashAccountName(1, { vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_VIBAN', network: 'AED_ZAND', ownerNo: 'CU2601012635' }),
+    ).toBe('Client Cash · CU2601012635 · vIBAN');
+    expect(
+      cashAccountName(1, { vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON', ownerNo: 'CU2601012635' }),
+    ).toBe('Client Cash · CU2601012635 · Deposit address');
   });
 
   it('FIRM_LIQ is provisioned for both fiat and crypto assets (LP 在途验收户不分币种)', () => {
@@ -56,9 +125,9 @@ describe('system TB account codes are registered at every provisioning site (reg
   // FIRM_SET (fiat-only, bank settlement) and the two per-customer codes
   // (CLIENT_PAYABLE/DEPOSIT_SUSPENSE, registered per-customer in seedCustomers(), not here).
   const ALWAYS_REGISTERED_SYSTEM_CODES = [
-    'CLIENT_ASSET',
-    'FIRM_ASSET',
-    'FIRM_OPS',
+    'CLIENT_CASH',
+    'FIRM_CASH',
+    'FIRM_EQUITY',
     'INCOME_SWAP_FEE',
     'INCOME_WITHDRAW_FEE',
     'INCOME_OTHER',

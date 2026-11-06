@@ -159,11 +159,11 @@ export class SwapLegAccounting {
    *
    * Mapping (per Phase B spec §4):
    *   CLIENT_PAYABLE       → customer's wallet for this leg's customer role
-   *   CLIENT_ASSET (agg.)  → SAME customer wallet (carried for audit drill-down)
-   *   FIRM_OPS             → platform's F_OPS wallet for this leg's asset
+   *   CLIENT_CASH (agg.)  → SAME customer wallet (carried for audit drill-down)
+   *   FIRM_EQUITY             → platform's F_OPS wallet for this leg's asset
    *   FIRM_SET             → platform's F_SET wallet
    *   INCOME_SWAP_FEE      → platform's F_FEE wallet
-   *   FIRM_ASSET (agg.)    → matched to the OTHER side's firm role (the entry's
+   *   FIRM_CASH (agg.)    → matched to the OTHER side's firm role (the entry's
    *                          counterpart equity), so the aggregate row carries
    *                          the same firm wallet as its equity counterpart.
    */
@@ -176,10 +176,10 @@ export class SwapLegAccounting {
   ): Promise<string | null> {
     const assetId = spec.side === 'from' ? ctx.fromAssetId : ctx.toAssetId;
 
-    // Customer side: CLIENT_PAYABLE or its aggregate counterpart CLIENT_ASSET
+    // Customer side: CLIENT_PAYABLE or its aggregate counterpart CLIENT_CASH
     if (
       code === TB_ACCOUNT_CODES.CLIENT_PAYABLE ||
-      code === TB_ACCOUNT_CODES.CLIENT_ASSET
+      code === TB_ACCOUNT_CODES.CLIENT_CASH
     ) {
       // Pick whichever of fromRole/toRole is the customer role on this leg
       const customerRole = spec.fromRole.startsWith('C_')
@@ -193,7 +193,7 @@ export class SwapLegAccounting {
 
     // Firm equity side: direct mapping to the role
     const equityRoleMap: Record<number, string> = {
-      [TB_ACCOUNT_CODES.FIRM_OPS]: 'F_OPS',
+      [TB_ACCOUNT_CODES.FIRM_EQUITY]: 'F_OPS',
       [TB_ACCOUNT_CODES.FIRM_SET]: 'F_SET',
       [TB_ACCOUNT_CODES.INCOME_SWAP_FEE]: 'F_FEE',
     };
@@ -201,8 +201,8 @@ export class SwapLegAccounting {
       return this.resolveWallet(assetId, equityRoleMap[code], ctx.ownerId, client);
     }
 
-    // FIRM_ASSET (aggregate): inherit the counterpart equity's wallet for audit
-    if (code === TB_ACCOUNT_CODES.FIRM_ASSET && equityRoleMap[counterpartCode]) {
+    // FIRM_CASH (aggregate): inherit the counterpart equity's wallet for audit
+    if (code === TB_ACCOUNT_CODES.FIRM_CASH && equityRoleMap[counterpartCode]) {
       return this.resolveWallet(assetId, equityRoleMap[counterpartCode], ctx.ownerId, client);
     }
 

@@ -2,7 +2,7 @@
 // 单腿进项（钱到运营户 F_OPS，从 CONFIRMED 出生，同 fiat 充值 payin 先例）——批准即进
 // AWAITING_FUNDS（不像 LP 兑换那样立刻建腿，注资没有「卖出腿」）；⚡模拟到款
 // (simulateContribution) 只写回单 + 建腿到 CONFIRMED + 翻 RECEIVED，**不落账**（与 LP 腿 2
-// 的关键差异——落账挪到 confirm 边，先账后状态：码 70 DR FIRM_ASSET / CR FIRM_OPS 在
+// 的关键差异——落账挪到 confirm 边，先账后状态：码 70 DR FIRM_CASH / CR FIRM_EQUITY 在
 // RECEIVED→SUCCESS 这一跳里落，同一跳里把腿 CLEAR）。回单先于落账同 LP 先例（评审 R12：
 // bumpClosing「当日无余额行」兜底基准双计）。铁律③各管各的：本文件只调
 // CapitalInjectionService/AccountingService/FundsOrderService/SystemWalletResolver/
@@ -170,7 +170,7 @@ export class CapitalInjectionWorkflowService {
     return { cinNo, status: updated.status as string };
   }
 
-  // ── 确认入账（核数）：码 70 DR FIRM_ASSET / CR FIRM_OPS——落账在这一跳，先账后状态 ──
+  // ── 确认入账（核数）：码 70 DR FIRM_CASH / CR FIRM_EQUITY——落账在这一跳，先账后状态 ──
 
   async confirm(cinNo: string, actor: ApprovalActorContext) {
     const row = await this.injections.findByNo(cinNo);
@@ -204,18 +204,18 @@ export class CapitalInjectionWorkflowService {
     return this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'SYSTEM' });
   }
 
-  /** 码 70：DR FIRM_ASSET / CR FIRM_OPS，注入币 ledger，外穿——一侧物理钱包是
+  /** 码 70：DR FIRM_CASH / CR FIRM_EQUITY，注入币 ledger，外穿——一侧物理钱包是
    *  row.toWalletId（收到款的那个网络行），出资方的外部坐标不是钱包。 */
   private async postInjection(row: any, leg: any) {
     const ledger = this.ledgerOf(row.asset.currency);
     const amount = majorToMinor(leg.amount, row.asset.decimals);
     await this.accounting.executeTransfer({
-      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_ASSET),
-      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_OPS),
+      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_CASH),
+      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_EQUITY),
       amount, ledger, code: TB_TRANSFER_CODES.CAPITAL_INJECTION,
       evidence: {
         sourceType: 'CAPITAL_INJECTION', sourceNo: row.cinNo, eventCode: 'CAPITAL_INJECTION', traceId: row.traceId,
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_OPS],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY],
         assetCurrency: row.asset.currency, actorType: 'SYSTEM', actorId: 'CAPITAL_INJECTION_WORKFLOW',
         memo: `Capital injection ${row.cinNo} confirmed (contributed by ${row.contributorName})`,
         debitWalletRef: row.toWalletId, creditWalletRef: row.toWalletId,

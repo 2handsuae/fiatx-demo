@@ -281,7 +281,7 @@ describe('VendorPaymentWorkflowService (Task 5)', () => {
       }));
     });
 
-    it('CONFIRMED: posts 87 (DR E.FIRM_OPS / CR A.FIRM_ASSET, external-crossing) BEFORE recording — actually records custodian line first (回单先于落账) — then CLEARs → SUCCESS + audit EXECUTED carries fromStatus/toStatus + explicit requestId', async () => {
+    it('CONFIRMED: posts 87 (DR E.FIRM_EQUITY / CR A.FIRM_CASH, external-crossing) BEFORE recording — actually records custodian line first (回单先于落账) — then CLEARs → SUCCESS + audit EXECUTED carries fromStatus/toStatus + explicit requestId', async () => {
       const ctx = makeWorkflow();
       const { payNo, vendorPaymentId } = await seedExecuting(ctx);
       await ctx.wf.handleFundsOrderChanged(evt(vendorPaymentId, 'SUBMITTED') as any);
@@ -289,10 +289,10 @@ describe('VendorPaymentWorkflowService (Task 5)', () => {
       expect(ctx.accounting.executeTransfer).toHaveBeenCalledTimes(1);
       expect(ctx.accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
         code: TB_TRANSFER_CODES.VENDOR_PAYMENT, amount: 1_200_000n, ledger: TB_LEDGERS.AED,
-        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_OPS, TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_ASSET, TB_LEDGERS.AED),
+        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_EQUITY, TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_CASH, TB_LEDGERS.AED),
         evidence: expect.objectContaining({
           sourceType: 'VENDOR_PAYMENT', sourceNo: payNo, eventCode: 'VENDOR_PAYMENT',
-          debitCode: 'E.FIRM_OPS', creditCode: 'A.FIRM_ASSET',
+          debitCode: 'E.FIRM_EQUITY', creditCode: 'A.FIRM_CASH',
           debitWalletRef: 'w-ops-aed', creditWalletRef: 'w-ops-aed', isExternalCrossing: true, assetCurrency: 'AED',
         }),
       });

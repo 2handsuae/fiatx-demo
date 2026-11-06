@@ -6,7 +6,7 @@ import { AccountingService } from './accounting.service';
 import { TbAccountRegistryService } from './tb-account-registry.service';
 import { TbEvidenceService } from './tb-evidence.service';
 import { hexToBigint } from './utils/tb-id.util';
-import { isAssetCode, accountNameOf } from './constants/tb-account-codes.constant';
+import { isDebitNormalCode, accountNameOf } from './constants/tb-account-codes.constant';
 
 @ApiTags('TB Ledger Admin')
 @Controller('admin/tb')
@@ -61,9 +61,9 @@ export class TbAdminController {
       creditsPosted = balance.creditsPosted.toString();
       debitsPending = balance.debitsPending.toString();
       creditsPending = balance.creditsPending.toString();
-      // Asset accounts are debit-normal; L/E are credit-normal. Sign by class
-      // so assets don't show negative (mirrors verify-realtime-coa.ts).
-      netBalance = (isAssetCode(registry.code)
+      // Debit-normal accounts (cash / expense) vs credit-normal (L / E / income): sign by
+      // class so debit-normal accounts don't show negative (mirrors verify-realtime-coa.ts).
+      netBalance = (isDebitNormalCode(registry.code)
         ? balance.debitsPosted - balance.creditsPosted
         : balance.creditsPosted - balance.debitsPosted
       ).toString();

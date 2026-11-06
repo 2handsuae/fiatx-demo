@@ -101,7 +101,7 @@ const STANDALONE_ADJUSTMENT_TITLES = new Set(['Balance adjustment', 'Balance cor
  * Event-code inventory & disposition (grep evidence in task-10-report.md):
  *  - Codes below are the ONLY ones ever posted (transferType=POSTED) against a
  *    customer's CLIENT_PAYABLE account. Every other event code touches a
- *    different account (DEPOSIT_SUSPENSE / CLIENT_ASSET / FIRM_* / INCOME_*)
+ *    different account (DEPOSIT_SUSPENSE / CLIENT_CASH / FIRM_* / INCOME_*)
  *    or only ever exists as a PENDING/VOIDED row (WITHDRAW_LOCK_* get
  *    renamed to *_POST on posting via enrichForPost) — those cases are N/A
  *    for this statement and fall through to FALLBACK_PRESENTATION below,

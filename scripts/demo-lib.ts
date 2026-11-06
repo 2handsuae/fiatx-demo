@@ -53,7 +53,7 @@ import { fakeChainTxHash, fakeBankRef } from '../src/common/utils/fake-external-
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
-import { TB_ACCOUNT_CODES } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { TB_ACCOUNT_CODES, isDebitNormalCode } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../src/modules/accounting/tigerbeetle/constants/tb-ledgers.constant';
 import { DepositTransactionsService } from '../src/modules/trading/deposit-transactions/deposit-transactions.service';
 import { DepositWorkflowService } from '../src/modules/trading/deposit-transactions/deposit-workflow.service';
@@ -1453,16 +1453,13 @@ async function expectTravelRuleSnapshot(
 // Build a ledger→code→balance map by querying all active TB account registries and
 // looking up each balance individually via AccountingService. This is equivalent to
 // verify-realtime-coa.ts but reuses the NestJS accounting service already in ctx.
-const ASSET_CODES = new Set([TB_ACCOUNT_CODES.CLIENT_ASSET, TB_ACCOUNT_CODES.FIRM_ASSET]);
-
 async function buildCoaBalanceMap(ctx: DemoCtx): Promise<Map<number, Map<number, bigint>>> {
   // ledger → (code → aggregate balance)
   const byLedger = new Map<number, Map<number, bigint>>();
   const regs = await ctx.prisma.tbAccountRegistry.findMany({ where: { status: 'ACTIVE' } });
   for (const r of regs) {
     const balance = await ctx.accounting.lookupBalance(BigInt('0x' + r.tbAccountId));
-    const isAsset = ASSET_CODES.has(r.code);
-    const bal: bigint = isAsset
+    const bal: bigint = isDebitNormalCode(r.code)
       ? balance.debitsPosted - balance.creditsPosted
       : balance.creditsPosted - balance.debitsPosted;
     if (!byLedger.has(r.ledger)) byLedger.set(r.ledger, new Map());
@@ -1544,24 +1541,24 @@ export async function verifyEndState(
   ok(`花名册 ${DEMO_ROSTER.length} 笔逐条符合预期`, pass);
 
   // 2. COA invariants: CLIENT and FIRM balance per ledger (real-time 1:1 model proof)
-  //    CLIENT: CLIENT_ASSET == Σ(CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per ledger
-  //    FIRM:   FIRM_ASSET == Σ(FIRM_OPS + FIRM_SET + FIRM_LIQ + INCOME_SWAP_FEE + INCOME_WITHDRAW_FEE + INCOME_OTHER) per ledger
+  //    CLIENT: CLIENT_CASH == Σ(CLIENT_PAYABLE + DEPOSIT_SUSPENSE) per ledger
+  //    FIRM:   FIRM_CASH == Σ(FIRM_EQUITY + FIRM_SET + FIRM_LIQ + INCOME_SWAP_FEE + INCOME_WITHDRAW_FEE + INCOME_OTHER) per ledger
   //    (asset accounts are debit-normal; liabilities/equity are credit-normal)
   const coaMap = await buildCoaBalanceMap(ctx);
   const LEDGER_NAMES: Record<number, string> = { [TB_LEDGERS.AED]: 'AED', [TB_LEDGERS.USDT]: 'USDT' };
   const coaRows: Array<{ label: string; ok: boolean; detail: string }> = [];
   for (const [ledger, m] of coaMap) {
     const name = LEDGER_NAMES[ledger] ?? `ledger${ledger}`;
-    const clientAsset = m.get(TB_ACCOUNT_CODES.CLIENT_ASSET) ?? 0n;
+    const clientAsset = m.get(TB_ACCOUNT_CODES.CLIENT_CASH) ?? 0n;
     const clientLiab = (m.get(TB_ACCOUNT_CODES.CLIENT_PAYABLE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE) ?? 0n);
-    const clientLabel = `COA CLIENT(${name}): CLIENT_ASSET == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)`;
+    const clientLabel = `COA CLIENT(${name}): CLIENT_CASH == Σ(CLIENT_PAYABLE+DEPOSIT_SUSPENSE)`;
     const clientOk = clientAsset === clientLiab;
     const clientDetail = `${clientAsset} == ${clientLiab}`;
     ok(clientLabel, clientOk, clientDetail);
     coaRows.push({ label: clientLabel, ok: clientOk, detail: clientDetail });
-    const firmAsset = m.get(TB_ACCOUNT_CODES.FIRM_ASSET) ?? 0n;
-    const firmEquity = (m.get(TB_ACCOUNT_CODES.FIRM_OPS) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_SET) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_LIQ) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_SWAP_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_OTHER) ?? 0n);
-    const firmLabel = `COA FIRM(${name}): FIRM_ASSET == Σ(FIRM_OPS+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)`;
+    const firmAsset = m.get(TB_ACCOUNT_CODES.FIRM_CASH) ?? 0n;
+    const firmEquity = (m.get(TB_ACCOUNT_CODES.FIRM_EQUITY) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_SET) ?? 0n) + (m.get(TB_ACCOUNT_CODES.FIRM_LIQ) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_SWAP_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE) ?? 0n) + (m.get(TB_ACCOUNT_CODES.INCOME_OTHER) ?? 0n);
+    const firmLabel = `COA FIRM(${name}): FIRM_CASH == Σ(FIRM_EQUITY+FIRM_SET+FIRM_LIQ+INCOME_SWAP_FEE+INCOME_WITHDRAW_FEE+INCOME_OTHER)`;
     const firmOk = firmAsset === firmEquity;
     const firmDetail = `${firmAsset} == ${firmEquity}`;
     ok(firmLabel, firmOk, firmDetail);

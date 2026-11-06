@@ -188,7 +188,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   }): Promise<string> {
     const sourceNo = `E2E-INC-FUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
 
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
 
@@ -197,7 +197,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
       code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
       evidence: {
         sourceType: 'DEPOSIT', sourceNo, eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         assetCurrency: opts.currency, traceId: sourceNo, actorType: 'SYSTEM', actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund customer balance for incident-register tests (Step 1)',
         debitWalletRef: opts.walletId, creditWalletRef: opts.walletId,
@@ -544,7 +544,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
 
     const ev = await tbEvidence.findBySource('RECON_ADJUSTMENT', mainAdjustmentNo);
     expect(ev[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
-    expect(ev[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+    expect(ev[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
     expect((await accounting.getCustomerAvailableBalance(mainCustomer.id, 'USDT')).available).toBe(FUND_AMOUNT_MINOR - LOSS_MINOR);
 
     // 内部已经等于外部：重对账，案子愈。

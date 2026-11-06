@@ -2,7 +2,7 @@
 //
 // Phase B / T6: per-wallet balance check (1:1 direct, no layered fallback).
 //   Customer wallet:  external == PAYABLE[c] + SUSPENSE[c]
-//   Firm wallet:      external == FIRM_OPS / FIRM_SET / FIRM_LIQ / INCOME_SWAP_FEE /
+//   Firm wallet:      external == FIRM_EQUITY / FIRM_SET / FIRM_LIQ / INCOME_SWAP_FEE /
 //                     INCOME_WITHDRAW_FEE / INCOME_OTHER
 //
 // The spec (design §7) explicitly removes the older "first try == PAYABLE,
@@ -19,7 +19,7 @@
 // Internal-balance computation
 //   1. Pull all account_flows rows at this walletRef (POSTED, createdAt ≤ cutoff).
 //   2. Resolve each row's tbAccountId via tbAccountRegistry; drop aggregate legs
-//      (CLIENT_ASSET code=1 / FIRM_ASSET code=50). Those share walletRef purely
+//      (CLIENT_CASH code=1 / FIRM_CASH code=50). Those share walletRef purely
 //      for traceability — they belong to the aggregate book, not this wallet.
 //   3. PAYABLE (100), SUSPENSE (101), and firm equity codes
 //      (200/201/203/210/211/212) are all
@@ -42,7 +42,7 @@ const CUSTOMER_CODES: ReadonlySet<number> = new Set<number>([
 ]);
 
 const FIRM_CODES: ReadonlySet<number> = new Set<number>([
-  TB_ACCOUNT_CODES.FIRM_OPS,          // 200
+  TB_ACCOUNT_CODES.FIRM_EQUITY,          // 200
   TB_ACCOUNT_CODES.FIRM_SET,          // 201
   TB_ACCOUNT_CODES.FIRM_LIQ,          // 203
   TB_ACCOUNT_CODES.INCOME_SWAP_FEE,   // 210
@@ -51,8 +51,8 @@ const FIRM_CODES: ReadonlySet<number> = new Set<number>([
 ]);
 
 const AGGREGATE_CODES: ReadonlySet<number> = new Set<number>([
-  TB_ACCOUNT_CODES.CLIENT_ASSET,  // 1
-  TB_ACCOUNT_CODES.FIRM_ASSET,    // 50
+  TB_ACCOUNT_CODES.CLIENT_CASH,  // 1
+  TB_ACCOUNT_CODES.FIRM_CASH,    // 50
 ]);
 
 type WalletKind = 'CUSTOMER' | 'FIRM' | 'UNKNOWN';
@@ -61,7 +61,7 @@ export interface WalletBalanceCheckResult {
   pass: boolean;
   walletRef: string;
   walletKind: WalletKind;
-  coaCode: string;                          // 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE' / 'E.FIRM_OPS' / '' for UNKNOWN
+  coaCode: string;                          // 'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE' / 'E.FIRM_EQUITY' / '' for UNKNOWN
   ownerNo: string | null;
   internal: {
     payable?: bigint;                       // CUSTOMER only

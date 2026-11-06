@@ -3,10 +3,10 @@
  * withdraw-fee-income.service.spec.ts
  *
  * Real-time 1:1 T5: Asserts that:
- * (a) WithdrawWorkflowService.createWithdrawal locks fee pending into CLIENT_ASSET (not FEE_INCOME / FEE_RECEIVABLE)
+ * (a) WithdrawWorkflowService.createWithdrawal locks fee pending into CLIENT_CASH (not FEE_INCOME / FEE_RECEIVABLE)
  * (b) the funds_order-driven per-leg handlers post the net leg (onPayoutLegConfirmed)
- *     and the fee leg (onFeeLegConfirmed) with creditCode = CLIENT_ASSET, then execute
- *     firm-side collect DR FIRM_ASSET / CR INCOME_WITHDRAW_FEE — mirroring the legacy
+ *     and the fee leg (onFeeLegConfirmed) with creditCode = CLIENT_CASH, then execute
+ *     firm-side collect DR FIRM_CASH / CR INCOME_WITHDRAW_FEE — mirroring the legacy
  *     handlePayoutConfirmed / finalizeWithdrawal, now split across legSeq 1 + 2.
  */
 import { WithdrawWorkflowService } from './withdraw-workflow.service';
@@ -46,14 +46,14 @@ function makeWithdrawRecord(overrides: Record<string, any> = {}) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// TEST A: WithdrawTransactionsService.create — fee pending → CLIENT_ASSET
+// TEST A: WithdrawTransactionsService.create — fee pending → CLIENT_CASH
 // ═══════════════════════════════════════════════════════════════════
 
 function buildServiceMocks() {
   const resolveMap: Record<number, bigint> = {
     [TB_ACCOUNT_CODES.CLIENT_PAYABLE]: 10n,
-    [TB_ACCOUNT_CODES.CLIENT_ASSET]: 20n,
-    [TB_ACCOUNT_CODES.FIRM_ASSET]: 50n,
+    [TB_ACCOUNT_CODES.CLIENT_CASH]: 20n,
+    [TB_ACCOUNT_CODES.FIRM_CASH]: 50n,
     [TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE]: 202n,
   };
 
@@ -188,7 +188,7 @@ function makeWorkflowForCreate(mocks: ReturnType<typeof buildServiceMocks>) {
 }
 
 describe('WithdrawWorkflowService.createWithdrawal — T5 fee account (real-time 1:1)', () => {
-  it('locks fee pending to CLIENT_ASSET, not FEE_INCOME or FEE_RECEIVABLE', async () => {
+  it('locks fee pending to CLIENT_CASH, not FEE_INCOME or FEE_RECEIVABLE', async () => {
     const mocks = buildServiceMocks();
     const service = makeWorkflowForCreate(mocks);
 
@@ -208,15 +208,15 @@ describe('WithdrawWorkflowService.createWithdrawal — T5 fee account (real-time
       (c) => c[0].code,
     );
 
-    // Both net and fee must resolve CLIENT_ASSET (not FEE_INCOME or old CLIENT_CUSTODY/CLIENT_BANK)
-    expect(resolveCalls).toContain(TB_ACCOUNT_CODES.CLIENT_ASSET);
+    // Both net and fee must resolve CLIENT_CASH (not FEE_INCOME or old CLIENT_CUSTODY/CLIENT_BANK)
+    expect(resolveCalls).toContain(TB_ACCOUNT_CODES.CLIENT_CASH);
 
     // Must NOT resolve FEE_INCOME (code no longer exists in new COA)
     // Must NOT resolve FEE_RECEIVABLE (code 120, removed)
     expect(resolveCalls).not.toContain(120);
   });
 
-  it('executePendingTransfer calls use CLIENT_ASSET credit code for both net and fee', async () => {
+  it('executePendingTransfer calls use CLIENT_CASH credit code for both net and fee', async () => {
     const mocks = buildServiceMocks();
     const service = makeWorkflowForCreate(mocks);
 
@@ -235,15 +235,15 @@ describe('WithdrawWorkflowService.createWithdrawal — T5 fee account (real-time
     const pendingCalls = mocks.accountingService.executePendingTransfer.mock.calls as any[][];
     const creditCodes = pendingCalls.map((c) => c[0]?.evidence?.creditCode).filter(Boolean);
 
-    // All credit codes should be CLIENT_ASSET
-    expect(creditCodes.every((code) => code === TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET])).toBe(true);
-    // Specifically: 'A.CLIENT_ASSET'
-    expect(creditCodes).toContain(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+    // All credit codes should be CLIENT_CASH
+    expect(creditCodes.every((code) => code === TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH])).toBe(true);
+    // Specifically: 'A.CLIENT_CASH'
+    expect(creditCodes).toContain(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
   });
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// TEST B: WithdrawWorkflowService.handlePayoutConfirmed — post fee → CLIENT_ASSET + INCOME_WITHDRAW_FEE collect
+// TEST B: WithdrawWorkflowService.handlePayoutConfirmed — post fee → CLIENT_CASH + INCOME_WITHDRAW_FEE collect
 // ═══════════════════════════════════════════════════════════════════
 
 function buildWorkflowMocks() {
@@ -253,7 +253,7 @@ function buildWorkflowMocks() {
     voidPendingTransferBestEffort: jest.fn(() => Promise.resolve()),
     resolveTbAccountId: jest.fn((args: { code: number }) => {
       const map: Record<number, bigint> = {
-        [TB_ACCOUNT_CODES.FIRM_ASSET]: 50n,
+        [TB_ACCOUNT_CODES.FIRM_CASH]: 50n,
         [TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE]: 202n,
       };
       return Promise.resolve(map[args.code] ?? 99n);
@@ -365,7 +365,7 @@ function makeWorkflowForLegs(mocks: ReturnType<typeof buildWorkflowMocks>) {
 }
 
 describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () => {
-  it('posts fee pending with creditCode = CLIENT_ASSET (not FEE_INCOME), then executes FIRM_ASSET→INCOME_WITHDRAW_FEE', async () => {
+  it('posts fee pending with creditCode = CLIENT_CASH (not FEE_INCOME), then executes FIRM_CASH→INCOME_WITHDRAW_FEE', async () => {
     const mocks = buildWorkflowMocks();
     const service = makeWorkflowForLegs(mocks);
 
@@ -384,16 +384,16 @@ describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () 
       .map((c) => c[0]?.evidence?.creditCode)
       .filter(Boolean);
 
-    // Both post calls should have CLIENT_ASSET as credit (not FEE_INCOME)
-    expect(creditCodes).toContain(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+    // Both post calls should have CLIENT_CASH as credit (not FEE_INCOME)
+    expect(creditCodes).toContain(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
     // Must NOT contain FEE_INCOME or FEE_RECEIVABLE
     expect(creditCodes).not.toContain('120');
 
-    // Firm-side fee collect: executeTransfer called DR FIRM_ASSET / CR INCOME_WITHDRAW_FEE
+    // Firm-side fee collect: executeTransfer called DR FIRM_CASH / CR INCOME_WITHDRAW_FEE
     const execCalls = mocks.accountingService.executeTransfer.mock.calls as any[][];
     expect(execCalls.length).toBeGreaterThanOrEqual(1);
     const firmCall = execCalls[0][0];
-    expect(firmCall?.evidence?.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET]);
+    expect(firmCall?.evidence?.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH]);
     expect(firmCall?.evidence?.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE]);
 
     // Each leg CLEARs its own funds order.
@@ -490,7 +490,7 @@ describe('WithdrawWorkflowService — T2b Phase B recon fields (cross-wallet sam
     const execCalls = mocks.accountingService.executeTransfer.mock.calls as any[][];
     const firmEvidence = execCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_FIRM')?.[0]?.evidence;
     expect(firmEvidence).toMatchObject({
-      debitWalletRef: null,                   // FIRM_ASSET is aggregate, no physical wallet
+      debitWalletRef: null,                   // FIRM_CASH is aggregate, no physical wallet
       creditWalletRef: 'wallet-f-fee-1',      // F_FEE platform wallet (from SystemWalletResolver mock)
       externalRef: '0xabc123dead',
       isExternalCrossing: true,

@@ -92,12 +92,12 @@ export function assertReasonAllowed(reasonCode: ReasonCode, book: Book, directio
 export function resolvePostingLegs(book: Book, direction: Direction): { debitCode: number; creditCode: number } {
   if (book === 'CLIENT') {
     return direction === 'REDUCE'
-      ? { debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE, creditCode: TB_ACCOUNT_CODES.CLIENT_ASSET }
-      : { debitCode: TB_ACCOUNT_CODES.CLIENT_ASSET,   creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE };
+      ? { debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE, creditCode: TB_ACCOUNT_CODES.CLIENT_CASH }
+      : { debitCode: TB_ACCOUNT_CODES.CLIENT_CASH,   creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE };
   }
   return direction === 'REDUCE'
-    ? { debitCode: TB_ACCOUNT_CODES.FIRM_OPS,   creditCode: TB_ACCOUNT_CODES.FIRM_ASSET }
-    : { debitCode: TB_ACCOUNT_CODES.FIRM_ASSET, creditCode: TB_ACCOUNT_CODES.INCOME_OTHER };
+    ? { debitCode: TB_ACCOUNT_CODES.FIRM_EQUITY,   creditCode: TB_ACCOUNT_CODES.FIRM_CASH }
+    : { debitCode: TB_ACCOUNT_CODES.FIRM_CASH, creditCode: TB_ACCOUNT_CODES.INCOME_OTHER };
 }
 
 /**
@@ -110,7 +110,7 @@ export function requiresRelatedOrder(book: Book, direction: Direction): boolean 
 
 /** 第五种分录组合（spec §6）：借 错记方 CLIENT_PAYABLE / 贷 正主方 CLIENT_PAYABLE。
  *  同码不同 ownerUuid——resolveTbAccountId 按 (code, ledger, ownerUuid) 落到两个
- *  不同的客户负债户上。客户资产腿（CLIENT_ASSET）刻意不动：托管里的钱没动。 */
+ *  不同的客户负债户上。客户资产腿（CLIENT_CASH）刻意不动：托管里的钱没动。 */
 export function resolveReattributionLegs(): { debitCode: number; creditCode: number } {
   return { debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE, creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE };
 }

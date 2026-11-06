@@ -4,7 +4,7 @@
 // 逐账户按 createdAt 升序累加，类别感知（资产借正=OUT 加；负债/权益贷正=IN 加）。
 // 幂等：每次从头重算，重跑结果一致。非 POSTED 行（PENDING/VOID_PENDING 等）保持 null，不触碰。
 import { PrismaClient } from '@prisma/client';
-import { isAssetCode } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
+import { isDebitNormalCode } from '../src/modules/accounting/tigerbeetle/constants/tb-account-codes.constant';
 
 const prisma = new PrismaClient();
 
@@ -14,7 +14,7 @@ async function main() {
   let touched = 0;
   for (const { tbAccountId } of accountIds) {
     const reg = await (prisma as any).tbAccountRegistry.findUnique({ where: { tbAccountId } });
-    const asset = reg ? isAssetCode(reg.code) : true;
+    const asset = reg ? isDebitNormalCode(reg.code) : true;
     const rows = await (prisma as any).accountFlow.findMany({
       where: { tbAccountId, transferType: 'POSTED' },
       orderBy: { createdAt: 'asc' },

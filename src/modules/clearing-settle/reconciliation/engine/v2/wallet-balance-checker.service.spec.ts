@@ -8,7 +8,7 @@ const D = (n: string | number) => new Prisma.Decimal(n);
 // Customer wallet's three account legs:
 //   acct-pay   = code 100 (CLIENT_PAYABLE) owned by CUSTOMER c-001
 //   acct-susp  = code 101 (DEPOSIT_SUSPENSE) owned by CUSTOMER c-001
-//   acct-asset = code 1   (CLIENT_ASSET) aggregate, owned by SYSTEM
+//   acct-asset = code 1   (CLIENT_CASH) aggregate, owned by SYSTEM
 // All three are tagged with the same walletRef when DEPOSIT_ASSET_TO_SUSPENSE
 // fires (see T2a in deposit-workflow.service), so a walletRef query brings
 // back the SYSTEM-owned aggregate leg too — we must filter it out.
@@ -19,9 +19,9 @@ const REG_CUSTOMER = {
 };
 
 // Firm wallet's account leg:
-//   acct-ops = code 200 (FIRM_OPS) owned by SYSTEM (firm equity is SYSTEM-owned)
+//   acct-ops = code 200 (FIRM_EQUITY) owned by SYSTEM (firm equity is SYSTEM-owned)
 const REG_FIRM = {
-  'acct-ops':   { tbAccountId: 'acct-ops',   code: 200, ownerType: 'SYSTEM', ownerNo: 'FIRM_OPS_USDT', assetCode: 'USDT' },
+  'acct-ops':   { tbAccountId: 'acct-ops',   code: 200, ownerType: 'SYSTEM', ownerNo: 'FIRM_EQUITY_USDT', assetCode: 'USDT' },
   // Aggregate firm asset leg that may also share walletRef
   'acct-fasset':{ tbAccountId: 'acct-fasset',code: 50,  ownerType: 'SYSTEM', ownerNo: null,           assetCode: 'USDT' },
 };
@@ -162,13 +162,13 @@ describe('WalletBalanceCheckerService', () => {
     expect(result.delta).toBe(50n);
   });
 
-  it('firm wallet: external == FIRM_OPS balance → pass=true', async () => {
+  it('firm wallet: external == FIRM_EQUITY balance → pass=true', async () => {
     const prisma = makePrismaMock({
-      // FIRM_OPS gains 5000 in two postings
+      // FIRM_EQUITY gains 5000 in two postings
       flows: [
         { tbAccountId: 'acct-ops',    direction: 'IN',  amount: 3000, walletRef: 'firm-ops-1', createdAt: new Date('2026-06-26T01:00:00Z') },
         { tbAccountId: 'acct-ops',    direction: 'IN',  amount: 2000, walletRef: 'firm-ops-1', createdAt: new Date('2026-06-26T02:00:00Z') },
-        // aggregate FIRM_ASSET leg shares walletRef → filtered out
+        // aggregate FIRM_CASH leg shares walletRef → filtered out
         { tbAccountId: 'acct-fasset', direction: 'IN',  amount: 5000, walletRef: 'firm-ops-1', createdAt: new Date('2026-06-26T01:00:00Z') },
       ],
       registry: REG_FIRM,
@@ -181,15 +181,15 @@ describe('WalletBalanceCheckerService', () => {
     });
     expect(result.pass).toBe(true);
     expect(result.walletKind).toBe('FIRM');
-    expect(result.coaCode).toBe('E.FIRM_OPS');
-    expect(result.ownerNo).toBe('FIRM_OPS_USDT');
+    expect(result.coaCode).toBe('E.FIRM_EQUITY');
+    expect(result.ownerNo).toBe('FIRM_EQUITY_USDT');
     expect(result.internal.firmEquity).toBe(5000n);
     expect(result.internal.total).toBe(5000n);
     expect(result.external).toBe(5000n);
     expect(result.delta).toBe(0n);
   });
 
-  it('firm wallet: external != FIRM_OPS → pass=false with delta', async () => {
+  it('firm wallet: external != FIRM_EQUITY → pass=false with delta', async () => {
     const prisma = makePrismaMock({
       flows: [
         { tbAccountId: 'acct-ops', direction: 'IN', amount: 5000, walletRef: 'firm-ops-1', createdAt: new Date('2026-06-26T01:00:00Z') },
@@ -210,7 +210,7 @@ describe('WalletBalanceCheckerService', () => {
 
   it('unknown wallet (no recognized codes hit) → walletKind=UNKNOWN', async () => {
     const prisma = makePrismaMock({
-      // Only the aggregate CLIENT_ASSET leg exists at this walletRef — caller is
+      // Only the aggregate CLIENT_CASH leg exists at this walletRef — caller is
       // querying the aggregate audit row's walletRef, not a real customer's wallet.
       flows: [
         { tbAccountId: 'acct-asset', direction: 'IN', amount: 1000, walletRef: 'aggr-only', createdAt: new Date('2026-06-26T01:00:00Z') },

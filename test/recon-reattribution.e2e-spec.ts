@@ -60,7 +60,7 @@ import { generateReferenceNo } from '../src/common/utils/no-generator.util';
  * 所以分录是两个客户的应付对转：
  *     借 错记方客户应付 CLIENT_PAYABLE (ownerUuid = A)
  *     贷 正主方客户应付 CLIENT_PAYABLE (ownerUuid = B)
- *     客户资产腿 CLIENT_ASSET 绝不出现 —— 托管里的钱没进也没出
+ *     客户资产腿 CLIENT_CASH 绝不出现 —— 托管里的钱没进也没出
  * 这一条**用行为证明**：把两条真实 account_flows 的 tbAccountId 回查
  * tb_account_registry，断言两边的 code 都是 CLIENT_PAYABLE、且 ownerNo 一边是
  * 错记方一边是正主方。不去 grep 源码文本（本仓库为「扫源码文本」型断言的
@@ -228,7 +228,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
 
   /**
    * 客户钱包铺底：与 deposit-workflow.service.ts 生产里的两跳完全同形
-   * （Step 1 CLIENT_ASSET→DEPOSIT_SUSPENSE 真实外部穿越，Step 2
+   * （Step 1 CLIENT_CASH→DEPOSIT_SUSPENSE 真实外部穿越，Step 2
    * DEPOSIT_SUSPENSE→CLIENT_PAYABLE 纯账面重分类），两腿都盖 walletRef。
    * 对这个钱包 (PAYABLE+SUSPENSE) 的净效果 = +amount。
    *
@@ -245,7 +245,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     // 本轮的证据/流水写入，钱包内部余额停在 0 而且哪儿都不报错。
     const sourceNo = `E2E-REATTR-FUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
 
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
 
@@ -259,7 +259,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
         sourceType: 'DEPOSIT',
         sourceNo,
         eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
         creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         assetCurrency: opts.currency,
         traceId: sourceNo,
@@ -301,8 +301,8 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
   }
 
   /**
-   * 公司钱包铺底（场景 B 用）：DR FIRM_ASSET / CR INCOME_OTHER。
-   * WalletBalanceChecker 对公司钱包只认 200/201/203/210/211/212，聚合腿 FIRM_ASSET(50)
+   * 公司钱包铺底（场景 B 用）：DR FIRM_CASH / CR INCOME_OTHER。
+   * WalletBalanceChecker 对公司钱包只认 200/201/203/210/211/212，聚合腿 FIRM_CASH(50)
    * 被丢掉，所以这个钱包的内部余额 = +amount。
    * 这里刻意传 isExternalCrossing:true + externalRef —— 场景 B 要的是一条
    * **能与外部对账单行按单号配上、但金额对不上**的真实流水（AMOUNT_MISMATCH）。
@@ -311,7 +311,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     walletId: string; ledger: number; currency: string; amount: bigint; tag: string; externalRef: string;
   }): Promise<void> {
     const sourceNo = `E2E-REATTR-FIRMFUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
-    const firmAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const firmAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
     const incomeOtherId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.INCOME_OTHER, ledger: opts.ledger, ownerType: 'SYSTEM' });
 
     await accounting.executeTransfer({
@@ -324,7 +324,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
         sourceType: 'DEPOSIT',
         sourceNo,
         eventCode: 'E2E_FIRM_FIXTURE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH],
         creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
         assetCurrency: opts.currency,
         traceId: sourceNo,
@@ -617,8 +617,8 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     const inReg = await registryOf(inLeg.tbAccountId);
     expect(outReg.code).toBe(TB_ACCOUNT_CODES.CLIENT_PAYABLE);
     expect(inReg.code).toBe(TB_ACCOUNT_CODES.CLIENT_PAYABLE);
-    expect(outReg.code).not.toBe(TB_ACCOUNT_CODES.CLIENT_ASSET); // 托管里的钱没进也没出
-    expect(inReg.code).not.toBe(TB_ACCOUNT_CODES.CLIENT_ASSET);
+    expect(outReg.code).not.toBe(TB_ACCOUNT_CODES.CLIENT_CASH); // 托管里的钱没进也没出
+    expect(inReg.code).not.toBe(TB_ACCOUNT_CODES.CLIENT_CASH);
     expect(outReg.ownerType).toBe('CUSTOMER');
     expect(inReg.ownerType).toBe('CUSTOMER');
     expect(outReg.ownerNo).toBe(fromCustomer.customerNo); // 借：从错记方名下拿走
@@ -630,8 +630,8 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(evidence).toHaveLength(1);
     expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
     expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
-    expect(evidence[0].debitCode).not.toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
-    expect(evidence[0].creditCode).not.toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+    expect(evidence[0].debitCode).not.toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
+    expect(evidence[0].creditCode).not.toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
     expect(evidence[0].actorId).toBe('E2E_OPS_APPROVER_A');
 
     // 铁律①：正主方 B 的余额真的变了，按 B 也必须查得到这条审计（本仓第一个双 OWNER 事件）。
@@ -799,7 +799,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
       where: { dispositionNo: disposition.dispositionNo },
     });
     expect(dispositionRow.adjustmentNo).toBeNull();
-    // 这个钱包上的流水仍然只有铺底那两条（FIRM_ASSET 腿 + INCOME_OTHER 腿），
+    // 这个钱包上的流水仍然只有铺底那两条（FIRM_CASH 腿 + INCOME_OTHER 腿），
     // 定性一条分录都没添。
     const walletFlows = await (prisma as any).accountFlow.findMany({ where: { walletRef: wallet.id } });
     expect(walletFlows).toHaveLength(2);

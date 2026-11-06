@@ -96,7 +96,7 @@ export class PrudentialService {
       await this.systemWallets.resolve(asset.id, 'F_OPS');
       const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
       const tbAccountId = await this.accounting.resolveTbAccountId({
-        code: TB_ACCOUNT_CODES.FIRM_OPS,
+        code: TB_ACCOUNT_CODES.FIRM_EQUITY,
         ledger,
         ownerType: 'SYSTEM',
       });

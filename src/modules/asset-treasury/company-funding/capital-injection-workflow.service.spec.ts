@@ -227,7 +227,7 @@ describe('CapitalInjectionWorkflowService (Task 3)', () => {
       await expect(wf.simulateContribution(cinNo, treasury)).rejects.toThrow(/not awaiting funds/);
     });
 
-    it('confirm：post 码 70（DR FIRM_ASSET / CR FIRM_OPS，注入币 ledger，外穿）→ CLEAR 腿 → SUCCESS + audit CONFIRMED(expected/received) + explicit requestId', async () => {
+    it('confirm：post 码 70（DR FIRM_CASH / CR FIRM_EQUITY，注入币 ledger，外穿）→ CLEAR 腿 → SUCCESS + audit CONFIRMED(expected/received) + explicit requestId', async () => {
       const { wf, injections, accounting, fundsOrders, auditLogs, cinNo } = await seedAwaitingFunds();
       await wf.simulateContribution(cinNo, treasury);
       const r = await wf.confirm(cinNo, treasury);
@@ -235,10 +235,10 @@ describe('CapitalInjectionWorkflowService (Task 3)', () => {
       expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
       expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
         code: TB_TRANSFER_CODES.CAPITAL_INJECTION, amount: 50_000_000n, ledger: TB_LEDGERS.AED,
-        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_ASSET, TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_OPS, TB_LEDGERS.AED),
+        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_CASH, TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_EQUITY, TB_LEDGERS.AED),
         evidence: expect.objectContaining({
           sourceType: 'CAPITAL_INJECTION', sourceNo: cinNo, eventCode: 'CAPITAL_INJECTION',
-          debitCode: 'A.FIRM_ASSET', creditCode: 'E.FIRM_OPS',
+          debitCode: 'A.FIRM_CASH', creditCode: 'E.FIRM_EQUITY',
           debitWalletRef: 'w-ops-aed', creditWalletRef: 'w-ops-aed', isExternalCrossing: true, assetCurrency: 'AED',
         }),
       });

@@ -2219,7 +2219,7 @@ describe('WithdrawWorkflowService — Task 6: settle-failure retry (three-rung l
 //
 //   onBounce — admin-initiated: the payout already POSTed (money actually
 //   left) but the bank/network bounced it back afterwards. Reverses the net
-//   leg (DR CLIENT_ASSET / CR CLIENT_PAYABLE) THEN flips PAYOUT_PENDING →
+//   leg (DR CLIENT_CASH / CR CLIENT_PAYABLE) THEN flips PAYOUT_PENDING →
 //   RETURNED (先账后状态). Fee is NOT refunded. Idempotent: a second call
 //   after RETURNED fails cleanly on the status guard.
 //
@@ -2335,7 +2335,7 @@ describe('WithdrawWorkflowService.onBounce (Task 7: RETURNED bounce entry)', () 
     expect(withdrawService.updateStatus).not.toHaveBeenCalled();
   });
 
-  it('happy path: reverses the net leg (DR CLIENT_ASSET / CR CLIENT_PAYABLE) THEN flips to RETURNED, audits reason + fee retained', async () => {
+  it('happy path: reverses the net leg (DR CLIENT_CASH / CR CLIENT_PAYABLE) THEN flips to RETURNED, audits reason + fee retained', async () => {
     const { workflow, withdrawService, accountingService, auditLogsService, fundsOrders } =
       buildBounceWorkflow();
     withdrawService.findOneInternal.mockResolvedValue(bounceWithdrawal);
@@ -2344,7 +2344,7 @@ describe('WithdrawWorkflowService.onBounce (Task 7: RETURNED bounce entry)', () 
     ]);
     fundsOrders.resolveExternalRef.mockReturnValue('0xabc');
     accountingService.resolveTbAccountId.mockImplementation(async (params: any) =>
-      params.code === TB_ACCOUNT_CODES.CLIENT_ASSET ? 111n : 222n,
+      params.code === TB_ACCOUNT_CODES.CLIENT_CASH ? 111n : 222n,
     );
 
     const callOrder: string[] = [];
@@ -2369,7 +2369,7 @@ describe('WithdrawWorkflowService.onBounce (Task 7: RETURNED bounce entry)', () 
           sourceType: 'WITHDRAWAL',
           sourceNo: bounceWithdrawal.withdrawNo,
           eventCode: 'WITHDRAW_BOUNCE_REENTRY',
-          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
           creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
           debitWalletRef: bounceWithdrawal.fromWalletId,
           creditWalletRef: bounceWithdrawal.fromWalletId,

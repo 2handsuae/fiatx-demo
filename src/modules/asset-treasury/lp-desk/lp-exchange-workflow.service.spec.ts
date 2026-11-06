@@ -316,16 +316,16 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       }));
     });
 
-    it('CONFIRMED: posts 84 with the SELL-side ledger (跨 ledger 是本任务要害) — DR E.FIRM_OPS / CR A.FIRM_ASSET, external-crossing → CLEAR → AWAITING_DELIVERY + audit PAY_LEG_POSTED carries fromStatus/toStatus + explicit requestId', async () => {
+    it('CONFIRMED: posts 84 with the SELL-side ledger (跨 ledger 是本任务要害) — DR E.FIRM_EQUITY / CR A.FIRM_CASH, external-crossing → CLEAR → AWAITING_DELIVERY + audit PAY_LEG_POSTED carries fromStatus/toStatus + explicit requestId', async () => {
       const { wf, accounting, fundsOrders, exchanges, auditLogs } = makeWorkflow({ exchangeRow: executing });
       await wf.handleFundsOrderChanged(evt(1, 'CONFIRMED') as any);
       expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
       expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
         code: TB_TRANSFER_CODES.LP_EXCHANGE_PAY, amount: 20_000_000_000n, ledger: TB_LEDGERS.USDT,
-        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_OPS, TB_LEDGERS.USDT), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_ASSET, TB_LEDGERS.USDT),
+        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_EQUITY, TB_LEDGERS.USDT), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_CASH, TB_LEDGERS.USDT),
         evidence: expect.objectContaining({
           sourceType: 'LP_EXCHANGE', sourceNo: 'LPX1', eventCode: 'LP_EXCHANGE_PAY',
-          debitCode: 'E.FIRM_OPS', creditCode: 'A.FIRM_ASSET',
+          debitCode: 'E.FIRM_EQUITY', creditCode: 'A.FIRM_CASH',
           debitWalletRef: 'w-ops-usdt', creditWalletRef: 'w-ops-usdt', isExternalCrossing: true, assetCurrency: 'USDT',
         }),
       });
@@ -375,8 +375,8 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       expect(accounting.executeTransfer).toHaveBeenCalledTimes(1);
       expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
         code: TB_TRANSFER_CODES.LP_EXCHANGE_RECEIVE, amount: 7_328_000n, ledger: TB_LEDGERS.AED,
-        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_ASSET, TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_LIQ, TB_LEDGERS.AED),
-        evidence: expect.objectContaining({ eventCode: 'LP_EXCHANGE_RECEIVE', debitCode: 'A.FIRM_ASSET', creditCode: 'E.FIRM_LIQ', debitWalletRef: 'w-liq-aed', creditWalletRef: 'w-liq-aed', isExternalCrossing: true, assetCurrency: 'AED' }),
+        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_CASH, TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_LIQ, TB_LEDGERS.AED),
+        evidence: expect.objectContaining({ eventCode: 'LP_EXCHANGE_RECEIVE', debitCode: 'A.FIRM_CASH', creditCode: 'E.FIRM_LIQ', debitWalletRef: 'w-liq-aed', creditWalletRef: 'w-liq-aed', isExternalCrossing: true, assetCurrency: 'AED' }),
       });
       expect(fundsOrders.advance).toHaveBeenCalledWith('fo-2', 'CLEAR', 'LP_EXCHANGE_WORKFLOW');
       expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({ fundsOrderNo: 'FDO2', fromWalletId: null, toWalletId: 'w-liq-aed', assetCode: 'AED', assetType: 'FIAT', amountMinor: 7_328_000n }));
@@ -580,8 +580,8 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       }));
       expect(accounting.executeTransfer.mock.calls[0][0]).toMatchObject({
         code: TB_TRANSFER_CODES.LP_EXCHANGE_ACCEPT, amount: 7_328_000n, ledger: TB_LEDGERS.AED,
-        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_LIQ, TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_OPS, TB_LEDGERS.AED),
-        evidence: expect.objectContaining({ eventCode: 'LP_EXCHANGE_ACCEPT', debitCode: 'E.FIRM_LIQ', creditCode: 'E.FIRM_OPS', debitWalletRef: 'w-liq-aed', creditWalletRef: 'w-ops-aed', isExternalCrossing: true }),
+        debitAccountId: acct(TB_ACCOUNT_CODES.FIRM_LIQ, TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.FIRM_EQUITY, TB_LEDGERS.AED),
+        evidence: expect.objectContaining({ eventCode: 'LP_EXCHANGE_ACCEPT', debitCode: 'E.FIRM_LIQ', creditCode: 'E.FIRM_EQUITY', debitWalletRef: 'w-liq-aed', creditWalletRef: 'w-ops-aed', isExternalCrossing: true }),
       });
       expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({
         fundsOrderNo: 'FDO3', fromWalletId: 'w-liq-aed', toWalletId: 'w-ops-aed', assetCode: 'AED', assetType: 'FIAT', amountMinor: 7_328_000n,

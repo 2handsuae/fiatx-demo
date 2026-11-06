@@ -268,10 +268,10 @@ export class InternalTransferWorkflowService {
     const sys = (code: number) => this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'SYSTEM' });
     return {
       ledger,
-      firmOps: () => sys(TB_ACCOUNT_CODES.FIRM_OPS),
+      firmOps: () => sys(TB_ACCOUNT_CODES.FIRM_EQUITY),
       firmSet: () => sys(TB_ACCOUNT_CODES.FIRM_SET),
-      firmAsset: () => sys(TB_ACCOUNT_CODES.FIRM_ASSET),
-      clientAsset: () => sys(TB_ACCOUNT_CODES.CLIENT_ASSET),
+      firmAsset: () => sys(TB_ACCOUNT_CODES.FIRM_CASH),
+      clientAsset: () => sys(TB_ACCOUNT_CODES.CLIENT_CASH),
       clientPayable: () => this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger, ownerType: 'CUSTOMER', ownerUuid: row.customerId }),
     };
   }
@@ -296,7 +296,7 @@ export class InternalTransferWorkflowService {
     await this.accounting.executeTransfer({
       debitAccountId: await a.firmOps(), creditAccountId: await a.firmSet(), amount, ledger: a.ledger,
       code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_OPS_TO_SET,
-      evidence: this.evidence(row, leg, 'INTERNAL_TRANSFER_OPS_TO_SET', TB_ACCOUNT_CODES.FIRM_OPS, TB_ACCOUNT_CODES.FIRM_SET, row.fromWalletId, row.viaWalletId),
+      evidence: this.evidence(row, leg, 'INTERNAL_TRANSFER_OPS_TO_SET', TB_ACCOUNT_CODES.FIRM_EQUITY, TB_ACCOUNT_CODES.FIRM_SET, row.fromWalletId, row.viaWalletId),
     });
   }
 
@@ -305,19 +305,19 @@ export class InternalTransferWorkflowService {
     const a = await this.accounts(row);
     const amount = majorToMinor(leg.amount, row.asset.decimals);
     const isFiat = row.asset.type === 'FIAT';
-    const firmCode = isFiat ? TB_ACCOUNT_CODES.FIRM_SET : TB_ACCOUNT_CODES.FIRM_OPS;
+    const firmCode = isFiat ? TB_ACCOUNT_CODES.FIRM_SET : TB_ACCOUNT_CODES.FIRM_EQUITY;
     const firmWallet = isFiat ? row.viaWalletId : row.fromWalletId;
     await this.accounting.executeTransfer({
       debitAccountId: isFiat ? await a.firmSet() : await a.firmOps(), creditAccountId: await a.firmAsset(), amount, ledger: a.ledger,
       code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_FIRM_OUT,
-      evidence: this.evidence(row, leg, 'INTERNAL_TRANSFER_FIRM_OUT', firmCode, TB_ACCOUNT_CODES.FIRM_ASSET, firmWallet, firmWallet),
+      evidence: this.evidence(row, leg, 'INTERNAL_TRANSFER_FIRM_OUT', firmCode, TB_ACCOUNT_CODES.FIRM_CASH, firmWallet, firmWallet),
     });
     // 客户侧事件码按用途分——客户端对账单靠它显示「平台补款 / 平台垫付」（spec §11）
     const clientEvent = row.purpose === 'CLIENT_COMPENSATION' ? 'INTERNAL_TRANSFER_COMPENSATION_IN' : 'INTERNAL_TRANSFER_ADVANCE_IN';
     await this.accounting.executeTransfer({
       debitAccountId: await a.clientAsset(), creditAccountId: await a.clientPayable(), amount, ledger: a.ledger,
       code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_CLIENT_IN,
-      evidence: this.evidence(row, leg, clientEvent, TB_ACCOUNT_CODES.CLIENT_ASSET, TB_ACCOUNT_CODES.CLIENT_PAYABLE, row.toWalletId, row.toWalletId),
+      evidence: this.evidence(row, leg, clientEvent, TB_ACCOUNT_CODES.CLIENT_CASH, TB_ACCOUNT_CODES.CLIENT_PAYABLE, row.toWalletId, row.toWalletId),
     });
   }
 

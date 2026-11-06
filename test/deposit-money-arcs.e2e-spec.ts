@@ -48,7 +48,7 @@ import { fakeBankRef, fakeChainTxHash } from '../src/common/utils/fake-external-
  *   suite; this file's job is the four arcs themselves.
  * - The return/seize arcs assume money is already resting in DEPOSIT_SUSPENSE (the real
  *   precondition — Step 1 already ran before compliance review). `preBookSuspense()`
- *   reproduces that Step 1 posting (CLIENT_ASSET→DEPOSIT_SUSPENSE) via the real
+ *   reproduces that Step 1 posting (CLIENT_CASH→DEPOSIT_SUSPENSE) via the real
  *   AccountingService so the arc's own pending/post accounting has real money to move
  *   (not a synthetic negative-balance debit).
  * - `funds_order.status.changed` is fire-and-forget `emit()` (not `emitAsync`) inside
@@ -196,11 +196,11 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     return { id: created.id, depositNo: created.depositNo };
   }
 
-  /** Reproduces the real Step 1 posting (CLIENT_ASSET→DEPOSIT_SUSPENSE) so the arc under
+  /** Reproduces the real Step 1 posting (CLIENT_CASH→DEPOSIT_SUSPENSE) so the arc under
    *  test has real money resting in DEPOSIT_SUSPENSE to move — matches the real precondition
    *  (compliance review only ever starts after Step 1 already ran). */
   async function preBookSuspense(depositRow: { id: string; depositNo: string }, amountBigint: bigint): Promise<void> {
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
+    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger, ownerType: 'SYSTEM' });
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger, ownerType: 'CUSTOMER', ownerUuid: customerId });
     await accounting.executeTransfer({
       debitAccountId: clientAssetId,
@@ -212,7 +212,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
         sourceType: 'DEPOSIT',
         sourceNo: depositRow.depositNo,
         eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
         creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         assetCurrency: 'AED',
         traceId: depositRow.depositNo,
@@ -231,12 +231,12 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
   }
 
   /** Final-review fix: SEIZE reverted to a single leg — the A6 COA break was traced to
-   *  the leg's credit account being wrong (CR FIRM_SEIZED instead of CR CLIENT_ASSET),
+   *  the leg's credit account being wrong (CR FIRM_SEIZED instead of CR CLIENT_CASH),
    *  not to a missing second leg. This helper lets the SEIZE scenario prove the client
-   *  bucket (CLIENT_ASSET shrinks by the same amount as the suspense reversal) stays
+   *  bucket (CLIENT_CASH shrinks by the same amount as the suspense reversal) stays
    *  self-balanced on its own, exactly like the return arc. */
   async function clientAssetTotal(): Promise<bigint> {
-    const id = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger, ownerType: 'SYSTEM' });
+    const id = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger, ownerType: 'SYSTEM' });
     const balance = await accounting.lookupBalance(id);
     return balance.debitsPosted - balance.creditsPosted; // asset-normal: debit increases
   }
@@ -383,7 +383,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     expect(after - before).toBe(-amountBigint);
   });
 
-  it('2. SEIZE full arc: FROZEN → initiateSeize(orderRef) → two-step approval (SENIOR_MANAGEMENT_OFFICER → MLRO, distinct actors) → SEIZING + legSeq=4 pending-locked (single TB leg) → leg CONFIRMED → SEIZED, evidence.memo carries orderRef, COA identity holds (final-review fix: single-leg seize, credit CLIENT_ASSET)', async () => {
+  it('2. SEIZE full arc: FROZEN → initiateSeize(orderRef) → two-step approval (SENIOR_MANAGEMENT_OFFICER → MLRO, distinct actors) → SEIZING + legSeq=4 pending-locked (single TB leg) → leg CONFIRMED → SEIZED, evidence.memo carries orderRef, COA identity holds (final-review fix: single-leg seize, credit CLIENT_CASH)', async () => {
     const amount = '50.00';
     const amountBigint = decimalToBigint(amount, fiatDecimals);
     const orderRef = `GOV-ORDER-${Date.now()}`;
@@ -442,7 +442,7 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     actions = await auditActionsFor(deposit.id);
     expect(actions).toContain(AuditActions.DEPOSIT_SEIZED);
 
-    // Single-leg seize evidence — the one leg reverses suspense into CLIENT_ASSET.
+    // Single-leg seize evidence — the one leg reverses suspense into CLIENT_CASH.
     // Its memo carries orderRef (the sole 8-year retention anchor since the
     // destination account is never modeled).
     const evidenceRows = await tbEvidence.findBySource('DEPOSIT', deposit.depositNo);
@@ -450,8 +450,8 @@ describe('Deposit money arcs (e2e, Task A6)', () => {
     expect(legRow).toBeTruthy();
     expect(legRow.memo).toContain(orderRef);
 
-    // Final-review fix: prove the single leg (credit CLIENT_ASSET, not FIRM_SEIZED)
-    // is self-balancing on its own — DEPOSIT_SUSPENSE and CLIENT_ASSET both shrink
+    // Final-review fix: prove the single leg (credit CLIENT_CASH, not FIRM_SEIZED)
+    // is self-balancing on its own — DEPOSIT_SUSPENSE and CLIENT_CASH both shrink
     // by the seized amount, no COA break (see BACKLOG.md / v4-deposit.md §6.3).
     const suspenseAfter = await suspenseTotal();
     const clientAssetAfter = await clientAssetTotal();

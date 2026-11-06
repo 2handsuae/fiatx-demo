@@ -412,11 +412,11 @@ async function planWallets(
   //   statement_lines    ← every POSTED account_flow row landing on this wallet
   //                        AND on one of the wallet's "owned" TB account codes
   //                        (CUSTOMER → CLIENT_PAYABLE/DEPOSIT_SUSPENSE;
-  //                         FIRM     → FIRM_OPS/SET/INCOME_SWAP_FEE/
+  //                         FIRM     → FIRM_EQUITY/SET/INCOME_SWAP_FEE/
   //                         INCOME_WITHDRAW_FEE/INCOME_OTHER, plus retired
   //                         202/204（203 已于 2026-09-29 战役乙复活）kept so
   //                         pre-COA-v2 history still mirrors).
-  //                        Aggregate codes (CLIENT_ASSET=1 / FIRM_ASSET=50)
+  //                        Aggregate codes (CLIENT_CASH=1 / FIRM_CASH=50)
   //                        are filtered out — matches WalletBalanceChecker.
   //
   // Direction semantic (verified empirically against Alice's CU2601019430
@@ -424,7 +424,7 @@ async function planWallets(
   //   account_flows.direction='IN'  ⇒ external statement IN  (balance UP)
   //   account_flows.direction='OUT' ⇒ external statement OUT (balance DOWN)
   // The TB accounts in scope (CLIENT_PAYABLE/SUSPENSE = LIABILITY,
-  // FIRM_OPS/SET/INCOME_*/retired-202/204（203 已于 2026-09-29 战役乙复活）=
+  // FIRM_EQUITY/SET/INCOME_*/retired-202/204（203 已于 2026-09-29 战役乙复活）=
   // EQUITY) are ALL credit-normal
   // right-side-of-BS accounts → same single rule for both books, no
   // role/event override.
@@ -1109,7 +1109,7 @@ async function injectScenarios(
       where: { customerNo: slotShowcaseB.ownerNo! }, select: { id: true },
     });
     if (!owner) throw new Error(`找不到展示位乙钱包的客户：${slotShowcaseB.ownerNo}`);
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: dupLedger, ownerType: 'SYSTEM' });
+    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: dupLedger, ownerType: 'SYSTEM' });
     const suspenseId    = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: dupLedger, ownerType: 'CUSTOMER', ownerUuid: owner.id });
     const payableId     = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: dupLedger, ownerType: 'CUSTOMER', ownerUuid: owner.id });
     // 铁律⑥：展示位乙这一屏，⑦ 那一行的 sourceNo 是真实 DEP 号（原单据自带）；
@@ -1127,7 +1127,7 @@ async function injectScenarios(
       code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
       evidence: {
         sourceType: 'DEPOSIT', sourceNo: dupSourceNo, eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
         creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         assetCurrency: slotShowcaseB.currency, traceId: dupSourceNo,
         actorType: 'SYSTEM', actorId: 'RECON_DEMO',
@@ -1208,7 +1208,7 @@ async function injectScenarios(
     // debitWalletRef/creditWalletRef 设成了同一个 Frank 钱包——AccountFlowProjectorService
     // 每次 executeTransfer 落两行（借/贷各一行，walletRef 相同）。所以
     // `{ sourceNo: dupSourceNo, walletRef }` 这一查询条件其实会命中 **4 行**：
-    // STEP_1 借（CLIENT_ASSET 聚合户,OUT,crossing=true）/ STEP_1 贷
+    // STEP_1 借（CLIENT_CASH 聚合户,OUT,crossing=true）/ STEP_1 贷
     // （DEPOSIT_SUSPENSE,IN,crossing=true——这行才是我们要的)/ STEP_2 借
     // （DEPOSIT_SUSPENSE,OUT,crossing=false）/ STEP_2 贷（CLIENT_PAYABLE,IN,
     // crossing=false)。`orderBy: createdAt desc` 挑的是**最晚**写入的一行——

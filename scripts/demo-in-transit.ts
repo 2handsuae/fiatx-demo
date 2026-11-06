@@ -167,7 +167,7 @@ async function runVerify(
   //
   // ⚠️ 必须先等净额 POST 落库再 recon（实测踩坑）：syncPush 只把腿驱到 CLEARED 就返回，真正的**净额 POST**
   //   由 withdraw-workflow 的 @OnEvent(onPayoutLegConfirmed) 异步 handler 完成（写 WITHDRAW_NET_POST
-  //   account_flow：OUT→客户 PAYABLE[100]、IN→聚合 CLIENT_ASSET[1]；balanceChecker 只认 owned=100/101，
+  //   account_flow：OUT→客户 PAYABLE[100]、IN→聚合 CLIENT_CASH[1]；balanceChecker 只认 owned=100/101，
   //   故内部净额下移 −净额）。若紧接着 recon，该 flow 可能还没 commit → 该轮读到旧内部余额 → delta 仍= −净额
   //   → 误判 BREAK。故这里轮询到该腿的 WITHDRAW_NET_POST 落库再 recon，去竞态。
   await waitFor(

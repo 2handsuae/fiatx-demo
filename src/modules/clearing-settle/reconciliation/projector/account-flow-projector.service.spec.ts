@@ -108,7 +108,7 @@ describe('AccountFlowProjectorService', () => {
     // Helper: build a client mock with default aggregate-registry stubs.
     // baseEvidence references fake tbAccountIds ('tb-debit-001', 'tb-credit-002')
     // and fake walletRefs ('wallet-debit', 'wallet-credit'). We default both
-    // registry lookups to code=1 (CLIENT_ASSET aggregate) so R2 owner check is
+    // registry lookups to code=1 (CLIENT_CASH aggregate) so R2 owner check is
     // skipped for these existing tests — keeps them focused on projection
     // behavior, not invariant enforcement.
     const aggregateRegistry = { code: 1, ownerType: 'SYSTEM', ownerNo: 'PLATFORM' };
@@ -186,7 +186,7 @@ describe('AccountFlowProjectorService', () => {
   //     - walletRef must join to wallets table (no orphan)
   //     - wallets.ownerType/ownerNo must equal tb_account_registry.ownerType/ownerNo
   //       for the row's tbAccountId
-  //     - Exception: aggregate accounts (CLIENT_ASSET code=1, FIRM_ASSET code=50)
+  //     - Exception: aggregate accounts (CLIENT_CASH code=1, FIRM_CASH code=50)
   //       carry no owner — skip the owner check
   //   Violation → throw WalletRefMismatchError before persisting the row.
   describe('R2: assertWalletRefMatchesTbAccount', () => {
@@ -253,8 +253,8 @@ describe('AccountFlowProjectorService', () => {
       expect(okClient.accountFlow.upsert).toHaveBeenCalledTimes(2);
     });
 
-    it('skips owner check for aggregate accounts (code=1 CLIENT_ASSET)', async () => {
-      // walletRef = Bob, but tbAccountId is CLIENT_ASSET aggregate — no owner
+    it('skips owner check for aggregate accounts (code=1 CLIENT_CASH)', async () => {
+      // walletRef = Bob, but tbAccountId is CLIENT_CASH aggregate — no owner
       // attached to the registry row. Owner check must NOT run.
       const aggregateClient: any = {
         accountFlow: { upsert: jest.fn().mockResolvedValue({}) },
@@ -267,7 +267,7 @@ describe('AccountFlowProjectorService', () => {
       expect(aggregateClient.accountFlow.upsert).toHaveBeenCalledTimes(2);
     });
 
-    it('skips owner check for aggregate accounts (code=50 FIRM_ASSET)', async () => {
+    it('skips owner check for aggregate accounts (code=50 FIRM_CASH)', async () => {
       const aggregateClient: any = {
         accountFlow: { upsert: jest.fn().mockResolvedValue({}) },
         wallet: { findUnique: jest.fn().mockResolvedValue(bobWallet) },

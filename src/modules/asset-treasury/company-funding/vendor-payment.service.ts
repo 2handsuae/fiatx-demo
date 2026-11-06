@@ -98,7 +98,7 @@ export class VendorPaymentService {
   async assertFirmOpsBalance(currency: string, amountMinor: bigint): Promise<void> {
     const ledger = TB_LEDGERS[currency as keyof typeof TB_LEDGERS];
     if (!ledger) throw new BadRequestException(`Unsupported currency: ${currency}`);
-    const opsId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_OPS, ledger, ownerType: 'SYSTEM' });
+    const opsId = await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_EQUITY, ledger, ownerType: 'SYSTEM' });
     const bal = await this.accounting.lookupBalance(opsId);
     const available = bal.creditsPosted - bal.debitsPosted - bal.debitsPending;
     if (available < amountMinor) {

@@ -4,14 +4,14 @@ import { PrismaService } from '../../../core/prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import { TigerBeetleService } from './tigerbeetle.service';
 import { hexToBigint } from './utils/tb-id.util';
-import { isAssetCode, accountNameOf } from './constants/tb-account-codes.constant';
+import { isDebitNormalCode, accountNameOf } from './constants/tb-account-codes.constant';
 
-/** class-aware posted 余额(分,字符串)。资产借正=debits−credits；负债/权益贷正=credits−debits。 */
+/** class-aware posted 余额(分,字符串)。借方户(现金/开支)借正=debits−credits；贷方户(负债/权益/收入)贷正=credits−debits。 */
 export function postedBalanceForCode(
   acct: { debits_posted: bigint; credits_posted: bigint },
   code: number,
 ): string {
-  const net = isAssetCode(code)
+  const net = isDebitNormalCode(code)
     ? acct.debits_posted - acct.credits_posted
     : acct.credits_posted - acct.debits_posted;
   return net.toString();

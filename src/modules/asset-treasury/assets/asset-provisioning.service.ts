@@ -5,9 +5,9 @@ import { TB_ACCOUNT_CODES } from '../../accounting/tigerbeetle/constants/tb-acco
 export function systemAccountCodesFor(assetType: string): Array<{ code: number; desc: string }> {
   const isFiat = assetType === 'FIAT';
   return [
-    { code: TB_ACCOUNT_CODES.CLIENT_ASSET, desc: 'CLIENT_ASSET' },
-    { code: TB_ACCOUNT_CODES.FIRM_ASSET, desc: 'FIRM_ASSET' },
-    { code: TB_ACCOUNT_CODES.FIRM_OPS, desc: 'FIRM_OPS' },
+    { code: TB_ACCOUNT_CODES.CLIENT_CASH, desc: 'CLIENT_CASH' },
+    { code: TB_ACCOUNT_CODES.FIRM_CASH, desc: 'FIRM_CASH' },
+    { code: TB_ACCOUNT_CODES.FIRM_EQUITY, desc: 'FIRM_EQUITY' },
     { code: TB_ACCOUNT_CODES.FIRM_LIQ, desc: 'FIRM_LIQ' },
     { code: TB_ACCOUNT_CODES.INCOME_SWAP_FEE, desc: 'INCOME_SWAP_FEE' },
     { code: TB_ACCOUNT_CODES.INCOME_WITHDRAW_FEE, desc: 'INCOME_WITHDRAW_FEE' },

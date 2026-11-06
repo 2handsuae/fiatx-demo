@@ -44,7 +44,7 @@ function makeAccounting(balances: Balances) {
   const acctIdByLedger = new Map<number, bigint>();
   return {
     resolveTbAccountId: jest.fn(async ({ code, ledger }: any) => {
-      if (code !== TB_ACCOUNT_CODES.FIRM_OPS) throw new Error(`unexpected code: ${code}`);
+      if (code !== TB_ACCOUNT_CODES.FIRM_EQUITY) throw new Error(`unexpected code: ${code}`);
       const id = BigInt(ledger) * 1000n;
       acctIdByLedger.set(ledger, id);
       return id;
@@ -88,10 +88,10 @@ describe('PrudentialService.computeStatus（乙波三 T1）', () => {
     expect(systemWallets.resolve).toHaveBeenCalledWith(AED.id, 'F_OPS');
     expect(systemWallets.resolve).toHaveBeenCalledWith(USDT.id, 'F_OPS');
     expect(accounting.resolveTbAccountId).toHaveBeenCalledWith(
-      expect.objectContaining({ code: TB_ACCOUNT_CODES.FIRM_OPS, ledger: TB_LEDGERS.AED, ownerType: 'SYSTEM' }),
+      expect.objectContaining({ code: TB_ACCOUNT_CODES.FIRM_EQUITY, ledger: TB_LEDGERS.AED, ownerType: 'SYSTEM' }),
     );
     expect(accounting.resolveTbAccountId).toHaveBeenCalledWith(
-      expect.objectContaining({ code: TB_ACCOUNT_CODES.FIRM_OPS, ledger: TB_LEDGERS.USDT, ownerType: 'SYSTEM' }),
+      expect.objectContaining({ code: TB_ACCOUNT_CODES.FIRM_EQUITY, ledger: TB_LEDGERS.USDT, ownerType: 'SYSTEM' }),
     );
 
     const expectedNla = 100_000_000n + 41_719_600n;

@@ -808,7 +808,7 @@ describe('AdjustmentService.onApproved posting', () => {
     const accounting = { executeTransfer: jest.fn().mockResolvedValue({ tbTransferId: 1n }), resolveTbAccountId };
     await makeSvc(clientRow, accounting).onApproved('ADJ2608280001', 'U_OPS');
     const codes = resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
-    expect(codes).toEqual([TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.CLIENT_ASSET]);
+    expect(codes).toEqual([TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_ACCOUNT_CODES.CLIENT_CASH]);
   });
 
   it('after posting, status becomes POSTED and tbTransferId is recorded', async () => {
@@ -838,7 +838,7 @@ describe('AdjustmentService.onApproved posting', () => {
   // 补测（业主要求）：四种分录组合里，上面三条只端到端断言过 CLIENT 账簿一种；
   // 公司账簿两种（BANK_CHARGE_UNBOOKED 减/BANK_INTEREST_UNBOOKED 加）在本任务完全没被覆盖，而它们正是
   // 演示破口场景 5/7（银行杂费/银行利息）要走的路。这条覆盖 FIRM+INCREASE。
-  // 一并断言 ownerType：自审时发现公司科目（FIRM_ASSET/INCOME_OTHER）在 TbAccountRegistry
+  // 一并断言 ownerType：自审时发现公司科目（FIRM_CASH/INCOME_OTHER）在 TbAccountRegistry
   // 里的真实登记值是 'SYSTEM'（见 asset-provisioning.service.ts:46、
   // tb-account-registry.service.ts resolve() 的严格 where 等值匹配），不是 'FIRM'——
   // 若只断言 code 不断言 ownerType，这处会在 mock 测试下全绿、真实环境里
@@ -852,7 +852,7 @@ describe('AdjustmentService.onApproved posting', () => {
     };
     await makeSvc(firmRow, accounting).onApproved('ADJ2608280001', 'U_OPS');
     const calls = resolveTbAccountId.mock.calls.map((c: any[]) => c[0]);
-    expect(calls.map((c) => c.code)).toEqual([TB_ACCOUNT_CODES.FIRM_ASSET, TB_ACCOUNT_CODES.INCOME_OTHER]);
+    expect(calls.map((c) => c.code)).toEqual([TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.INCOME_OTHER]);
     expect(calls.map((c) => c.ownerType)).toEqual(['SYSTEM', 'SYSTEM']);
   });
 
@@ -866,7 +866,7 @@ describe('AdjustmentService.onApproved posting', () => {
     const row = { ...clientRow, direction: 'INCREASE', reasonCode: 'PAYOUT_NOT_EXECUTED' };
     await makeSvc(row, accounting).onApproved('ADJ2608280001', 'U_OPS');
     const codes = resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
-    expect(codes).toEqual([TB_ACCOUNT_CODES.CLIENT_ASSET, TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
+    expect(codes).toEqual([TB_ACCOUNT_CODES.CLIENT_CASH, TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
   });
 
   it('posting-legs coverage · FIRM/REDUCE: posts "debit firm ops / credit firm asset" (demo scenario 5: bank charges)', async () => {
@@ -878,7 +878,7 @@ describe('AdjustmentService.onApproved posting', () => {
     };
     await makeSvc(row, accounting).onApproved('ADJ2608280001', 'U_OPS');
     const codes = resolveTbAccountId.mock.calls.map((c: any[]) => c[0].code);
-    expect(codes).toEqual([TB_ACCOUNT_CODES.FIRM_OPS, TB_ACCOUNT_CODES.FIRM_ASSET]);
+    expect(codes).toEqual([TB_ACCOUNT_CODES.FIRM_EQUITY, TB_ACCOUNT_CODES.FIRM_CASH]);
   });
 
   // ── 评审 Critical 的回归锁：audit-logs.service.ts 的 assertActionSpec 读的是
@@ -977,18 +977,18 @@ describe('AdjustmentService.getAdjustment —— detail read model (Task 7)', ()
     expect((await svcMiss.getAdjustment('ADJ2608280002') as any).decimals).toBe(0);
   });
 
-  it('client-book reduction (DUP_BOOKING/REDUCE): the posting preview is "debit L.CLIENT_PAYABLE / credit A.CLIENT_ASSET"', async () => {
+  it('client-book reduction (DUP_BOOKING/REDUCE): the posting preview is "debit L.CLIENT_PAYABLE / credit A.CLIENT_CASH"', async () => {
     const svc = makeSvc(baseRow);
     const result: any = await svc.getAdjustment('ADJ2608280002');
     expect(result.debitAccountCode).toBe('L.CLIENT_PAYABLE');
-    expect(result.creditAccountCode).toBe('A.CLIENT_ASSET');
+    expect(result.creditAccountCode).toBe('A.CLIENT_CASH');
   });
 
-  it('firm-book increase (BANK_INTEREST_UNBOOKED/INCREASE): the posting preview is "debit A.FIRM_ASSET / credit E.INCOME_OTHER" — matches the account pair in the onApproved posting-legs test, the two must not disagree', async () => {
+  it('firm-book increase (BANK_INTEREST_UNBOOKED/INCREASE): the posting preview is "debit A.FIRM_CASH / credit E.INCOME_OTHER" — matches the account pair in the onApproved posting-legs test, the two must not disagree', async () => {
     const firmRow = { ...baseRow, book: 'FIRM', direction: 'INCREASE', reasonCode: 'BANK_INTEREST_UNBOOKED', ownerNo: null, ownerId: null };
     const svc = makeSvc(firmRow);
     const result: any = await svc.getAdjustment('ADJ2608280002');
-    expect(result.debitAccountCode).toBe('A.FIRM_ASSET');
+    expect(result.debitAccountCode).toBe('A.FIRM_CASH');
     expect(result.creditAccountCode).toBe('E.INCOME_OTHER');
   });
 });
@@ -1205,7 +1205,7 @@ describe('AdjustmentService.onApproved fourth-family posting (reattribution, spe
     // 同科目、不同 ownerUuid —— 这正是「把负债换个主人」的机制。
     expect(calls.map((c) => c.ownerUuid)).toEqual(['uuid-from', 'uuid-to']);
     // 钱在托管里一分没动：客户资产腿绝不许出现在改记分录里。
-    expect(calls.map((c) => c.code)).not.toContain(TB_ACCOUNT_CODES.CLIENT_ASSET);
+    expect(calls.map((c) => c.code)).not.toContain(TB_ACCOUNT_CODES.CLIENT_CASH);
   });
 
   it('evidence: each leg posts to its own wallet (misattributed party down / rightful owner up), isExternalCrossing=false, effective date follows the adjustment', async () => {

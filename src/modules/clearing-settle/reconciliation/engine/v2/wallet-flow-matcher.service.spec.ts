@@ -13,7 +13,7 @@ const D = (n: string | number) => new Prisma.Decimal(n);
 // Default tbAccountId every flow falls back to when the fixture doesn't set
 // one. The registry mock maps it to code=100 (CLIENT_PAYABLE) so flows pass
 // the matcher's owned-code filter unless a fixture overrides tbAccountId to
-// 'tb-aggregate' (mapped to code=1 / CLIENT_ASSET — aggregate leg, excluded).
+// 'tb-aggregate' (mapped to code=1 / CLIENT_CASH — aggregate leg, excluded).
 const DEFAULT_TB_OWNED = 'tb-owned';
 const DEFAULT_TB_AGGREGATE = 'tb-aggregate';
 
@@ -53,7 +53,7 @@ function makePrismaMock(flows: any[]) {
         const rows: Array<{ tbAccountId: string; code: number }> = [];
         for (const id of ids) {
           if (id === pad(DEFAULT_TB_OWNED)) rows.push({ tbAccountId: id, code: 100 });   // CLIENT_PAYABLE (owned)
-          else if (id === pad(DEFAULT_TB_AGGREGATE)) rows.push({ tbAccountId: id, code: 1 }); // CLIENT_ASSET (aggregate)
+          else if (id === pad(DEFAULT_TB_AGGREGATE)) rows.push({ tbAccountId: id, code: 1 }); // CLIENT_CASH (aggregate)
           // any other id → no registry row → matcher should skip the flow
         }
         return rows;
@@ -247,7 +247,7 @@ describe('WalletFlowMatcherService', () => {
   });
 
   it('excludes flows landing on aggregate codes (1/50) — same slice as balanceChecker', async () => {
-    // Aggregate leg (e.g. CLIENT_ASSET=1 / FIRM_ASSET=50) shares the walletRef
+    // Aggregate leg (e.g. CLIENT_CASH=1 / FIRM_CASH=50) shares the walletRef
     // for traceability but does not belong to the wallet's external statement.
     // The matcher must drop these before matching, otherwise pass mode produces
     // bogus orphanInternal entries that the recon engine cannot reconcile.
@@ -261,7 +261,7 @@ describe('WalletFlowMatcherService', () => {
         isExternalCrossing: true,
         eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
         createdAt: new Date('2026-06-26T10:00:00Z'),
-        tbAccountId: DEFAULT_TB_AGGREGATE, // → registry code=1 (CLIENT_ASSET)
+        tbAccountId: DEFAULT_TB_AGGREGATE, // → registry code=1 (CLIENT_CASH)
       },
     ]);
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);

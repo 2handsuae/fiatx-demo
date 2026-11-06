@@ -2211,16 +2211,16 @@ describe('DepositWorkflowService', () => {
       referenceNo: null,
     };
 
-    it('STEP_1: debits CLIENT_ASSET/SYSTEM and credits DEPOSIT_SUSPENSE/CUSTOMER with DEPOSIT_ASSET_TO_SUSPENSE code', async () => {
+    it('STEP_1: debits CLIENT_CASH/SYSTEM and credits DEPOSIT_SUSPENSE/CUSTOMER with DEPOSIT_ASSET_TO_SUSPENSE code', async () => {
       accountingService.resolveTbAccountId
-        .mockResolvedValueOnce('tb-client-asset-id')   // debit: CLIENT_ASSET SYSTEM
+        .mockResolvedValueOnce('tb-client-asset-id')   // debit: CLIENT_CASH SYSTEM
         .mockResolvedValueOnce('tb-suspense-id');       // credit: DEPOSIT_SUSPENSE CUSTOMER
 
       await (service as any).executeDepositAccounting(baseDeposit, 'STEP_1', cryptoFundsOrder);
 
-      // First resolve call: CLIENT_ASSET / SYSTEM (no ownerUuid)
+      // First resolve call: CLIENT_CASH / SYSTEM (no ownerUuid)
       expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
-        code: TB_ACCOUNT_CODES.CLIENT_ASSET,
+        code: TB_ACCOUNT_CODES.CLIENT_CASH,
         ledger: 2,
         ownerType: 'SYSTEM',
       });
@@ -2239,7 +2239,7 @@ describe('DepositWorkflowService', () => {
           creditAccountId: 'tb-suspense-id',
           code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
           evidence: expect.objectContaining({
-            debitCode: 'A.CLIENT_ASSET',
+            debitCode: 'A.CLIENT_CASH',
             creditCode: 'L.DEPOSIT_SUSPENSE',
             // Phase B: both legs carry the customer's wallet, externalRef = txHash, crossing = true
             debitWalletRef: 'wallet-acc-1',
@@ -2293,9 +2293,9 @@ describe('DepositWorkflowService', () => {
         referenceNo: 'BANK-REF-FIAT',
       });
 
-      // Debit must still be CLIENT_ASSET/SYSTEM — NOT CLIENT_BANK or CLIENT_CUSTODY
+      // Debit must still be CLIENT_CASH/SYSTEM — NOT CLIENT_BANK or CLIENT_CUSTODY
       expect(accountingService.resolveTbAccountId).toHaveBeenNthCalledWith(1, {
-        code: TB_ACCOUNT_CODES.CLIENT_ASSET,
+        code: TB_ACCOUNT_CODES.CLIENT_CASH,
         ledger: 3,
         ownerType: 'SYSTEM',
       });

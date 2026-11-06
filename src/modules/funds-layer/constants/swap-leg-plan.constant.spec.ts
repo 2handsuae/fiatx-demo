@@ -9,7 +9,7 @@ describe('buildSwapLegPlan', () => {
       ['C_DEP', 'F_OPS'], ['F_OPS', 'F_SET'], ['F_SET', 'C_VIBAN'], ['C_VIBAN', 'F_FEE'],
     ]);
     expect(legs.flatMap((l) => l.accounting)).toHaveLength(7);
-    expect(legs[0].accounting.map((a) => a.creditCode)).toEqual([C.CLIENT_ASSET, C.FIRM_OPS]);
+    expect(legs[0].accounting.map((a) => a.creditCode)).toEqual([C.CLIENT_CASH, C.FIRM_EQUITY]);
   });
 
   it('fiat→crypto (AED→USDT) = 4 legs, 7 accounting transfers', () => {

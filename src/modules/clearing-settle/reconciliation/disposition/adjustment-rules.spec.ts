@@ -8,27 +8,27 @@ describe('resolvePostingLegs —— four combinations, cause plays no part in th
   it('client book · reduce: debit client payable / credit client asset', () => {
     expect(resolvePostingLegs('CLIENT', 'REDUCE')).toEqual({
       debitCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
-      creditCode: TB_ACCOUNT_CODES.CLIENT_ASSET,
+      creditCode: TB_ACCOUNT_CODES.CLIENT_CASH,
     });
   });
 
   it('client book · increase: debit client asset / credit client payable', () => {
     expect(resolvePostingLegs('CLIENT', 'INCREASE')).toEqual({
-      debitCode: TB_ACCOUNT_CODES.CLIENT_ASSET,
+      debitCode: TB_ACCOUNT_CODES.CLIENT_CASH,
       creditCode: TB_ACCOUNT_CODES.CLIENT_PAYABLE,
     });
   });
 
   it('firm book · reduce: debit firm ops / credit firm asset', () => {
     expect(resolvePostingLegs('FIRM', 'REDUCE')).toEqual({
-      debitCode: TB_ACCOUNT_CODES.FIRM_OPS,
-      creditCode: TB_ACCOUNT_CODES.FIRM_ASSET,
+      debitCode: TB_ACCOUNT_CODES.FIRM_EQUITY,
+      creditCode: TB_ACCOUNT_CODES.FIRM_CASH,
     });
   });
 
   it('firm book · increase: debit firm asset / credit other income', () => {
     expect(resolvePostingLegs('FIRM', 'INCREASE')).toEqual({
-      debitCode: TB_ACCOUNT_CODES.FIRM_ASSET,
+      debitCode: TB_ACCOUNT_CODES.FIRM_CASH,
       creditCode: TB_ACCOUNT_CODES.INCOME_OTHER,
     });
   });
@@ -163,7 +163,7 @@ describe('Recon batch A: new reason codes (spec §3.1 / §5)', () => {
     expect(() => assertReasonAllowed('UNEXPLAINED_WRITE_OFF', 'CLIENT', 'INCREASE')).toThrow(BadRequestException);
   });
   it('write-off entry legs pair with record entry: reduce = debit ops/credit firm asset, increase = debit firm asset/credit other income', () => {
-    expect(resolvePostingLegs('FIRM', 'REDUCE')).toEqual({ debitCode: TB_ACCOUNT_CODES.FIRM_OPS, creditCode: TB_ACCOUNT_CODES.FIRM_ASSET });
-    expect(resolvePostingLegs('FIRM', 'INCREASE')).toEqual({ debitCode: TB_ACCOUNT_CODES.FIRM_ASSET, creditCode: TB_ACCOUNT_CODES.INCOME_OTHER });
+    expect(resolvePostingLegs('FIRM', 'REDUCE')).toEqual({ debitCode: TB_ACCOUNT_CODES.FIRM_EQUITY, creditCode: TB_ACCOUNT_CODES.FIRM_CASH });
+    expect(resolvePostingLegs('FIRM', 'INCREASE')).toEqual({ debitCode: TB_ACCOUNT_CODES.FIRM_CASH, creditCode: TB_ACCOUNT_CODES.INCOME_OTHER });
   });
 });

@@ -397,7 +397,7 @@ describe('Withdraw money arcs (e2e, Task 12)', () => {
         sourceNo: w.withdrawNo,
         eventCode: 'WITHDRAW_FEE_POST',
         debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE],
-        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
         assetCurrency: w.asset.currency,
         traceId: w.traceId || w.id,
         actorType: 'SYSTEM',

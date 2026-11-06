@@ -1601,7 +1601,7 @@ describe('WithdrawTransactionsService', () => {
       withdrawQuoteService.consumeQuote.mockResolvedValue({ id: 'wq-tb', status: 'USED' });
     }
 
-    it('net pending uses CLIENT_ASSET as credit target with WITHDRAW_NET_PENDING code (crypto)', async () => {
+    it('net pending uses CLIENT_CASH as credit target with WITHDRAW_NET_PENDING code (crypto)', async () => {
       arrangeCreateAsset('CRYPTO');
       const accountingService = module.get<AccountingService>(AccountingService);
 
@@ -1611,10 +1611,10 @@ describe('WithdrawTransactionsService', () => {
       const netCall = calls.find((c: any[]) => c[0].evidence.eventCode === 'WITHDRAW_LOCK_NET');
       expect(netCall).toBeDefined();
       expect(netCall[0].code).toBe(TB_TRANSFER_CODES.WITHDRAW_NET_PENDING);
-      expect(netCall[0].evidence.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+      expect(netCall[0].evidence.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
     });
 
-    it('fee pending uses CLIENT_ASSET as credit target with WITHDRAW_FEE_PENDING code (crypto)', async () => {
+    it('fee pending uses CLIENT_CASH as credit target with WITHDRAW_FEE_PENDING code (crypto)', async () => {
       arrangeCreateAsset('CRYPTO');
       const accountingService = module.get<AccountingService>(AccountingService);
 
@@ -1624,10 +1624,10 @@ describe('WithdrawTransactionsService', () => {
       const feeCall = calls.find((c: any[]) => c[0].evidence.eventCode === 'WITHDRAW_LOCK_FEE');
       expect(feeCall).toBeDefined();
       expect(feeCall[0].code).toBe(TB_TRANSFER_CODES.WITHDRAW_FEE_PENDING);
-      expect(feeCall[0].evidence.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+      expect(feeCall[0].evidence.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
     });
 
-    it('net and fee pending both use CLIENT_ASSET (fiat — no branch)', async () => {
+    it('net and fee pending both use CLIENT_CASH (fiat — no branch)', async () => {
       arrangeCreateAsset('FIAT');
       const accountingService = module.get<AccountingService>(AccountingService);
 
@@ -1635,7 +1635,7 @@ describe('WithdrawTransactionsService', () => {
 
       const calls = (accountingService.executePendingTransfer as jest.Mock).mock.calls;
       for (const call of calls) {
-        expect(call[0].evidence.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+        expect(call[0].evidence.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
       }
     });
   });

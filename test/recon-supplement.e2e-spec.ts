@@ -213,7 +213,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   }
 
   /** Real production evidence shape — mirrors deposit-workflow.service.ts's own
-   *  Step 1 (CLIENT_ASSET→DEPOSIT_SUSPENSE, external crossing) + Step 2
+   *  Step 1 (CLIENT_CASH→DEPOSIT_SUSPENSE, external crossing) + Step 2
    *  (DEPOSIT_SUSPENSE→CLIENT_PAYABLE, pure reclass) exactly. */
   async function fundCustomerWallet(opts: {
     walletId: string; ownerId: string; assetId: string; ledger: number; currency: string; amount: bigint; tag: string;
@@ -221,7 +221,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   }): Promise<string> {
     const sourceNo = `E2E-SUPP-FUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
 
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
 
@@ -230,7 +230,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
       code: TB_TRANSFER_CODES.DEPOSIT_ASSET_TO_SUSPENSE,
       evidence: {
         sourceType: 'DEPOSIT', sourceNo, eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         assetCurrency: opts.currency, traceId: sourceNo, actorType: 'SYSTEM', actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: pre-fund customer balance for recon-supplement tests (Step 1)',
         debitWalletRef: opts.walletId, creditWalletRef: opts.walletId,
@@ -528,13 +528,13 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     if (amountMinor <= 0n) return;
     const sourceNo = `E2E-SUPP-DRAIN-${randomUUID().slice(0, 8)}`;
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: TB_LEDGERS.AED, ownerType: 'CUSTOMER', ownerUuid: ownerId });
-    const assetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: TB_LEDGERS.AED, ownerType: 'SYSTEM' });
+    const assetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: TB_LEDGERS.AED, ownerType: 'SYSTEM' });
     await accounting.executeTransfer({
       debitAccountId: payableId, creditAccountId: assetId, amount: amountMinor, ledger: TB_LEDGERS.AED,
       code: TB_TRANSFER_CODES.RECON_ADJUSTMENT,
       evidence: {
         sourceType: 'DEPOSIT', sourceNo, eventCode: 'E2E_FIXTURE_DRAIN',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
         assetCurrency: 'AED', traceId: sourceNo, actorType: 'SYSTEM', actorId: 'E2E_HARNESS',
         memo: 'e2e fixture: drain customer balance for Step 6(b) insufficient-balance guard test',
         isExternalCrossing: false,
@@ -667,7 +667,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     await approvalsService.approve(req.approvalNo, { reason: 'e2e CFO approve clawback' }, cfo());
     await waitUntil(async () => (await deposits.findOne(deposit.id)).status === 'CLAWED_BACK', 30000);
     const ev = (await tbEvidence.findBySource('DEPOSIT', deposit.depositNo)).find((e: any) => e.eventCode === 'DEPOSIT_CLAWBACK');
-    expect(ev.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]); expect(ev.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]);
+    expect(ev.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]); expect(ev.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
     expect(ev.externalRef).toBe(ref); expect(ev.effectiveDate).toBe(kase.businessDate);
     expect((await accounting.getCustomerAvailableBalance(custClaw.id, 'AED')).available).toBe(before - 120_000n);
     await walletRecon.run({ cutoff: CUTOFF });
@@ -714,7 +714,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
     await waitUntil(async () => (await withdraws.findByNo(w.withdrawNo)).status === 'RETURNED', 30000);
 
     const ev = (await tbEvidence.findBySource('WITHDRAWAL', w.withdrawNo)).find((e: any) => e.eventCode === 'WITHDRAW_BOUNCE_REENTRY');
-    expect(ev.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET]); expect(ev.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
+    expect(ev.debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]); expect(ev.creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
     expect(ev.externalRef).toBe(ref); expect(ev.effectiveDate).toBe(kase.businessDate);
     expect((await accounting.getCustomerAvailableBalance(custRet.id, 'AED')).available).toBe(before + netMinor);
     const feeEvidenceAfter = (await tbEvidence.findBySource('WITHDRAWAL', w.withdrawNo)).filter((e: any) => String(e.eventCode).includes('FEE'));

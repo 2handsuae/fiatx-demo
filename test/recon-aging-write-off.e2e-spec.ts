@@ -204,7 +204,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
   }
 
   /** Real production evidence shape — mirrors deposit-workflow.service.ts's own
-   *  Step 1 (CLIENT_ASSET→DEPOSIT_SUSPENSE, external crossing) + Step 2
+   *  Step 1 (CLIENT_CASH→DEPOSIT_SUSPENSE, external crossing) + Step 2
    *  (DEPOSIT_SUSPENSE→CLIENT_PAYABLE, pure reclass) exactly, walletRef stamped
    *  on both legs of both steps. */
   async function fundCustomerWallet(opts: {
@@ -226,7 +226,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     // the wallet's internal total at 0 with no error raised anywhere.
     const sourceNo = `E2E-RECON-ADJ-FUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
 
-    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_ASSET, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const clientAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
     const suspenseId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
     const payableId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: opts.ledger, ownerType: 'CUSTOMER', ownerUuid: opts.ownerId });
 
@@ -240,7 +240,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
         sourceType: 'DEPOSIT',
         sourceNo,
         eventCode: 'DEPOSIT_ASSET_TO_SUSPENSE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_ASSET],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
         creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE],
         assetCurrency: opts.currency,
         traceId: sourceNo,
@@ -285,7 +285,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
 
   /** Give a FIRM wallet a real internal balance in the firm-equity codes
    *  WalletBalanceCheckerService actually sums for a firm wallet (the aggregate
-   *  FIRM_ASSET leg is deliberately dropped by the checker, so only the
+   *  FIRM_CASH leg is deliberately dropped by the checker, so only the
    *  INCOME_OTHER side moves this wallet's total). Same deterministic-transfer-id
    *  caution as fundCustomerWallet. */
   async function fundFirmWallet(opts: {
@@ -296,7 +296,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     crossing?: boolean;
   }): Promise<void> {
     const sourceNo = `E2E-RECON-ADJ-FIRMFUND-${opts.tag}-${randomUUID().slice(0, 8)}`;
-    const firmAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_ASSET, ledger: opts.ledger, ownerType: 'SYSTEM' });
+    const firmAssetId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.FIRM_CASH, ledger: opts.ledger, ownerType: 'SYSTEM' });
     const incomeOtherId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.INCOME_OTHER, ledger: opts.ledger, ownerType: 'SYSTEM' });
 
     await accounting.executeTransfer({
@@ -309,7 +309,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
         sourceType: 'DEPOSIT',
         sourceNo,
         eventCode: 'E2E_FIRM_FIXTURE',
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH],
         creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.INCOME_OTHER],
         assetCurrency: opts.currency,
         traceId: sourceNo,
@@ -501,8 +501,8 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
 
     const evidence = await tbEvidence.findBySource('RECON_ADJUSTMENT', adjustmentNo);
     expect(evidence).toHaveLength(1);
-    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_OPS]);
-    expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET]);
+    expect(evidence[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY]);
+    expect(evidence[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH]);
     expect(String(evidence[0].amount)).toBe('7');
     const posted = await (prisma as any).auditLogEvent.findFirst({ where: { action: 'RECON_ADJUSTMENT_POSTED', primarySubjectNo: adjustmentNo } });
     expect(posted.reasonCode).toBe('UNEXPLAINED_WRITE_OFF');

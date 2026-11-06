@@ -801,8 +801,8 @@ export class AdjustmentService {
     }
 
     // 科目 → TbAccountRegistry 里的真实 ownerType。客户负债类(CLIENT_PAYABLE/
-    // DEPOSIT_SUSPENSE)按客户 UUID 登记；其余（聚合资产 CLIENT_ASSET/FIRM_ASSET、
-    // 公司权益 FIRM_OPS/FIRM_SET、收入 INCOME_*）一律 'SYSTEM'——见
+    // DEPOSIT_SUSPENSE)按客户 UUID 登记；其余（聚合资产 CLIENT_CASH/FIRM_CASH、
+    // 公司权益 FIRM_EQUITY/FIRM_SET、收入 INCOME_*）一律 'SYSTEM'——见
     // asset-provisioning.service.ts:46 与 seed.business.ts:711 的真实登记调用，
     // 'FIRM' 不是本仓库任何地方登记过的 ownerType，传了会导致 resolveTbAccountId
     // 查不到注册行而抛 NotFoundException（mock 测试若只断言 code 不断言
@@ -907,7 +907,7 @@ export class AdjustmentService {
   /**
    * 第四族落账（spec §6）：借 错记方应付 / 贷 正主方应付。
    *
-   * 客户资产腿（CLIENT_ASSET）刻意不出现——托管里的钱一分没动，动的只是
+   * 客户资产腿（CLIENT_CASH）刻意不出现——托管里的钱一分没动，动的只是
    * 「这笔钱是谁的」。两腿是**同一个科目 CLIENT_PAYABLE、不同 ownerUuid**，
    * 这就是负债换主人的全部机制；写成资产腿参与的组合等于凭空搬动托管余额。
    *

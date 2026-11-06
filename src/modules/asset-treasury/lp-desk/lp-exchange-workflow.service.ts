@@ -423,17 +423,17 @@ export class LpExchangeWorkflowService {
     };
   }
 
-  /** 腿 1（84）：DR FIRM_OPS / CR FIRM_ASSET，卖出币 ledger，外穿——一侧物理钱包
+  /** 腿 1（84）：DR FIRM_EQUITY / CR FIRM_CASH，卖出币 ledger，外穿——一侧物理钱包
    *  是 sellFromWalletId（付出的那个网络行），LP 的外部坐标不是钱包，不进 walletRef。 */
   private async postSellLeg(row: any, leg: any) {
     const ledger = this.ledgerOf(row.sellAsset.currency);
     const amount = majorToMinor(leg.amount, row.sellAsset.decimals);
     await this.accounting.executeTransfer({
-      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_OPS),
-      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_ASSET),
+      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_EQUITY),
+      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_CASH),
       amount, ledger, code: TB_TRANSFER_CODES.LP_EXCHANGE_PAY,
       evidence: this.evidence(
-        row, 'LP_EXCHANGE_PAY', TB_ACCOUNT_CODES.FIRM_OPS, TB_ACCOUNT_CODES.FIRM_ASSET, row.sellAsset.currency,
+        row, 'LP_EXCHANGE_PAY', TB_ACCOUNT_CODES.FIRM_EQUITY, TB_ACCOUNT_CODES.FIRM_CASH, row.sellAsset.currency,
         row.sellFromWalletId, row.sellFromWalletId,
         this.fundsOrders.resolveExternalRef({ ...leg, asset: row.sellAsset }), true,
         `LP exchange ${row.exchangeNo} sell leg (paid to LP ${row.lpNo})`,
@@ -441,17 +441,17 @@ export class LpExchangeWorkflowService {
     });
   }
 
-  /** 腿 2（85）：DR FIRM_ASSET / CR FIRM_LIQ，买入币 ledger，外穿——一侧物理钱包是
+  /** 腿 2（85）：DR FIRM_CASH / CR FIRM_LIQ，买入币 ledger，外穿——一侧物理钱包是
    *  buyViaWalletId（LP 打来落前厅的那个网络行）。 */
   private async postBuyLeg(row: any, leg: any) {
     const ledger = this.ledgerOf(row.buyAsset.currency);
     const amount = majorToMinor(leg.amount, row.buyAsset.decimals);
     await this.accounting.executeTransfer({
-      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_ASSET),
+      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_CASH),
       creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_LIQ),
       amount, ledger, code: TB_TRANSFER_CODES.LP_EXCHANGE_RECEIVE,
       evidence: this.evidence(
-        row, 'LP_EXCHANGE_RECEIVE', TB_ACCOUNT_CODES.FIRM_ASSET, TB_ACCOUNT_CODES.FIRM_LIQ, row.buyAsset.currency,
+        row, 'LP_EXCHANGE_RECEIVE', TB_ACCOUNT_CODES.FIRM_CASH, TB_ACCOUNT_CODES.FIRM_LIQ, row.buyAsset.currency,
         row.buyViaWalletId, row.buyViaWalletId,
         this.fundsOrders.resolveExternalRef({ ...leg, asset: row.buyAsset }), true,
         `LP exchange ${row.exchangeNo} buy leg (received from LP ${row.lpNo})`,
@@ -459,7 +459,7 @@ export class LpExchangeWorkflowService {
     });
   }
 
-  /** 腿 3（86）：DR FIRM_LIQ / CR FIRM_OPS，买入币 ledger——两个物理钱包都是我们自己的
+  /** 腿 3（86）：DR FIRM_LIQ / CR FIRM_EQUITY，买入币 ledger——两个物理钱包都是我们自己的
    *  （buyViaWalletId → buyToWalletId），但 isExternalCrossing=true（评审 R13：F_LIQ/F_OPS
    *  是两条钱包行，逐钱包对账模型下这笔移动必须两侧都过对账，「内转」不等于「不进对账」）。 */
   private async postAcceptLeg(row: any, leg: any) {
@@ -467,10 +467,10 @@ export class LpExchangeWorkflowService {
     const amount = majorToMinor(leg.amount, row.buyAsset.decimals);
     await this.accounting.executeTransfer({
       debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_LIQ),
-      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_OPS),
+      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_EQUITY),
       amount, ledger, code: TB_TRANSFER_CODES.LP_EXCHANGE_ACCEPT,
       evidence: this.evidence(
-        row, 'LP_EXCHANGE_ACCEPT', TB_ACCOUNT_CODES.FIRM_LIQ, TB_ACCOUNT_CODES.FIRM_OPS, row.buyAsset.currency,
+        row, 'LP_EXCHANGE_ACCEPT', TB_ACCOUNT_CODES.FIRM_LIQ, TB_ACCOUNT_CODES.FIRM_EQUITY, row.buyAsset.currency,
         row.buyViaWalletId, row.buyToWalletId,
         this.fundsOrders.resolveExternalRef({ ...leg, asset: row.buyAsset }), true,
         `LP exchange ${row.exchangeNo} acceptance transfer (front desk → operating)`,

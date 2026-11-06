@@ -35,7 +35,7 @@
 //       DEPOSIT_SUSPENSE_TO_PAYABLE) live entirely inside the ledger; the
 //       external statement is not expected to mention them.
 //   (b) tbAccountRegistry code ∈ {100, 101, 200, 201, 203, 210, 211, 212} — drop
-//       aggregate legs (CLIENT_ASSET=1 / FIRM_ASSET=50) and any row whose
+//       aggregate legs (CLIENT_CASH=1 / FIRM_CASH=50) and any row whose
 //       tbAccountId isn't in the registry. Aggregate legs share walletRef
 //       purely for traceability; they belong to the aggregate book, not
 //       this wallet, so they should not be matched 1:1 against an external
@@ -65,7 +65,7 @@ import { effectiveCutoffFilter } from './effective-cutoff';
 const OWNED_CODES: ReadonlySet<number> = new Set<number>([
   TB_ACCOUNT_CODES.CLIENT_PAYABLE,    // 100
   TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE,  // 101
-  TB_ACCOUNT_CODES.FIRM_OPS,          // 200
+  TB_ACCOUNT_CODES.FIRM_EQUITY,          // 200
   TB_ACCOUNT_CODES.FIRM_SET,          // 201
   TB_ACCOUNT_CODES.FIRM_LIQ,          // 203
   TB_ACCOUNT_CODES.INCOME_SWAP_FEE,   // 210

@@ -159,8 +159,8 @@ describe('TbEvidenceService', () => {
 
       await svc.writeEvidence({
         ...params,
-        debitCode: 'A.CUSTODY', // asset → 1500 − 600 = 900
-        creditCode: 'L.CLIENT_CREDIT', // liability → 600 − 1500 = -900
+        debitCode: 'A.CLIENT_CASH', // 借方户(现金) → 1500 − 600 = 900
+        creditCode: 'L.CLIENT_PAYABLE', // 贷方户(负债) → 600 − 1500 = -900
         // valid hex ids (hexToBigint would throw on non-hex → swallowed to null)
         debitTbAccountId: '0a1',
         creditTbAccountId: '0b2',
@@ -398,7 +398,7 @@ describe('TbEvidenceService', () => {
 
     it('combines SUSPENSE+PAYABLE flows for a customer wallet, drops aggregate-account legs, computes running balance', async () => {
       mockPrisma.accountFlow.findMany.mockResolvedValue([
-        // Deposit step 1: DR FIRM_ASSET (SYSTEM, dropped), CR DEPOSIT_SUSPENSE (kept)
+        // Deposit step 1: DR FIRM_CASH (SYSTEM, dropped), CR DEPOSIT_SUSPENSE (kept)
         {
           tbTransferId: 'tx1',
           tbAccountId: clientAssetReg.tbAccountId,
@@ -464,7 +464,7 @@ describe('TbEvidenceService', () => {
 
       const result = await service.getWalletStatement('w-1');
 
-      // FIRM_ASSET (SYSTEM) leg dropped → 3 rows remain.
+      // FIRM_CASH (SYSTEM) leg dropped → 3 rows remain.
       expect(result.items).toHaveLength(3);
       expect(result.items.map((i: any) => i.tbAccountId)).toEqual([
         suspenseReg.tbAccountId,
@@ -558,7 +558,7 @@ describe('TbEvidenceService', () => {
           id: 'w-2',
           ownerType: 'SYSTEM',
           ownerNo: null,
-          walletRole: 'FIRM_OPS',
+          walletRole: 'FIRM_EQUITY',
           asset: { currency: 'AED' },
         },
       ]);
@@ -580,7 +580,7 @@ describe('TbEvidenceService', () => {
       expect(result[1]).toEqual(expect.objectContaining({
         walletRef: 'w-2',
         ownerType: 'SYSTEM',
-        walletRole: 'FIRM_OPS',
+        walletRole: 'FIRM_EQUITY',
       }));
     });
   });

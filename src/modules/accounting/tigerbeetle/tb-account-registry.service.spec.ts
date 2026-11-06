@@ -134,13 +134,13 @@ describe('TbAccountRegistryService', () => {
 });
 
 describe('postedBalanceForCode', () => {
-  it('asset code (1=CLIENT_ASSET): debits − credits', () => {
+  it('asset code (1=CLIENT_CASH): debits − credits', () => {
     expect(postedBalanceForCode({ debits_posted: 500n, credits_posted: 200n }, 1)).toBe('300');
   });
   it('liability code (100=CLIENT_PAYABLE): credits − debits', () => {
     expect(postedBalanceForCode({ debits_posted: 200n, credits_posted: 500n }, 100)).toBe('300');
   });
-  it('equity code (200=FIRM_OPS): credits − debits', () => {
+  it('equity code (200=FIRM_EQUITY): credits − debits', () => {
     expect(postedBalanceForCode({ debits_posted: 0n, credits_posted: 700n }, 200)).toBe('700');
   });
 });

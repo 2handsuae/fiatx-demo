@@ -58,5 +58,5 @@ export const MATCH_LABEL: Record<FlowMatchType, string> = {
 export const COA_PHRASE: Record<string, string> = {
   'L.CLIENT_PAYABLE': 'Client payable',
   'L.CLIENT_PAYABLE+L.DEPOSIT_SUSPENSE': 'Client payable + Deposit suspense',
-  'E.FIRM_OPS': 'Firm operating',
+  'E.FIRM_EQUITY': 'Firm operating',
 };

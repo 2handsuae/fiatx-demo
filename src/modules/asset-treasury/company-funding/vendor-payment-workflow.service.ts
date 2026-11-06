@@ -259,18 +259,18 @@ export class VendorPaymentWorkflowService {
     return this.accounting.resolveTbAccountId({ code, ledger, ownerType: 'SYSTEM' });
   }
 
-  /** 码 87：DR FIRM_OPS / CR FIRM_ASSET，付款币 ledger，外穿——一侧物理钱包是
+  /** 码 87：DR FIRM_EQUITY / CR FIRM_CASH，付款币 ledger，外穿——一侧物理钱包是
    *  row.fromWalletId（付出的那个网络行），外包商的外部坐标不是钱包，不进 walletRef。 */
   private async postPaymentLeg(row: any, leg: any) {
     const ledger = this.ledgerOf(row.asset.currency);
     const amount = majorToMinor(leg.amount, row.asset.decimals);
     await this.accounting.executeTransfer({
-      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_OPS),
-      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_ASSET),
+      debitAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_EQUITY),
+      creditAccountId: await this.sysAccount(ledger, TB_ACCOUNT_CODES.FIRM_CASH),
       amount, ledger, code: TB_TRANSFER_CODES.VENDOR_PAYMENT,
       evidence: {
         sourceType: 'VENDOR_PAYMENT', sourceNo: row.payNo, eventCode: 'VENDOR_PAYMENT', traceId: row.traceId,
-        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_OPS], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_ASSET],
+        debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_EQUITY], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.FIRM_CASH],
         assetCurrency: row.asset.currency, actorType: 'SYSTEM', actorId: 'VENDOR_PAYMENT_WORKFLOW',
         memo: `Vendor payment ${row.payNo} confirmed (paid to ${row.vendorName})`,
         debitWalletRef: row.fromWalletId, creditWalletRef: row.fromWalletId,

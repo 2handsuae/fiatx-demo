@@ -77,7 +77,7 @@ type AccountFlowClient = {
  * service (withdraw / swap workflow etc.) so the writer's bug, not the
  * projector, is fixed.
  *
- * Aggregate accounts (CLIENT_ASSET code=1, FIRM_ASSET code=50) carry no
+ * Aggregate accounts (CLIENT_CASH code=1, FIRM_CASH code=50) carry no
  * owner — the assertion skips them.
  */
 export class WalletRefMismatchError extends Error {
@@ -90,8 +90,8 @@ export class WalletRefMismatchError extends Error {
 // TB account codes that represent firm-wide aggregate ledgers (no per-customer
 // owner attached). Per-row owner check is meaningless for these — skip.
 const AGGREGATE_TB_CODES = new Set<number>([
-  1,  // CLIENT_ASSET aggregate
-  50, // FIRM_ASSET aggregate
+  1,  // CLIENT_CASH aggregate
+  50, // FIRM_CASH aggregate
 ]);
 
 @Injectable()
