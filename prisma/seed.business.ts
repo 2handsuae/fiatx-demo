@@ -2407,7 +2407,7 @@ type SeedEvidenceRow = {
 
 /** 种子路径的凭证 + 流水：凭证行手写（裸 PrismaClient，不经 Nest），流水两行一律走 AccountFlowProjectorService.persist——
  *  方向与钱包归属由投影器按当前规则出，种子不再手写 direction / walletRef（戊波一 R14），投影规则变了种子行自动跟着变。
- *  不写 debitWalletRef / creditWalletRef（两列恒空，walletRef 由投影器按注册表派生）。upsert 幂等（同 seedCapitalInjection 起的先例）。 */
+ *  凭证不带钱包标签（account_flows.walletRef 由投影器按注册表派生）。upsert 幂等（同 seedCapitalInjection 起的先例）。 */
 async function writeSeedEvidence(prisma: PrismaClient, row: SeedEvidenceRow): Promise<void> {
   await (prisma as any).tbTransferEvidence.upsert({ where: { tbTransferId: row.tbTransferId }, update: {}, create: row });
   await seedFlowProjector.persist(prisma as any, row);

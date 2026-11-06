@@ -2072,8 +2072,6 @@ describe('DepositWorkflowService', () => {
       expect(call.debitAccountId).toBe(100n);
       expect(call.creditAccountId).toBe(1n);
       expect(call.evidence).toMatchObject({ eventCode: 'DEPOSIT_CLAWBACK', debitCode: 'L.CLIENT_PAYABLE', creditCode: 'A.CLIENT_CASH', externalRef: 'RET-1', effectiveDate: '2026-09-01' });
-      expect(call.evidence).not.toHaveProperty('debitWalletRef');
-      expect(call.evidence).not.toHaveProperty('creditWalletRef');
       expect(depositService.updateStatus).toHaveBeenCalledWith('d1', expect.objectContaining({ action: DepositTransactionAction.CLAWBACK }));
       const actions = auditLogsService.recordSystem.mock.calls.map((c: any[]) => c[0].action);
       expect(actions).toEqual(expect.arrayContaining(['DEPOSIT_CLAWBACK_STARTED', 'DEPOSIT_CLAWED_BACK']));
@@ -2251,10 +2249,6 @@ describe('DepositWorkflowService', () => {
           }),
         }),
       );
-      // 钱包落点由账户本身表达,证据不再带钱包标签
-      const evidence = accountingService.executeTransfer.mock.calls[0][0].evidence;
-      expect(evidence).not.toHaveProperty('debitWalletRef');
-      expect(evidence).not.toHaveProperty('creditWalletRef');
     });
 
     it('STEP_1: no funds order passed → falls back to the deposit\'s own toWalletId for the cash account', async () => {
@@ -2355,9 +2349,6 @@ describe('DepositWorkflowService', () => {
         }),
       );
       expect(accountingService.resolveCashAccountId).not.toHaveBeenCalled();
-      const evidence = accountingService.executeTransfer.mock.calls[0][0].evidence;
-      expect(evidence).not.toHaveProperty('debitWalletRef');
-      expect(evidence).not.toHaveProperty('creditWalletRef');
     });
 
     it('STEP_2: deposit.effectiveDate（补录单业务归属日,平账 B 批 spec §2.3）流入 executeTransfer evidence', async () => {
@@ -3576,10 +3567,6 @@ describe('DepositWorkflowService', () => {
         expect(spec.tbLegs[1].debit).toEqual({ cashWalletId: 'fee-wallet-1' });
         expect(spec.tbLegs[1].credit).toEqual({ code: TB_ACCOUNT_CODES.INCOME_OTHER, ownerType: 'SYSTEM' });
         expect(spec.tbLegs[1]).toMatchObject({ debitCoa: 'A.FIRM_CASH', creditCoa: 'E.INCOME_OTHER' });
-        for (const leg of spec.tbLegs) {
-          expect(leg).not.toHaveProperty('debitWalletRef');
-          expect(leg).not.toHaveProperty('creditWalletRef');
-        }
         expect(depositService.updateStatus).toHaveBeenCalledWith('dep-arc-1',
           expect.objectContaining({ action: DepositTransactionAction.CONFISCATE_START }));
         expect(auditActions()).toContain(AuditActions.DEPOSIT_CONFISCATION_STARTED);

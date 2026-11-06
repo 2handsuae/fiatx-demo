@@ -78,7 +78,7 @@ describe('TbEvidenceService', () => {
       });
     });
 
-    it('persists externalRef when provided, and writes no wallet-tag or retired-flag fields (the projector derives walletRef from the registry)', async () => {
+    it('persists externalRef when provided, and writes no retired-flag field (the projector derives walletRef from the registry)', async () => {
       mockPrisma.tbTransferEvidence.create.mockResolvedValue({});
 
       await service.writeEvidence({
@@ -89,8 +89,6 @@ describe('TbEvidenceService', () => {
       const data = mockPrisma.tbTransferEvidence.create.mock.calls[0][0].data;
       expect(data.externalRef).toBe('0xabcdef123456');
       expect(retiredFlagKeys(data)).toEqual([]);
-      expect('debitWalletRef' in data).toBe(false);
-      expect('creditWalletRef' in data).toBe(false);
     });
 
     it('should default externalRef to null when omitted', async () => {

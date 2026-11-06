@@ -1622,8 +1622,6 @@ describe('WithdrawTransactionsService', () => {
         expect.objectContaining({ code: TB_ACCOUNT_CODES.CLIENT_CASH }),
         expect.anything(),
       );
-      expect(netCall[0].evidence).not.toHaveProperty('debitWalletRef');
-      expect(netCall[0].evidence).not.toHaveProperty('creditWalletRef');
     });
 
     it('fee pending credits the same source wallet cash account (A.CLIENT_CASH) with WITHDRAW_FEE_PENDING code (crypto)', async () => {

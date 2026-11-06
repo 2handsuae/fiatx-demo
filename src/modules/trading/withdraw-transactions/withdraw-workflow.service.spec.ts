@@ -2388,9 +2388,6 @@ describe('WithdrawWorkflowService.onBounce (Task 7: RETURNED bounce entry)', () 
       { code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: 2, ownerType: 'CUSTOMER', ownerUuid: bounceWithdrawal.ownerId },
     );
     expect(accountingService.resolveTbAccountId).not.toHaveBeenCalledWith(expect.objectContaining({ code: TB_ACCOUNT_CODES.CLIENT_CASH }));
-    const bounceEvidence = accountingService.executeTransfer.mock.calls[0][0].evidence;
-    expect(bounceEvidence).not.toHaveProperty('debitWalletRef');
-    expect(bounceEvidence).not.toHaveProperty('creditWalletRef');
 
     expect(withdrawService.updateStatus).toHaveBeenCalledWith(
       bounceWithdrawal.id,
@@ -3584,8 +3581,6 @@ describe('WithdrawWorkflowService — 平账 B 批③：退回认领', () => {
     expect(call.debitAccountId).toBe(1n);
     expect(call.creditAccountId).toBe(100n);
     expect(call.evidence).toMatchObject({ debitCode: 'A.CLIENT_CASH', creditCode: 'L.CLIENT_PAYABLE', externalRef: 'PAYRET-1', effectiveDate: '2026-09-01' });
-    expect(call.evidence).not.toHaveProperty('debitWalletRef');
-    expect(call.evidence).not.toHaveProperty('creditWalletRef');
     expect(accountingService.voidPendingTransferBestEffort).not.toHaveBeenCalled();
     expect(withdrawService.updateStatus).toHaveBeenCalledWith('wd1', expect.objectContaining({ action: WithdrawTransactionAction.RETURN }), expect.anything());
   });

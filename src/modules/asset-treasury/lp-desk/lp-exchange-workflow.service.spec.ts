@@ -20,11 +20,6 @@ const profile = { id: 'uuid-lp', lpNo: 'LPP1', name: 'Acme LP', agreementRef: 'A
 const acct = (code: number, ledger: number): bigint => BigInt(code) * 100n + BigInt(ledger);
 // 钱包现金户(戊波一:一钱包一户):按 (钱包 id, ledger) 单射编码,与 acct() 的小整数 id 互不相撞。
 const cashAcct = (walletId: string, ledger: number): bigint => BigInt(`0x${Buffer.from(`cash:${walletId}@${ledger}`).toString('hex')}`);
-// 钱包标签戊波一起退役(现金户一钱包一户,标签由投影器按注册表派生),凭证不得再写。
-const expectNoRetiredEvidenceFields = (call: any) => {
-  expect(call.evidence).not.toHaveProperty('debitWalletRef');
-  expect(call.evidence).not.toHaveProperty('creditWalletRef');
-};
 
 // LP 两步准入 Task 5：收款地址簿条目 fixture（链上 USDT / 法币 AED 各一）。
 const usdtAddress = { addressNo: 'LPA1', lpId: 'uuid-lp', lpNo: 'LPP1', assetId: USDT.id, status: 'ACTIVE', network: 'TRON', address: 'TLP-PAYOUT-1', iban: null };
@@ -340,7 +335,6 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       // 贷方 = 付出那只钱包(sellFromWalletId = F_OPS 的 USDT 行)的现金户,卖出币账本;不再有聚合 FIRM_CASH 查询
       expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops-usdt', TB_LEDGERS.USDT);
       expect((accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code)).not.toContain(TB_ACCOUNT_CODES.FIRM_CASH);
-      expectNoRetiredEvidenceFields(accounting.executeTransfer.mock.calls[0][0]);
       expect(fundsOrders.advance).toHaveBeenCalledWith('fo-1', 'CLEAR', 'LP_EXCHANGE_WORKFLOW');
       expect(exchanges.transition).toHaveBeenCalledWith('LPX1', 'AWAITING_DELIVERY');
       const audit = auditLogs.recordSystem.mock.calls[0][0];
@@ -393,7 +387,6 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       // 85:借 现金·buyViaWalletId(F_LIQ 前厅,买入币账本)/ 贷 FIRM_EQUITY(买入币账本);FIRM_LIQ(203)不再出现
       expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-liq-aed', TB_LEDGERS.AED);
       expect((accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code)).not.toContain(TB_ACCOUNT_CODES.FIRM_LIQ);
-      expectNoRetiredEvidenceFields(accounting.executeTransfer.mock.calls[0][0]);
       expect(fundsOrders.advance).toHaveBeenCalledWith('fo-2', 'CLEAR', 'LP_EXCHANGE_WORKFLOW');
       expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({ fundsOrderNo: 'FDO2', fromWalletId: null, toWalletId: 'w-liq-aed', assetCode: 'AED', assetType: 'FIAT', amountMinor: 7_328_000n }));
       // 评审 Imp#1/R12：回单必须先于落账（invocationCallOrder 越小越早发生）。
@@ -605,7 +598,6 @@ describe('LpExchangeWorkflowService (Task 5)', () => {
       const resolvedCodes86 = (accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code);
       expect(resolvedCodes86).not.toContain(TB_ACCOUNT_CODES.FIRM_LIQ);
       expect(resolvedCodes86).not.toContain(TB_ACCOUNT_CODES.FIRM_EQUITY);
-      expectNoRetiredEvidenceFields(accounting.executeTransfer.mock.calls[0][0]);
       expect(custodianStatement.recordLegMovement).toHaveBeenCalledWith(expect.objectContaining({
         fundsOrderNo: 'FDO3', fromWalletId: 'w-liq-aed', toWalletId: 'w-ops-aed', assetCode: 'AED', assetType: 'FIAT', amountMinor: 7_328_000n,
       }));

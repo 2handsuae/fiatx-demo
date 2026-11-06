@@ -11,11 +11,6 @@ const AED = { id: 'a-aed', code: 'AED', currency: 'AED', decimals: 2, type: 'FIA
 // 现金户(戊波一:一钱包一户)走 cashAcct,只经 resolveCashAccountId 取;其余科目走 acct。
 const acct = (code: number, ledger: number): bigint => BigInt(code) * 100n + BigInt(ledger);
 const cashAcct = (walletId: string, ledger: number): bigint => BigInt(`0x${Buffer.from(`cash:${walletId}@${ledger}`).toString('hex')}`);
-// 钱包标签戊波一起退役(现金户一钱包一户,标签由投影器按注册表派生),凭证不得再写。
-const expectNoRetiredEvidenceFields = (call: any) => {
-  expect(call.evidence).not.toHaveProperty('debitWalletRef');
-  expect(call.evidence).not.toHaveProperty('creditWalletRef');
-};
 const treasury = { actorType: 'ADMIN' as const, userId: 'uuid-tre', userNo: 'ADM-TRE', roleCodes: ['TREASURY_OFFICER'] };
 
 function makeWorkflow(o: Partial<Record<'adjustment' | 'asset' | 'wallet' | 'disposition' | 'transferRow', any>> = {}) {
@@ -183,7 +178,6 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
         debitAccountId: cashAcct('w-set', TB_LEDGERS.AED), creditAccountId: cashAcct('w-ops', TB_LEDGERS.AED),
         evidence: expect.objectContaining({ sourceType: 'INTERNAL_TRANSFER', sourceNo: 'ITR1', eventCode: 'INTERNAL_TRANSFER_OPS_TO_SET', debitCode: 'A.FIRM_CASH', creditCode: 'A.FIRM_CASH', externalRef: 'BANK-1', assetCurrency: 'AED' }),
       });
-      expectNoRetiredEvidenceFields(accounting.executeTransfer.mock.calls[0][0]);
       // 81 两侧都是钱包现金户,经唯一入口取;不再有聚合 FIRM_CASH / FIRM_SET / FIRM_EQUITY 查询
       expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-set', TB_LEDGERS.AED);
       expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops', TB_LEDGERS.AED);
@@ -209,7 +203,6 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
         debitAccountId: cashAcct('w-cust', TB_LEDGERS.USDT), creditAccountId: acct(TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_LEDGERS.USDT),
         evidence: expect.objectContaining({ eventCode: 'INTERNAL_TRANSFER_COMPENSATION_IN', debitCode: 'A.CLIENT_CASH', creditCode: 'L.CLIENT_PAYABLE', externalRef: '0xleg' }),
       });
-      for (const c of accounting.executeTransfer.mock.calls) expectNoRetiredEvidenceFields(c[0]);
       expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops', TB_LEDGERS.USDT);
       expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-cust', TB_LEDGERS.USDT);
       expect(accounting.resolveTbAccountId).toHaveBeenCalledWith(expect.objectContaining({ code: TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, ownerType: 'SYSTEM' }));
@@ -235,7 +228,6 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
         debitAccountId: cashAcct('w-cust', TB_LEDGERS.AED), creditAccountId: acct(TB_ACCOUNT_CODES.CLIENT_PAYABLE, TB_LEDGERS.AED),
         evidence: expect.objectContaining({ eventCode: 'INTERNAL_TRANSFER_ADVANCE_IN', debitCode: 'A.CLIENT_CASH', creditCode: 'L.CLIENT_PAYABLE' }),
       });
-      for (const c of accounting.executeTransfer.mock.calls) expectNoRetiredEvidenceFields(c[0]);
       expect(transfers.transition).toHaveBeenCalledWith('ITR1', 'SUCCESS', expect.objectContaining({ settledAt: expect.any(Date) }));
     });
     it('the customer-side event code for an advance is INTERNAL_TRANSFER_ADVANCE_IN', async () => {

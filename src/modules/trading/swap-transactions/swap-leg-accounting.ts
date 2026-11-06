@@ -112,7 +112,7 @@ export class SwapLegAccounting {
   /**
    * Build the base evidence params for a leg-accounting entry.
    *
-   * 戊波一:钱包落点由账户本身表达(现金户一钱包一户),证据不再带 debit/creditWalletRef(钱包标签由投影器按注册表派生)。
+   * 戊波一:钱包落点由账户本身表达(现金户一钱包一户),证据不带钱包标签(由投影器按注册表派生 account_flows.walletRef)。
    * externalRef 归该腿资金单所有(crypto→txHash / fiat→referenceNo,CONFIRMED 时铸号),
    * 由 postLeg → enrichForPost 盖到 POSTED 证据行上,这里不带。
    */

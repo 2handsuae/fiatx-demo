@@ -248,10 +248,6 @@ describe('CapitalInjectionWorkflowService (Task 3)', () => {
       // 借方 = 收到款那只钱包(row.toWalletId = F_OPS)的现金户,经唯一入口取;不再有聚合 FIRM_CASH 查询
       expect(accounting.resolveCashAccountId).toHaveBeenCalledWith('w-ops-aed', TB_LEDGERS.AED);
       expect((accounting.resolveTbAccountId.mock.calls as any[][]).map((c) => c[0].code)).not.toContain(TB_ACCOUNT_CODES.FIRM_CASH);
-      // 戊波一:钱包标签退役(由投影器按注册表派生),凭证不再写
-      const ev = accounting.executeTransfer.mock.calls[0][0].evidence;
-      expect(ev).not.toHaveProperty('debitWalletRef');
-      expect(ev).not.toHaveProperty('creditWalletRef');
       expect(fundsOrders.advance).toHaveBeenCalledWith('fo-1', 'CLEAR', 'CAPITAL_INJECTION_WORKFLOW');
       const row = await injections.findByNo(cinNo);
       expect(row.status).toBe(S.SUCCESS);

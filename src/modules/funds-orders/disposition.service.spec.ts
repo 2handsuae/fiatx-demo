@@ -74,9 +74,6 @@ describe('DispositionService', () => {
     const first = accounting.executePendingTransfer.mock.calls[0][0];
     expect(first).toMatchObject({ code: 41, legIndex: 1, amount: 5000000n, ledger: 2 });
     expect(first.evidence).toMatchObject({ eventCode: 'EC_ONE', memo: 'leg one (pending)' });
-    // 戊波一:证据不再带钱包标签(由投影器按注册表派生)
-    expect(first.evidence).not.toHaveProperty('debitWalletRef');
-    expect(first.evidence).not.toHaveProperty('creditWalletRef');
   });
 
   it('initiate：cashWalletId 形态的账户经 resolveCashAccountId(walletId, ledger) 取户；其余账户仍走 resolveTbAccountId', async () => {

@@ -140,7 +140,7 @@ describe('SwapLegAccounting — 四腿现金户接线(戊波一)', () => {
     }
   });
 
-  it('证据行只带助记科目 + 来源,不再带 debit/creditWalletRef 钱包标签', async () => {
+  it('证据行只带助记科目 + 来源', async () => {
     const { pending } = await runPlan(false);
     const first = pending[0].evidence;
     expect(first).toMatchObject({
@@ -150,10 +150,6 @@ describe('SwapLegAccounting — 四腿现金户接线(戊波一)', () => {
       debitCode: 'L.CLIENT_PAYABLE',
       creditCode: 'A.CLIENT_CASH',
     });
-    for (const p of pending) {
-      expect(p.evidence).not.toHaveProperty('debitWalletRef');
-      expect(p.evidence).not.toHaveProperty('creditWalletRef');
-    }
     // 31 的借方是公司现金、贷方是公司权益(不是已退役的结算户)
     const sellFirm = pending.find((p) => p.evidence.eventCode === 'SWAP_SELL_FIRM')!;
     expect([sellFirm.evidence.debitCode, sellFirm.evidence.creditCode]).toEqual(['A.FIRM_CASH', 'E.FIRM_EQUITY']);

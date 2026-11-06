@@ -1462,13 +1462,7 @@ model TbTransferEvidence {
   memo         String?
   pendingId    String?                  // Related pending transfer hex ID
   transferType String   @default("POSTED") // POSTED | PENDING | POST_PENDING | VOID_PENDING | CORRECTING
-  // Phase B per-physical-wallet reconciliation:
-  // walletRef = physical wallet identifier each leg sits on (customer wallet id, or firm wallet code)
-  // externalRef = blockchain txHash / bank statement ref when this leg truly crosses an external boundary
-  // 戊波一：凭证不再写 debit/creditWalletRef（两列留着、恒空；钱包标签改由 account_flows.walletRef 按注册表派生）；
-  // 「跨外部」布尔标记已退役删列（见迁移 20261106000000_coa_v3_drop_external_crossing）。
-  debitWalletRef     String?
-  creditWalletRef    String?
+  // externalRef = blockchain txHash / bank statement ref（对账配对键）；钱包标签不在凭证上，由 account_flows.walletRef 按注册表派生。
   externalRef        String?
   effectiveDate String  @default("") // 业务归属日 YYYY-MM-DD（UTC）；default 仅为 SQLite ALTER 所需，写入方必须显式设置
   createdAt    DateTime @default(now())
@@ -1479,13 +1473,12 @@ model TbTransferEvidence {
   @@index([assetCode])
   @@index([actorType, actorId])
   @@index([createdAt])
-  @@index([debitWalletRef])
-  @@index([creditWalletRef])
   @@index([externalRef])
   @@map("tb_transfer_evidence")
 }
 
-// Phase B reconciliation projection: 2 rows per TB transfer (debit→OUT, credit→IN).
+// Phase B reconciliation projection: 2 rows per TB transfer (one per account, direction by account class:
+// money into the account = IN — debit on a debit-normal account, credit on a credit-normal account).
 // Lets per-wallet drill-down do a single indexed query instead of OR-filtering
 // tb_transfer_evidence and computing direction at read time. Idempotency is
 // enforced by (tbTransferId, tbAccountId) — a transfer's two legs hit two

@@ -222,7 +222,7 @@ describe('WithdrawWorkflowService.createWithdrawal — T5 fee account (real-time
     expect(resolveCalls).not.toContain(120);
   });
 
-  it('executePendingTransfer: net + fee both DR 应付 / CR 钱包现金户 (codes 10 / 13), evidence labels A.CLIENT_CASH, no wallet-tag fields', async () => {
+  it('executePendingTransfer: net + fee both DR 应付 / CR 钱包现金户 (codes 10 / 13), evidence labels A.CLIENT_CASH', async () => {
     const mocks = buildServiceMocks();
     const service = makeWorkflowForCreate(mocks);
 
@@ -419,7 +419,7 @@ describe('WithdrawWorkflowService — T5 post fee evidence (real-time 1:1)', () 
 });
 
 // ═══════════════════════════════════════════════════════════════════
-// TEST C: externalRef 配对 + 戊波一(钱包落点由现金户本身表达,证据不再带钱包标签)
+// TEST C: externalRef 配对
 // ═══════════════════════════════════════════════════════════════════
 
 describe('WithdrawWorkflowService — 费腿配对(同一 externalRef)+ 现金户落点', () => {
@@ -470,9 +470,7 @@ describe('WithdrawWorkflowService — 费腿配对(同一 externalRef)+ 现金�
     await (service as any).onFeeLegConfirmed('wd-1', 'fo-fee-1');
   }
 
-  const NO_WALLET_TAGS = ['debitWalletRef', 'creditWalletRef'] as const;
-
-  it('POST rows carry externalRef and no wallet-tag fields', async () => {
+  it('POST rows carry externalRef', async () => {
     const mocks = buildPhaseBMocks();
     const service = makeService(mocks);
 
@@ -488,9 +486,6 @@ describe('WithdrawWorkflowService — 费腿配对(同一 externalRef)+ 现金�
     const feeEvidence = postCalls.find(c => c[0]?.evidence?.eventCode === 'WITHDRAW_FEE_POST')?.[0]?.evidence;
     expect(feeEvidence).toMatchObject({ externalRef: '0xabc123dead' });
 
-    for (const ev of [netEvidence, feeEvidence]) {
-      for (const k of NO_WALLET_TAGS) expect(ev).not.toHaveProperty(k);
-    }
     // 两阶段:post 只带待决转账 id,账户在锁定时就定了——post 阶段不再解析任何账户
     expect(mocks.accountingService.resolveCashAccountId).not.toHaveBeenCalledWith('wallet-c-out-1', expect.anything());
   });
@@ -509,7 +504,6 @@ describe('WithdrawWorkflowService — 费腿配对(同一 externalRef)+ 现金�
       creditCode: 'E.INCOME_WITHDRAW_FEE',
       externalRef: '0xabc123dead',
     });
-    for (const k of NO_WALLET_TAGS) expect(firmEvidence).not.toHaveProperty(k);
     expect(firmArg.debitAccountId).toBe(5001n); // wallet-f-fee-1 的现金户
 
     // CRITICAL: FEE_POST and FEE_FIRM share the EXACT same externalRef.
@@ -544,7 +538,7 @@ describe('WithdrawWorkflowService — 费腿配对(同一 externalRef)+ 现金�
     expect(mocks.accountingService.resolveCashAccountId).toHaveBeenCalledWith('wallet-f-fee-1', 1);
   });
 
-  it('enrichForPost promotes LOCK rows to POST eventCode + externalRef (no wallet-tag fields)', async () => {
+  it('enrichForPost promotes LOCK rows to POST eventCode + externalRef', async () => {
     const mocks = buildPhaseBMocks();
     const service = makeService(mocks);
 
@@ -562,9 +556,6 @@ describe('WithdrawWorkflowService — 费腿配对(同一 externalRef)+ 现金�
     const feeEnrich = enrichCalls.find(c => c[0] === '0000000000000002')?.[1];
     expect(feeEnrich).toMatchObject({ eventCode: 'WITHDRAW_FEE_POST', externalRef: '0xabc123dead' });
 
-    for (const e of [netEnrich, feeEnrich]) {
-      for (const k of NO_WALLET_TAGS) expect(e).not.toHaveProperty(k);
-    }
   });
 
   it('F_FEE wallet missing → no fallback to an aggregate: the fee leg posts nothing (client side included), stays un-CLEARed (记账失败 = 流程失败)', async () => {
@@ -590,7 +581,7 @@ describe('WithdrawWorkflowService — 费腿配对(同一 externalRef)+ 现金�
 // ═══════════════════════════════════════════════════════════════════
 
 describe('WithdrawWorkflowService.createWithdrawal — LOCK rows', () => {
-  it('LOCK_NET + LOCK_FEE pendings carry externalRef=null and no wallet-tag fields', async () => {
+  it('LOCK_NET + LOCK_FEE pendings carry externalRef=null', async () => {
     const mocks = buildServiceMocks();
     const service = makeWorkflowForCreate(mocks);
 
@@ -607,11 +598,9 @@ describe('WithdrawWorkflowService.createWithdrawal — LOCK rows', () => {
     const codes = lockEvidence.map(e => e.eventCode).sort();
     expect(codes).toEqual(['WITHDRAW_LOCK_FEE', 'WITHDRAW_LOCK_NET']);
 
-    // Every LOCK evidence row: externalRef null;钱包落点由锁定贷方的现金户本身表达,不再有钱包标签
+    // Every LOCK evidence row: externalRef null
     for (const ev of lockEvidence) {
       expect(ev).toMatchObject({ externalRef: null });
-      expect(ev).not.toHaveProperty('debitWalletRef');
-      expect(ev).not.toHaveProperty('creditWalletRef');
     }
   });
 });
