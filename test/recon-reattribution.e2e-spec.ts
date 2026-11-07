@@ -18,6 +18,7 @@ import { INestApplication, BadRequestException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { AppModule } from '../src/app.module';
+import { toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { AdjustmentService } from '../src/modules/clearing-settle/reconciliation/disposition/adjustment.service';
 import { DispositionService } from '../src/modules/clearing-settle/reconciliation/disposition/disposition.service';
@@ -123,7 +124,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     approvalsService = app.get(ApprovalsService);
 
     CUTOFF = new Date(Date.now() + 3 * 24 * 3600 * 1000);
-    TODAY = new Date().toISOString().slice(0, 10);
+    TODAY = toBusinessDate(new Date());
 
     const aed = await (prisma as any).asset.findFirst({ where: { currency: 'AED' } });
     if (!aed || !aed.tbLedgerId) {
@@ -338,7 +339,7 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
   async function upsertExternalBalance(opts: {
     walletId: string; currency: string; book: 'CLIENT' | 'FIRM'; closingBalance: bigint;
   }): Promise<void> {
-    const cutoffDate = CUTOFF.toISOString().slice(0, 10);
+    const cutoffDate = toBusinessDate(CUTOFF);
     await (prisma as any).externalBalance.upsert({
       where: { source_accountRef_cutoffDate: { source: 'ZAND', accountRef: opts.walletId, cutoffDate } },
       create: {

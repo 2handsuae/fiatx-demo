@@ -1,0 +1,14 @@
+# T6 shifted clock (Date -5h, wave-2 recipe)
+date: Sun Nov  8 00:23:08 +04 2026
+date -u: Sat Nov  7 20:23:08 UTC 2026
+precondition: stack.sh reset self -> up -> on-stack.sh self demo:setup (all exit 0)
+command: env DATABASE_URL/TB_ADDRESS/TB_DATA_FILE/FILE_STORAGE_DIR=<self stack> npx jest --config <shifted jest-e2e.json (setupFiles + shift-clock.js)> --runInBand --cacheDirectory=<fresh> <same 4 files>
+exit code: 1
+
+  ● Recon supplement e2e (平账 B 批, Task 8) › ② 退汇：SUCCESS 充值 1200 AED → 银行扣回 → 定性 → 发起（候选含原单）→ CFO 批 → CLAWED_BACK，借应付贷客户现金，余额减 → 重跑愈
+  ● Recon supplement e2e (平账 B 批, Task 8) › ③ 退回：SUCCESS 提现 → 银行退回 → 定性 → 发起 → CFO 批 → RETURNED，借客户现金贷应付，余额加、手续费不退 → 重跑愈
+  ● Recon supplement e2e (平账 B 批, Task 8) › 拒绝路径：方向不符 400；余额不足 400；同一行仍待决时二次发起 400，CFO 拒绝后可再发起（复用同一信号）；② 拒绝后原状态不动、supplementNo 清空、可再发起
+
+Test Suites: 1 failed, 3 passed, 4 total
+Tests:       3 failed, 18 passed, 21 total
+AGREEMENT_NOT_ACCEPTED occurrences: 3

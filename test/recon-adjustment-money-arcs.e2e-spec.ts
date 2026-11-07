@@ -18,6 +18,7 @@ import { INestApplication, BadRequestException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { AppModule } from '../src/app.module';
+import { toBusinessDate, endOfBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { AdjustmentService } from '../src/modules/clearing-settle/reconciliation/disposition/adjustment.service';
 import { AdjustmentStatus } from '../src/modules/clearing-settle/reconciliation/constants/adjustment-transitions.constant';
@@ -141,7 +142,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     approvalsService = app.get(ApprovalsService);
 
     CUTOFF = new Date(Date.now() + 3 * 24 * 3600 * 1000);
-    TODAY = new Date().toISOString().slice(0, 10);
+    TODAY = toBusinessDate(new Date());
 
     const aed = await (prisma as any).asset.findFirst({ where: { currency: 'AED' } });
     if (!aed || !aed.tbLedgerId) {
@@ -397,7 +398,7 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     /** 对账单所属业务日（默认 CUTOFF 那天）。场景 9 要把它放到过去的某一天。 */
     cutoffDate?: string;
   }): Promise<void> {
-    const cutoffDate = opts.cutoffDate ?? CUTOFF.toISOString().slice(0, 10);
+    const cutoffDate = opts.cutoffDate ?? toBusinessDate(CUTOFF);
     await (prisma as any).externalBalance.upsert({
       where: { source_accountRef_cutoffDate: { source: 'ZAND', accountRef: opts.walletId, cutoffDate } },
       create: {
@@ -1052,15 +1053,16 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
   //     是靠标记绕过去的；现金户上每条流水都算穿越，现在是靠配对。）
   //
   // 这条用例断言的是业主真正要的那句话：**平完账，案子真的关掉了。**
+  // （尾部随戊波二第 0 轮锚配对改写：原行转 MATCHED 并挂 ADJ 号，不再留 ORPHAN 行——同 R36 对 recon-reattribution 场景 A 的改法。）
   // ────────────────────────────────────────────────────────────────────────
   it('9. 平账闭环（真实形状）：昨天的破口 + 真实"我有外无"差异行 → 今天开单回填 → 重跑 → 差额归零、差异行标已解释、桶回 MATCHED、case 自愈', async () => {
     // 业务日定在过去，对账单也盖在那一天——调账单会在"今天"写出来，生效日回填到那天。
-    const PAST_DATE = new Date(Date.now() - 2 * 24 * 3600 * 1000).toISOString().slice(0, 10);
-    const PAST_CUTOFF = new Date(`${PAST_DATE}T23:59:59.999Z`);
+    const PAST_DATE = toBusinessDate(new Date(Date.now() - 2 * 24 * 3600 * 1000));
+    const PAST_CUTOFF = endOfBusinessDate(PAST_DATE);
     // 铺底流水放在**更早**一天：它们靠 effectiveCutoffFilter 最宽松的那一支进来，
     // 两种过滤式下都成立。于是本用例里唯一依赖「回填」那一支的，就只有调账单本身
     // ——把 fix ① 摘掉时，红的位置精确落在 internalTotal，而不是 fixture 塌掉。
-    const FUND_DATE = new Date(Date.now() - 3 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const FUND_DATE = toBusinessDate(new Date(Date.now() - 3 * 24 * 3600 * 1000));
 
     const ledger = 1; // AED
     const customer = await makeCustomer('C9');
@@ -1124,7 +1126,8 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
     expect(adjFlows).toHaveLength(2);
     for (const f of adjFlows) {
       expect(f.effectiveDate).toBe(PAST_DATE);
-      expect(f.createdAt.toISOString().slice(0, 10) > PAST_DATE).toBe(true); // 确实是"事后写的"
+      // 确实是"事后写的"：写入时刻越过 PAST_DATE 的迪拜日终——正是 effectiveCutoffFilter 第③支（回填）的入口条件
+      expect(f.createdAt.getTime()).toBeGreaterThan(endOfBusinessDate(PAST_DATE).getTime());
     }
 
     // ── 重跑同一个业务日的对账 ──
@@ -1140,22 +1143,29 @@ describe('Recon adjustment money arcs (e2e, Task 8)', () => {
 
     // ① 回填被算进来了 → 内部余额等于外部真值。修之前死在这一行：
     //    调账单落了账，内部余额纹丝不动，差额仍是 −X。
+    //    调账分录 effectiveDate=PAST_DATE 且 createdAt > 该业务日日终，只能走第③支进来；
+    //    internalTotal 归零 + 钱包桶 MATCHED = 匹配器确实把这两行收进了本轮（行为证明，不是读源码）。
     expect(String(snapshot.internalTotal)).toBe('0');
     expect(String(snapshot.deltaAmount)).toBe('0');
+    expect(snapshot.bucket).toBe('MATCHED');
 
     // ④ 差异行还在（是证据，要给人看），但已标成被这张单解释、不再算异常
     //    → 桶回到 MATCHED。修之前这里会停在 COMPENSATING，案子永远关不掉。
-    expect(snapshot.orphanInternal).toBe(1);   // 差异行本身没有消失
-    expect(snapshot.bucket).toBe('MATCHED');   // 但它已被解释，不算异常
+    //    戊波二第 0 轮锚配对（R36，同 recon-reattribution 场景 A 的改法）：调账分录按锚与原流水在钱包内对冲配成 MATCHED，
+    //    不再是"我有外无"异常行——计数 0、桶 MATCHED；证据（原行）改在下面案件页上以 MATCHED + 挂着 ADJ 号体现。
+    expect(snapshot.orphanInternal).toBe(0);
+    expect(snapshot.bucket).toBe('MATCHED');
 
-    // 案件页上这一行必须写着「已被 ADJxxx 解释」——这是操作员唯一看得到的地方。
-    // （管理台渲染的是 getCase 现算的 flowComparison，不是库里的 reconciliation_
-    // line_items；后者是"上一次仍是破口的那轮查到了什么"的快照，钱包一旦回到
-    // MATCHED 引擎就不再重写它，所以不能拿它当本轮结论——同 deltaAmount 那条。）
+    // 案件页上原流水那一行是 MATCHED、写着「已被 ADJxxx 解释」——这是操作员唯一看得到的地方。
+    // （管理台渲染的是 getCase 现算的 flowComparison，不是库里的 reconciliation_line_items 快照。）
     const caseView: any = await reconQuery.getCase(kase.caseNo);
-    const viewRow = caseView.flowComparison.find((r: any) => r.matchType === 'ORPHAN_INTERNAL');
+    const viewRow = caseView.flowComparison.find((r: any) => r.internalFlow?.id === orphan.internalSourceId);
     expect(viewRow).toBeTruthy();
+    expect(viewRow.matchType).toBe('MATCHED');
+    expect(viewRow.externalLine).toBeNull(); // 钱包内对冲：这笔钱本来就没有外部行
     expect(viewRow.explainedByAdjustmentNo).toBe(adjustmentNo);
+    expect(caseView.flowComparison.filter((r: any) => r.matchType !== 'MATCHED')).toEqual([]);
+    expect(viewRow.explainedAmount).toBe(String(X)); // 调账分录（第③支进来的回填）按锚配走的正是这 X
 
     // ── 业主真正要的那句话：案子关掉了 ──
     const reCase = await (prisma as any).reconciliationCase.findUnique({ where: { id: kase.id } });

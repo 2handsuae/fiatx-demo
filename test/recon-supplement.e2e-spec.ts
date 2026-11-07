@@ -19,6 +19,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma } from '@prisma/client';
 
 import { AppModule } from '../src/app.module';
+import { toBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { DispositionService } from '../src/modules/clearing-settle/reconciliation/disposition/disposition.service';
 import { SupplementEvidenceService } from '../src/modules/clearing-settle/reconciliation/disposition/supplement-evidence.service';
@@ -273,7 +274,7 @@ describe('Recon supplement e2e (平账 B 批, Task 8)', () => {
   async function upsertExternalBalance(opts: {
     walletId: string; currency: string; book: 'CLIENT' | 'FIRM'; closingBalance: bigint; cutoffDate?: string;
   }): Promise<void> {
-    const cutoffDate = opts.cutoffDate ?? CUTOFF.toISOString().slice(0, 10);
+    const cutoffDate = opts.cutoffDate ?? toBusinessDate(CUTOFF);
     await (prisma as any).externalBalance.upsert({
       where: { source_accountRef_cutoffDate: { source: 'ZAND', accountRef: opts.walletId, cutoffDate } },
       create: {

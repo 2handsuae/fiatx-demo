@@ -18,6 +18,7 @@ import { INestApplication } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { AppModule } from '../src/app.module';
+import { toBusinessDate, endOfBusinessDate } from '../src/modules/accounting/tigerbeetle/utils/business-date.util';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { AdjustmentService } from '../src/modules/clearing-settle/reconciliation/disposition/adjustment.service';
 import { DispositionService } from '../src/modules/clearing-settle/reconciliation/disposition/disposition.service';
@@ -346,7 +347,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     /** 对账单所属业务日（默认 CUTOFF 那天）。跨日切场景要把它放到过去的某一天。 */
     cutoffDate?: string;
   }): Promise<void> {
-    const cutoffDate = opts.cutoffDate ?? CUTOFF.toISOString().slice(0, 10);
+    const cutoffDate = opts.cutoffDate ?? toBusinessDate(CUTOFF);
     await (prisma as any).externalBalance.upsert({
       where: { source_accountRef_cutoffDate: { source: 'ZAND', accountRef: opts.walletId, cutoffDate } },
       create: {
@@ -411,7 +412,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     const kase = await openCaseFor(wallet.id);
     expect(kase.book).toBe('FIRM');
     expect(kase.slaBreached).toBe(false);
-    expect(new Date(kase.slaDeadline).toISOString()).toBe(new Date(new Date(`${CUTOFF.toISOString().slice(0, 10)}T23:59:59.999Z`).getTime() + 3 * 86_400_000).toISOString());
+    expect(new Date(kase.slaDeadline).toISOString()).toBe(new Date(endOfBusinessDate(toBusinessDate(CUTOFF)).getTime() + 3 * 86_400_000).toISOString());
 
     // 运营定性：查不出（锚 = 读面那行的两个真实证据 id）
     const detail0 = await reconQuery.getCase(kase.caseNo);
@@ -540,7 +541,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
   });
 
   it('跨日切：跑批截止点后 6 小时的外部行，案件页仍显示那条「我有外无」（spec §6.1）', async () => {
-    const day = new Date(CUTOFF.getTime() + 2 * 86_400_000).toISOString().slice(0, 10);
+    const day = toBusinessDate(new Date(CUTOFF.getTime() + 2 * 86_400_000));
     const runCutoff = new Date(`${day}T10:00:00.000Z`);
     const customer = await makeCustomer('STRADDLE');
     await ensureCustomerAedTbAccounts(customer.id, customer.customerNo);
