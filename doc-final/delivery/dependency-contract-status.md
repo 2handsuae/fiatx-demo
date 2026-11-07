@@ -5,12 +5,12 @@
 
 | 依赖 | 状态 | 可信边界 | 代码锚 | 真实契约 |
 |---|---|---|---|---|
-| TigerBeetle 复式账本 | ✅ 真实 | 真进程、真复式记账、真恒等式——演示的地基。生产可换引擎，但两阶段锁定与逐腿记账语义必须保留（语义合同 S7/S8/S9） | `src/modules/accounting/tigerbeetle/`（`tigerbeetle.service.ts`）；本地生命周期 `scripts/dev-tigerbeetle.sh` | tigerbeetle.com 官方文档 |
+| TigerBeetle 复式账本 | ✅ 真实 | 真进程、真复式记账、真恒等式——演示的地基。生产可换引擎，但两阶段锁定、逐腿记账与按钱包开户（一个现金户对一张托管方对账单）的语义必须保留（语义合同 S7/S8/S9） | `src/modules/accounting/tigerbeetle/`（`tigerbeetle.service.ts`）；本地生命周期 `scripts/dev-tigerbeetle.sh` | tigerbeetle.com 官方文档 |
 | Sumsub 申请人侧（KYC / 入驻 / 档位） | 🎭 忠实模拟 | webhook 报文结构照真实契约；裁决由管理台 ⚡ 面板喂（`SUMSUB_MOCK_MODE=true`）。Alice 挂真沙盒 applicant，其余客户是确定性 mock id | `src/modules/sumsub-applicant-client/sumsub.client.ts`（真实 HTTP 实现）＋ `src/modules/sumsub-ingestion/` | Sumsub Applicant API / webhook 文档 |
 | Sumsub KYT（交易监控 / TR） | 🎭 忠实模拟 | HTTP client 按真实契约实现，演示走 mock 替身。**⚠ 切真前有三项合规前提未确认**（规则双类型作用域 / 聚合分桶 / 币种阈值覆盖，见 `PRODUCTION-NOTES.md` 2026-07-31 条），另有 `SUMSUB_SINGLE_TXN_SUBMIT` 过渡开关待收 | `src/modules/sumsub-shared/sumsub-txn-client.http.ts`（真契约）/ `.mock.ts`（替身）＋ 三域 `*-webhook.router.ts` | Sumsub Transaction Monitoring / Travel Rule 文档 |
 | 链上（入金信号 / 提现广播 / 确认） | 🎭 纯占位 | 无真实链：txHash 是伪造值（0x 以太坊格式，对 TRON 不真实——登记在案）；确认/失败由模拟端点触发；无确认数、重组、合约失败现实 | ⚡ 面板 ＋ 各域 demo 场景服务 | —（生产接托管方/节点服务时另立契约） |
 | 银行（法币入出金） | 🎭 纯占位 | 入账/出账确认由模拟端点触发；「银行对账单」由 `recon:demo` 脚本铸造；IBAN 只有格式校验 | `src/modules/asset-treasury/withdrawal-addresses/bank-validator.util.ts` ＋ recon 脚本 | — |
-| 托管方回单（内部划转腿） | 🎭 纯占位（演示装置） | 划转腿一提交，模拟托管方就写外部对账单 OUT/IN 两行并增减当日收盘 | 见 `simulated-externals.md` 托管方行 | — |
+| 托管方回单（内部划转腿） | 🎭 纯占位（演示装置） | 划转腿一提交，模拟托管方就写外部对账单 OUT/IN 两行并增减当日收盘；认损补缺单批准时的记短缺分录（码 91）不回写——托管方没动过这笔钱，它只是我方账上记下「少了」 | 见 `simulated-externals.md` 托管方行 | — |
 | VASP 归属判断（对手方是否 VASP） | 🎭 纯占位 | 由 mock Sumsub 侧判定：充值靠操作员 ⚡喂归因（替 Sumsub 告知 VASP / Unhosted），地址簿登记靠测试地址尾号（LP 打款地址簿登记、LP 到货来源筛查同走此 mock，2026-10-24 LP 两步准入）；客户端“自报对手方”弹窗已退役（2026-10-22 对手方波二）；真实应由链上地址归属服务自动得出 | `src/modules/sumsub-shared/travel-rule/`；触点明细 `reference/sumsub-mock-touchpoints.md` ①⑤–⑧；`PRODUCTION-NOTES.md` 2026-07-31「真实 VASP 归属服务未接」条 | Sumsub wallet-attribution |
 | ~~LP 实体背调（对手方公司尽调）~~ → LP / 服务商逐名筛查 | 已退役 mock，现为人工登记（无外部依赖） | 2026-10-29 甲波六起不再有名称关键词 mock：合规官在 LP / 服务商详情页逐名人工登记筛查结果（绿 / 黄 / 红 + 名单 + 证据截图），系统只收结果并锁送审路径——这里没有可信 / 不可信的外部契约可言；真实对应物若要自动化，二选一：Sumsub KYB（候选而非必购）/ 第三方名单库，届时定 | `src/modules/governance/compliance-office/due-diligence.service.ts#recordScreening`（原 `lp-desk/lp-entity-screening.mock.ts` 已删）；触点明细 `reference/sumsub-mock-touchpoints.md` ⑨（已退役）；候补 `reference/sumsub-services-needed.md` §6 | Sumsub KYB（若采用）；人工筛查无外部契约 |
 | 价源（Binance）与 AED 钉住汇率 | 🎭 配置写死 | 无实时行情，价源与汇率随上币配置以版本上架；「按什么价」的语义在客户端报价预览讲清 | 上币配置（`decisions.md` 2026-09-03） | 生产接行情源时另立契约 |

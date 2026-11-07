@@ -699,7 +699,8 @@ async function assertTargetWalletsClean(
 // 见 demo/script.md 场景 31 步骤 3）。
 //
 // 失窃额校准（T6「先跑后选」方法论，spec §5 校准表；2026-09-30 demo:all 后实测）：
-//   F_OPS(AED) 当刻 946,089.35，NLA 当刻 1,364,752.25，红线 1,200,000.00，
+//   F_OPS(AED) 当刻 946,089.35，NLA 当刻 1,364,752.25（旧口径：只算运营户；2026-11-07 戊波三
+//   改三钱包口径〔运营 + 手续费 + LP 前厅〕后，同一时点 demo:all 之后为 1,364,998.46），红线 1,200,000.00，
 //   Bob（demo_bob@example.com）AED 托管钱包当刻实值 262,200.00（= 他 vIBAN
 //   现金户 A.CLIENT_CASH 的已落账净额，恰等于他的 CLIENT_PAYABLE 257,100.00 +
 //   DEPOSIT_SUSPENSE 5,100.00——客户本平衡；其 250,000
