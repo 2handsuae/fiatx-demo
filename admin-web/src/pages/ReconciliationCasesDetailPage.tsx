@@ -669,6 +669,15 @@ const ReconciliationCasesDetailPage = () => {
             <SidebarKV label="Status" value={<StatusPill value={kase.status} />} />
             <SidebarKV label="Bucket" value={kase.bucket ? formatBucket(kase.bucket) : '—'} />
             <SidebarKV label="Δ" value={deltaZero ? formatAmount(kase.deltaAmount, kase.decimals) : `${sign}${formatAmount(kase.deltaAmount, kase.decimals).replace(/^-/, '')}`} mono />
+            <SidebarKV
+              label="Books Δ"
+              value={
+                isZeroAmount(kase.internalDeltaAmount)
+                  ? '—'
+                  : `${deltaSign(kase.internalDeltaAmount)}${formatAmount(kase.internalDeltaAmount, kase.decimals).replace(/^-/, '')}`
+              }
+              mono
+            />
           </SidebarGroup>
 
           <SidebarGroup title="Lifecycle">

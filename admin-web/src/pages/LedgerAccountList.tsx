@@ -13,6 +13,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import { buildAssetLookup, type AssetLookup } from './companyFundsFormat';
 import { withAssetSuffix, TB_CODE_OPTIONS } from './ledger-account.constants';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
@@ -91,7 +92,7 @@ const LedgerAccountList = () => {
   const requestSeqRef = useRef(0);
 
   const [assets, setAssets] = useState<AssetOption[]>([]);
-  const [decimalsMap, setDecimalsMap] = useState<Record<string, number>>({});
+  const [assetLookup, setAssetLookup] = useState<AssetLookup>(buildAssetLookup([]));
 
   /* ── Data fetching ── */
 
@@ -152,9 +153,7 @@ const LedgerAccountList = () => {
         (a: any) => a.tbLedgerId != null,
       );
       setAssets(provisioned.map((a: any) => ({ code: a.code, type: a.type })));
-      const dec: Record<string, number> = {};
-      for (const a of provisioned) if (typeof a.decimals === 'number') dec[String(a.currency ?? a.code)] = a.decimals;
-      setDecimalsMap(dec);
+      setAssetLookup(buildAssetLookup(provisioned));
     } catch {
       /* ignore */
     }
@@ -180,8 +179,6 @@ const LedgerAccountList = () => {
 
   const th =
     'px-3 py-2 text-left font-mono text-[9px] font-semibold uppercase tracking-[0.12em] text-adm-t3';
-
-  const decimalsOf = (assetCode: string): number => decimalsMap[assetCode] ?? 2;
 
   /* ── Render ── */
 
@@ -361,7 +358,7 @@ const LedgerAccountList = () => {
                 </td>
                 {/* Balance */}
                 <td className="px-3 py-2 font-mono text-[11px] text-adm-t1 text-right tabular-nums">
-                  {row.balance != null ? formatMinorToMajor(row.balance, decimalsOf(row.assetCode)) : '—'}
+                  {row.balance != null ? formatMinorToMajor(row.balance, assetLookup.decimalsOf(row.assetCode)) : '—'}
                 </td>
                 {/* Asset */}
                 <td className="px-3 py-2 font-mono font-bold text-adm-t1">

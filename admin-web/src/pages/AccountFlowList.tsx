@@ -10,6 +10,7 @@ import {
   adminFetch,
   getApiErrorMessage,
 } from '../utils/adminFetch';
+import { buildAssetLookup, type AssetLookup } from './companyFundsFormat';
 import { withAssetSuffix } from './ledger-account.constants';
 
 /* ── Interfaces ──────────────────────────────────────────────── */
@@ -98,7 +99,7 @@ const AccountFlowList = () => {
     q: searchParams.get('walletRef')?.trim() ?? '',
   }));
   const [currencyOptions, setCurrencyOptions] = useState<string[]>([]);
-  const [decimalsMap, setDecimalsMap] = useState<Record<string, number>>({});
+  const [assetLookup, setAssetLookup] = useState<AssetLookup>(buildAssetLookup([]));
   const requestSeqRef = useRef(0);
   const navigate = useNavigate();
 
@@ -114,18 +115,12 @@ const AccountFlowList = () => {
       const currencies = [
         ...new Set(assets.map((a: any) => String(a.currency))),
       ] as string[];
-      const decimals: Record<string, number> = {};
-      for (const a of assets) {
-        if (typeof a.decimals === 'number') decimals[String(a.currency)] = a.decimals;
-      }
       setCurrencyOptions(currencies);
-      setDecimalsMap(decimals);
+      setAssetLookup(buildAssetLookup(assets));
     } catch {
       /* ignore — dropdown simply stays empty */
     }
   };
-
-  const decimalsOf = (assetCode: string): number => decimalsMap[assetCode] ?? 2;
 
   /* ── Data fetching ── */
 
@@ -433,11 +428,11 @@ const AccountFlowList = () => {
                   </span>
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px] text-adm-t1 text-right tabular-nums font-semibold">
-                  {formatMinorToMajor(row.amount, decimalsOf(row.assetCode))}
+                  {formatMinorToMajor(row.amount, assetLookup.decimalsOf(row.assetCode))}
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px] text-adm-t1 text-right tabular-nums">
                   {row.balanceAfter != null
-                    ? formatMinorToMajor(row.balanceAfter, decimalsOf(row.assetCode))
+                    ? formatMinorToMajor(row.balanceAfter, assetLookup.decimalsOf(row.assetCode))
                     : '—'}
                 </td>
                 <td className="px-3 py-2 font-mono text-[11px] font-semibold text-adm-t1">
