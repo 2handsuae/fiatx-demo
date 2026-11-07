@@ -8,7 +8,7 @@
 
 **Tech Stack:** NestJS + Prisma + SQLite + TigerBeetle 0.17.3；React admin-web；jest（根目录跑）；e2e 经 `bash scripts/on-stack.sh self test:e2e`。
 
-**Spec:** `doc-final/superpowers/specs/2026-11-07-campaign-e-wave2-new-capabilities-spec.md`（§0 / §0.1 裁定 1–22 是权威；分录以总纲 `2026-11-06-campaign-e-ledger-by-location-charter.md` 附录 B「波二」列为准；承接与悬挂项在 `2026-11-06-campaign-e-wave2-skeleton.md`）
+**Spec:** `doc-final/archive/superpowers/specs/2026-11-07-campaign-e-wave2-new-capabilities-spec.md`（已随合并归档）（§0 / §0.1 裁定 1–22 是权威；分录以总纲 `2026-11-06-campaign-e-ledger-by-location-charter.md` 附录 B「波二」列为准；承接与悬挂项在 `2026-11-06-campaign-e-wave2-skeleton.md`）
 
 ## Global Constraints
 

@@ -1,11 +1,11 @@
 # 戊波三 · 公司侧读面闸门 + 收官 · 骨架
 
-> 总纲：`2026-11-06-campaign-e-ledger-by-location-charter.md` §3 波三「公司侧读面闸门 + 收官」；波二 spec：`2026-11-07-campaign-e-wave2-new-capabilities-spec.md`
+> 总纲：`2026-11-06-campaign-e-ledger-by-location-charter.md` §3 波三「公司侧读面闸门 + 收官」；波二 spec：`2026-11-07-campaign-e-wave2-new-capabilities-spec.md`（已归档至 `archive/superpowers/specs/`，plan 同名在 `archive/superpowers/plans/`）
 > 本文件只是**骨架**——链总纲 + 承接波二 + 已定事实 + 待定岔口，**不展开波三 spec**。
 
 ## 承接波二（波二收尾任务填写）
 
-- 合并基线：**波二未合并**（收尾会话不合）。分支 `claude/campaign-e-wave2-e761d7`（worktree `.claude/worktrees/campaign-e-wave2-e761d7`），基点 `5ff65ef5`（= 波二开工时 main，波一合并并归档之后），任务 11 终点 `8b40965d`，其上是本收尾提交；终审（任务 12 Step 7）的修复提交与合并哈希由控制者合并后补记。合并时要做：快进 → build → `stack.sh reset main`（schema 动过：三个新迁移——`house_transfers` 表 + `funds_orders` 加调拨单回链；`internal_transfers` 重建（用途改名 `SHORTFALL_TOPUP`，加 `explainedFlowId / explainedExternalLineId / recognizedTbTransferId / recognizedAt / effectiveDate / lossSource / sourceIncidentNo`，删 `sourceAdjustmentNo`）+ `reconciliation_dispositions.transferNo`；`reconciliation_cases` / `reconciliation_run_wallets` 各加 `internalDeltaAmount`）→ 重启后端 + `db:base:sync`（新审批策略 `HOUSE_TRANSFER_APPROVAL`、4 条新路由、2 个新动作桶、改名的权限常量）→ 云端 `cloud:deploy`（连欠含波一与本波）。验证物证：`checkups/2026-11-07-campaign-e-wave2-evidence/README.md`（闸表、计数前后表、客户侧 diff 为空、转账码抽核、e2e 对照、截图索引）。
+- 合并基线：**已合 main，ff `dbfbd59d`（2026-11-07，25 个提交；基点 `5ff65ef5`；任务 11 终点 `8b40965d`，其后收尾 docs `e04fb30c`、终审小项 `dbfbd59d`）**，归档提交紧随其后（本骨架改记合并基线的那一个）；`git log main -1` 在归档提交之后即可开工。合并后主目录已做（2026-11-07）：build → `stack.sh reset main`（schema 动过：三个新迁移——`house_transfers` 表 + `funds_orders` 加调拨单回链；`internal_transfers` 重建（用途改名 `SHORTFALL_TOPUP`，加 `explainedFlowId / explainedExternalLineId / recognizedTbTransferId / recognizedAt / effectiveDate / lossSource / sourceIncidentNo`，删 `sourceAdjustmentNo`）+ `reconciliation_dispositions.transferNo`；`reconciliation_cases` / `reconciliation_run_wallets` 各加 `internalDeltaAmount`）→ `up main` + `db:base:sync`（新审批策略 `HOUSE_TRANSFER_APPROVAL`、4 条新路由、2 个新动作桶、改名的权限常量）→ `demo:all` 花名册 35/35、asserts 5/5 → `verify:coa` 105 户全 ≥ 0、`data.md` 零 diff，全绿；已推送 GitHub（`origin/main`）；**云端 `cloud:deploy` 未跑**（连欠含波一与本波，业主定时机）。验证物证：`checkups/2026-11-07-campaign-e-wave2-evidence/README.md`（闸表、计数前后表、客户侧 diff 为空、转账码抽核、e2e 对照、截图索引）。
 - 实际交付（含全部订正）：
   - **科目与码**：科目码 11 → 13（`2` 托管短缺待补、`51` 应收 LP 交货，均借方户、不进 `CASH_TB_CODES`）；转账码最大 87 → 91（88 `LP_EXCHANGE_RECEIVABLE`｜89 `HOUSE_TRANSFER`｜90 `FEE_INCOME_CLOSE_*` 三 eventCode｜91 `CLIENT_SHORTFALL_RECOGNIZED`）；83 按用途分两形态（`SHORTFALL_TOPUP` 借 1 / 贷 2，`CLIENT_ADVANCE` 原样借 1 / 贷 100）、85 改贷 51；天平改成 Σ(1)+Σ(2) = Σ(100)+Σ(101) 与 Σ(50)+Σ(51)+Σ(300..302) = Σ(200)+Σ(210..212)。订正：spec 说「三处同改」，实际 `verify:coa` 就是 `scripts/verify-realtime-coa.ts`（两处），另在 `scripts/demo-lib.ts` 找到第四处硬编码并改（T1）。投影器 walletRef 判据加 `isCashCode`，码 2 流水零 walletRef。
   - **开户与种子**：`WalletCashAccountService.ensureForWallet` 对客户钱包一次开 1 + 2；`LpReceivableAccountService.ensureForLp` 挂在 LP 档案 →ACTIVE 的两条边（审批批准、金库复活）；种子给 Falcon / Dune 各开 51 × 2，LP 历史兑换单变四腿（84→88→85→86）。演示库科目数 87 → 105（重铺后 81 户，demo:all 之后 105）。
@@ -38,6 +38,17 @@
   - **波三岔口的现状**：岔口 1「账本三列表分组呈现」未动（本波只加了 2 / 51 过滤项与 Owner = LP 户名）；岔口 2「看板加开支格」未动（应收 LP 格已做）；NLA 公式文档要如实写「只算运营户，手续费户与应收 LP 不计入」（BACKLOG 已记待业主拍）；`accounting-coa.md` 整篇重写要含码 2 / 51、转账码 88–91 与新天平；**科目表导出**的码表是 13 个码；小数位债（BACKLOG §M）未动。
   - 新演示约束 R37 与「重铺数据」要写进波三的七幕走查口径；七幕走查里，场景 16 / 31 / 41 是本波新流程，场景 8 的 Kate 案在场景 14 那行没处理前保持 Open（剧本已去掉「两案都已解决」）。
   - `delivery/` 语义合同先于其他文档改（见悬挂项 R39）；收官 `cloud:deploy`。
+
+## 下一轮讨论议题（业主 2026-11-07：「把遗留问题写入波三骨架，我下一轮讨论」；细节都在上面「悬挂项」里，这里只列要拍板的）
+
+1. **R37 重摆对账场景被拒**：库里一有落账的调账单或记过短缺的认损补缺单，`recon:demo` 系列与云端「重摆对账场景」按钮都被拒、只能整库重铺（约 1 分钟）。接受，还是改成重摆时连带清掉带锚处置？
+2. **R19 两个重复动作桶**：`treasury.view_house_transfers / act_house_transfers` 与 funding 两桶组集完全相同，角色编辑页多两个不能单独收回的开关。删还是留？
+3. **R40 八个新审计码缺说明**：说明住业主维护的 `lark/` 种子，agent 不填；`audit:vocab` 在补齐前 exit 1。
+4. **R39 交付文档滞后**：`delivery/` 语义合同、`decision-log` D-10、`reference/roadmap.md` 三处仍写旧的两步补款路。波三先改 `delivery/`。
+5. **NLA 口径**：仍只算运营户，手续费户与应收 LP 不计（BACKLOG 已记）。波三要不要改公式？
+6. **e2e 迪拜 0–4 点窗口**：夹具按 UTC 写外部余额、产品按迪拜业务日读，窗口内多红约 10 例（TOOLING-DEBT）。修夹具还是接受拨钟配方？
+7. **停放小项**（R43 / R44）：`BACKLOG.md:220` 末句说反；截止过滤第三支无 e2e；to 钱包报错文案写成 from；对内不平案侧栏 Δ 显示 0.00；`recon-demo.ts:495` 排除码 91 那段因 R37 前置闸走不到（留或删）；码 2 户名字面「Custody Shortfall」与常量英文名不一致。
+8. **decisions.md 收官条目**与波三岔口 1–4（见下两节）。
 
 ## 已定事实
 
