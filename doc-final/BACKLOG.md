@@ -63,6 +63,10 @@ Last Updated: 2026-10-08（报送台整备波文档收口：销 6 行（整行�
 
 - [ ] **账本流水页（Account Flows）户名改显示全名后，1440px 宽度下整页出现横向滚动条**（2026-11-06 戊波一终审）：T12 把流水页户名列改成不截断的全名（`Client Cash · CU… · vIBAN – AED` 这类），表格总宽超出 1440px 视口，走查时要横拖才看得到右侧列。账本列表页（科目 / 流水）的整体版式属战役戊波三的范围，到时一并重排列宽 / 户名折行；｜ 来源：戊波一终审 ｜ 落点：`admin-web/src/pages/AccountFlowList.tsx`
 
+- [ ] **账本三列表（科目 / 凭证 / 流水）分组视图 + 钱包筛选（业主 2026-11-07 推迟）**：戊波三原定要做的「按持有人 / 钱包分组呈现 + 按钱包筛」，业主 2026-11-07 定「科目页不改了先」，版式整体不动，只修了 USDT-TRON 小数位放大（见本节「小数位」两条）。后果：三张账本列表仍是平铺长表，客户钱包 × 公司钱包 × LP 户混在一起，演「公司钱包一眼看全 / 只看某只钱包的流水」时要靠 Owner 与码筛选手拼；上一条「Account Flows 户名全名 1440px 横向滚动」的列宽 / 折行重排也随这一条一并推迟 ｜复现: 管理台 Ledger Accounts / Account Flows 页，想只看某一只钱包的全部户与流水，没有钱包筛选项 ｜来源: 戊波三 spec §0 裁定 6，业主 2026-11-07 ｜落点: `admin-web/src/pages/LedgerAccountList.tsx`、`AccountFlowList.tsx`、`TransferEvidenceList.tsx`
+
+- [ ] **账本科目页（Ledger Accounts）带一列十六进制「ID」，违反铁律⑥（对外用业务键，管理台不暴露内部 id）**：科目页表格里有一列直出户的十六进制 ID（TigerBeetle 账户 id），是演示可见的内部标识；铁律⑥要求对外只用业务单号 / 业务键。既有（非戊波三引入），戊波三 spec 明列「不做、记 BACKLOG 不动」。要改的话：该列换成业务键（户名 / 持有人号 + 码）或收起，详情页链接改走注册表行的业务键 ｜复现: 管理台 Ledger Accounts 页，看表头的「ID」列 ｜来源: 戊波三 spec §0.1（既有项），2026-11-07 ｜落点: `admin-web/src/pages/LedgerAccountList.tsx`
+
 ## C. 第二幕 · 迎客（V2 客户与合规）
 
 > 讲「客户是谁、能不能交易由合规说了算」这一幕的缺口。入驻（波二）与档位升级（波三）已重建完成销账；2026-09-08 收尾轮清掉客户可见面小账（快捷登录上线、横幅重复实证已修、坏路由删除），两条挂起可见性缺口归订单域（§D/§F）。剩销户清退挂账（业主裁定暂不做）。
@@ -217,7 +221,7 @@ Last Updated: 2026-10-08（报送台整备波文档收口：销 6 行（整行�
 
 - [ ] **已结案（Resolved）的案件页自相矛盾：五个余额格取破口那一刻的快照，差异行和副行按结案那一轮重建**：场景 16 走完认损补缺并 Re-reconcile 后，案件页上 `CaseBalanceTiles` 的五格仍显示破口当时的红色 "Unexplained −7.5 needs investigation"，而下方差异行 / 副行已是 Explained、Resolved（证据截图 `superpowers/checkups/2026-11-07-campaign-e-wave2-evidence/t11-scene-16-12-healed.png`）。格子算法波前就这样，戊波二把重对账后的行改成过去时，反差被放大。修法方向：已结案案件的格子也按结案那一轮重算，或在格子上标「as of 开案」｜复现: 重铺后走场景 16 全程（Hold → 认损补缺 → CFO 批 → 执行 → Re-reconcile），打开该案详情页 ｜来源: 戊波二终审 M5（2026-11-07）
 
-- [ ] **被锚定的调账单少付（落账金额低于差额）后，差异行仍读绿色「Explained · ADJ…」**：调账单锚到某条差异行、落账后匹配器第 0 轮按锚配对判 AMOUNT_MISMATCH，但行上的 chip 只看单据状态——`POSTED` 一律打「Explained」（`admin-web/src/utils/adjustmentChip.ts:20`），不看金额够不够。只有操作员把预填金额改小才到；预填原值（pass 0）则行保持 AMOUNT_MISMATCH，不受影响 ｜复现: 在带锚的调账弹窗里把预填金额改小 → CFO 批 → 落账，看案件页该差异行的状态标签 ｜来源: 戊波二终审（2026-11-07），波三骨架悬挂项「读面小尾巴」同条
+- [ ] **被锚定的调账单少付（落账金额低于差额）后，差异行仍读绿色「Explained · ADJ…」**：调账单锚到某条差异行、落账后匹配器第 0 轮按锚配对判 AMOUNT_MISMATCH，但行上的 chip 只看单据状态——`POSTED` 一律打「Explained」（`admin-web/src/utils/adjustmentChip.ts:20`），不看金额够不够。只有操作员改了预填金额、落账低于差额才会出现「行读 Explained 但金额对不上」——pass 0（预填原值）按锚配对判 AMOUNT_MISMATCH，行保持 AMOUNT_MISMATCH，不受影响 ｜复现: 在带锚的调账弹窗里把预填金额改小 → CFO 批 → 落账，看案件页该差异行的状态标签 ｜来源: 戊波二终审（2026-11-07），波三骨架悬挂项「读面小尾巴」同条
 
 ## H. 第七幕 · 事后说得清（审计追溯）
 
@@ -351,7 +355,7 @@ Last Updated: 2026-10-08（报送台整备波文档收口：销 6 行（整行�
 
 ## M. 战役乙 · LP 兑换台（第九幕「公司的钱」，V7 财资）
 
-- [ ] **NLA 仍只算运营户（F_OPS）；手续费户与应收 LP 是否计入，波三或后续裁**：`prudential.service.ts` 的 NLA 只读运营户现金（AED + USDT 折 AED），戊波二新增的「应收 LP」（码 51，LP 欠我们的货）与已有的手续费户现金都**不计入**——保守口径，未验收落定的钱不算流动；调拨单 / 付款单 from = 运营户时才过 NLA 门，from = 手续费户不过（运营户不动）。要不要把手续费户或应收 LP 计入、怎么计，是口径变更，需业主拍板 ｜来源: 戊波二 spec §2「不做」，2026-11-07
+- [x] ~~**NLA 仍只算运营户（F_OPS）；手续费户与应收 LP 是否计入，波三或后续裁**：`prudential.service.ts` 的 NLA 只读运营户现金（AED + USDT 折 AED），戊波二新增的「应收 LP」（码 51，LP 欠我们的货）与已有的手续费户现金都**不计入**——保守口径，未验收落定的钱不算流动；调拨单 / 付款单 from = 运营户时才过 NLA 门，from = 手续费户不过（运营户不动）。要不要把手续费户或应收 LP 计入、怎么计，是口径变更，需业主拍板 ｜来源: 戊波二 spec §2「不做」，2026-11-07~~ **已销（2026-11-07 戊波三）**：NLA 改为「运营户 + 手续费户 + 前厅户」（AED + USDT，USDT 按挂钩价折算），结算户与应收 LP 不计；门只在钱离开公司时过——付款单（from = 运营户或手续费户）恒过门、LP 兑换单恒过门、公司调拨单两个方向都不过门（补缺 / 垫款 / 注资仍不插门）。实测新口径数字见 `demo/baseline.md`「战役戊波三判据」（口径一 136,469,600 / 口径二 136,499,846 / 场景 31 破线 111,499,846 / 场景 32 回线 141,499,846）；规则落点 `modules/company-funds.md`
 
 - [x] ~~**`LedgerAccountList.tsx` 的 decimals 查找键与显示键不一致，code≠currency 的资产小数位显示错（USDT-TRON 类被放大约 10⁴ 倍）**：`decimalsMap` 用 `asset.currency`（如 `USDT`）建键，表格行按 `asset.code`（如 `USDT-TRON`）去查，键不对时静默回退 2 位小数——凡 `code≠currency` 的资产（本仓目前即 USDT-TRON）在这张账本科目视图里全部显示错，6 位小数的余额被放大成 2 位小数的读法，波前既有（内部划转单等既有流程同样受影响），LP 兑换台走查现场也能看到（前厅/运营户 USDT 余额行数字异常大）。业主芯片已挂 `task_475851be`。~~ **已销（2026-11-07 戊波三 T8）**：`LedgerAccountList.tsx` 与 `AccountFlowList.tsx` 改用 `companyFundsFormat.ts` 的 `buildAssetLookup` / `currencyOf`，按 code→currency→decimals 查，USDT-TRON 余额显示 6 位小数。更深根因（注册表 `asset.code` 键）拆为下一条新条目。 ｜来源: 2026-09-29 战役乙波一 T8 走查发现
 

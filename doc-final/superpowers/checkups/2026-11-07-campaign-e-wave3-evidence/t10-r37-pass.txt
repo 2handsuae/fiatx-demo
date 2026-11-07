@@ -1,0 +1,12 @@
+[on-stack/self] DATABASE_URL=file:/tmp/exchange_js_wt_campaign_e_wave3_3aac42/dev.db
+[on-stack/self] TB_ADDRESS=127.0.0.1:3123
+[on-stack/self] TB_DATA_FILE=/tmp/exchange_js_wt_campaign_e_wave3_3aac42/0_0.tigerbeetle
+[on-stack/self] FILE_STORAGE_DIR=/tmp/exchange_js_wt_campaign_e_wave3_3aac42/files
+[on-stack/self] script 'recon:demo:pass' -> ts-node -r tsconfig-paths/register scripts/recon-demo.ts --mode=pass 
+════════ recon:demo  mode=pass  cutoff=2026-11-07T20:55:20.496Z ════════
+(node:55866) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:55866) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+(node:55866) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+(node:55866) MaxListenersExceededWarning: (node) warning: possible EventEmitter memory leak detected. 11 listeners added. Use emitter.setMaxListeners() to increase limit.
+Cannot re-stage the reconciliation scenarios: ITR261108064412, ITR261108240869 are posted and anchored to the current external statement, and re-staging regenerates that statement. Use "Reset all demo data…" (full reseed, about 1 minute) instead.

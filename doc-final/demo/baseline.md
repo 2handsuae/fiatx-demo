@@ -54,7 +54,7 @@
 | 编译 | tsc 后端（src / test / scripts / prisma 四目录）｜ tsc 管理台（含 .spec.ts）｜ tsc 客户端 |
 | 重铺 | `stack.sh reset main`（含 TigerBeetle 清理重建，全链实跑） |
 | 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 35/35 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束；29→35 见文末「对手方波二种子断言」） |
-| 对账 | recon:demo:pass ｜ **recon:demo:break 18/18 场景 + 12/12 钱包桶 + `casesOpened` 完整性断言**（2026-09-06 平账三期加 18（Jack USDT-TRON 未授权转出 → 事故登记）后实测：`scenarios 18/18 DETECTED` / `wallets 12/12 bucket OK`（break 9 / softFlag 2 / inTransit 1）/ `casesOpened 12/12`，答案键 `rootCause` 用注册表成因码）｜ verify:demo-data。⚠️ **铺场前不得有在途划转**（待批 / 执行中的内部划转单会让脚本前置闸当场报错——先 ⚡ 推到确认或撤回）。⚠️ **戊波二起另有一道前置闸（R37）：已落账的调账单、已记短缺的认损补缺单之后不得再重摆**——库里已有**任何** POSTED 且带锚的调账单（冲正 / 冲销 / 补记 / 改记 / 核销，每个处置至少带一个锚，故都算），或记短缺已落账的认损补缺单时，`recon:demo:break` / `pass` / `crisis` 一律拒绝（exit 1，只打一行 `Cannot re-stage the reconciliation scenarios: <单号> is posted and anchored to the current external statement … Use "Reset all demo data…" …`），改用 `bash scripts/stack.sh reset <main|self>`（云端用面板「Reset all demo data…」）重铺。⚠️ **必须走整库重铺验证**：**场景 6（重复入账）真写账本**、`recon:demo:reset` 不回滚账本，轻量重跑会让场景 6 假性 MISSED（显示 17/18）|
+| 对账 | recon:demo:pass ｜ **recon:demo:break 18/18 场景 + 12/12 钱包桶 + `casesOpened` 完整性断言**（2026-09-06 平账三期加 18（Jack USDT-TRON 未授权转出 → 事故登记）后实测：`scenarios 18/18 DETECTED` / `wallets 12/12 bucket OK`（break 9 / softFlag 2 / inTransit 1）/ `casesOpened 12/12`，答案键 `rootCause` 用注册表成因码）｜ verify:demo-data。⚠️ **铺场前不得有在途划转**（待批 / 执行中的内部划转单会让脚本前置闸当场报错——先 ⚡ 推到确认或撤回）。⚠️ **戊波二起另有一道前置闸（R37）：已落账的调账单、已记短缺的认损补缺单之后不得再重摆**——库里已有**任何** POSTED 且带锚的调账单（冲正 / 冲销 / 补记 / 改记 / 核销，每个处置至少带一个锚，故都算），或记短缺已落账的认损补缺单时，`recon:demo:break` / `pass` / `crisis` 一律拒绝（exit 1，只打一行 `Cannot re-stage the reconciliation scenarios: <单号> is posted and anchored to the current external statement … Use "Reset all demo data…" …`），改用 `bash scripts/stack.sh reset <main|self>`（云端用面板「Reset all demo data…」——戊波三起面板**只有**这一颗按钮，「重摆对账场景」按钮与 `POST /demo-ops/recon-break` 已退役，重铺的最后一步会自动重摆对账差额）重铺。⚠️ **必须走整库重铺验证**：**场景 6（重复入账）真写账本**、`recon:demo:reset` 不回滚账本，轻量重跑会让场景 6 假性 MISSED（显示 17/18）|
 | 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测重铺后与 demo:all 后均全绿；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序）。**2026-09-01 三支合流后在 main 栈两轮独立实测：57 科目全部 ≥ 0，全绿**（此前 08-31 的负余额红已定位为资本注入被跳过的假红，见上方\"已结\"节）。**2026-09-05 起注资那笔已在流水里**（种子写凭证 + 两行流水），运营户对账起点为正 |
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
 | 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / 写点闭合退役词零引用 / 码全局唯一禁裸名 |
@@ -284,9 +284,9 @@ DATABASE_URL="file:/tmp/exchange_js_wt_<名>/dev.db" TB_ADDRESS="127.0.0.1:<账�
 
 由 `prudential.constants.ts` 代码常量 + 上两节已登记的 F_OPS 余额推得，零新表零新种子——三行全部可由 `GET /admin/prudential/status` 或 TB 直读复现：
 
-- **NLA 合计（reset 后、demo:all 之前，TB 直读，同上两节口径）**：AED 腿 `F_OPS(AED)=94,750,000` 分 + USDT 腿 `usdtMinorToAedMinor(113,600,000,000)=41,719,600` 分（×3.6725 系数向下取整）= **136,469,600 分 = 1,364,696.00 AED**。demo:all 后（花名册流水落账）实测漂到 `136,475,225` 分 `=1,364,752.25`（`GET /admin/prudential/status` 2026-09-30 实测，`perAsset`/`nlaAedMinor` 与本公式逐位互证）。
+- **NLA 合计（reset 后、demo:all 之前，TB 直读，同上两节口径）**：AED 腿 `F_OPS(AED)=94,750,000` 分 + USDT 腿 `usdtMinorToAedMinor(113,600,000,000)=41,719,600` 分（×3.6725 系数向下取整）= **136,469,600 分 = 1,364,696.00 AED**。demo:all 后（花名册流水落账）实测漂到 `136,475,225` 分 `=1,364,752.25`（`GET /admin/prudential/status` 2026-09-30 实测，`perAsset`/`nlaAedMinor` 与本公式逐位互证）。**⚠️ 戊波三（2026-11-07）NLA 口径改为「运营户 + 手续费户 + 前厅户」（AED + USDT，USDT 按挂钩价），结算户与应收 LP 不计**：口径一（reset 后、`demo:all` 之前）仍是 136,469,600 分（手续费户与前厅户此刻都是零，数不变）；口径二（`demo:all` 后）改为 **136,499,846 分 = 1,364,998.46 AED**（= 运营户 AED 94,608,935 + 手续费户 AED 11,400 + 运营户 USDT 折 41,866,290 + 手续费户 USDT 折 13,221；旧口径只算运营户的 136,475,225 作废）。两个数 2026-11-08 戊波三 T10 在 self 栈实测，见本文末「战役戊波三判据」。
 - **红线**：`NLA_FLOOR_AED_MINOR = 1.2 × MONTHLY_OPEX_BASE_AED_MINOR(100,000,000 分)` = **120,000,000 分 = 1,200,000.00 AED**（reset 后 headroom 16,469,600 分 = 164,696.00，恒不破线）。
-- **crisis（场景 31）+ 认损补缺后期望**（2026-11-07 戊波二订正：旧流程是认损调账 + 补款划转，数值不变）：`recon:demo:crisis` 本身只写外部账单幽灵行，不动 TB/`F_OPS`——crisis 后 `nlaAedMinor=136475225`（1,364,752.25 AED）、`breached=false`（demo:all 后数值不变，2026-09-30 T6 实测）。场景 31 的认损补缺两条腿落地后（旧稿写「步骤 7 补款划转」；F_OPS(AED) 真实出 250,000.00 = `CRISIS_THEFT_AED_MINOR`，`scripts/recon-demo.ts`）NLA 实测降至 **1,114,752.25 AED < 红线 1,200,000.00** → `breached=true`（T8 场景 31 实测坐实）；场景 32 注资 300,000.00 落账后回升至 **1,414,752.25 AED**、`breached=false`（T9 场景 32 实测坐实）。
+- **crisis（场景 31）+ 认损补缺后期望**（2026-11-07 戊波二订正：旧流程是认损调账 + 补款划转，数值不变）：`recon:demo:crisis` 本身只写外部账单幽灵行，不动 TB/`F_OPS`——crisis 后 `nlaAedMinor=136475225`（1,364,752.25 AED）、`breached=false`（demo:all 后数值不变，2026-09-30 T6 实测）。场景 31 的认损补缺两条腿落地后（旧稿写「步骤 7 补款划转」；F_OPS(AED) 真实出 250,000.00 = `CRISIS_THEFT_AED_MINOR`，`scripts/recon-demo.ts`）NLA 实测降至 **1,114,752.25 AED < 红线 1,200,000.00** → `breached=true`（T8 场景 31 实测坐实）；场景 32 注资 300,000.00 落账后回升至 **1,414,752.25 AED**、`breached=false`（T9 场景 32 实测坐实）。**上面三个 1,364,752.25 / 1,114,752.25 / 1,414,752.25 是戊波三之前（只算运营户）的旧口径数；新口径实测改为 1,364,998.46 / 1,114,998.46（缺口 85,001.54）/ 1,414,998.46**——crisis 后 136,499,846 分、两腿落地后 111,499,846 分、注资后 141,499,846 分（headroom 21,499,846），见「战役戊波三判据」。
 
 ## 战役丙波三客户协议种子断言（reset 判据，2026-10-03 Task 12 起）
 
@@ -355,7 +355,7 @@ sqlite3 -readonly <栈库> "select count(*) from data_subject_requests;"        
 - `verify:coa`：reset 后 / `up` 后 / `demo:all`+`recon:demo:break` 后三个时点均 `ALL INVARIANTS PASS`（末点 `ledger 1 CLIENT 34307565` = `demo:all` 后的 34107565 + `recon:demo:break` 场景 6 真写账本的 200000，恒等式两边相等，67 科目 ≥ 0）。
 - **失效验证**（判据不是自证绿）：对 self 栈账本分别注入 ① 只铺 `DEPOSIT_SUSPENSE_TO_PAYABLE`、缺 STEP_1（DR 暂扣 / CR 应付 各 1.00 AED）→ 恒等式仍绿、`✗ 负余额 L.DEPOSIT_SUSPENSE ledger=1 CUSTOMER:CU2601012635 balance=-100`，`verify:coa` 退出码 1（**负余额断言是「起点缺一笔」的唯一探针，恒等式绿不豁免它**）；② 只贷客户应付、借公司 `FIRM_OPS`（DR FIRM_OPS / CR Henry CLIENT_PAYABLE）→ `✗ ledger 1 CLIENT: asset=4495000 liab=4495100`、`✗ ledger 1 FIRM: asset=94750000 equity=94749900`，退出码 1。变异后已 `reset self` 重铺还原。
 - `swap-money-arc.e2e-spec.ts`（取 `demo_acme`）**只读核查**：断言全为相对差值（`before`/`after` 余额，`availableBalances()` 前后比）、证据行按本单 `swapNo` 取（`findBySource('SWAP', swap.swapNo)`，7 行），`beforeAll` 自己 `fundCustomer` 预充 1,000,000——不依赖 Henry 期初为零，**无需改断言**；且该文件在本机当前起不来（`app.init()` 抛监听器 52 > 50 的 `TypeError`，见上节同日订正与 `TOOLING-DEBT.md`），故未实跑，不得称绿。
-- **费腿不对称（有意，勿「修平」）**：Henry 的兑换费（`SWAP_FEE_CLIENT` USDT 3.000000）与提现费（`WITHDRAW_FEE_POST` AED 50.00）只铺了**客户侧**一条腿（DR `CLIENT_PAYABLE` / CR `CLIENT_CASH`），没有真流程里对应的公司侧收入腿（`SWAP_FEE_FIRM` / `WITHDRAW_FEE_FIRM` → `INCOME_SWAP_FEE` / `INCOME_WITHDRAW_FEE`）；同理兑换卖出腿 / 买入腿的公司侧 `F_SET` / `F_OPS` 对手腿也不铺。后果：两恒等式按账本各自守恒（客户账本净增 = Henry 期末余额，公司账本零变化），但 Henry 的历史手续费**不进公司收入科目**——这一笔笔小账在演示叙事里不可见。若有人想把公司侧对手腿「补齐」，会立刻漂移 `F_OPS(AED)` 947,500.00、NLA 1,364,752.25 / 1,114,752.25 / 1,414,752.25、运营户 696,089.35 / 996,089.35 等场景 31/32 钉死的一串数；现状（不补）公司域四个数与旧值逐位相同（T11 实测，T12 重铺后 `demo:all` 复核同值）——不补。
+- **费腿不对称（有意，勿「修平」）**：Henry 的兑换费（`SWAP_FEE_CLIENT` USDT 3.000000）与提现费（`WITHDRAW_FEE_POST` AED 50.00）只铺了**客户侧**一条腿（DR `CLIENT_PAYABLE` / CR `CLIENT_CASH`），没有真流程里对应的公司侧收入腿（`SWAP_FEE_FIRM` / `WITHDRAW_FEE_FIRM` → `INCOME_SWAP_FEE` / `INCOME_WITHDRAW_FEE`）；同理兑换卖出腿 / 买入腿的公司侧 `F_SET` / `F_OPS` 对手腿也不铺。后果：两恒等式按账本各自守恒（客户账本净增 = Henry 期末余额，公司账本零变化），但 Henry 的历史手续费**不进公司收入科目**——这一笔笔小账在演示叙事里不可见。若有人想把公司侧对手腿「补齐」，会立刻漂移 `F_OPS(AED)` 947,500.00、NLA 1,364,998.46 / 1,114,998.46 / 1,414,998.46（戊波三新口径；戊波三之前是 1,364,752.25 / 1,114,752.25 / 1,414,752.25）、运营户 696,089.35 / 996,089.35 等场景 31/32 钉死的一串数；现状（不补）公司域四个数与旧值逐位相同（T11 实测，T12 重铺后 `demo:all` 复核同值）——不补。
 - 下游钉死数字的漂移清单（T11 出具，**T12 已于 2026-10-03 处理完毕**）：`script.md` 场景 31 / 32 的 `✓ ledger 1 CLIENT 恒等 29612565` → **34107565**、`✓ ledger 2 CLIENT 恒等 4392571811` → **7101620811**（已改并在原行标注"推导值、未重走场景 31/32 复读"；漂移量恒为 Henry 余额 +4495000 / +2709049000，FIRM 两数不变）；`script.md` 协议幕演员点名里的「Henry Acme 无便签但余额 0」已删（改为"自波四起有种子历史余额，但他是第十幕主角，不借"）；`data.md` 生成区两行 CLIENT 数字随 `demo:all` 自动改写（T11 已入库，T12 重铺后 `demo:all` 复跑 **零 diff**）。
 
 **判据 6（干净库审计，T12 补）**：`rm -f <栈库>` → `stack.sh reset self` → `up` 后 ≤60 秒，`audit_log_events` 里 `action='STATEMENT_ISSUED'` = **44** 条（= statements 行数，requestId = statementNo；`stack.sh reset` 不清审计表，脏库上同 statementNo 的新写会被审计幂等键静默吞掉，故这一条与协议种子第 3 条同样要**先 rm 库**）、`action like 'AGREEMENT_%'` = 0、`like 'DSR_%'` = 0。
@@ -569,12 +569,47 @@ sqlite3 "$DB" "select actionType,status,count(*) from approval_cases where actio
 | TB 转账码 | 37 个，最大 87 | **41 个，最大 91**（+88 `LP_EXCHANGE_RECEIVABLE` / 89 `HOUSE_TRANSFER` / 90 `FEE_INCOME_CLOSE` / 91 `CLIENT_SHORTFALL_RECOGNIZED`） |
 | 业务号前缀 `HTR` | 未占 | `rg -c "generateReferenceNo\('HTR'" src` 恰 1 处（`house-transfer.service.ts`） |
 | 账本科目（户）数 `verify:coa` | reset 后 75 / `demo:all` 后 87 | reset 后 **81** / `demo:all` 后 **105**（+14 客户钱包码 2 户 + 4 个 LP 码 51 户） |
-| `verify:rbac` | `186 ✓ / 1 ✗` | **`186 ✓ / 1 ✗`**（exit 1，唯一红仍是 S7 四条 sumsub demo 死行，**不得称全绿**）；S4 56 / S5 55 / S5c 51 / S8 56 = 55 + 1 / S9 46 / S13d 域 15·桶 89·组 96 |
+| `verify:rbac` | `186 ✓ / 1 ✗` | **`186 ✓ / 1 ✗`**（exit 1，唯一红仍是 S7 四条 sumsub demo 死行，**不得称全绿**）；S4 56 / S5 55 / S5c 51 / S8 56 = 55 + 1 / S9 46 / S13d 域 15·桶 87·组 96（戊波二当时实测 89，戊波三 T5 删两重复桶后为 87） |
 
 **重铺与演示**（`bash scripts/stack.sh reset self` → `up` → `bash scripts/on-stack.sh self demo:all`）：reset 全绿（`verify:demo-data ALL PASS`，打印 `LP exchange evidence: 4 evidence row(s) + 8 flow row(s)`——LP 历史兑换单由三腿改四腿，84 → 88 → 85 → 86，期末应收 LP 户 51 余额 0）；`demo:all` exit 0，`花名册：35/35 符合预期`、`asserts: 5/5 PASS`、`data.md` 生成区零 diff（`git status` 无改动）。
 
 **对账与账本**（`demo:all` 后）：`recon:demo:pass` exit 0，`status=PASS walletsChecked=21 casesOpened=0`（对内差额 14 个客户钱包全 0）；`recon:demo:break` exit 0，`scenarios 18/18 DETECTED`、`wallets 12/12 bucket OK`、`casesOpened 12/12`、`identities OK`（答案键未动）；`verify:coa` exit 0：`34107565` / `94870335` / `8201620811` / `114035428189` / `105 个科目全部 ≥ 0`。公司本恒等式与天平口径见 `modules/accounting-coa.md` §2：客户本 Σ(1) + Σ(2) = Σ(100) + Σ(101)，公司本 Σ(50) + Σ(51) + Σ(300..302) = Σ(200) + Σ(210..212)。
 
-**前置闸 R37**：见上文第 57 行同款注——已落账（POSTED）且带锚的调账单（任何处置家族）或记短缺已落账的认损补缺单之后，`recon:demo:break` / `pass` / `crisis` 一律 exit 1 拒绝重摆（实测：场景 16 走完后 `recon:demo:break` exit 1，末行 `Cannot re-stage the reconciliation scenarios: ITR… is posted and anchored to the current external statement … Use "Reset all demo data…" (full reseed, about 1 minute) instead.`）；第六幕批准落账过任何调账单 / 认损补缺单之后要重来，须 `stack.sh reset` 全量重铺。
+**前置闸 R37**：见上文第 57 行同款注——已落账（POSTED）且带锚的调账单（任何处置家族）或记短缺已落账的认损补缺单之后，`recon:demo:break` / `pass` / `crisis` 一律 exit 1 拒绝重摆（实测：场景 16 走完后 `recon:demo:break` exit 1，末行 `Cannot re-stage the reconciliation scenarios: ITR… is posted and anchored to the current external statement … Use "Reset all demo data…" (full reseed, about 1 minute) instead.`）；第六幕批准落账过任何调账单 / 认损补缺单之后要重来，须 `stack.sh reset` 全量重铺（戊波三起云端面板只剩「Reset all demo data…」一颗按钮，其最后一步自动重摆对账差额；本机 T10 实测：场景 18 + 场景 16 走完后 `recon:demo:break` / `crisis` / `pass` 三种都 exit 1，末行同上，打出 `ITR…` 两个单号）。
 
 **走查物证**（本任务 T11，均 self 栈真实渲染、逐张 Read 过）：场景 16 / 31 / 41 各一组 `t11-scene-{16,31,41}-*.png`，另有场景 8（`t11-scene-08-*`，批准后重对账前后的读面）与场景 26（`t11-scene-26-*`，看板「Due from LP」两帧）各几张，全部在 `superpowers/checkups/2026-11-07-campaign-e-wave2-evidence/`，逐项说明见该目录 `t11-docs-and-walks-evidence.md`。
+
+## 战役戊波三判据（reset 判据，2026-11-08 Task 10 起）
+
+本节是「公司侧读面闸门 + 收官」落地后的判据：NLA 新口径、重摆口径、RBAC / 审计词表终态、e2e 已知红名单。**与前文冲突处以本节为准**（前文各节的旧数字是当时的实测，点名行已就地标「戊波三」订正）。数字均为 2026-11-08 在 self 栈实测（命令前置 `export PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH"`；取数 = 金库登录后 `GET /admin/prudential/status`，原始 JSON 在 `superpowers/checkups/2026-11-07-campaign-e-wave3-evidence/t10-nla-*.json`）。
+
+**NLA 新口径**：NLA = 运营户 + 手续费户 + 前厅户（AED + USDT，USDT 按挂钩价 3.6725 折算向下取整）；结算户与应收 LP 不计。门只在钱离开公司时过：付款单（from = 运营户或手续费户）恒过门、LP 兑换单恒过门、公司调拨单两个方向都不过门；认损补缺 / 垫款 / 注资刻意不插门。
+
+| 时点 | NLA（分） | AED | 备注 |
+|---|---|---|---|
+| 口径一：`stack.sh reset self` → `up` 后、`demo:all` 之前 | **136,469,600** | 1,364,696.00 | 与旧口径同数（手续费户、前厅户此刻全零）；headroom 16,469,600 |
+| 口径二：`demo:all` 之后 | **136,499,846** | 1,364,998.46 | 运营户 AED 94,608,935 + 手续费户 AED 11,400 + 运营户 USDT 折 41,866,290 + 手续费户 USDT 折 13,221；旧口径（只算运营户）136,475,225 作废 |
+| 场景 31：crisis 失窃 250,000.00 AED、认损补缺两腿落地后 | **111,499,846** | 1,114,998.46 | `breached=true`，headroom −8,500,154（缺口 85,001.54）；破线成立（失窃额不动） |
+| 场景 32：注资 300,000.00 兑现后 | **141,499,846** | 1,414,998.46 | `breached=false`，headroom 21,499,846（214,998.46） |
+
+两个旁证：① 场景 29 两种 Pay From（运营户 3,200.00、手续费户 14.00）都真实过门，NLA 各自精确减去付款额（141,499,846 → 141,179,846 → 141,178,446）；② 场景 41 扫费（手续费户 AED 100.00 → 运营户）调拨单 SUCCESS 前后 NLA 同为 141,178,446，不变。场景 16 / 18（Alice 7.5 USDT、Jack 400 USDT 的认损补缺）各按折算价减 NLA，同样不过门。
+
+**重摆口径**：云端 Demo Data 面板只有「Reset all demo data…」；「重摆对账场景」按钮与 `POST /demo-ops/recon-break` 已退役。重铺的最后一步自动重摆对账差额（十二张案子）。命令行 `recon:demo:*` 与 R37 前置闸保留：带锚处置落账后三种模式都拒绝（见上文第 57 行 / 第 578 行），只能整库重铺。T10 走查顺序（遵守 R37）：reset → `demo:all` → 口径二 → `recon:demo:crisis` → 场景 31 → 32 → 29 → 41 → 37 真 LP 批准 →（再 reset → `demo:all` → `recon:demo:break`）场景 18 → 场景 16 → 再跑三种 `recon:demo:*` 确认被拒 → 末尾 reset → `demo:all` 留标准栈。
+
+**RBAC 终态**：`verify:rbac` `186 ✓ / 1 ✗`（唯一红仍是 S7 四条 sumsub demo 死行，**不得称全绿**）；S13d 域 15·桶 **87**·组 96（戊波二当时写的桶 89 已被戊波三 T5 删两重复桶订正）。
+
+**审计词表**：`npm run audit:vocab`（`ts-node scripts/export-audit-vocab.ts`）exit 0，**386 个现役码**，种子文档 `doc-final/reference/audit-actions-vocab.md` 以 `` | `码` `` 起头的表行 **393**（`grep -c '^| `' …` 的实测数，多于 386 的差额未逐行归因，含附录与说明行；脚本自己做现役码名册 ↔ 种子文档的对账，对得上才写盘；⚠️ 该脚本会重写 `doc-final/lark/2026-09-16-audit-actions-catalog-full.md`，T4 已跑，T10 不重跑）。
+
+**e2e 已知红名单（B 集，戊波三起 20 名）**：戊波二收尾的 B 集 22 名（`e2e-baseline-0c6eb7b0.md` §2.1），去掉 T6 修好的两名——`Recon case aging → write-off e2e` 主链路（夹具改按迪拜业务日）与 `Recon adjustment money arcs` 用例 9（场景 9 尾部对齐第 0 轮锚配对）——余 **20 名**（**Task 11 全量冷缓存实跑确认**，确认前以本清单为预期）：
+
+- **Recon supplement e2e (平账 B 批, Task 8)**（3）：② 退汇：SUCCESS 充值 1200 AED → 银行扣回 → 定性 → 发起（候选含原…｜③ 退回：SUCCESS 提现 → 银行退回 → 定性 → 发起 → CFO 批 → RET…｜拒绝路径：方向不符 400；余额不足 400；同一行仍待决时二次发起 400，CFO 拒绝后…
+- **Recon internal transfer e2e (平账二期, Task 9)**（1）：B · 退汇余额不足：读面给 ADVANCE → 认领 400 指路 → 垫款两腿（81 /…
+- **Incident register e2e (平账三期 · 事故登记, Task 13)**（1）：9 · CLIENT_SHORTFALL：带垫款单号登记 → 锚定校验（purpose===…
+- **Swap Sumsub verdict buttons (e2e, Task 12)**（7）：① approved: COMPLIANCE_PENDING → PROCESSING, l…｜② awaiting user（下发认证）: REJECTED, zero legs, no…｜② awaiting user（我方等同拒绝）: REJECTED, no restrict…｜⑪ rejected · no disposition tag: REJECTED, no …｜⑥ on hold（我方等同拒绝）: REJECTED, no material reque…｜⑦ rejected · Sanctions: FROZEN, sticky hard-li…｜sticky hard-line silences a later, otherwise-s…
+- **Swap money arcs (e2e, Task 12)**（1）：2. THE HEADLINE PROPERTY（站3·出生锁版）— KYT rejecte…
+- **Customer lifecycle restrictions (e2e, Task 14)**（2）：② 零痕迹：SANCTION 客户与正常客户的 /onboarding/me、/client…｜⑥ 贴 MATERIAL_EXPIRED（WITHDRAW+SWAP）→ 三笔在途单状态一律…
+- **Deposit/swap/withdraw roster (e2e, Task C2 + C3)**（5）：充值 11 笔全部落到花名册预期状态｜兑换 3 笔 + 提现 7 笔全部落到花名册预期状态｜在途单由 runWithdraws 产出，不再需要单独跑 demo:in-transit｜verifyEndState — 花名册比对（Task C4） › 🎯 跑过 demo:in…｜verifyEndState — 花名册比对（Task C4） › 某笔单没到预期状态 → …
+
+协议同波二：冷缓存、串行、干净重铺 + 7 个私库 + `demo:setup`；失败名集合应 ⊆ 上列 20 名 ∪ 已登记偶发（`vendor-onboarding ①`、`customer-restrictions ⑤`，单跑绿）。
+
+**走查物证**：`superpowers/checkups/2026-11-07-campaign-e-wave3-evidence/t10-*`（`t10-walkthrough.md` 逐场景表 + `t10-scene-*.png`）。

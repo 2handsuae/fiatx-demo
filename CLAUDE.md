@@ -141,7 +141,7 @@ npm run cloud:bootstrap   # 开服（一次性；控制台重装系统后重跑�
 - 实测（2026-10-25，2 核 4 GB）：常规部署 92 秒 ｜ 重铺 63 秒 ｜ 开机 53 秒 ｜ 内存峰值 used 2508 MB（swap 0，最低可用 1210 MB；`free -m` 的 used 列，三次采样一致）。账本进程固定约 1.46 GB（`--development` 下网格缓存仅 32 MiB，无可调余地），1.1 GB 账本数据文件落云硬盘（4 GB 机放不下内存盘）；SQLite 仍在内存盘 `/run/exchange-demo`
 - 换机 / 重装要点：轻量防火墙必须放行 TCP 22 / 80 / 443（2026-10-25 新机默认无 443——证书走 80 照样签得下，但 HTTPS 全球不通）；两个 DuckDNS 域名都改指新 IP 后再跑 `cloud:bootstrap`；新机先手工把 `~/.ssh/exchange_demo_ed25519.pub` 加进 ubuntu 的 `authorized_keys`
 - 绝不删 `/var/lib/caddy`（证书存储；重签会撞 Let's Encrypt 频率上限）
-- 同事自助还原：管理台顶栏 Simulation 开关 → Demo Data 面板（重铺数据=整服务自退重启约 1 分钟；重摆对账场景=recon:demo:break 秒级）；`DEMO_OPS=1` 门控，仅云端 demo.env 有，本地无此入口
+- 同事自助还原：管理台顶栏 Simulation 开关 → Demo Data 面板只有「重铺数据」（整服务自退重启约 1 分钟，末步自动重摆对账差额）；带锚处置落账后 `recon:demo:*` 命令行被拒、只能重铺；`DEMO_OPS=1` 门控，仅云端 demo.env 有，本地无此入口
 
 
 ---
