@@ -1,0 +1,60 @@
+## Step 1: after git mv + SEED path switch, before adding rows
+
+> exchange_js@1.0.0 audit:vocab
+> ts-node -r tsconfig-paths/register scripts/export-audit-vocab.ts
+
+审计动作码名册与种子文档对不上——先修种子/常量再重跑，不写盘。
+有码没说明（常量里有、种子文档没有，29 个）：
+  - DD_ASSESSMENT_CONCLUDED
+  - DD_ASSESSMENT_OPENED
+  - DD_ASSESSMENT_SAVED
+  - DD_INFOSEC_RECORDED
+  - DD_SCREENING_RECORDED
+  - DOCUMENT_UPLOADED
+  - HOUSE_TRANSFER_CANCELLED
+  - HOUSE_TRANSFER_EXECUTION_STARTED
+  - HOUSE_TRANSFER_FAILED
+  - HOUSE_TRANSFER_LEG_POSTED
+  - HOUSE_TRANSFER_REJECTED
+  - HOUSE_TRANSFER_REQUESTED
+  - HOUSE_TRANSFER_SETTLED
+  - INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED
+  - LP_PROFILE_APPROVAL_CANCELLED
+  - LP_PROFILE_RESUBMITTED
+  - LP_PROFILE_RETURNED
+  - LP_PROFILE_SENT_FOR_APPROVAL
+  - VENDOR_ACTIVATED
+  - VENDOR_APPLIED
+  - VENDOR_APPROVAL_CANCELLED
+  - VENDOR_APPROVAL_REJECTED
+  - VENDOR_APPROVED
+  - VENDOR_MATERIALITY_UPGRADED
+  - VENDOR_NOTIFICATION_OPENED
+  - VENDOR_REJECTED
+  - VENDOR_RESUBMITTED
+  - VENDOR_RETURNED
+  - VENDOR_SENT_FOR_APPROVAL
+种子有码、常量里既不在现役也不在退役名册（无法解释的消失，0 个）：
+exit=1
+
+## Final run (after 29 rows, header/count fixes)
+
+> exchange_js@1.0.0 audit:vocab
+> ts-node -r tsconfig-paths/register scripts/export-audit-vocab.ts
+
+note: 7 seed codes retired since 种子: CUSTOMER_DELETED, CUSTOMER_UPDATED, INCIDENT_REGULATOR_REPORTED, INCIDENT_REGULATOR_REPORT_DRAFTED, LP_PROFILE_SCREENED, VENDOR_REGISTERED, VENDOR_UPDATED
+分域计数（从常量重算）：
+  APPROVAL: 8
+  IAM: 30
+  CONFIG: 65
+  AUDIT: 4
+  CUSTOMER: 34
+  DEPOSIT: 50
+  WITHDRAW: 34
+  SWAP: 27
+  TREASURY: 56
+  RECON: 9
+  GOVERNANCE: 69
+合计 386 码
+已写入 doc-final/lark/2026-09-16-audit-actions-catalog-full.md
+exit=0

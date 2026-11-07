@@ -1,10 +1,10 @@
 # 审计动作码全量导出 —— 按域 × 按工作流（最全版）
 
-> 生成于 2026-10-24 ｜ 基线 分支 worktree-lp-two-step `c66ba7a6`（本文件最近一次落盘的提交，内容即该提交时的名册；此后审计名册未再变动） ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md`
-> 现役 **360 码**（较 2026-09-15 版少 4：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED 已退役，进拒写闸），另有退役 120 码进拒写闸（附录全列）。
+> 生成于 2026-11-07 ｜ 基线 main `e946e7de` ｜ 机器列来源 `src/modules/audit-logging/constants/audit-actions.constant.ts`（9 份名册程序化导出）｜ 说明列来源 `doc-final/reference/audit-actions-vocab.md`
+> 现役 **386 码**（较 种子 版少 7：CUSTOMER_DELETED、CUSTOMER_UPDATED、INCIDENT_REGULATOR_REPORTED、INCIDENT_REGULATOR_REPORT_DRAFTED、LP_PROFILE_SCREENED、VENDOR_REGISTERED、VENDOR_UPDATED 已退役，进拒写闸），另有退役 123 码进拒写闸（附录全列）。
 > **旅程**列：S 起点=该码铸 correlationId 开启一段旅程 ｜ I 继承=延续同一旅程 ｜ N 单步=无旅程可挂（守卫拒绝、单步动作、报价先于订单等）。**异步**=✓ 表示由审批/事件驱动、必须带 causationId。**subjects**=✓ 表示该码在 SUBJECTS_COVERED_ACTIONS 名册（治理域+横切审批 47 码，verify:audit Q2 断言面）；交易域码运行时也写子表行但不在名册故留白；Related No 检索走 OR 语义（主表∨子表）不受此列影响。⚡=演示装置。
 
-**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 65 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 50 ｜ WITHDRAW 34 ｜ SWAP 27 ｜ TREASURY 45 ｜ RECON 9 ｜ GOVERNANCE 54 ｜ 合计 360
+**分域计数**：APPROVAL 8 ｜ IAM 30 ｜ CONFIG 65 ｜ AUDIT 4 ｜ CUSTOMER 34 ｜ DEPOSIT 50 ｜ WITHDRAW 34 ｜ SWAP 27 ｜ TREASURY 56 ｜ RECON 9 ｜ GOVERNANCE 69 ｜ 合计 386
 
 ## APPROVAL 域 —— 审批引擎（横切）（8 码）
 
@@ -570,7 +570,7 @@
 |---|---|---|---|---|---|
 | `CONFIRMATION_ISSUED` | 兑换成交（SUCCESS）后系统出具成交确认单（一单一张，先于通知落库） | N 单步 | confirmationNo |  |  |
 
-## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（45 码）
+## TREASURY 域 —— V7 财资（内部划转单 + LP 兑换台 + 公司资金）（56 码）
 
 公司的钱给客户：认损补款 / 退汇垫款。第四类订单，法币两腿经结算户、加密币一腿；金库提、CFO 批。
 
@@ -586,16 +586,42 @@
 | `INTERNAL_TRANSFER_SETTLED` | 整单结清、客户余额复位 | I 继承 | amount, effectiveDate |  |  |
 | `INTERNAL_TRANSFER_FAILED` | 执行失败（腿 2 失败款停结算户，人工处理） | I 继承 | reasonCode |  |  |
 
-### LP 档案生命周期（6） — 战役乙波一 T2/T3 新增，金库建档 / 启停，CFO 单步批；LP 两步准入 T2 加建档即筛、T9 退役改结算坐标三码
+### 认损补缺（1） — 戊波二 T7a 新增，认损补缺单批准那一步记短缺
 
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
 |---|---|---|---|---|---|
-| `LP_PROFILE_CREATED` | 登记新增流动性提供商（金库提交，待 CFO 批） | N 单步 | reason |  |  |
-| `LP_PROFILE_SCREENED` | 建档提交瞬间实体背调出结论（system 记账，afterData 带三档结论 GREEN / YELLOW / RED 与筛查时刻；名称含 sanction → RED、含 offshore → YELLOW，mock 约定）（LP 两步准入） | I 继承 | afterData |  |  |
+| `INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED` | CFO 批准认损补缺单，托管短缺记入「待补」、客户余额不变（落账成功才写；失败走 INTERNAL_TRANSFER_FAILED） | I 继承 | amount, effectiveDate | ✓ |  |
+
+### 公司调拨单（7） — 戊波二 T5 新增，公司自己的钱在运营户 / 手续费户之间挪（扫费），金库提 / CFO 批；状态机与内部划转单同形
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `HOUSE_TRANSFER_REQUESTED` | 金库提交公司调拨单（扫费） | N 单步 | amount, reason |  |  |
+| `HOUSE_TRANSFER_CANCELLED` | 待批时金库撤单 | I 继承 | reason |  |  |
+| `HOUSE_TRANSFER_REJECTED` | CFO 拒绝调拨单 | I 继承 | approvalNo | ✓ |  |
+| `HOUSE_TRANSFER_EXECUTION_STARTED` | CFO 批准、执行开始（建调拨腿） | I 继承 | approvalNo | ✓ |  |
+| `HOUSE_TRANSFER_LEG_POSTED` | 调拨腿确认、分录落账并清算 | I 继承 | amount |  |  |
+| `HOUSE_TRANSFER_SETTLED` | 整单结清、目标钱包已收到钱 | I 继承 | amount, effectiveDate |  |  |
+| `HOUSE_TRANSFER_FAILED` | 执行失败（批准时余额不足 / 腿失败 / 落账失败） | I 继承 | reasonCode |  |  |
+
+### LP 档案生命周期（5） — 战役乙波一 T2/T3 新增，金库建档 / 启停，CFO 单步批；LP 两步准入 T2 加建档即筛、T9 退役改结算坐标三码
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `LP_PROFILE_CREATED` | 登记新增流动性提供商（金库提交，待 CFO 批） | N 单步 | reason, registeredIn |  |  |
 | `LP_PROFILE_APPROVED` | CFO 批准建档，档案转 ACTIVE | I 继承 | approvalNo | ✓ |  |
 | `LP_PROFILE_REJECTED` | 档案转 REJECTED（终态）：CFO 驳回或超时；或建档实体背调 RED 登记即拒（落点计算，system 记账，无审批单，固定拒因 Entity screening returned RED at registration）（LP 两步准入） | I 继承 | reason |  |  |
 | `LP_PROFILE_SUSPENDED` | 金库暂停 LP（直接迁移，留痕不批） | I 继承 | reason |  |  |
 | `LP_PROFILE_REACTIVATED` | 金库恢复 LP（直接迁移，留痕不批） | I 继承 | reason |  |  |
+
+### LP 两步准入补遗（4） — 甲波六 T1 新增，LP 背调与审批四条状态边（合规不通过与审批驳回共用 LP_PROFILE_REJECTED）
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `LP_PROFILE_RETURNED` | 背调评估退回金库补料（待评估→已退回） | I 继承 | fromStatus, toStatus |  |  |
+| `LP_PROFILE_RESUBMITTED` | 金库补料后重新提交（已退回→待评估，带整张申请表新值） | I 继承 | fromStatus, toStatus |  |  |
+| `LP_PROFILE_SENT_FOR_APPROVAL` | 背调评估通过，送 CFO 审批（待评估→待批） | I 继承 | fromStatus, toStatus |  |  |
+| `LP_PROFILE_APPROVAL_CANCELLED` | 审批撤单，档案回到待评估（待批→待评估） | I 继承 | fromStatus, toStatus |  |  |
 
 ### LP 打款地址生命周期（9） — LP 两步准入 T4 新增，金库按资产登记打款地址（登记即筛，先筛后批），CFO 单步批；启停退留痕不批
 
@@ -682,7 +708,7 @@
 | `RECON_CASE_AGING_BREACHED` | 账龄到线（系统通道，actor=AGING_TIMER，核销/认损按钮由此解锁） | N 单步 | — |  |  |
 | `RECON_AGING_TIMEOUT_SIMULATED` | ⚡ 拨钟：把账龄截止拨到过去（拨钟一条、到线一条，各说各的事） | N 单步 | — |  |  |
 
-## GOVERNANCE 域 —— 事故登记（平账三期）（54 码）
+## GOVERNANCE 域 —— 事故登记（平账三期）（69 码）
 
 性质严重的差异正式立「事故」：登记 / 调查 / 定损 / 通报 / 善后 / 结案，全程零账务；动钱挂调账单与划转单引用。
 
@@ -726,17 +752,42 @@
 | `OBLIGATION_FILING_GENERATED` | 到期翻期时自动开出对应报送单（PERIODIC_RETURN） | N 单步 | dueAt, filingType |  |  |
 | `OBLIGATION_DUE_FASTFORWARDED` | ⚡ 把下次到期日拨到当下（演示装置，唯金库） | N 单步 | nextDueAt |  |  |
 
-### 登记册：外包商 / RI（战役甲波四 T4）（7）
+### 登记册：外包商 / RI（战役甲波四 T4）（5）
 
 | 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
 |---|---|---|---|---|---|
-| `VENDOR_REGISTERED` | 登记一个外包供应商（含关键性判定） | S 起点 | criticality |  |  |
-| `VENDOR_UPDATED` | 改供应商描述性字段 | N 单步 | — |  |  |
 | `VENDOR_TERMINATED` | 终止外包关系（终态，零出边） | N 单步 | fromStatus, toStatus |  |  |
 | `RI_SEAT_REGISTERED` | 登记一个 VARA 受托责任人（Responsible Individual）席位 | S 起点 | position |  |  |
 | `RI_REPLACEMENT_PROPOSED` | 合规官提交换人申请（开出审批单，一席一在途） | N 单步 | approvalNo |  |  |
 | `RI_REPLACEMENT_APPLIED` | 高管批准换人，落地生效（携带谁换了谁） | N 单步 | fromIncumbent, toIncumbent |  |  |
 | `RI_REPLACEMENT_REJECTED` | 换人被驳回 / 撤单 / 过期，只清在途标记，不换人 | N 单步 | approvalNo |  |  |
+
+### 服务商准入流程（11） — 甲波六 T1 新增，外包服务商申请 → 背调 → 审批 → 告知 → 生效；每条状态边 metadata 带 from / to
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `VENDOR_APPLIED` | 运营提交服务商准入申请（含关键性判定与四问） | S 起点 | criticality |  |  |
+| `VENDOR_RETURNED` | 背调评估退回补料（待评估→已退回） | N 单步 | fromStatus, toStatus |  |  |
+| `VENDOR_RESUBMITTED` | 补料后重新提交（已退回→待评估，带整张申请表新值） | N 单步 | fromStatus, toStatus |  |  |
+| `VENDOR_REJECTED` | 背调评估直接拒绝（待评估→已拒绝，终态） | N 单步 | fromStatus, toStatus |  |  |
+| `VENDOR_SENT_FOR_APPROVAL` | 背调评估通过，送审批（待评估→待批） | N 单步 | fromStatus, toStatus |  |  |
+| `VENDOR_APPROVED` | 审批通过（落点为生效或待告知，由 toStatus 区分） | N 单步 | fromStatus, toStatus |  |  |
+| `VENDOR_APPROVAL_REJECTED` | 审批驳回（待批→已拒绝，终态） | N 单步 | fromStatus, toStatus |  |  |
+| `VENDOR_APPROVAL_CANCELLED` | 审批撤单，回到待评估（待批→待评估） | N 单步 | fromStatus, toStatus |  |  |
+| `VENDOR_ACTIVATED` | VARA 事前报备告知完成，服务商生效（待告知→生效） | N 单步 | fromStatus, toStatus |  |  |
+| `VENDOR_MATERIALITY_UPGRADED` | 重大性升档（升为重大外包，必填原因） | N 单步 | reason |  |  |
+| `VENDOR_NOTIFICATION_OPENED` | 重大外包批准后自动向报送台开出 VARA 事前报备告知单 | N 单步 | filingNo |  |  |
+
+### 尽调评估与文件上传（6） — 甲波六 T1 新增，LP / 外包服务商共用的背调评估壳 + 证据文件上传
+
+| 动作码 | 说明 | 旅程 | 必填字段 | 异步 | subjects |
+|---|---|---|---|---|---|
+| `DD_ASSESSMENT_OPENED` | 开出背调评估（LP 或服务商） | S 起点 | targetType |  |  |
+| `DD_SCREENING_RECORDED` | 记录一条筛查结论（实体或 UBO） | I 继承 | result |  |  |
+| `DD_ASSESSMENT_SAVED` | 保存评估意见（风险档位、意见与附带条件） | I 继承 | riskTier |  |  |
+| `DD_INFOSEC_RECORDED` | 信息安全评估结论（SOC2 / ISO27001 / 数据所在地 / 灾备） | I 继承 | verdict |  |  |
+| `DD_ASSESSMENT_CONCLUDED` | 评估下结论（退回 / 拒绝 / 送审批） | I 继承 | conclusion |  |  |
+| `DOCUMENT_UPLOADED` | 上传证据文件（单步，带文件类型与归属对象） | N 单步 | docType |  |  |
 
 ### 闹钟墙 ⚡ 演示装置（战役甲波四 T5）（1）
 
@@ -782,7 +833,7 @@
 
 ## 附录 · 退役码（拒写闸名单，历史可读、不再允许写入）
 
-退役码进拒写闸，共 120 码：
+退役码进拒写闸，共 123 码：
 
 - `FIRST_LOGIN_MFA_VERIFY_FAILED`
 - `DEPOSIT_GATE0_PASSED`
@@ -904,5 +955,8 @@
 - `LP_PROFILE_CHANGE_PROPOSED`
 - `LP_PROFILE_CHANGE_APPLIED`
 - `LP_PROFILE_CHANGE_REJECTED`
+- `LP_PROFILE_SCREENED`
+- `VENDOR_REGISTERED`
+- `VENDOR_UPDATED`
 
 > 另有动态迁移码族按形状拒写：`<域>_<从>_TO_<到>`（RETIRED_DYNAMIC_TRANSITION_PATTERN）。

@@ -22,7 +22,7 @@ Last Updated: 2026-09-01 ｜ 跨前后端，写代码时读 ｜ 闸门本身的�
 | 触发 | 必须做 | 漏了会怎样（都发生过） |
 |---|---|---|
 | **任何持久状态变化** | 写审计。`AuditLogsService` 经 DI 注入、写在编排层；人为动作 `recordByActor`、系统动作 `recordSystem`；**每次带显式 `requestId`** | 漏 `requestId` 会被静默去重，这条日志直接消失 |
-| **新增审计动作码** | 出生即冻结四属性（含义 / actionDomain / correlationMode / 特有必填），`assertActionSpec` 写入时机器校验 | "先上车后补票"的码后来没人说得清它记的是什么 |
+| **新增审计动作码** | 出生即冻结四属性（含义 / actionDomain / correlationMode / 特有必填），`assertActionSpec` 写入时机器校验；+ `reference/audit-actions-vocab.md` 补一行，`audit:vocab` 绿 | "先上车后补票"的码后来没人说得清它记的是什么 |
 | **新状态 / 新结局** | 主体服务的**显式迁移表加一条边**，非法跃迁显式拒绝；顺带回答**要不要计时（SLA）** | 绕表直写 = 状态机不再是真相；忘了计时的状态会永远挂着没人管 |
 | **动了钱** | workflow **同步直调** `AccountingService`（禁挂事件），失败即流程失败、状态不得推进；资金单 1:1 镜像；不新增科目 | 记账挂事件 = 同步 ACID 变最终一致；账实不一致时对账演示当场垮 |
 | **该走 maker-checker** | 走 `ApprovalsService` 正门 | 自己造审批 = 门可绕，铁律② |

@@ -20,7 +20,7 @@ import {
 } from '../src/modules/audit-logging/constants/audit-actions.constant';
 import { AuditCorrelationMode } from '../src/modules/audit-logging/dto/audit-log.dto';
 
-const SEED = process.argv[2] ?? 'doc-final/lark/2026-09-15-audit-actions-catalog-by-domain-workflow.md';
+const SEED = process.argv[2] ?? 'doc-final/reference/audit-actions-vocab.md';
 const OUT = 'doc-final/lark/2026-09-16-audit-actions-catalog-full.md';
 
 const ALL: Record<string, AuditActionSpec> = {

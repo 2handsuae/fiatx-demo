@@ -95,7 +95,8 @@ cd client-web && npx tsc -b --noEmit && cd ..    # ③ 客户端
 | 改页面 / 种子数据 | 同步 `demo/data.md`、`demo/script.md` 对应步骤 |
 | 验收 / 走查 | `demo/script.md`（七幕主线）+ `modules/<篇>` §4 演示脚本 |
 | 说"以后做" | 业务缺口记 `BACKLOG.md`；技术兜底记 `PRODUCTION-NOTES.md`；工具/环境记 `TOOLING-DEBT.md` |
-| 要同步到飞书的业务文档 | `lark/`——业主维护、agent **不读**（不是现状真相，真相只在 `modules/`） |
+| 新增审计码 | `reference/audit-actions-vocab.md`（agent 维护；`lark/` 的全量版是它的导出） |
+| 要同步到飞书的业务文档 | `lark/`——业主维护、agent **不读**（不是现状真相，真相只在 `modules/`；全量审计清单是 `reference/audit-actions-vocab.md` 的生成物） |
 | 每轮收尾 / 回顾这版比上版多了什么 | `CHANGELOG.md`——一合并一行 |
 | 给开发交付 / 动交付宪法 | 根 `README.md`（四刀声明）＋ `delivery/`（语义合同 / 决策日志摘选 / 非功能底线 / 依赖契约状态）——每轮需求收尾过 30 秒触碰检查：动了状态机·审计集·金额口径·业务键？否过方案？mock 转真？新工程原则？命中才改对应文件 |
 | 业主排期 | `reference/roadmap.md`（业主维护，agent 不主动读） |
