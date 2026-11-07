@@ -52,8 +52,8 @@ interface ReconCase {
   dispositionCount: number;   // T7: rows in reconciliation_dispositions for this case
   anomalyLineCount: number;   // T7: case's flagged line items (mismatch/orphan)
   decimals: number;           // T7: asset decimals — scales deltaAmount (分→元)
-  // 平账二期：这个案子挂着的补款 / 垫款——PENDING = 还没发起，IN_PROGRESS = 已发起未到账
-  pendingFunding: { kind: 'COMPENSATION' | 'ADVANCE'; status: 'PENDING' | 'IN_PROGRESS' } | null;
+  // 平账二期：这个案子挂着的垫款——PENDING = 还没发起，IN_PROGRESS = 已发起未到账（戊波二 T8：补款退役，认损补缺不在这里出徽标）
+  pendingFunding: { kind: 'ADVANCE'; status: 'PENDING' | 'IN_PROGRESS' } | null;
   // Task 11：列表页演示场景气泡——仅 break 轮答案键在场时下发（Task 5），业务键，
   // 无 walletRef/UUID；真实/pass 轮字段不出现（undefined，不是空数组）。
   demoScenarios?: Array<{
@@ -366,9 +366,7 @@ const ReconciliationCasesListPage = () => {
                       {kase.anomalyLineCount > 0 ? `${kase.dispositionCount}/${kase.anomalyLineCount}` : '—'}
                       {kase.pendingFunding && (
                         <span className={`ml-1 inline-flex rounded border px-1 py-0.5 font-mono text-[9px] ${kase.pendingFunding.status === 'PENDING' ? 'border-adm-amber/40 bg-adm-amber/10 text-adm-amber' : 'border-adm-blue/40 bg-adm-blue/10 text-adm-blue'}`}>
-                          {kase.pendingFunding.kind === 'COMPENSATION'
-                            ? (kase.pendingFunding.status === 'PENDING' ? 'Compensation pending' : 'Compensation in progress')
-                            : (kase.pendingFunding.status === 'PENDING' ? 'Advance pending' : 'Advance in progress')}
+                          {kase.pendingFunding.status === 'PENDING' ? 'Advance pending' : 'Advance in progress'}
                         </span>
                       )}
                       {/* Task 11：演示场景气泡——只在答案键在场（demoScenarios 非空数组）

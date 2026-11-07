@@ -114,17 +114,6 @@ export class IncidentService {
       this.prisma.incidentRemediation.findMany({ where: { incidentId: row.id }, orderBy: { createdAt: 'asc' } }),
       this.filings.summaryForIncident(row.incidentNo),
     ]);
-    // Task 12：ADJUSTMENT 善后单要带上调账单状态——事故页「发起补款」按钮要判
-    // 「挂载里有已落账（POSTED）认损调账单」，remediations 表本身不存这个状态
-    // （挂载当时的快照会过期），只能反查调账单主体现状；批一次查，不是逐条 N+1。
-    const adjustmentNos = remediations.filter((r: any) => r.kind === 'ADJUSTMENT').map((r: any) => r.referenceNo);
-    const adjustmentStatusByNo = new Map<string, string>();
-    if (adjustmentNos.length > 0) {
-      const adjustments = await this.prisma.reconciliationAdjustment.findMany({
-        where: { adjustmentNo: { in: adjustmentNos } }, select: { adjustmentNo: true, status: true },
-      });
-      for (const a of adjustments) adjustmentStatusByNo.set(a.adjustmentNo, a.status);
-    }
     return {
       incidentNo: row.incidentNo, type: row.type, status: row.status,
       title: row.title, description: row.description,
@@ -159,7 +148,6 @@ export class IncidentService {
       })),
       remediations: remediations.map((r: any) => ({
         kind: r.kind, referenceNo: r.referenceNo, linkedBy: r.linkedByUserId, createdAt: r.createdAt.toISOString(),
-        status: r.kind === 'ADJUSTMENT' ? (adjustmentStatusByNo.get(r.referenceNo) ?? null) : null,
       })),
     };
   }

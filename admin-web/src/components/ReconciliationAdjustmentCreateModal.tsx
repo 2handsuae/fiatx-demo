@@ -65,7 +65,6 @@ export const REASON_LABEL: Record<string, string> = {
   OTHER: 'Other',
   CUSTOMER_REATTRIBUTION: 'Customer reattribution',
   UNEXPLAINED_WRITE_OFF: 'Unexplained write-off',
-  UNEXPLAINED_CLIENT_LOSS: 'Client loss recognition',
 };
 
 // 成因展示名（镜像后端 cause-registry.ts causeDisplayLabel）：OTHER 且填了 Other cause →
@@ -362,9 +361,7 @@ const ReconciliationAdjustmentCreateModal = ({
         <div className="border-b border-adm-border px-6 py-4">
           <h2 className="text-base font-semibold text-adm-t1">
             {locked
-              ? (locked.family === 'WRITE_OFF' && locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS'
-                ? 'Recognize loss · Match the books to custody, firm compensates after'
-                : (LOCKED_TITLE[locked.family] ?? 'Open Adjustment'))
+              ? (LOCKED_TITLE[locked.family] ?? 'Open Adjustment')
               : isKindMode
                 ? (LOCKED_TITLE[kind!] ?? 'Open Adjustment') // Task 8：三族标题原样复用 locked 视图那句话，不重抄
                 : 'Open Adjustment'}
@@ -413,7 +410,7 @@ const ReconciliationAdjustmentCreateModal = ({
             // T9 锁定视图：成因由上一屏（处置弹层）判死，这里只回显——不给下拉。
             // 唯一真相在后端 cause-registry.ts，前端不猜、不改。
             <div className="mb-4 rounded border border-adm-border bg-adm-bg px-2.5 py-2 font-mono text-[11px] text-adm-t1">
-              [{locked.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Recognize loss' : (FAMILY_WORD[locked.family] ?? locked.family)}] {REASON_LABEL[locked.reasonCode ?? ''] ?? locked.reasonCode}
+              [{FAMILY_WORD[locked.family] ?? locked.family}] {REASON_LABEL[locked.reasonCode ?? ''] ?? locked.reasonCode}
             </div>
           ) : (
             // Task 8：kind 模式——原因码单选，数据来自 row.dispositions[kind].causes

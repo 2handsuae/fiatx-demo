@@ -1,7 +1,6 @@
 import {
   HOUSE_TRANSFER_FAILURE_LABEL,
   HOUSE_TRANSFER_PURPOSE_LABEL,
-  HOUSE_TRANSFER_STATUSES,
   houseTransferStatusMeta,
   isFeeSweepRoute,
   isHouseTransferStuck,
@@ -14,10 +13,6 @@ const BACKEND_STATUSES = ['PENDING_APPROVAL', 'EXECUTING', 'SUCCESS', 'FAILED', 
 const BACKEND_FAILURE_CODES = ['INSUFFICIENT_FIRM_BALANCE', 'LEG_FAILED', 'POSTING_FAILED'];
 
 describe('houseTransferStatusMap', () => {
-  it('筛选序列表与后端六态一一对应', () => {
-    expect([...HOUSE_TRANSFER_STATUSES]).toEqual(BACKEND_STATUSES);
-  });
-
   it('六个后端状态都拿到真条目，不是裸枚举兜底', () => {
     for (const s of BACKEND_STATUSES) {
       const meta = houseTransferStatusMeta(s);

@@ -9,7 +9,7 @@ import {
   History,
   UserCog,
   ArrowLeftRight,
-  ArrowRightLeft,
+  House,
   Download,
   Upload,
   Repeat,
@@ -320,7 +320,7 @@ const DashboardLayout = () => {
         {
           path: '/admin/house-transfers',
           label: 'House Transfers',
-          icon: <ArrowRightLeft size={13} />,
+          icon: <House size={13} />,
           requiredPermissions: [PERMISSIONS.HOUSE_TRANSFERS_READ],
         },
         // 平账二期：公司 → 客户的补款 / 垫款划转单。2026-10-06 导航重组从原 Custody 组

@@ -23,7 +23,6 @@ interface Item {
   currency: string;
   amount: string;
   sourceCaseNo: string;
-  sourceAdjustmentNo: string | null;
   createdAt: string;
 }
 
@@ -75,7 +74,7 @@ const InternalTransferList = () => {
     <div className="flex h-full flex-col">
       <PageTitleBar
         title="Internal Transfers"
-        subtitle="Firm → customer compensation / advance; initiated on the reconciliation case, this page only queries and reviews"
+        subtitle="Firm → customer shortfall top-up / advance; initiated on the reconciliation case, this page only queries and reviews"
         meta={`${total} transfer(s)`}
       >
         <button
@@ -113,7 +112,7 @@ const InternalTransferList = () => {
           className="rounded border border-adm-border bg-adm-panel px-2 py-1"
         >
           <option value="">All purposes</option>
-          <option value="CLIENT_COMPENSATION">Compensation</option>
+          <option value="SHORTFALL_TOPUP">Shortfall top-up</option>
           <option value="CLIENT_ADVANCE">Advance</option>
         </select>
       </div>
@@ -122,7 +121,7 @@ const InternalTransferList = () => {
         <table className="w-full text-xs">
           <thead className="sticky top-0 bg-adm-panel">
             <tr className="border-b border-adm-border text-left text-adm-t3">
-              {['No.', 'Purpose', 'Customer', 'Amount', 'Status', 'Source Case', 'Source Adjustment', 'Time'].map((h) => (
+              {['No.', 'Purpose', 'Customer', 'Amount', 'Status', 'Source Case', 'Time'].map((h) => (
                 <th key={h} className="px-4 py-2 font-mono text-[10px] uppercase tracking-wide">
                   {h}
                 </th>
@@ -150,7 +149,6 @@ const InternalTransferList = () => {
                   <StatusPill value={it.status} />
                 </td>
                 <td className="px-4 py-2 font-mono">{it.sourceCaseNo}</td>
-                <td className="px-4 py-2 font-mono">{it.sourceAdjustmentNo ?? '—'}</td>
                 <td className="px-4 py-2 font-mono text-adm-t3">
                   {new Date(it.createdAt).toLocaleString()}
                 </td>
@@ -158,8 +156,8 @@ const InternalTransferList = () => {
             ))}
             {!loading && items.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-adm-t3">
-                  No transfers yet — initiate a compensation / advance from a reconciliation case
+                <td colSpan={7} className="px-4 py-8 text-center text-adm-t3">
+                  No transfers yet — initiate a shortfall top-up / advance from a reconciliation case
                 </td>
               </tr>
             )}

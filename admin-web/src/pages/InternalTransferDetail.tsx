@@ -1,5 +1,5 @@
 // admin-web/src/pages/InternalTransferDetail.tsx
-// 平账二期：划转单详情——来源（案号 / 认损单或账单行参考号）、客户、金额、状态、审批单回链、资金单腿卡片（法币两腿）、待批时金库可撤回。
+// 平账二期：划转单详情——来源（案号 / 账单行参考号；戊波二：认损补缺的来路 / 事故号 / 生效日 / 记短缺时刻）、客户、金额、状态、审批单回链、资金单腿卡片（法币两腿）、待批时金库可撤回。
 // 铁律⑥：后端投影已无任何 UUID，本页类型里也不出现。
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
@@ -36,8 +36,12 @@ interface Detail {
   amount: string;
   reason: string;
   sourceCaseNo: string;
-  sourceAdjustmentNo: string | null;
   sourceExternalRef: string | null;
+  // 戊波二：认损补缺单才有值（垫款单恒 null / 空）——生效日（案件业务日）、来路（账龄 / 事故）、事故号、记短缺时刻。
+  effectiveDate: string;
+  lossSource: 'AGING' | 'INCIDENT' | null;
+  sourceIncidentNo: string | null;
+  recognizedAt: string | null;
   approvalNo: string | null;
   failureReasonCode: string | null;
   failureNote: string | null;
@@ -174,13 +178,23 @@ const InternalTransferDetail = () => {
               mono
               link={`/admin/reconciliation/cases/${encodeURIComponent(detail.sourceCaseNo)}`}
             />
-            {detail.sourceAdjustmentNo && (
+            {detail.lossSource && (
               <InfoField
-                label="Loss-Recognition Adjustment"
-                value={detail.sourceAdjustmentNo}
-                mono
-                link={`/admin/reconciliation/adjustments/${encodeURIComponent(detail.sourceAdjustmentNo)}`}
+                label="Loss Source"
+                value={detail.lossSource === 'INCIDENT' ? 'Incident assessment' : 'Aged difference (small amount)'}
               />
+            )}
+            {detail.sourceIncidentNo && (
+              <InfoField
+                label="Incident"
+                value={detail.sourceIncidentNo}
+                mono
+                link={`/admin/governance/incidents/${encodeURIComponent(detail.sourceIncidentNo)}`}
+              />
+            )}
+            {detail.lossSource && <InfoField label="Effective Date" value={detail.effectiveDate} mono />}
+            {detail.recognizedAt && (
+              <InfoField label="Shortfall Recognised" value={new Date(detail.recognizedAt).toLocaleString()} mono />
             )}
             {detail.sourceExternalRef && (
               <InfoField label="Return Statement Line Ref" value={detail.sourceExternalRef} mono />

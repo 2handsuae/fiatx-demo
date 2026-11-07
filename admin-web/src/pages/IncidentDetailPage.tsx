@@ -49,9 +49,6 @@ interface RemediationItem {
   referenceNo: string;
   linkedBy: string;
   createdAt: string;
-  // Task 12：只有 kind === 'ADJUSTMENT' 才有值（调账单现状）——「发起补款」按钮据此
-  // 判断是否已落账（POSTED）；其余 kind 恒 null。
-  status: string | null;
 }
 
 interface FilingSummary {
@@ -319,17 +316,15 @@ const IncidentDetailPage = () => {
   // 都必填），否则 CYBER_BCDR/DATA_BREACH/OUTSOURCING_FAILURE/ASSET_NONCOMPLIANCE 四类
   // 定损完仍会被当成"未定损"，Assessment 卡片会一直显示表单而不是结果。
   const assessed = detail.assessmentBasis != null;
-  // Task 12：善后区「发起补款」——事故处置中 + 挂载里有一张已落账（POSTED）认损调账单，
-  // 说明认损已过审批入账，该由公司补齐客户了。跳到对账案子页，复用那里已有的补款
-  // 发起入口（案件页会按 disposition.adjustmentNo 自动算出同一张单的 COMPENSATION
-  // nextStep，零新通道）。
-  // 走查发现 Fix 2：挂载里已经有一张 kind==='TRANSFER' 的善后单，说明补款单已经在了——
-  // 同 Task 12 各入口的徽标收敛纪律，按钮不再显示，避免重复发起。
-  const postedAdjustment = detail.status === 'RESOLVING'
-    ? detail.remediations.find((r) => r.kind === 'ADJUSTMENT' && r.status === 'POSTED')
-    : undefined;
+  // 戊波二 T8：善后区「Recognize loss & top up」——事故定损「公司承损」（FIRM_LOSS）后，认损和补款是一张划转单：
+  // 跳到对账案子页，案件页自动打开认损补缺弹层（金额锁定为定损额、来路 = INCIDENT 都由后端读面定死，不经本页传值）。
+  // 取代旧的「先走认损调账单、POSTED 之后再发起补款」两步；挂载里已经有一张 kind==='TRANSFER' 的善后单，
+  // 说明这张单已经在了——同 Task 12 各入口的徽标收敛纪律，按钮不再显示，避免重复发起。
+  // 门槛是金库的划转写权（真正提交的是那个端点），不是事故写权——本按钮只导航，不动事故。
   const hasTransferRemediation = detail.remediations.some((r) => r.kind === 'TRANSFER');
-  const canInitiateCompensation = canWrite && !!postedAdjustment && !!detail.sourceCaseNo && !hasTransferRemediation;
+  const canRecognizeLossAndTopUp = hasPermission(PERMISSIONS.INTERNAL_TRANSFER_SHORTFALL_TOPUP_WRITE)
+    && (detail.status === 'ASSESSED' || detail.status === 'RESOLVING')
+    && detail.assessmentBasis === 'FIRM_LOSS' && !!detail.sourceCaseNo && !!detail.customerNo && !hasTransferRemediation;
 
   // Type-Specific Details 卡的显示条件：subjectRefs 非空 ∨ 来路字段/顶层锚（六字段）任一非空。
   const hasTypeSpecific =
@@ -643,16 +638,16 @@ const IncidentDetailPage = () => {
                   <p className="border-t border-adm-border pt-3 font-mono text-[11px] text-adm-t3">Complete the assessment first before linking a remediation item</p>
                 )
               )}
-              {canInitiateCompensation && (
+              {canRecognizeLossAndTopUp && (
                 <div className="border-t border-adm-border pt-3">
                   <button
                     type="button"
-                    onClick={() => navigate(`/admin/reconciliation/cases/${encodeURIComponent(detail.sourceCaseNo!)}?adjustmentNo=${encodeURIComponent(postedAdjustment!.referenceNo)}`)}
+                    onClick={() => navigate(`/admin/reconciliation/cases/${encodeURIComponent(detail.sourceCaseNo!)}?shortfallIncidentNo=${encodeURIComponent(detail.incidentNo)}`)}
                     className={adminButtonClass('workflowPrimary')}
                   >
-                    Initiate Compensation
+                    Recognize loss &amp; top up
                   </button>
-                  <p className="mt-1 font-mono text-[9px] text-adm-t3">Loss-recognition adjustment {postedAdjustment!.referenceNo} has posted — jump to the reconciliation case page to initiate compensation (reuses the existing entry point)</p>
+                  <p className="mt-1 font-mono text-[9px] text-adm-t3">The assessment is firm loss — jump to reconciliation case {detail.sourceCaseNo} to recognize the custody shortfall and top the customer wallet up from a company wallet (one transfer, one CFO approval). Link the transfer here as remediation once opened.</p>
                 </div>
               )}
             </div>

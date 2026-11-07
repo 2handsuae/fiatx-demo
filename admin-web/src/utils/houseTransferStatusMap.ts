@@ -21,15 +21,6 @@ export const HOUSE_TRANSFER_STATUS_META: Record<string, HouseTransferStatusMeta>
   CANCELLED: { label: 'Cancelled', badgeClass: 'bg-gray-200 text-gray-800' },
 };
 
-export const HOUSE_TRANSFER_STATUSES = [
-  'PENDING_APPROVAL',
-  'EXECUTING',
-  'SUCCESS',
-  'FAILED',
-  'REJECTED',
-  'CANCELLED',
-] as const;
-
 /** 落账失败的展示态：停在 EXECUTING，且行上盖了 POSTING_FAILED。 */
 export const isHouseTransferStuck = (
   status: string | null | undefined,

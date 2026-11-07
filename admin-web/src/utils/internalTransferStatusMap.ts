@@ -9,7 +9,7 @@ export const INTERNAL_TRANSFER_STATUS_LABEL: Record<string, string> = {
 };
 
 export const INTERNAL_TRANSFER_PURPOSE_LABEL: Record<string, string> = {
-  CLIENT_COMPENSATION: 'Compensation · firm tops up after loss recognition',
+  SHORTFALL_TOPUP: 'Shortfall top-up',
   CLIENT_ADVANCE: 'Advance · fronts the recall shortfall, recovered later',
 };
 

@@ -155,8 +155,9 @@ const ReconciliationCasesDetailPage = () => {
     PERMISSIONS.DEPOSIT_CLAWBACK_WRITE,
     PERMISSIONS.WITHDRAW_RETURN_CLAIM_WRITE,
   ]);
-  // 平账二期：补款 / 垫款发起归金库——持两个写码任一即可看到按钮；运营只看到指路文字。
-  const canFundClient = hasAnyPermission([PERMISSIONS.INTERNAL_TRANSFER_SHORTFALL_TOPUP_WRITE, PERMISSIONS.INTERNAL_TRANSFER_ADVANCE_WRITE]);
+  // 平账二期：垫款发起归金库。戊波二 T8：补款退役，客户池认损改为认损补缺（另一个写码，门它自己的菜单项）。
+  const canFundClient = hasPermission(PERMISSIONS.INTERNAL_TRANSFER_ADVANCE_WRITE);
+  const canShortfallTopup = hasPermission(PERMISSIONS.INTERNAL_TRANSFER_SHORTFALL_TOPUP_WRITE);
   // 平账三期（Task 12）：案件页三入口共用——登记事故写权。战役甲波一 T10（item8）：本页
   // 两个登记按钮只会创建 FUNDS 族类型（LARGE_UNEXPLAINED/CLIENT_SHORTFALL），改用族独占
   // 能力码而不是被五组共享而失去区分力的路由级码 PERMISSIONS.INCIDENT_WRITE（见
@@ -393,19 +394,19 @@ const ReconciliationCasesDetailPage = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseNo]);
 
-  // 平账三期（Task 12）：事故页「发起补款」跳转带 ?adjustmentNo=——案子加载后自动
-  // 定位到那一行（nextStep.kind==='COMPENSATION' 且认损单号匹配）并直接开弹层，
-  // 不用再让人在表里手动找按钮（零新通道：复用的还是本页原有的补款弹层）。只在
-  // 首次带参数进页时开一次——用 ref 挡住之后每次 fetchCase()（关别的弹层也会触发
-  // 刷新）把用户刚手动关掉的弹层又弹回来。
+  // 戊波二 T8：事故页「Recognize loss & top up」跳转带 ?shortfallIncidentNo=——案子加载后自动
+  // 定位到那一行（定性行挂着该事故号、读面给出 SHORTFALL_TOPUP 下一步，金额 = 定损额、
+  // lossSource = INCIDENT 都由后端读面定死）并直接开认损补缺弹层，不用再让人在表里手动找菜单项
+  // （零新通道：复用的还是本页原有的划转弹层）。只在首次带参数进页时开一次——用 ref 挡住之后每次
+  // fetchCase()（关别的弹层也会触发刷新）把用户刚手动关掉的弹层又弹回来。
   const autoOpenedFundingRef = useRef(false);
   useEffect(() => {
     if (!kase || autoOpenedFundingRef.current) return;
-    const wantAdjustmentNo = searchParams.get('adjustmentNo');
-    if (!wantAdjustmentNo) return;
+    const wantIncidentNo = searchParams.get('shortfallIncidentNo');
+    if (!wantIncidentNo) return;
     autoOpenedFundingRef.current = true;
-    const row = kase.flowComparison?.find((r) => r.nextStep?.kind === 'COMPENSATION' && r.nextStep.adjustmentNo === wantAdjustmentNo);
-    if (row) setFundingRow(row);
+    const row = kase.flowComparison?.find((r) => r.nextStep?.kind === 'SHORTFALL_TOPUP' && r.disposition?.incidentNo === wantIncidentNo);
+    if (row && canShortfallTopup) setFundingRow(row);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kase]);
 
@@ -604,6 +605,7 @@ const ReconciliationCasesDetailPage = () => {
             canSupplement={canSupplement}
             canRegisterIncident={canRegisterIncident}
             canFundClient={canFundClient}
+            canShortfallTopup={canShortfallTopup}
             matchedCount={matchedCount}
             openRowsCount={openRowsCount}
             existingLargeUnexplained={existingLargeUnexplained}
@@ -733,7 +735,7 @@ const ReconciliationCasesDetailPage = () => {
         onDone={() => { setSupplementRow(null); fetchCase(); }}
       />
 
-      {/* Recon phase 2 (Task 12): compensation/advance initiation modal — one
+      {/* Recon phase 2 (Task 12) + 戊波二 T8: advance / shortfall top-up initiation modal — one
           modal, two paths, split by row.nextStep.kind. */}
       <InternalTransferInitiateModal
         open={!!fundingRow} caseNo={kase.caseNo} row={fundingRow} assetCode={kase.assetCode} decimals={kase.decimals}

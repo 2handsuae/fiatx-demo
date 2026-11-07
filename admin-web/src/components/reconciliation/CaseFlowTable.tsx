@@ -28,12 +28,13 @@
 // Status 列，上面一个标签（该行现在处于什么状态；单号/事故号/暂停原因这些附注挂在标签
 // 下面），下面至多一个控件。原拟 Status / Action 分两列，1280 宽下两列最小宽度之和顶出
 // 横滚（USDT 六位小数时更甚），故上下叠在同一列。控件：还能改处置的行是一个 Resolve ▾ 菜单
-// （ResolveMenu），在途行是去推单的链接，已锁定行只剩「补款」这一个跟进按钮，其余
-// 什么都不放。菜单分组固定为 Follow up → Fix the books → Hand off → Hold，系统不替
-// 财务挑处置（decisions 2026-09-08）：超期后放开的那一项（Write off / Recognize loss /
-// Escalate to incident）和其它处置同级进对应组、不置顶不高亮，"为什么多了这一项"写在
-// Status 标签上；唯一的提示是模拟开关打开时的 ⚡ 演示推荐。原 renderFunding 随之拆掉：
-// 划转回挂进 Status 附注，补款进 Action，垫款/登记欠款进菜单的 Follow up 组。
+// （ResolveMenu），在途行是去推单的链接，已锁定行什么都不放。菜单分组固定为 Follow up →
+// Fix the books → Hand off → Hold，系统不替财务挑处置（decisions 2026-09-08）：超期后放开的
+// 那一项（Write off / Recognize loss & top up / Escalate to incident）和其它处置同级进对应组、
+// 不置顶不高亮，"为什么多了这一项"写在 Status 标签上；唯一的提示是模拟开关打开时的 ⚡ 演示推荐。
+// 原 renderFunding 随之拆掉：垫款回挂进 Status 附注，垫款/登记欠款进菜单的 Follow up 组。
+// 戊波二 T8：补款按钮退役，客户池认损改为一张划转单「Recognize loss & top up」，
+// 行挂单后锁定，Status 标签随那张单的状态走（shortfallTopupChip）。
 import { useRef } from 'react';
 import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -44,6 +45,7 @@ import { TONE_CLASSES } from '../../utils/reconBucketMap';
 import type { FlowComparisonRow, ReconCaseDetail } from '../../utils/reconTypes';
 import { formatAmount, minorToMajorPlain } from '../../utils/reconAmount';
 import { INTERNAL_TRANSFER_STATUS_LABEL as TRANSFER_STATUS_WORD } from '../../utils/internalTransferStatusMap';
+import { shortfallTopupChip } from '../../utils/shortfallTopup';
 import { reasonDisplayLabel } from '../ReconciliationAdjustmentCreateModal';
 import { OUTLET_TONE, PAUSED_CAUSES } from '../../utils/causeRegistry';
 import { ShortRef, SOURCE_TYPE_HREF, buildIncidentHref, IncidentBadge, MatchChip } from './caseDetailBits';
@@ -62,6 +64,7 @@ interface CaseFlowTableProps {
   onOpenFinding: (row: FlowComparisonRow, kind: string, label: string) => void;
   onOpenHold: (row: FlowComparisonRow, kind: 'HOLD_NEXT_PERIOD' | 'HOLD_INVESTIGATING') => void;
   onOpenWriteOff: (row: FlowComparisonRow) => void;
+  // 垫款 / 认损补缺两个划转弹层共用一个入口（InternalTransferInitiateModal 按 row.nextStep.kind 分支）。
   onOpenFunding: (row: FlowComparisonRow) => void;
   // 闸②补齐（详见上方文件头注释）——五个权限布尔 + 四个派生值，页面计算、组件只读。
   canRecordDisposition: boolean;
@@ -69,6 +72,7 @@ interface CaseFlowTableProps {
   canSupplement: boolean;
   canRegisterIncident: boolean;
   canFundClient: boolean;
+  canShortfallTopup: boolean;
   matchedCount: number;
   openRowsCount: number;
   existingLargeUnexplained: CaseIncidentRef | undefined;
@@ -106,6 +110,7 @@ const chipToneClass = (tone: StatusTone): string =>
     : `${TONE_CLASSES[tone].border} ${TONE_CLASSES[tone].bg} ${TONE_CLASSES[tone].text}`;
 
 const adjustmentHref = (no: string) => `/admin/reconciliation/adjustments/${encodeURIComponent(no)}`;
+const transferHref = (no: string) => `/admin/custody/internal-transfers/${encodeURIComponent(no)}`;
 
 // 当前定性的出口 → 处置种类（ADJUST_* 出口与菜单里 CORRECT/REVERSE/RECORD/REATTRIBUTE
 // 同名对应，其余出口名与种类名一致），用来给菜单里对应的那一项标 current。
@@ -118,7 +123,7 @@ const HOLD_KINDS = ['HOLD_NEXT_PERIOD', 'HOLD_INVESTIGATING'];
 export const CaseFlowTable = ({
   kase, sortedFlows, showMatched, setShowMatched, simEnabled,
   onOpenAdjustKind, onOpenFinding, onOpenHold, onOpenWriteOff, onOpenFunding,
-  canRecordDisposition, canCreateAdjustment, canSupplement, canRegisterIncident, canFundClient,
+  canRecordDisposition, canCreateAdjustment, canSupplement, canRegisterIncident, canFundClient, canShortfallTopup,
   matchedCount, openRowsCount, existingLargeUnexplained, existingClientShortfall,
 }: CaseFlowTableProps) => {
   const navigate = useNavigate();
@@ -139,6 +144,12 @@ export const CaseFlowTable = ({
     if (d?.adjustmentNo) {
       return { tone: 'blue', label: `Pending CFO · ${d.adjustmentNo}`, to: adjustmentHref(d.adjustmentNo) };
     }
+    // 戊波二 T8：行上挂着认损补缺单——状态由那张单的 status × recognized 决定（待批 → 已记短缺补款中 → 已解释；
+    // 补款腿失败时短缺已记在账上，入口不回来，裁定 15）。单号链到划转单详情。
+    if (d?.transferNo && row.transfer?.purpose === 'SHORTFALL_TOPUP') {
+      const chip = shortfallTopupChip(row.transfer);
+      return { ...chip, to: transferHref(row.transfer.transferNo) };
+    }
     if (d?.supplementNo) {
       const ref = d.supplementRef;
       if (ref?.id && ref.kind === 'DEPOSIT') return { tone: 'blue', label: `Transferred · ${d.supplementNo}`, to: `/admin/trading/deposits/${ref.no}` };
@@ -156,8 +167,8 @@ export const CaseFlowTable = ({
       return { tone: 'amber', label: `Recall blocked · short ${formatAmount(ns.amount, kase.decimals)} ${kase.assetCode}`, extras };
     }
     // 超期后放开的几项：为什么多了这一项，写在这里。
-    if (ns?.kind === 'WRITE_OFF') {
-      const lossWord = ns.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'recognize loss' : 'write off';
+    if (ns?.kind === 'WRITE_OFF' || ns?.kind === 'SHORTFALL_TOPUP') {
+      const lossWord = ns.kind === 'SHORTFALL_TOPUP' ? 'recognize loss' : 'write off';
       // 行挂了事故号（事故已定损公司承损）不是「超期」——那句话在这里是撒谎。
       // C1 挂接链评审修复：判据从单看 outlet==='INCIDENT' 改成看 incidentNo——
       // 大额升级路的定性行 outlet 一直留在 HOLD_INVESTIGATING，只有 incidentNo
@@ -220,16 +231,13 @@ export const CaseFlowTable = ({
             {d.causeLabel} · {d.createdBy} {d.createdAt.slice(5, 10)}
           </span>
         )}
-        {/* 平账二期：行上的划转回挂（补款 / 垫款）。案子 RESOLVED 之后照样给（认损让案子愈了，补款是对客户的交代）。 */}
-        {row.transfer && (
+        {/* 平账二期：行上的垫款回挂。认损补缺单的单号与状态已经在上面的标签里（标签即链接），不再重复一行。 */}
+        {row.transfer && row.transfer.purpose === 'CLIENT_ADVANCE' && (
           <span className="font-mono text-[10px] text-adm-t2">
-            {row.transfer.purpose === 'CLIENT_ADVANCE' ? 'Advance' : 'Compensation'}{' '}
-            <Link to={`/admin/custody/internal-transfers/${encodeURIComponent(row.transfer.transferNo)}`} className="text-adm-blue hover:underline">{row.transfer.transferNo}</Link>
+            Advance{' '}
+            <Link to={transferHref(row.transfer.transferNo)} className="text-adm-blue hover:underline">{row.transfer.transferNo}</Link>
             {' · '}{TRANSFER_STATUS_WORD[row.transfer.status] ?? row.transfer.status}
           </span>
-        )}
-        {row.nextStep?.kind === 'COMPENSATION' && !canFundClient && (
-          <span className="font-mono text-[10px] text-adm-amber">Pending compensation (initiated by treasury)</span>
         )}
       </div>
     );
@@ -314,14 +322,14 @@ export const CaseFlowTable = ({
       }
     }
 
-    // Fix the books：超期放开的核销 / 认损跟其它处置同级，排在组尾、不高亮。
+    // Fix the books：超期放开的核销 / 认损补缺跟其它处置同级，排在组尾、不高亮。
+    // 公司池核销走调账单（canCreateAdjustment）；客户池认损补缺是一张划转单，门槛是金库的划转写权。
     const fixBooks = dispositionItems(['CORRECT', 'REVERSE', 'RECORD', 'REATTRIBUTE']);
     if (ns?.kind === 'WRITE_OFF' && kase.status === 'OPEN' && canCreateAdjustment) {
-      fixBooks.push({
-        key: 'WRITE_OFF',
-        label: ns.reasonCode === 'UNEXPLAINED_CLIENT_LOSS' ? 'Recognize loss' : 'Write off',
-        onSelect: () => onOpenWriteOff(row),
-      });
+      fixBooks.push({ key: 'WRITE_OFF', label: 'Write off', onSelect: () => onOpenWriteOff(row) });
+    }
+    if (ns?.kind === 'SHORTFALL_TOPUP' && kase.status === 'OPEN' && canShortfallTopup) {
+      fixBooks.push({ key: 'SHORTFALL_TOPUP', label: 'Recognize loss & top up', onSelect: () => onOpenFunding(row) });
     }
 
     // Hand off：同理，超期大额的「升级事故」排在组尾。
@@ -382,22 +390,12 @@ export const CaseFlowTable = ({
         <span className="text-[10px] text-adm-t3">In-transit · no funds order</span>
       );
     }
-    // 锁定 = 行上已经挂着一张走不掉的单（调账单 / 补单）——那条单号本身就是唯一出口，
+    // 锁定 = 行上已经挂着一张走不掉的单（调账单 / 补单 / 认损补缺单）——那条单号本身就是唯一出口，
     // 不该再给别的入口制造「两条并行结论」的假象；未挂单（含从未定性、挂起、已登记事故）
     // 都不锁，仍可改处置。覆盖/重定语义——挂起是临时状态，再选一次就是换一个结论（承接④）。
-    const locked = !!(row.explainedByAdjustmentNo || row.disposition?.adjustmentNo || row.disposition?.supplementNo);
-    if (locked) {
-      // 锁定后只剩跟进的事：认损落账后给客户补款（金额在补款弹窗里锁定，按钮词保持简短）。
-      return row.nextStep?.kind === 'COMPENSATION' && canFundClient ? (
-        <button
-          type="button"
-          onClick={() => onOpenFunding(row)}
-          className="rounded border border-adm-blue/30 bg-adm-blue/10 px-1.5 py-0.5 text-left font-mono text-[10px] font-medium text-adm-blue hover:bg-adm-blue/20"
-        >
-          Initiate compensation
-        </button>
-      ) : null;
-    }
+    // 戊波二 T8：认损补缺单锁到底——补款腿失败也不解锁（短缺已记在账上，裁定 15），后端驳回 / 撤回 / 超时 / 记短缺失败才清 transferNo。
+    const locked = !!(row.explainedByAdjustmentNo || row.disposition?.adjustmentNo || row.disposition?.supplementNo || row.disposition?.transferNo);
+    if (locked) return null;
     return <ResolveMenu groups={buildResolveGroups(row)} />;
   };
 

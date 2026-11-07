@@ -4,7 +4,7 @@ import { IncidentStatus as S, IncidentTypes as T, INCIDENT_REPORT_BASES as REPOR
 
 const ops = { actorType: 'ADMIN' as const, userId: 'uuid-ops', userNo: 'ADM-OPS', roleCodes: ['OPS_OFFICER'] };
 
-function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'adjustments' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal' | 'heldMarkers' | 'filingsSummary', any>> = {}) {
+function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 'transfer' | 'adjustment' | 'deposit' | 'remediations' | 'notes' | 'listRows' | 'listTotal' | 'heldMarkers' | 'filingsSummary', any>> = {}) {
   const incidentRow = o.incidentRow ?? {
     id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.REGISTERED,
     title: 't', description: 'd', customerNo: null, sourceCaseNo: null, traceId: 'trace-seed',
@@ -30,7 +30,6 @@ function makeService(o: Partial<Record<'incidentRow' | 'disposition' | 'kase' | 
     internalTransfer: { findUnique: jest.fn(async () => o.transfer ?? null) },
     reconciliationAdjustment: {
       findUnique: jest.fn(async () => o.adjustment ?? null),
-      findMany: jest.fn(async () => o.adjustments ?? []),
     },
     depositTransaction: { findUnique: jest.fn(async () => o.deposit ?? null) },
   };
@@ -855,18 +854,16 @@ describe('IncidentService (Task 5)', () => {
       };
       const notes = [{ kind: 'NOTE', escalatedTo: null, body: 'Logged a note', authorUserId: 'ADM-OPS', createdAt }];
       const remediations = [{ kind: 'ADJUSTMENT', referenceNo: 'ADJ1', linkedByUserId: 'ADM-OPS', createdAt }];
-      const adjustments = [{ adjustmentNo: 'ADJ1', status: 'POSTED' }];
       const filingsSummary = [{
         filingNo: 'FIL1', status: 'SUBMITTED', authority: 'VARA', basisCode: 'CLIENT_MONEY_DISCREPANCY',
         deadlineAt: null, overdueMarkedAt: null, submittedAt: '2026-09-26T00:00:00.000Z',
       }];
-      const { svc, filings } = makeService({ incidentRow, notes, remediations, adjustments, filingsSummary });
+      const { svc, filings } = makeService({ incidentRow, notes, remediations, filingsSummary });
       const view = await svc.getView('INC1');
       expect(view.incidentNo).toBe('INC1');
       expect(view.notes).toEqual([{ kind: 'NOTE', escalatedTo: null, body: 'Logged a note', authorBy: 'ADM-OPS', createdAt: createdAt.toISOString() }]);
-      // Task 12：ADJUSTMENT 善后单要带上调账单现状——事故页「发起补款」按钮据此判断
-      // 「已落账（POSTED）」，remediations 表本身不存这个会过期的状态快照。
-      expect(view.remediations).toEqual([{ kind: 'ADJUSTMENT', referenceNo: 'ADJ1', linkedBy: 'ADM-OPS', createdAt: createdAt.toISOString(), status: 'POSTED' }]);
+      // 戊波二 T8：「发起补款」按钮随补款退役，善后单不再带调账单现状（status 键与反查调账单一并删除）。
+      expect(view.remediations).toEqual([{ kind: 'ADJUSTMENT', referenceNo: 'ADJ1', linkedBy: 'ADM-OPS', createdAt: createdAt.toISOString() }]);
       expect(view.filings).toEqual(filingsSummary);
       expect(filings.summaryForIncident).toHaveBeenCalledWith('INC1');
       expect(view).not.toHaveProperty('id');
@@ -875,7 +872,7 @@ describe('IncidentService (Task 5)', () => {
       expect(JSON.stringify(view)).not.toContain('uuid-inc');
     });
 
-    it('getView: a non-ADJUSTMENT remediation does not query adjustment status, status is always null', async () => {
+    it('getView: a TRANSFER remediation projects the same four business-key fields', async () => {
       const incidentRow = {
         id: 'uuid-inc', incidentNo: 'INC1', type: T.CLIENT_SHORTFALL, status: S.RESOLVING,
         title: 't', description: 'd', customerNo: null, sourceCaseNo: null, sourceDispositionNo: null,
@@ -885,10 +882,9 @@ describe('IncidentService (Task 5)', () => {
         closedAt: null, withdrawnReason: null, createdAt,
       };
       const remediations = [{ kind: 'TRANSFER', referenceNo: 'ITR1', linkedByUserId: 'ADM-OPS', createdAt }];
-      const { svc, prisma } = makeService({ incidentRow, remediations });
+      const { svc } = makeService({ incidentRow, remediations });
       const view = await svc.getView('INC1');
-      expect(view.remediations).toEqual([{ kind: 'TRANSFER', referenceNo: 'ITR1', linkedBy: 'ADM-OPS', createdAt: createdAt.toISOString(), status: null }]);
-      expect(prisma.reconciliationAdjustment.findMany).not.toHaveBeenCalled();
+      expect(view.remediations).toEqual([{ kind: 'TRANSFER', referenceNo: 'ITR1', linkedBy: 'ADM-OPS', createdAt: createdAt.toISOString() }]);
     });
 
     it('getView: incident not found → 404', async () => {

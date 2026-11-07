@@ -59,7 +59,10 @@ export interface FlowComparisonRow {
     family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE' | 'WRITE_OFF';
     reasonCode?: string; direction?: 'REDUCE' | 'INCREASE';
     findingNote: string;
-    adjustmentNo: string | null; createdBy: string; createdAt: string;
+    adjustmentNo: string | null;
+    // 戊波二 T8：认损补缺单号——与 adjustmentNo 平行，有值 = 这一行被一张认损补缺单锁住。
+    transferNo?: string | null;
+    createdBy: string; createdAt: string;
     // 平账 B 批（Task 9）：SUPPLEMENT 出口专用——去向 / 转的补单号 / 补单业务域引用。
     deferredTarget?: 'SUPPLEMENT_DEPOSIT' | 'SUPPLEMENT_BOUNCE' | 'SUPPLEMENT_PAYOUT_RETURN' | string | null;
     supplementNo?: string | null;
@@ -87,12 +90,16 @@ export interface FlowComparisonRow {
   };
   // 平账 A 批（spec §2.6）：超期后的下一步（服务端判）
   nextStep?: {
-    kind: 'WRITE_OFF' | 'INCIDENT_DEFERRED' | 'CLIENT_SURPLUS' | 'COMPENSATION' | 'ADVANCE';
-    reasonCode?: 'UNEXPLAINED_WRITE_OFF' | 'UNEXPLAINED_CLIENT_LOSS'; direction?: 'REDUCE' | 'INCREASE'; amount?: string; effectiveDate?: string;
-    adjustmentNo?: string; externalLineId?: string; customerNo?: string | null; walletNo?: string | null; available?: string; lineAmount?: string;
+    // 戊波二 T8：客户池的「认损」= SHORTFALL_TOPUP（认损补缺一张单，lossSource = 账龄路 / 事故路）；
+    // WRITE_OFF 只剩公司池核销（调账单）；补款（COMPENSATION）整条退役。
+    kind: 'WRITE_OFF' | 'SHORTFALL_TOPUP' | 'INCIDENT_DEFERRED' | 'CLIENT_SURPLUS' | 'ADVANCE';
+    reasonCode?: 'UNEXPLAINED_WRITE_OFF'; direction?: 'REDUCE' | 'INCREASE'; amount?: string; effectiveDate?: string;
+    lossSource?: 'AGING' | 'INCIDENT';
+    externalLineId?: string; customerNo?: string | null; walletNo?: string | null; available?: string; lineAmount?: string;
   };
-  // 平账二期：这条差异行牵出的划转单（补款 / 垫款）回挂
-  transfer?: { transferNo: string; purpose: string; status: string } | null;
+  // 平账二期：这条差异行牵出的划转单（垫款 / 认损补缺）回挂；
+  // 戊波二 T8：recognized = 批准那一步已记短缺（后端 reconciliation.dto.ts，认损补缺才可能为 true）。
+  transfer?: { transferNo: string; purpose: string; status: string; recognized: boolean } | null;
 }
 
 export interface FlowComparisonSummary {
