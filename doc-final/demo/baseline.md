@@ -600,7 +600,7 @@ sqlite3 "$DB" "select actionType,status,count(*) from approval_cases where actio
 
 **审计词表**：`npm run audit:vocab`（`ts-node scripts/export-audit-vocab.ts`）exit 0，**386 个现役码**，种子文档 `doc-final/reference/audit-actions-vocab.md` 以 `` | `码` `` 起头的表行 **393**（`grep -c '^| `' …` 的实测数，多于 386 的差额未逐行归因，含附录与说明行；脚本自己做现役码名册 ↔ 种子文档的对账，对得上才写盘；⚠️ 该脚本会重写 `doc-final/lark/2026-09-16-audit-actions-catalog-full.md`，T4 已跑，T10 不重跑）。
 
-**e2e 已知红名单（B 集，戊波三起 20 名）**：戊波二收尾的 B 集 22 名（`e2e-baseline-0c6eb7b0.md` §2.1），去掉 T6 修好的两名——`Recon case aging → write-off e2e` 主链路（夹具改按迪拜业务日）与 `Recon adjustment money arcs` 用例 9（场景 9 尾部对齐第 0 轮锚配对）——余 **20 名**（**Task 11 全量冷缓存实跑确认**，确认前以本清单为预期）：
+**e2e 已知红名单（B 集，戊波三起 20 名）**：戊波二收尾的 B 集 22 名（`e2e-baseline-0c6eb7b0.md` §2.1），去掉 T6 修好的两名——`Recon case aging → write-off e2e` 主链路（夹具改按迪拜业务日）与 `Recon adjustment money arcs` 用例 9（场景 9 尾部对齐第 0 轮锚配对）——余 **20 名**（**戊波三 Task 11 全量冷缓存两轮实跑已确认**：失败集均 = 本清单 20 名 + `vendor-onboarding ①`，后者记偶发——`VENDOR_ACTIVATED` 审计晚于状态落库、`vendor-onboarding.e2e-spec.ts:196` 期望 5 条收到 4 条，干净重铺单跑绿；明细与两个方向差集见 `doc-final/superpowers/checkups/2026-11-07-campaign-e-wave3-evidence/e2e-after-00a89e2f.md`）：
 
 - **Recon supplement e2e (平账 B 批, Task 8)**（3）：② 退汇：SUCCESS 充值 1200 AED → 银行扣回 → 定性 → 发起（候选含原…｜③ 退回：SUCCESS 提现 → 银行退回 → 定性 → 发起 → CFO 批 → RET…｜拒绝路径：方向不符 400；余额不足 400；同一行仍待决时二次发起 400，CFO 拒绝后…
 - **Recon internal transfer e2e (平账二期, Task 9)**（1）：B · 退汇余额不足：读面给 ADVANCE → 认领 400 指路 → 垫款两腿（81 /…
