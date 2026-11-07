@@ -1,8 +1,10 @@
 import {
+  canRecognizeLossAndTopUpFromIncident,
   defaultFromWalletId,
   pickFromWallets,
   shortfallTopupChip,
   type FromWalletOption,
+  type IncidentShortfallEntryFacts,
 } from './shortfallTopup';
 
 const w = (walletRole: string, walletNo: string, ownerUuid = `uuid-${walletNo}`): FromWalletOption => ({
@@ -59,5 +61,34 @@ describe('pickFromWallets / defaultFromWalletId（Top up from 下拉）', () => 
   it('默认选运营户；只有手续费户时不替人选', () => {
     expect(defaultFromWalletId(pickFromWallets([w('F_FEE', 'W-FEE'), w('F_OPS', 'W-OPS')]))).toBe('uuid-W-OPS');
     expect(defaultFromWalletId(pickFromWallets([w('F_FEE', 'W-FEE')]))).toBe('');
+  });
+});
+
+describe('canRecognizeLossAndTopUpFromIncident（事故页入口显示条件）', () => {
+  const ok: IncidentShortfallEntryFacts = {
+    canTopUp: true, status: 'ASSESSED', assessmentBasis: 'FIRM_LOSS',
+    sourceCaseNo: 'REC20261107-011', sourceDispositionNo: 'RCD261107342109', customerNo: 'CU2601016170',
+    hasTransferRemediation: false,
+  };
+
+  it('全满足 → 显示（ASSESSED 与 RESOLVING 都行）', () => {
+    expect(canRecognizeLossAndTopUpFromIncident(ok)).toBe(true);
+    expect(canRecognizeLossAndTopUpFromIncident({ ...ok, status: 'RESOLVING' })).toBe(true);
+  });
+
+  it('没有行锚（sourceDispositionNo 空）→ 不显示：案件页找不到要开弹层的行，会是个点了没反应的按钮（CLIENT_SHORTFALL 经「Register shortfall」登记就是这种）', () => {
+    expect(canRecognizeLossAndTopUpFromIncident({ ...ok, sourceDispositionNo: null })).toBe(false);
+    expect(canRecognizeLossAndTopUpFromIncident({ ...ok, sourceDispositionNo: '' })).toBe(false);
+  });
+
+  it('其余任一条件不满足都收起：无权 / 非 ASSESSED·RESOLVING / 非 FIRM_LOSS / 无来源案 / 无客户 / 已挂 TRANSFER 善后', () => {
+    expect(canRecognizeLossAndTopUpFromIncident({ ...ok, canTopUp: false })).toBe(false);
+    expect(canRecognizeLossAndTopUpFromIncident({ ...ok, status: 'INVESTIGATING' })).toBe(false);
+    expect(canRecognizeLossAndTopUpFromIncident({ ...ok, status: 'CLOSED' })).toBe(false);
+    expect(canRecognizeLossAndTopUpFromIncident({ ...ok, assessmentBasis: 'RECOVERED' })).toBe(false);
+    expect(canRecognizeLossAndTopUpFromIncident({ ...ok, assessmentBasis: null })).toBe(false);
+    expect(canRecognizeLossAndTopUpFromIncident({ ...ok, sourceCaseNo: null })).toBe(false);
+    expect(canRecognizeLossAndTopUpFromIncident({ ...ok, customerNo: null })).toBe(false);
+    expect(canRecognizeLossAndTopUpFromIncident({ ...ok, hasTransferRemediation: true })).toBe(false);
   });
 });

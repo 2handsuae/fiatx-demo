@@ -75,3 +75,13 @@ HTTP 做 Hold + 拨钟；**UI** 提交（`ITR261107118623`）、**UI** CFO 批�
 - 后端 `incident.service.ts` + spec：`getView` 里 `adjustmentStatusByNo` 反查与 `remediations[].status` 只为那个按钮服务（T7a 报告 §8-6 点名「T8 一并清」），按钮没了即孤儿，已删；spec 两例改为断言四键投影（`incident.service.spec` 绿）。
 - `InternalTransferDetail.tsx` / `InternalTransferList.tsx` / `ReconciliationCasesListPage.tsx` / `ReconciliationAdjustmentCreateModal.tsx` / `internalTransferStatusMap.ts` / `reconTypes.ts`：删 `sourceAdjustmentNo`（后端已无此列）、补款用途 / 徽标，加 `SHORTFALL_TOPUP` 用途词与认损补缺单的来路 / 生效日 / 记短缺时刻展示。
 - R23：删 `HOUSE_TRANSFER_STATUSES` 与对应手抄字面量 spec 例；House Transfers 导航图标 `ArrowRightLeft` → `House`（与 Internal Transfers 的 `ArrowLeftRight` 一眼可分）。
+
+## 5. 评审修复轮 1（`fix(戊波二): 事故页认损补缺入口要求行锚、余额后缀用币种`）
+
+**Important · 事故页入口缺行锚**：案件页自动开弹层要 `disposition.incidentNo === shortfallIncidentNo`，该值只有登记事故时带了 `sourceDispositionNo` 才会由后端 `attachIncident` 写上；案件页「Register shortfall」登记的 CLIENT_SHORTFALL 不带它，定损 FIRM_LOSS 后旧条件全满足却点了没反应。修法：入口条件抽成纯函数 `canRecognizeLossAndTopUpFromIncident`（`utils/shortfallTopup.ts`），加 `!!sourceDispositionNo`；页面只传事实。
+- 单测（`shortfallTopup.spec.ts` 新 describe，3 例）：全满足显示（ASSESSED / RESOLVING）；**无行锚（null / 空串）不显示**；其余六个条件各自收起。变异：去掉行锚条件 → `1 failed, 11 passed`（红的正是「没有行锚…」那例），还原后 `12 passed`、`diff` 一致。
+- 真渲染复现（self 栈，`recon:demo:break` 后）：`INC261107576567` = CLIENT_SHORTFALL、ASSESSED、FIRM_LOSS、有 `customerNo` / `sourceCaseNo`、**无** `sourceDispositionNo`（HTTP 注册，同案件页菜单的 payload 形状）→ 善后区**无**该按钮（`t8-incident-entry-unanchored.png`）；`INC261107446330` = 有行锚的 UNAUTHORIZED_OUTFLOW → 按钮仍在（渲染与原 `t8-incident-entry.png` 一致，未重拍）。
+
+**Minor · 余额后缀**：下拉选项余额后缀由 `{assetCode}`（USDT-TRON）改 `{currency}`（USDT，弹层取资产时已算出的币种，存 state）——与 `VendorPaymentList` / `HouseTransferList` 同源同口径。金额两行（Shortfall / Amount）仍用 `assetCode`，与弹层原样一致。`t8-shortfall-modal.png` 重拍：`balance 113,999.428189 USDT`。
+
+闸门：① ② ③ 各 exit 0、0 行；`npx jest admin-web/src src/modules/governance/incidents` exit 0，19 suites / 347 passed；eslint（改动的 4 个文件）exit 0。验证用了 `recon:demo:break`，结束后 `reset self` → `up` → `demo:all`（花名册 35/35、asserts 5/5）→ `verify:coa`（`ALL INVARIANTS PASS`），栈留在 up + seeded 的干净态。

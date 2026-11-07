@@ -21,6 +21,8 @@ const InternalTransferInitiateModal = ({ open, caseNo, row, assetCode, decimals,
   const [reason, setReason] = useState('');
   const [fromWalletId, setFromWalletId] = useState('');
   const [fromWallets, setFromWallets] = useState<FromWalletOption[]>([]);
+  // 下拉里余额的单位：/admin/tb/accounts 的余额是币种级（USDT），案件资产代码是 USDT-TRON，不能直接拿来当后缀。
+  const [currency, setCurrency] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ transferNo: string; approvalNo: string } | null>(null);
@@ -37,6 +39,7 @@ const InternalTransferInitiateModal = ({ open, caseNo, row, assetCode, decimals,
   useEffect(() => {
     setFromWallets([]);
     setFromWalletId('');
+    setCurrency('');
     if (!open || !isShortfall) return undefined;
     let stale = false;
     void (async () => {
@@ -44,16 +47,17 @@ const InternalTransferInitiateModal = ({ open, caseNo, row, assetCode, decimals,
         const assetsRes = await adminFetch(`${import.meta.env.VITE_API_URL}/assets?status=ACTIVE&take=200`);
         if (!assetsRes.ok || stale) return;
         const assets = (await assetsRes.json()).items as Array<{ code: string; currency: string }> | undefined;
-        const currency = assets?.find((a) => a.code === assetCode)?.currency;
-        if (!currency) return;
+        const ccy = assets?.find((a) => a.code === assetCode)?.currency;
+        if (!ccy) return;
         const res = await adminFetch(
-          `${import.meta.env.VITE_API_URL}/admin/tb/accounts?ownerType=WALLET&code=50&assetCurrency=${encodeURIComponent(currency)}&take=100`,
+          `${import.meta.env.VITE_API_URL}/admin/tb/accounts?ownerType=WALLET&code=50&assetCurrency=${encodeURIComponent(ccy)}&take=100`,
         );
         if (!res.ok || stale) return;
         const data = await res.json();
         const rows = pickFromWallets(Array.isArray(data.items) ? data.items : []);
         setFromWallets(rows);
         setFromWalletId(defaultFromWalletId(rows));
+        setCurrency(ccy);
       } catch (e) {
         if (e instanceof AdminSessionError) return;
         console.error(e);
@@ -120,7 +124,7 @@ const InternalTransferInitiateModal = ({ open, caseNo, row, assetCode, decimals,
                   <option value="">Select…</option>
                   {fromWallets.map((w) => (
                     <option key={w.ownerUuid} value={w.ownerUuid}>
-                      {w.walletNo} · {WALLET_ROLE_LABEL[w.walletRole] ?? w.walletRole} · balance {formatAmount(w.balance, decimals)} {assetCode}
+                      {w.walletNo} · {WALLET_ROLE_LABEL[w.walletRole] ?? w.walletRole} · balance {formatAmount(w.balance, decimals)} {currency}
                     </option>
                   ))}
                 </select>

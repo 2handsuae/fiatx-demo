@@ -12,6 +12,7 @@ import { adminButtonClass } from '../components/common/adminButtonStyles';
 import { AdminSessionError, adminFetch, getApiErrorMessage } from '../utils/adminFetch';
 import { useAdminSession } from '../contexts/AdminSessionContext';
 import { PERMISSIONS } from '../rbac/permissions';
+import { canRecognizeLossAndTopUpFromIncident } from '../utils/shortfallTopup';
 import {
   ANCHOR_FIELD_LABEL,
   ASSESSMENT_BASIS_BY_SCHEME,
@@ -322,9 +323,17 @@ const IncidentDetailPage = () => {
   // 说明这张单已经在了——同 Task 12 各入口的徽标收敛纪律，按钮不再显示，避免重复发起。
   // 门槛是金库的划转写权（真正提交的是那个端点），不是事故写权——本按钮只导航，不动事故。
   const hasTransferRemediation = detail.remediations.some((r) => r.kind === 'TRANSFER');
-  const canRecognizeLossAndTopUp = hasPermission(PERMISSIONS.INTERNAL_TRANSFER_SHORTFALL_TOPUP_WRITE)
-    && (detail.status === 'ASSESSED' || detail.status === 'RESOLVING')
-    && detail.assessmentBasis === 'FIRM_LOSS' && !!detail.sourceCaseNo && !!detail.customerNo && !hasTransferRemediation;
+  // 还要有行锚（sourceDispositionNo）：案件页靠定性行上的事故号找到要开弹层的那一行，没锚的事故（如案件页
+  // 「Register shortfall」登记的 CLIENT_SHORTFALL）点了也找不到行——判据见 canRecognizeLossAndTopUpFromIncident。
+  const canRecognizeLossAndTopUp = canRecognizeLossAndTopUpFromIncident({
+    canTopUp: hasPermission(PERMISSIONS.INTERNAL_TRANSFER_SHORTFALL_TOPUP_WRITE),
+    status: detail.status,
+    assessmentBasis: detail.assessmentBasis,
+    sourceCaseNo: detail.sourceCaseNo,
+    sourceDispositionNo: detail.sourceDispositionNo,
+    customerNo: detail.customerNo,
+    hasTransferRemediation,
+  });
 
   // Type-Specific Details 卡的显示条件：subjectRefs 非空 ∨ 来路字段/顶层锚（六字段）任一非空。
   const hasTypeSpecific =

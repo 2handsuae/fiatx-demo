@@ -39,6 +39,28 @@ export const shortfallTopupChip = (t: ShortfallTransferRef): ShortfallChip => {
   return { tone: 'gray', label: `${INTERNAL_TRANSFER_STATUS_LABEL[t.status] ?? t.status} · ${t.transferNo}` };
 };
 
+/** 事故页「Recognize loss & top up」入口的显示条件（纯函数，页面只传事实）。
+ *  入口只是导航：案件页要找到 `disposition.incidentNo === 事故号` 的那一行才会自动开弹层，而这个值只有登记事故时带了
+ *  sourceDispositionNo（挂接定性行，后端 attachIncident）才会写上——所以「有行锚」是必要条件：
+ *  案件页菜单「Register shortfall」登记的 CLIENT_SHORTFALL 事故不带它，即使定损为 FIRM_LOSS 也不该给一个点了没反应的按钮。
+ *  customerNo 是客户池判别（公司池事故没有客户）；已挂 TRANSFER 善后说明这张单已经在了，按钮收敛。 */
+export interface IncidentShortfallEntryFacts {
+  canTopUp: boolean; // 金库划转写权（真正提交的是那个端点）
+  status: string;
+  assessmentBasis: string | null;
+  sourceCaseNo: string | null;
+  sourceDispositionNo: string | null;
+  customerNo: string | null;
+  hasTransferRemediation: boolean;
+}
+
+export const canRecognizeLossAndTopUpFromIncident = (f: IncidentShortfallEntryFacts): boolean =>
+  f.canTopUp
+  && (f.status === 'ASSESSED' || f.status === 'RESOLVING')
+  && f.assessmentBasis === 'FIRM_LOSS'
+  && !!f.sourceCaseNo && !!f.sourceDispositionNo && !!f.customerNo
+  && !f.hasTransferRemediation;
+
 /** `GET /admin/tb/accounts?ownerType=WALLET&code=50` 的行（公司现金户）：ownerUuid = 钱包 id（提交用，页面不渲染，铁律⑥），
  *  walletNo / walletRole / balance（最小单位）显示用。 */
 export interface FromWalletOption {
