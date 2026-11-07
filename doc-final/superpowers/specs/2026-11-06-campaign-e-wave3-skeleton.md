@@ -1,14 +1,42 @@
 # 戊波三 · 公司侧读面闸门 + 收官 · 骨架
 
-> 总纲：`2026-11-06-campaign-e-ledger-by-location-charter.md` §3 波三「公司侧读面闸门 + 收官」；波二 spec：（波二开工时立）
+> 总纲：`2026-11-06-campaign-e-ledger-by-location-charter.md` §3 波三「公司侧读面闸门 + 收官」；波二 spec：`2026-11-07-campaign-e-wave2-new-capabilities-spec.md`
 > 本文件只是**骨架**——链总纲 + 承接波二 + 已定事实 + 待定岔口，**不展开波三 spec**。
 
 ## 承接波二（波二收尾任务填写）
 
-- 合并基线：
+- 合并基线：**波二未合并**（收尾会话不合）。分支 `claude/campaign-e-wave2-e761d7`（worktree `.claude/worktrees/campaign-e-wave2-e761d7`），基点 `5ff65ef5`（= 波二开工时 main，波一合并并归档之后），任务 11 终点 `8b40965d`，其上是本收尾提交；终审（任务 12 Step 7）的修复提交与合并哈希由控制者合并后补记。合并时要做：快进 → build → `stack.sh reset main`（schema 动过：三个新迁移——`house_transfers` 表 + `funds_orders` 加调拨单回链；`internal_transfers` 重建（用途改名 `SHORTFALL_TOPUP`，加 `explainedFlowId / explainedExternalLineId / recognizedTbTransferId / recognizedAt / effectiveDate / lossSource / sourceIncidentNo`，删 `sourceAdjustmentNo`）+ `reconciliation_dispositions.transferNo`；`reconciliation_cases` / `reconciliation_run_wallets` 各加 `internalDeltaAmount`）→ 重启后端 + `db:base:sync`（新审批策略 `HOUSE_TRANSFER_APPROVAL`、4 条新路由、2 个新动作桶、改名的权限常量）→ 云端 `cloud:deploy`（连欠含波一与本波）。验证物证：`checkups/2026-11-07-campaign-e-wave2-evidence/README.md`（闸表、计数前后表、客户侧 diff 为空、转账码抽核、e2e 对照、截图索引）。
 - 实际交付（含全部订正）：
+  - **科目与码**：科目码 11 → 13（`2` 托管短缺待补、`51` 应收 LP 交货，均借方户、不进 `CASH_TB_CODES`）；转账码最大 87 → 91（88 `LP_EXCHANGE_RECEIVABLE`｜89 `HOUSE_TRANSFER`｜90 `FEE_INCOME_CLOSE_*` 三 eventCode｜91 `CLIENT_SHORTFALL_RECOGNIZED`）；83 按用途分两形态（`SHORTFALL_TOPUP` 借 1 / 贷 2，`CLIENT_ADVANCE` 原样借 1 / 贷 100）、85 改贷 51；天平改成 Σ(1)+Σ(2) = Σ(100)+Σ(101) 与 Σ(50)+Σ(51)+Σ(300..302) = Σ(200)+Σ(210..212)。订正：spec 说「三处同改」，实际 `verify:coa` 就是 `scripts/verify-realtime-coa.ts`（两处），另在 `scripts/demo-lib.ts` 找到第四处硬编码并改（T1）。投影器 walletRef 判据加 `isCashCode`，码 2 流水零 walletRef。
+  - **开户与种子**：`WalletCashAccountService.ensureForWallet` 对客户钱包一次开 1 + 2；`LpReceivableAccountService.ensureForLp` 挂在 LP 档案 →ACTIVE 的两条边（审批批准、金库复活）；种子给 Falcon / Dune 各开 51 × 2，LP 历史兑换单变四腿（84→88→85→86）。演示库科目数 87 → 105（重铺后 81 户，demo:all 之后 105）。
+  - **应收 LP（T2 / T10）**：88 紧随 84（卖出腿确认那一步）、85 贷 51 消应收；公司资金看板新格「Due from LP — Pending Delivery」。订正：看板这格在**卖出腿确认**时才有数（不是 CFO 批准时），剧本措辞随之。
+  - **共用件（T3）**：余额闸三份 `assertFirmOpsBalance`（spec 只点名两份，LP 兑换单里还有第三份，R12）收成 `AccountingService.assertWalletBalance(walletId, ledger, amountMinor)`（签名多一个 ledger，R5）；`FirmWalletPickerService.assertEligible` 管 from 钱包资格。
+  - **付款单 from 可选（T4）**：Pay From = 运营户 / 手续费户，from = 手续费户不过 NLA 门；付款单第一次有 e2e。
+  - **公司调拨单（T5 / T6）**：`HTR` 单号、`HOUSE_TRANSFER_APPROVAL`、六态显式迁移表、审计 +7（新名册 `CAMPAIGN_E_HOUSE_TRANSFER_AUDIT_ACTIONS`）；腿 = 一条资金单（照付款单腿）；手续费户 → 运营户整扫时同一步落 89 + 至多三笔 90，结转额封顶 min(调拨额, Σ(210..212))（R16），运营户 → 手续费户那一向过 NLA 门；两页 + 建单弹层 + 资金单回链。
+  - **认损补缺一张单（T7 / T8）**：用途 `CLIENT_COMPENSATION` → `SHORTFALL_TOPUP`，批准那一步先落 91、再建腿（82 + 83 贷 2），客户应付与客户端流水全程不动；开单即挂、行锁定；钱包挂着出款锁定时开单被拒并指路；腿失败 → FAILED、不回头重补；入口在案件页菜单与事故页，权限 `INTERNAL_TRANSFER_SHORTFALL_TOPUP_WRITE`（改名，T7 连带改全部 admin-web 用处，R6）。退役四件套全走完：`CLIENT_COMPENSATION` 用途名、`/compensation` 端点与 `COMPENSATION` nextStep、`UNEXPLAINED_CLIENT_LOSS` 退出 `REASON_SPECS`（码 80 与常量留作认损补缺的固定成因）、`sourceAdjustmentNo` 列。V7 审计 +1（`INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED`）。
+  - **对账（T9 / T10）**：读端解析器与写端合一（`AccountingService.resolveCashAccountId`）；客户钱包「现金 + 短缺 vs 应付 + 暂扣」的对内差额进跑批与案件（`internalDeltaAmount` 两列、INVARIANT 行，≠0 即开案、算到 0 自愈）；匹配器第 0 轮锚配对取代「按 `sourceType` 整体排除」，已落账的更正分录按锚把原行转 MATCHED。读面：案件页副行与 INVARIANT 行、跑批页对内列、看板应收 LP 格、账本科目页 Owner = LP 过滤与 2 / 51 码过滤项、凭证页 88–91。
+  - **文档与剧本（T11）**：剧本场景 16 / 18 / 26 / 31 / 32 重写、新增场景 41「扫费」；`data.md`、`baseline.md` 数字、`v7-treasury / company-funds / lp-desk / v8-recon / accounting-coa` 事实句（整篇重写仍留本波）、BACKLOG 销账（手续费归集）、BACKLOG 另记「NLA 仍只算运营户」一条，PRODUCTION-NOTES +4 行、TOOLING-DEBT +3 行。
+  - **证据（T0 / T12）**：改前对照（e2e 基线、客户侧快照、计数）→ 改后同命令重跑；转账码抽核表直接向 TigerBeetle 取实记 `code` 与借贷科目码；客户侧快照改前改后 `diff` 为空。
 - 偏差：
+  - 全程 SDD 串行（R1）；T7、T9 各拆两半一任务多一提交（R20 / R31）；T0 基线在本 worktree 的 `0c6eb7b0` 上采（代码 ≡ main `5ff65ef5`，R2）。
+  - 对 spec / plan 字面的订正：天平不止三处（见上）；余额闸是三份不是两份（R12）；`assertWalletBalance` 多 ledger 参数（R5）；spec 裁定 14「CFO 拒掉 #18」——产品里 #18 的裁决人是高管（`sm@`），剧本按产品写；plan 的「客户端 Alice 少两行」对比不适用于 `demo:all` 快照（补缺单不进种子，R42）；case Hero / 看板副标题 / 行标签随 T9 退役 explained 索引有读面回归，收尾前在代码里修掉了（R41，`575c6281`）。
+  - 超出 spec 字面但随波必需：`recon-reattribution` 场景 A 的中间断言按第 0 轮语义改写、愈合断言原样（R36）；重摆对账场景前置闸（R37）；案件列表 Δ 单元格与 INVARIANT 行的读面纠偏（R34 / R38）、case-opened 审计元数据加 `internalDeltaAmount`（R35）；账本科目页 2 / 51 过滤项（R11）。
+  - 评审升档的几条 security-review 提示按禁做清单不修并留痕：调拨单 89 / 90 非原子（R17，已入 PRODUCTION-NOTES）、客户给的两个锚可指向不同行（R27）、开单并发窗（R28）、取消不查 maker（R29）；唯一一条按业务门回归处理的（R26，事故路少了客户池 REDUCE 配对检查）经 opus 评审证伪，不修。
 - 悬挂项：
+  - **业主动作**：8 条新审计码（V7 +1、调拨单名册 +7）需要在业主维护的 lark 种子里补描述——`audit:vocab` 因此 exit 1（29 码缺描述 = 本波 8 + 既有 21），agent 不读 `lark/`，不代填（R40）。
+  - **要业主知道的裁定**：R19——`treasury.view_house_transfers / act_house_transfers` 的组集与 `view_funding / act_funding` 完全相同（spec「动作桶各加一个」），角色编辑器里这两个开关无法单独撤销，要合并就是后续裁；R37——**带锚处置（调账单 / 认损补缺）落账之后，对账场景不能再摆**（`recon:demo` / `pass` / `break` / `reset` / `crisis` 都被拒并指路「重铺数据」，约 1 分钟），同事演完场景 8 / 16 再想重摆要走重铺；R39 见下条。
+  - **`delivery/` 触碰检查命中（R39，本波一行没改）**：新 HTR 状态机、审计 +8、HTR 业务键、认损补缺金额语义（短缺 / 补缺 / 应付三者关系）→ 波三**先改 `delivery/` 语义合同**，再改其他文档；`delivery/decision-log.md` D-10 仍写「认损调账 + 补款划转两步」，`reference/roadmap.md`（业主维护，agent 不动）的 V7 行与 :431 / :442 / :452 仍写旧补款路径。
+  - **`decisions.md` 收官条目（只记不写，spec §10）**：COA v3（总纲 §6 第 3 条既有）｜托管短缺待补甲案 + 认损补缺一张单（翻 2026-09-05 :61；:27 / :63 / :65 同样仍按旧补款路径写，收官时一并核）｜公司调拨单（翻 2026-09-05 :59，用途是标签、from / to 限运营户与手续费户）｜付款单 from 可选｜扫费同额结转（含「收入户余额 = 未扫的费」的代价）｜对内差额开案 / 结案口径｜匹配器第 0 轮锚配对取代 `sourceType` 排除｜NLA 仍只算运营户（BACKLOG 已记）。
+  - **读面小尾巴（评审留的，均不阻塞）**：被锚定的调账单少付（pass 0 判 AMOUNT_MISMATCH，只有操作员改了预填金额才到）行上仍读「Explained · ADJ…」；案件列表「books Δ ±x」在 ≤1280px 可能被截断；账本科目页有一列十六进制 TB 账户「ID」（既有，对照铁律⑥）；付款单详情「Paid From」落在 Payee 卡内；国库详情页沿用兄弟页布局而非 `frontend-admin.md` 的 Hero 版式（该域既有）；码 2 户名字面「Custody Shortfall」vs 常量表英文名「Custody Shortfall Receivable」留业主看科目页截图时定；「Reset demo data」拒绝文案与面板按钮「Reset all demo data…」措辞未对齐、云端 DEMO_OPS 面板对拒绝行的渲染没验；`prudential.service.ts:110` 另有一份可用现金公式（既有）；垫款路径只有单测，其 e2e 在基线就死于 `AGREEMENT_NOT_ACCEPTED`；`cashAccountName` / `ensureWalletCashAccount` / `WalletCashAccountService` 的名字现在也开非现金户码 2（可选改名）；调拨单卡在 EXECUTING 时详情页失败原因栏原样显示 TB 状态 JSON。
+  - **走查未覆盖**：场景 18（与 31 同一条事故路代码，未单独走）、场景 32（只验了 ⑩ 的挂载一步）、场景 29 Pay From（有 T4 证据，T11 未重走）、场景 37 的真实 LP 批准开 51 户（T11 用的是种子 LP）——最后一项由 T12 在 self 栈用真 HTTP 走完 LP 申请 → 评估 → 送审 → CFO 批准，注册表 4 → 6 个 51 户、TB 里两户 flags = 4，见证据目录 README。
+  - **工具债 / 技术兜底（已按出口登记）**：`TOOLING-DEBT.md`——`stack.sh reset` 不清 `reconciliation_dispositions`（重铺后案件列表「Disposition」列带陈年计数）｜recon 相关 e2e 夹具用 UTC 日写外部余额、产品读迪拜业务日，UTC 20:00–24:00 窗口内跑 e2e 会多出约 10 红（拨钟配方在 `e2e-baseline-0c6eb7b0.md` §4）｜`lp-receivable` e2e 夹具直造 ACTIVE LP（私库种子停在 LP 台之前）；`PRODUCTION-NOTES.md` 本波追加 4 行（对内不平无业务修法｜出款锁定拒开单｜记短缺后腿失败不重补｜调拨单 89 / 90 非原子）。**T12 新见一个偶发**：`customer-restrictions` ⑤ 在全量里红过一次（`waitUntil` 兑换单 FROZEN 之后立刻数 `SWAP_FROZEN` 审计行、不轮询——与 `deposit-money-arcs` 用例 1 同款读早），单文件干净重铺绿；已登记 `TOOLING-DEBT.md`。
+  - **e2e 基线债原样带着**：B 集 22 名（13 例 `AGREEMENT_NOT_ACCEPTED`、`swap-money-arc` 用例 2、`recon-aging` 主链路时区、`recon-adjustment` 用例 9、`customer-restrictions` ②、`demo-roster` 3 + 2 连带）一名不多不少；本波新增 4 个 e2e 文件（`lp-receivable`、`vendor-payment-from-wallet`、`house-transfer`、`recon-internal-delta`）全绿。冷缓存协议、私库每轮重铺、`db:biz:init` 恒 exit 1 照旧。
+  - **波一遗留的终审分诊项**（`findWalletCashAccount` 手搭元组、Henry 钱包形状两份、`sourceWalletId` null 守卫、`verify-act1` B6 钱包没开现金户、`createRandom` 死码等）与读面文案小尾巴：波二没有专门清理，是否随触碰消失未逐条核。
+- 对波三的前提：
+  - **数字基线（波三文档清册引用，均为本波收尾实跑）**：审批策略 56｜MAKER 55 + 豁免 1｜S9 表 = 路由表 46｜审计现役码 386（19 册）｜TB 科目码 13｜转账码最大 91｜演示库科目 105｜花名册 35 / asserts 5｜对账 21 钱包、18 场景、12 桶、12 案｜全量 jest 288 套 / 4862 例。
+  - **波三岔口的现状**：岔口 1「账本三列表分组呈现」未动（本波只加了 2 / 51 过滤项与 Owner = LP 户名）；岔口 2「看板加开支格」未动（应收 LP 格已做）；NLA 公式文档要如实写「只算运营户，手续费户与应收 LP 不计入」（BACKLOG 已记待业主拍）；`accounting-coa.md` 整篇重写要含码 2 / 51、转账码 88–91 与新天平；**科目表导出**的码表是 13 个码；小数位债（BACKLOG §M）未动。
+  - 新演示约束 R37 与「重铺数据」要写进波三的七幕走查口径；七幕走查里，场景 16 / 31 / 41 是本波新流程，场景 8 的 Kate 案在场景 14 那行没处理前保持 Open（剧本已去掉「两案都已解决」）。
+  - `delivery/` 语义合同先于其他文档改（见悬挂项 R39）；收官 `cloud:deploy`。
 
 ## 已定事实
 
