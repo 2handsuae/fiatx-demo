@@ -8,6 +8,7 @@ import { Check, AlertTriangle } from 'lucide-react';
 import { DetailCard } from '../compliance/DetailPageComponents';
 import type { ReconCaseDetail } from '../../utils/reconTypes';
 import { formatAmount, isZeroAmount } from '../../utils/reconAmount';
+import { buildInternalCheckLine } from '../../utils/caseInternalCheck';
 
 export const CaseBalanceTiles = ({
   kase, deltaZero, sign,
@@ -119,6 +120,19 @@ export const CaseBalanceTiles = ({
           </div>
         </div>
       </div>
+      {/* 戊波二 T10：Internal 格的副行（只有客户钱包案有）——钱包自己的两本账：现金 + 短缺待补 对 应付 + 暂扣。
+          四个数与 Δ 都是后端检查器按案件截止点现算的（和跑批同一份算式），这里只排版；Δ ≠ 0 红。
+          整行放在五格下面、从 Internal 格对齐处起，单格宽度放不下这一行。 */}
+      {kase.explain?.internalBreakdown && (() => {
+        const line = buildInternalCheckLine(kase.explain.internalBreakdown, (v) => formatAmount(v, kase.decimals));
+        return (
+          <div className="mt-2 font-mono text-[11px] text-adm-t2" title="Customer wallet's two books: wallet cash + shortfall receivable vs customer payable + held deposits">
+            <span className="mr-2 text-[9px] uppercase tracking-wider text-adm-t3">Internal</span>
+            {line.head} ｜ Δ{' '}
+            <span className={line.deltaZero ? 'text-adm-t3' : 'font-bold text-adm-red'}>{line.delta}</span>
+          </div>
+        );
+      })()}
     </DetailCard>
   </>
 );

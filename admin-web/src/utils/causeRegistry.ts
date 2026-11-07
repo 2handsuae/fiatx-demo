@@ -42,6 +42,7 @@ export const MATCH_TONE: Record<FlowMatchType, string> = {
   ORPHAN_INTERNAL: `${TONE_CLASSES.amber.border} ${TONE_CLASSES.amber.bg} ${TONE_CLASSES.amber.text}`,
   ORPHAN_EXTERNAL: `${TONE_CLASSES.amber.border} ${TONE_CLASSES.amber.bg} ${TONE_CLASSES.amber.text}`,
   AMOUNT_MISMATCH: `${TONE_CLASSES.red.border} ${TONE_CLASSES.red.bg} ${TONE_CLASSES.red.text}`,
+  INVARIANT:       `${TONE_CLASSES.red.border} ${TONE_CLASSES.red.bg} ${TONE_CLASSES.red.text}`,
 };
 
 export const MATCH_LABEL: Record<FlowMatchType, string> = {
@@ -50,6 +51,7 @@ export const MATCH_LABEL: Record<FlowMatchType, string> = {
   ORPHAN_INTERNAL: 'Internal only',
   ORPHAN_EXTERNAL: 'External only',
   AMOUNT_MISMATCH: 'Mismatch',
+  INVARIANT:       'Internal books',
 };
 
 // Task 8（Account 节）：科目码 → 人话短语，缺映射不算错——原码原样显示，且始终把

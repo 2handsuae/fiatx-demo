@@ -7,6 +7,8 @@
 // 低于线时红字）② F_LIQ 钱包现金户在途待验收格 ③ F_SET 钱包现金户结算在途格 ④ 三收入格（210/211/212）
 // ⑤ 最近资金动态（流水最近 10 条）。波三接线声明：本波看板只展示，零事件、零推送、
 // 零预留挂点（乙总纲假设①、裁定 4）。
+// 戊波二 T10：②′「Due from LP — Pending Delivery」读 ownerType=LP 的应收户（码 51），LP 名 × 币种 × 余额，
+// 余额为 0 的户不列，空时 "No LP delivery outstanding."。
 // 戊波一 T8：①②③ 改读 ownerType=WALLET 的公司现金户（码 50），按 walletRole（F_OPS/F_LIQ/F_SET）
 // 分区——权益户 200 只是兑换对手盘，不再当「运营户现金」读；④ 收入格仍读 SYSTEM 户，不变。
 //
@@ -25,6 +27,7 @@ import { PERMISSIONS } from '../rbac/permissions';
 import { COMPANY_FUNDS_THRESHOLDS } from './companyFundsThresholds';
 import {
   buildAssetLookup,
+  dueFromLpRows,
   formatMinorToMajor,
   isBelowThresholdMinor,
   type AssetLookup,
@@ -41,6 +44,7 @@ const IDENTITY_ASSET_LOOKUP: AssetLookup = { currencyOf: (raw) => raw, decimalsO
    不在前端另造名字。 */
 const TREASURY_CODES = {
   FIRM_CASH: 50, // A.FIRM_CASH — 公司现金（每个公司钱包一户，ownerType WALLET；按 walletRole 分运营 / LP 前厅 / 结算）
+  LP_RECEIVABLE: 51, // A.LP_RECEIVABLE — 应收 LP 待交货（戊波二：LP 兑换批准后挂账、交货验收后冲平；每 LP × 币种一户，ownerType LP）
   FIRM_EQUITY: 200, // E.FIRM_EQUITY — 公司权益（兑换对手盘；本页只用于流水过滤，不当现金读）
   INCOME_SWAP_FEE: 210, // E.INCOME_SWAP_FEE
   INCOME_WITHDRAW_FEE: 211, // E.INCOME_WITHDRAW_FEE
@@ -83,6 +87,8 @@ interface AccountRow {
   balance: string | null;
   /** 戊波一 T8：仅 ownerType=WALLET 的行有值（F_OPS / F_LIQ / F_SET …），其余为 null。 */
   walletRole?: string | null;
+  /** 戊波二 T10：仅 ownerType=LP 的行有值（LP 名称，端点按 LP 档案联出）；其余为 null。 */
+  ownerName?: string | null;
 }
 
 interface FlowRow {
@@ -209,6 +215,18 @@ const SimpleBalanceCard = ({ row, decimals }: { row: AccountRow; decimals: numbe
   </div>
 );
 
+/** 区②′ 应收 LP 卡：LP 名 × 币种 × 余额（该 LP 批准后还没交的货，按买入币计）。 */
+const LpReceivableCard = ({ row, decimals }: { row: AccountRow; decimals: number }) => (
+  <div className="rounded border border-adm-border bg-adm-bg p-4">
+    <div className="truncate font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3" title={row.ownerName ?? ''}>
+      {row.ownerName ?? '—'} · {row.assetCode}
+    </div>
+    <div className="mt-1 font-mono text-xl font-semibold text-adm-t1">
+      {formatMinorToMajor(row.balance, decimals)} <span className="text-[12px] font-normal text-adm-t3">{row.assetCode}</span>
+    </div>
+  </div>
+);
+
 const EmptyRow = ({ label }: { label: string }) => (
   <div className="rounded border border-dashed border-adm-border p-4 font-mono text-[11px] text-adm-t3">
     {label}
@@ -219,6 +237,8 @@ const EmptyRow = ({ label }: { label: string }) => (
 
 const CompanyFundsDashboard = () => {
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  // 戊波二 T10：应收 LP 户（码 51）单独一路——ownerType=LP，不在 SYSTEM / WALLET 两路里。
+  const [lpReceivables, setLpReceivables] = useState<AccountRow[]>([]);
   const [flows, setFlows] = useState<FlowRow[]>([]);
   // 账户/流水两路数据落地前已用 currencyOf() 统一收敛成 currency（见 fetchAll），
   // decimalsOf 之后只需按 currency 查——存整个 AssetLookup 对象（不是裸函数），setState
@@ -282,11 +302,14 @@ const CompanyFundsDashboard = () => {
     try {
       // 戊波一 T8:两路账户——SYSTEM 户(收入三格 / 权益 / 开支)+ 公司现金户(ownerType=WALLET、码 50,
       // 带 walletRole 供分区)。客户现金户同属 WALLET 但码是 1,不会被码 50 过滤带进来。
-      const [assetsRes, accountsRes, cashRes, flowsRes] = await Promise.all([
+      const [assetsRes, accountsRes, cashRes, lpRes, flowsRes] = await Promise.all([
         adminFetch(`${import.meta.env.VITE_API_URL}/assets?take=100`),
         adminFetch(`${import.meta.env.VITE_API_URL}/admin/tb/accounts?ownerType=SYSTEM&take=100`),
         adminFetch(
           `${import.meta.env.VITE_API_URL}/admin/tb/accounts?ownerType=WALLET&code=${TREASURY_CODES.FIRM_CASH}&take=100`,
+        ),
+        adminFetch(
+          `${import.meta.env.VITE_API_URL}/admin/tb/accounts?ownerType=LP&code=${TREASURY_CODES.LP_RECEIVABLE}&take=100`,
         ),
         adminFetch(`${import.meta.env.VITE_API_URL}/admin/tb/account-flows?take=200`),
       ]);
@@ -297,6 +320,10 @@ const CompanyFundsDashboard = () => {
       }
       if (!cashRes.ok) {
         setError(await getApiErrorMessage(cashRes, 'Failed to load company cash accounts.'));
+        return;
+      }
+      if (!lpRes.ok) {
+        setError(await getApiErrorMessage(lpRes, 'Failed to load LP receivable accounts.'));
         return;
       }
       if (!flowsRes.ok) {
@@ -324,6 +351,11 @@ const CompanyFundsDashboard = () => {
         .filter((r: AccountRow) => COMPANY_CODES.includes(r.code))
         .map((r: AccountRow) => ({ ...r, assetCode: lookup.currencyOf(r.assetCode) }));
       setAccounts(companyAccounts);
+
+      const lpData = await lpRes.json();
+      setLpReceivables(
+        (lpData.items ?? []).map((r: AccountRow) => ({ ...r, assetCode: lookup.currencyOf(r.assetCode) })),
+      );
 
       const flowsData = await flowsRes.json();
       const companyFlows: FlowRow[] = (flowsData.items ?? [])
@@ -354,6 +386,9 @@ const CompanyFundsDashboard = () => {
     accounts
       .filter((a) => a.code === TREASURY_CODES.FIRM_CASH && a.walletRole === walletRole)
       .sort((a, b) => a.assetCode.localeCompare(b.assetCode));
+
+  // 戊波二 T10：应收 LP——只列余额不为 0 的户（交货冲平后整格回到空文案）。
+  const dueFromLp = dueFromLpRows(lpReceivables);
 
   const opsAccounts = cashAccountsByRole(WALLET_ROLES.OPS);
   const liqAccounts = cashAccountsByRole(WALLET_ROLES.LIQ);
@@ -527,6 +562,21 @@ const CompanyFundsDashboard = () => {
               ) : (
                 liqAccounts.map((row) => (
                   <SimpleBalanceCard key={row.tbAccountId} row={row} decimals={decimalsOf(row.assetCode)} />
+                ))
+              )}
+            </DetailCard>
+
+            {/* ── ②′ Due from LP — 戊波二 T10：LP 兑换批准后挂着的应收（码 51），LP 交货验收后冲平 ── */}
+            <DetailCard
+              title="Due from LP — Pending Delivery"
+              description="What liquidity providers still owe us after an approved exchange. Clears when the LP delivers and the delivery is accepted."
+              columns={3}
+            >
+              {dueFromLp.length === 0 ? (
+                <EmptyRow label="No LP delivery outstanding." />
+              ) : (
+                dueFromLp.map((row) => (
+                  <LpReceivableCard key={row.tbAccountId} row={row} decimals={decimalsOf(row.assetCode)} />
                 ))
               )}
             </DetailCard>

@@ -3,6 +3,7 @@
 // LedgerAccountList.tsx 的已知 decimals 键不一致缺口（BACKLOG §M）。
 import {
   buildAssetLookup,
+  dueFromLpRows,
   formatMinorToMajor,
   isBelowThresholdMinor,
 } from './companyFundsFormat';
@@ -78,5 +79,29 @@ describe('companyFundsFormat', () => {
     it('余额恰等于阈值 → false（不低于，闸值本身算安全）', () => {
       expect(isBelowThresholdMinor('90000000', 900_000, 2)).toBe(false);
     });
+  });
+});
+
+describe('dueFromLpRows —— 应收 LP 格（戊波二 T10）', () => {
+  const row = (ownerName: string | null, assetCode: string, balance: string | null) => ({ ownerName, assetCode, balance });
+
+  it('只留余额不为 0 的户；批准后挂着的应收在、交货冲平后（余额 0）整格为空', () => {
+    expect(dueFromLpRows([row('Falcon Liquidity', 'USDT', '13600000000'), row('Falcon Liquidity', 'AED', '0'), row('Dune Markets', 'USDT', '0')]))
+      .toEqual([row('Falcon Liquidity', 'USDT', '13600000000')]);
+    expect(dueFromLpRows([row('Falcon Liquidity', 'USDT', '0'), row('Dune Markets', 'AED', '-0')])).toEqual([]);
+  });
+
+  it('余额缺失（账本不可用）不展示；负余额（LP 多交了）仍展示', () => {
+    expect(dueFromLpRows([row('Falcon Liquidity', 'USDT', null)])).toEqual([]);
+    expect(dueFromLpRows([row('Falcon Liquidity', 'USDT', '-5')])).toHaveLength(1);
+  });
+
+  it('按 LP 名再按币种排序', () => {
+    const out = dueFromLpRows([row('Falcon Liquidity', 'USDT', '1'), row('Dune Markets', 'USDT', '2'), row('Dune Markets', 'AED', '3')]);
+    expect(out.map((r) => `${r.ownerName}|${r.assetCode}`)).toEqual(['Dune Markets|AED', 'Dune Markets|USDT', 'Falcon Liquidity|USDT']);
+  });
+
+  it('超出 Number 安全整数的余额也判得对（BigInt）', () => {
+    expect(dueFromLpRows([row('Falcon Liquidity', 'USDT', '9007199254740993')])).toHaveLength(1);
   });
 });

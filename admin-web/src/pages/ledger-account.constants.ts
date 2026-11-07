@@ -12,7 +12,7 @@
  * 不导出 —— 一导出就又给"第二个名字"留了后门。
  */
 const TB_CODE_LABELS: Record<number, string> = {
-  1: 'CLIENT_CASH', 50: 'FIRM_CASH',
+  1: 'CLIENT_CASH', 2: 'CLIENT_SHORTFALL', 50: 'FIRM_CASH', 51: 'LP_RECEIVABLE',
   100: 'CLIENT_PAYABLE', 101: 'DEPOSIT_SUSPENSE',
   200: 'FIRM_EQUITY',
   210: 'INCOME_SWAP_FEE', 211: 'INCOME_WITHDRAW_FEE', 212: 'INCOME_OTHER',
@@ -32,7 +32,7 @@ export const withAssetSuffix = (
   return assetCode ? `${accountName} – ${assetCode}` : accountName;
 };
 
-const ACTIVE_CODES = [1, 50, 100, 101, 200, 210, 211, 212, 300, 301, 302];
+const ACTIVE_CODES = [1, 2, 50, 51, 100, 101, 200, 210, 211, 212, 300, 301, 302];
 const labelOf = (code: number) => `${code} · ${TB_CODE_LABELS[code] ?? `CODE_${code}`}`;
 
 export const TB_CODE_OPTIONS = [
@@ -41,7 +41,7 @@ export const TB_CODE_OPTIONS = [
 ];
 
 const CLASS_PREFIX: Record<number, string> = {
-  1: 'A', 50: 'A', 100: 'L', 101: 'L',
+  1: 'A', 2: 'A', 50: 'A', 51: 'A', 100: 'L', 101: 'L',
   200: 'E', 210: 'E', 211: 'E', 212: 'E',
   300: 'X', 301: 'X', 302: 'X',
 };

@@ -79,3 +79,11 @@ export const isBelowThresholdMinor = (
   const thresholdMinor = BigInt(Math.round(thresholdMajor)) * 10n ** BigInt(decimals);
   return balance < thresholdMinor;
 };
+
+/** 戊波二 T10：「Due from LP — Pending Delivery」格的行集——应收 LP 户（码 51，每 LP × 币种一户）里余额不为 0 的那些，
+ *  按 LP 名、币种排序。余额归零（LP 已交货、验收后冲平）的户不显示——所以交货后整格回到空文案。
+ *  余额缺失（账本不可用，balance null）按"没有可显示的应收"处理，不当 0 也不当非 0 展示。 */
+export const dueFromLpRows = <T extends { balance: string | null; ownerName?: string | null; assetCode: string }>(rows: T[]): T[] =>
+  rows
+    .filter((r) => r.balance !== null && BigInt(r.balance) !== 0n)
+    .sort((a, b) => (a.ownerName ?? '').localeCompare(b.ownerName ?? '') || a.assetCode.localeCompare(b.assetCode));

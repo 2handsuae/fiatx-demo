@@ -13,7 +13,8 @@ export interface CaseLineItem {
   matchStatus: string;
 }
 
-export type FlowMatchType = 'MATCHED' | 'ORPHAN_EXTERNAL' | 'ORPHAN_INTERNAL' | 'AMOUNT_MISMATCH' | 'IN_TRANSIT';
+// 戊波二 T10：INVARIANT = 本案对内差额 ≠ 0 的那一行（账内两本账对不上；无外部侧、无内部流水、不可处置）。
+export type FlowMatchType = 'MATCHED' | 'ORPHAN_EXTERNAL' | 'ORPHAN_INTERNAL' | 'AMOUNT_MISMATCH' | 'IN_TRANSIT' | 'INVARIANT';
 
 export interface FlowExternalSide {
   id?: string;
@@ -45,7 +46,12 @@ export interface FlowComparisonRow {
   fundsOrderNo?: string | null;   // NEW — only for IN_TRANSIT rows
   fundsOrderStatus?: string | null; // T4 — funds order status for IN_TRANSIT rows;
                                     // CLEARED here (case still OPEN) = "已推进·待重对账"
-  explainedByAdjustmentNo?: string | null; // ④ 这条差异已被哪张已落账的调账单解释
+  // ④ 这条差异已被哪张已落账的调账单 / 认损补缺单（ADJ… / ITR…）解释——戊波二 T9b 起只在第 0 轮配出的 MATCHED 行上有值。
+  explainedByAdjustmentNo?: string | null;
+  // 戊波二 T10：上一个字段非空的行，被那张单"解释掉"的金额（绝对值最小单位字符串）——Hero 的 explained 合计只认它。
+  explainedAmount?: string;
+  // 戊波二 T10：仅 matchType = 'INVARIANT'——对内差额的绝对值与方向（正 IN、负 OUT）。
+  invariant?: { amount: string; direction: 'IN' | 'OUT' };
   // T8：以下三个注解同样只在三类异常行（AMOUNT_MISMATCH/ORPHAN_INTERNAL/
   // ORPHAN_EXTERNAL）上出现，MATCHED/IN_TRANSIT 恒 undefined——它们不是差异、没有
   // 可处置的东西。唯一真相在后端 reconciliation-query.service.ts。
@@ -116,6 +122,8 @@ export interface CaseExplain {
   delta: string;
   inTransitSigned: string;
   residual: string;
+  // 戊波二 T10：客户钱包「自己两本账」在案件截止点的四户净额与对内差额（签名最小单位字符串）；公司钱包案 null。
+  internalBreakdown: { cash: string; shortfall: string; payable: string; suspense: string; delta: string } | null;
 }
 
 export interface CaseObservation {
@@ -172,6 +180,8 @@ export interface ReconCaseDetail {
   expectedExternal: string;
   actualExternal: string;
   deltaAmount: string;
+  // 戊波二 T10：对内差额（签名最小单位字符串）；公司钱包案 / 历史案 null。
+  internalDeltaAmount?: string | null;
   status: string;
   closedByRunId: string | null;
   lastObservedRunId: string | null;

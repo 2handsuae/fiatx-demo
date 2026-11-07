@@ -44,6 +44,38 @@ describe('buildCaseConclusion', () => {
     });
   });
 
+  it('戊波二 T10：已结案 + 存在已解释行 → 「Resolved · … explained.」，不再带 awaiting re-reconcile', () => {
+    const c = buildCaseConclusion({ ...base, status: 'RESOLVED', explainedSum: '22800' }, fmt);
+    expect(c?.text).toBe('Resolved · External balance is 735.50 AED short of our books — no in-transit cover; 228.00 explained.');
+    expect(c?.text).not.toContain('awaiting re-reconcile');
+  });
+
+  it('戊波二 T10：BREAK + 对外差额为 0 + 对内差额 ≠ 0 → 说两本账对不上（正数 more / 负数 less），不再说「External … 0.00 … full amount unexplained」', () => {
+    const up = buildCaseConclusion({ ...base, deltaAmount: '0', internalDeltaAmount: '25000' }, fmt);
+    expect(up).toEqual({
+      text: "External balance matches our cash, but this wallet's own books do not agree — cash + shortfall is 250.00 AED more than payable + held. Needs a correcting entry.",
+      tone: 'red',
+    });
+    const down = buildCaseConclusion({ ...base, deltaAmount: '0', internalDeltaAmount: '-25000' }, fmt);
+    expect(down?.text).toContain('250.00 AED less than payable + held');
+    expect(down?.text).not.toContain('full amount unexplained');
+  });
+
+  it('戊波二 T10：对外差额与对内差额同时存在 → 仍说对外差额（对内差额由副行与 INVARIANT 行呈现）', () => {
+    const c = buildCaseConclusion({ ...base, deltaAmount: '-73550', internalDeltaAmount: '25000' }, fmt);
+    expect(c?.text).toContain('735.50 AED short of our books');
+  });
+
+  it('戊波二 T10：对内差额为 0 / 缺省（公司钱包案）→ 走原有对外模板', () => {
+    expect(buildCaseConclusion({ ...base, internalDeltaAmount: '0' }, fmt)?.text).toContain('short of our books');
+    expect(buildCaseConclusion({ ...base, internalDeltaAmount: null }, fmt)?.text).toContain('short of our books');
+  });
+
+  it('戊波二 T10：已结案的对内案前缀 Resolved ·', () => {
+    const c = buildCaseConclusion({ ...base, status: 'RESOLVED', deltaAmount: '0', internalDeltaAmount: '25000' }, fmt);
+    expect(c?.text.startsWith('Resolved · External balance matches our cash')).toBe(true);
+  });
+
   it('BREAK + explainedSum 未传（undefined）同样落全额未解释模板', () => {
     const c = buildCaseConclusion(base, fmt);
     expect(c?.text).toContain('full amount unexplained.');

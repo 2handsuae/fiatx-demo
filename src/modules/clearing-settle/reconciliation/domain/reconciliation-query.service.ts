@@ -8,6 +8,7 @@ import { endOfBusinessDate, startOfBusinessDate } from '../../../accounting/tige
 // 波三 T6：flowComparison 的四段查询/匹配全部搬进 FlowComparisonBuilder——本文件
 // 只留 getCase 的编排调用，不再直接依赖 WalletFlowMatcherService / ExplainedDifferenceService。
 import { FlowComparisonBuilder } from './flow-comparison.builder';
+import { WalletBalanceCheckerService } from '../engine/v2/wallet-balance-checker.service';
 import {
   CAUSE_REGISTRY,
   CauseBook,
@@ -69,6 +70,8 @@ export class ReconciliationQueryService {
     private readonly prisma: PrismaService,
     private readonly accounting: AccountingService,
     private readonly flowComparisonBuilder: FlowComparisonBuilder,
+    // 戊波二 T10：案件页 Internal 格副行要四个户的净额——经检查器的 internalBreakdown，与跑批同一份算式，读端不另写公式。
+    private readonly balanceChecker: WalletBalanceCheckerService,
   ) {}
 
   listRuns(q: { businessDate?: string; layer?: string }) {
@@ -255,7 +258,8 @@ export class ReconciliationQueryService {
     const anomalyCounts = caseIds.length
       ? await this.prisma.reconciliationLineItem.groupBy({
           by: ['caseId'],
-          where: { caseId: { in: caseIds }, matchStatus: { in: ['AMOUNT_MISMATCH', 'ORPHAN_INTERNAL', 'ORPHAN_EXTERNAL'] } },
+          // 戊波二 T10（R34）：INVARIANT（对内差额）也是一条差异——仅对内不平的案子不能在列表上显示 0 条差异。
+          where: { caseId: { in: caseIds }, matchStatus: { in: ['AMOUNT_MISMATCH', 'ORPHAN_INTERNAL', 'ORPHAN_EXTERNAL', 'INVARIANT'] } },
           _count: { _all: true },
         })
       : [];
@@ -395,18 +399,31 @@ export class ReconciliationQueryService {
       kase.status === 'RESOLVED' && kase.closedByRunId
         ? this.prisma.reconciliationRun.findUnique({
             where: { id: kase.closedByRunId },
-            select: { runNo: true },
+            // 戊波二 T10：结案轮的截止点也要——已结案的案子，页面按「结案那一刻」重建（见下方取数处）。
+            select: { runNo: true, businessDate: true, cutoffAt: true },
           })
         : Promise.resolve(null),
     ]);
 
     let flowComparison: FlowComparisonRow[] = [];
     let flowSummary: FlowComparisonSummary = { matched: 0, orphanInternal: 0, orphanExternal: 0, mismatch: 0 };
+    // 戊波二 T10：客户钱包案的四户净额（Internal 格副行）——与 flowComparison 同一个截止点；公司钱包案 / XREF 案 null。
+    let internalBreakdown: CaseExplain['internalBreakdown'] = null;
     if (kase.walletRef && !kase.walletRef.startsWith('XREF:')) {
-      const { cutoffBusinessDate, cutoff } = this.resolveCaseCutoff(kase, lastObservedRun);
+      // 戊波二 T10：已结案（自愈）的案子按结案那一轮的截止点重建——结案是在那一轮的数据上判定的；
+      // 按破口那一轮重建，更正分录 / 认损补缺的记短缺流水都在窗外，页面会停在「还没更正」的样子上，与 Resolved 自相矛盾
+      // （认损补缺案 Re-reconcile 愈合后，原差异行应显示 MATCHED · Explained · ITR…）。开着的案子仍按最近一次观察它的那一轮。
+      const { cutoffBusinessDate, cutoff } = this.resolveCaseCutoff(kase, closedByRun ?? lastObservedRun);
       const built = await this.flowComparisonBuilder.build({ walletRef: kase.walletRef, cutoff, businessDate: cutoffBusinessDate, assetCode: kase.assetCode });
       flowComparison = built.rows;
       flowSummary = built.summary;
+      const b = await this.balanceChecker.internalBreakdown(kase.walletRef, cutoff);
+      if (b) {
+        internalBreakdown = {
+          cash: b.cash.toString(), shortfall: b.shortfall.toString(),
+          payable: b.payable.toString(), suspense: b.suspense.toString(), delta: b.delta.toString(),
+        };
+      }
     }
 
     // 平账二期 Task 8：caseAdjustments 与紧随其后的 assetRow / caseCurrency 一起，
@@ -447,6 +464,8 @@ export class ReconciliationQueryService {
     }
 
     const inTransitLineItems = await this.appendInTransitRows(kase, flowComparison);
+    // 戊波二 T10（R32）：对内差额那一行跟 IN_TRANSIT 一样取自持久化的差异行；放在逐行注解之后，所以不会被配上处置菜单。
+    this.appendInvariantRow(kase, flowComparison);
 
     const walletNo = await resolveWalletNo(this.prisma, kase.walletRef);
 
@@ -474,6 +493,7 @@ export class ReconciliationQueryService {
       delta: delta.toString(),
       inTransitSigned: inTransitSigned.toString(),
       residual: delta.minus(inTransitSigned).toString(),
+      internalBreakdown,
     };
 
     // reObservedCount: distinct foundByRunId among this case's line items,
@@ -665,7 +685,15 @@ export class ReconciliationQueryService {
       adjustmentByNo, transferByNo, transferByLine, walletOwner, availableMinor,
       incidentByNo, dByFlow, dByExt, matchedKeys, demoLineCauses, caseBook,
     } = ctx;
-    if (r.matchType === 'MATCHED' || r.matchType === 'IN_TRANSIT') return;
+    // 戊波二 T10：第 0 轮配成 MATCHED 的行（被调账单 / 认损补缺单解释掉）不是差异、没有可处置的东西——但解释它的若是本案的
+    // 认损补缺划转单（ITR…），把那张单的回链（单号 / 状态 / 是否已记短缺）挂回来：已结案的案子页按结案轮重建，原差异行此刻已是
+    // MATCHED，「Shortfall recognised · topping up / Explained / top-up failed」这套状态要靠它继续看得见。
+    if (r.matchType === 'MATCHED') {
+      const explainer = r.explainedByAdjustmentNo ? transferByNo.get(r.explainedByAdjustmentNo) : undefined;
+      if (explainer) r.transfer = explainer;
+      return;
+    }
+    if (r.matchType === 'IN_TRANSIT' || r.matchType === 'INVARIANT') return;
     const matchType: CauseMatchType = r.matchType;
     const d = (r.internalFlow && dByFlow.get(r.internalFlow.id!)) || (r.externalLine && dByExt.get(r.externalLine.id!)) || null;
     // Task 5（读面翻转）：outletLabel 不再靠 resolveOutlet 从成因反推——写端（Task
@@ -828,6 +856,26 @@ export class ReconciliationQueryService {
       if (funding.transfer) r.transfer = funding.transfer;
       if (funding.nextStep) r.nextStep = funding.nextStep;
     }
+  }
+
+  /**
+   * 戊波二 T10（R32）：本案对内差额 ≠ 0 的那一行（持久化的 matchStatus = 'INVARIANT' 差异行）并入 flowComparison，
+   * 案件页渲染只有一个来源。只在案件还开着时并入——自愈 / 结案后账已平，不再显示「账簿不平」。
+   * 无外部侧、无内部流水（这是账内两本账对不上，不是某一笔流水的事），也不过 annotateRow（不可处置、不可锚）。
+   */
+  private appendInvariantRow(
+    kase: { status: string; lineItems: any[] },
+    flowComparison: FlowComparisonRow[],
+  ): void {
+    if (kase.status !== 'OPEN') return;
+    const li = (kase.lineItems ?? []).find((x: any) => x.matchStatus === 'INVARIANT');
+    if (!li || li.internalAmount == null) return;
+    flowComparison.push({
+      externalLine: null,
+      internalFlow: null,
+      matchType: 'INVARIANT',
+      invariant: { amount: li.internalAmount.toString(), direction: (li.internalDirection ?? 'IN') as 'IN' | 'OUT' },
+    });
   }
 
   /**

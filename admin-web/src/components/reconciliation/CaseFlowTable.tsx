@@ -46,6 +46,7 @@ import type { FlowComparisonRow, ReconCaseDetail } from '../../utils/reconTypes'
 import { formatAmount, minorToMajorPlain } from '../../utils/reconAmount';
 import { INTERNAL_TRANSFER_STATUS_LABEL as TRANSFER_STATUS_WORD } from '../../utils/internalTransferStatusMap';
 import { shortfallTopupChip } from '../../utils/shortfallTopup';
+import { explainedByKind } from '../../utils/caseFlowRows';
 import { reasonDisplayLabel } from '../ReconciliationAdjustmentCreateModal';
 import { OUTLET_TONE, PAUSED_CAUSES } from '../../utils/causeRegistry';
 import { ShortRef, SOURCE_TYPE_HREF, buildIncidentHref, IncidentBadge, MatchChip } from './caseDetailBits';
@@ -129,16 +130,29 @@ export const CaseFlowTable = ({
   const navigate = useNavigate();
   const tableRef = useRef<HTMLTableElement | null>(null);
 
-  // Status 列：一个标签，按下面的顺序取第一条命中的规则。MATCHED 行不显示任何东西。
+  // Status 列：一个标签，按下面的顺序取第一条命中的规则。普通 MATCHED 行不显示任何东西（被调账单 / 认损补缺单解释掉的 MATCHED 行例外：留着「Explained · …」）。
   const statusChipOf = (row: FlowComparisonRow): StatusChip | null => {
-    if (row.matchType === 'MATCHED') return null;
+    // 戊波二 T10（R32）：对内差额行——账内两本账对不上，不是某条流水的事：没有处置菜单、不能被锚、不能被解释，
+    // 只能由技术更正分录归零（下一轮算到 0 随钱包自愈）。
+    if (row.matchType === 'INVARIANT') {
+      return {
+        tone: 'red',
+        label: 'Books out of balance · needs correction',
+        title: "This wallet's cash + shortfall no longer equals the customer's payable + held deposits. It clears only when the books are corrected and the next run measures zero.",
+      };
+    }
+    // 普通 MATCHED 行不显示任何东西；被某张单解释掉的 MATCHED 行（第 0 轮锚配对）留着「Explained · …」。
+    if (row.matchType === 'MATCHED' && !row.explainedByAdjustmentNo) return null;
     if (row.matchType === 'IN_TRANSIT') return { tone: 'blue', label: 'In transit' };
     const d = row.disposition;
     const ns = row.nextStep;
-    // 已解释——这条差异已被一张落了账的调账单解释掉，引擎算桶时已把它从异常数里摘掉，
-    // 改为指回那张单。
+    // 已解释——这条差异已被一张落了账的单据解释掉（戊波二 T9b：匹配器第 0 轮按锚配成 MATCHED 行），
+    // 指回那张单：调账单号（ADJ…）去调账单页，认损补缺划转单号（ITR…）去划转单页。
     if (row.explainedByAdjustmentNo) {
-      return { tone: 'green', label: `Explained · ${row.explainedByAdjustmentNo}`, to: adjustmentHref(row.explainedByAdjustmentNo), check: true };
+      const no = row.explainedByAdjustmentNo;
+      // 解释它的是认损补缺划转单、且读面带了回链：补款腿还在走 / 失败时照 T8 四态打（topping up / top-up failed），走完才是 Explained。
+      if (row.transfer?.purpose === 'SHORTFALL_TOPUP') return { ...shortfallTopupChip(row.transfer), to: transferHref(row.transfer.transferNo) };
+      return { tone: 'green', label: `Explained · ${no}`, to: explainedByKind(no) === 'TRANSFER' ? transferHref(no) : adjustmentHref(no), check: true };
     }
     // 行上已挂着一张走不掉的单（调账单 / 补单）——那条单号本身就是唯一出口。
     if (d?.adjustmentNo) {
@@ -366,7 +380,7 @@ export const CaseFlowTable = ({
 
   // 动作控件：至多一个，挂在 Status 列标签下面。
   const renderAction = (row: FlowComparisonRow) => {
-    if (row.matchType === 'MATCHED') return null;
+    if (row.matchType === 'MATCHED' || row.matchType === 'INVARIANT') return null;
     if (row.matchType === 'IN_TRANSIT') {
       // 在途——差异会随资金单落地自然消失，动作是推单不是处置。
       // Task 7：划转腿由划转工作流推进、资金单页无替代动作（推单已在
@@ -453,7 +467,8 @@ export const CaseFlowTable = ({
                       const intl = row.internalFlow;
                       const isMismatch = row.matchType === 'AMOUNT_MISMATCH';
                       const isInTransit = row.matchType === 'IN_TRANSIT';
-                      const direction = ext?.direction ?? intl?.direction ?? null;
+                      // INVARIANT（对内差额）行两侧都空，金额与方向来自 row.invariant。
+                      const direction = ext?.direction ?? intl?.direction ?? row.invariant?.direction ?? null;
                       const timestamp = ext?.timestamp ?? intl?.timestamp ?? null;
                       return (
                         <tr
@@ -484,7 +499,7 @@ export const CaseFlowTable = ({
                           <td className={`px-3 py-3 text-right font-mono text-[11px] ${isMismatch ? 'font-bold text-adm-red' : 'text-adm-t1'}`}>
                             {isMismatch
                               ? `${formatAmount(intl?.amount, kase.decimals)} ≠ ${formatAmount(ext?.amount, kase.decimals)}`
-                              : formatAmount(ext?.amount ?? intl?.amount, kase.decimals)}
+                              : formatAmount(ext?.amount ?? intl?.amount ?? row.invariant?.amount, kase.decimals)}
                           </td>
                           {/* Reference — truncated + copy (ShortRef); the main
                               lever that cures horizontal scroll (raw refs can

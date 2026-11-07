@@ -41,6 +41,7 @@ import { BUCKET_LABELS, formatBucket, TONE_CLASSES } from '../utils/reconBucketM
 import type { FlowMatchType, FlowComparisonRow, ReconCaseDetail } from '../utils/reconTypes';
 import { formatAmount, minorToMajorPlain, isZeroAmount } from '../utils/reconAmount';
 import { buildCaseConclusion } from '../utils/caseConclusion';
+import { explainedSumMinor, hiddenMatchedCount, visibleFlowRows } from '../utils/caseFlowRows';
 import {
   AdminSessionError,
   adminFetch,
@@ -82,6 +83,7 @@ const fmtTime = (v: string | null) => (v ? new Date(v).toLocaleString() : null);
 // rows (mismatch/orphan) first, then in-transit, then matched last (collapsed
 // by default). Within each bucket, by timestamp asc (best-available side).
 const MATCH_RANK: Record<FlowMatchType, number> = {
+  INVARIANT: 0,           // 戊波二 T10：账内两本账对不上——最先看
   AMOUNT_MISMATCH: 0,
   ORPHAN_INTERNAL: 1,
   ORPHAN_EXTERNAL: 1,
@@ -415,7 +417,8 @@ const ReconciliationCasesDetailPage = () => {
   // each bucket, sort by timestamp asc. Hook called BEFORE early returns so
   // hook order stays stable across renders.
   const sortedFlows = useMemo<FlowComparisonRow[]>(() => {
-    const rows = (kase?.flowComparison ?? []).filter((r) => showMatched || r.matchType !== 'MATCHED');
+    // 戊波二 T10：被调账单 / 认损补缺单解释掉的 MATCHED 行默认展示（"Explained · ADJ…/ITR…"），普通 MATCHED 行等展开。
+    const rows = visibleFlowRows(kase?.flowComparison ?? [], showMatched);
     return rows.sort((a, b) => {
       const r = MATCH_RANK[a.matchType] - MATCH_RANK[b.matchType];
       if (r !== 0) return r;
@@ -423,7 +426,7 @@ const ReconciliationCasesDetailPage = () => {
     });
   }, [kase, showMatched]);
 
-  const matchedCount = kase?.flowComparison?.filter((r) => r.matchType === 'MATCHED').length ?? 0;
+  const matchedCount = hiddenMatchedCount(kase?.flowComparison ?? []);
   // Task 8：Differences 卡标题用的"open rows"计数——恒等于非 MATCHED 行数，不随
   // showMatched 切换变化（切开显示已匹配行不该让标题的"open"字样失真）。
   const openRowsCount = kase?.flowComparison?.filter((r) => r.matchType !== 'MATCHED').length ?? 0;
@@ -454,14 +457,10 @@ const ReconciliationCasesDetailPage = () => {
   // Minor #5（终审）：结案后的超期天数要在结案那一刻冻结，不能继续跟着 Date.now() 涨。
   const agingReferenceMs = kase.status === 'RESOLVED' && kase.resolvedAt ? new Date(kase.resolvedAt).getTime() : Date.now();
 
-  // Task 8（Hero 结论句）：残差已被哪些落账调账单解释掉的金额合计——只数
-  // explainedByAdjustmentNo 非空的行，金额读行上 adjustmentPrefill——与开单同一个数
-  // （mismatch 取差额、orphan 取该行本身金额），避免结论句这里另算一套出现分歧。
-  // 整数最小单位字符串求和用 BigInt——金额不含小数点，安全。
-  const explainedSumMinor = (kase.flowComparison ?? [])
-    .filter((r) => r.explainedByAdjustmentNo)
-    .reduce((sum, r) => sum + BigInt(r.adjustmentPrefill?.amountMinor ?? '0'), 0n)
-    .toString();
+  // Task 8（Hero 结论句）：残差已被哪些落账的调账单 / 认损补缺单解释掉的金额合计。
+  // 戊波二 T10：第 0 轮锚配对之后，被解释的差异是带 explainedByAdjustmentNo 的 MATCHED 行（不再有 adjustmentPrefill），
+  // 金额读后端下发的 explainedAmount（= 那张单自己落账的流水金额，认损补缺时就是记短缺那一笔）；求和规则见 utils/caseFlowRows.ts。
+  const explainedSum = explainedSumMinor(kase.flowComparison ?? []);
 
   // 平账三期（Task 12）：「升级事故」/「登记欠款」按钮的防重复入口——案子已经登记过
   // 同类型事故（任何非撤回状态）就不再给按钮，改显示徽标（后端 §2 不查重，前端
@@ -526,7 +525,7 @@ const ReconciliationCasesDetailPage = () => {
             </div>
             {(() => {
               const c = buildCaseConclusion(
-                { ...kase, bucket: kase.bucket ?? null, explainedSum: explainedSumMinor },
+                { ...kase, bucket: kase.bucket ?? null, explainedSum },
                 (v) => formatAmount(v, kase.decimals),
               );
               if (!c) return null;

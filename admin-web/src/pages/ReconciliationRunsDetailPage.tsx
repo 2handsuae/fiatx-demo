@@ -28,6 +28,7 @@ import { SidebarGroup, SidebarKV } from '../components/ui/SidebarPrimitives';
 import { StatusPill } from '../components/ui/StatusPill';
 import { BUCKET_LABELS, TONE_CLASSES, type ReconBucket } from '../utils/reconBucketMap';
 import { formatAmount, isZeroAmount } from '../utils/reconAmount';
+import { internalCheckCell } from '../utils/caseInternalCheck';
 import {
   AdminSessionError,
   adminFetch,
@@ -61,6 +62,8 @@ interface AccountStatusRow {
   internal: { balance: string };
   external: { balance: string };
   delta: string;
+  /** 戊波二 T10：客户钱包两本账的差额（现金 + 短缺待补 − 应付 − 暂扣，带符号最小单位）；公司钱包 / 老快照行 null。 */
+  internalDelta?: string | null;
   inTransitAmount: string;
   flowMatched: number;
   flowTotal: number;
@@ -492,6 +495,12 @@ const ReconciliationRunsDetailPage = () => {
                       <th className="px-3 py-2 text-right font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
                         In-Transit
                       </th>
+                      <th
+                        className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3"
+                        title="Customer wallets only: wallet cash + shortfall receivable must equal the customer's payable + held deposits"
+                      >
+                        Internal check
+                      </th>
                       <th className="px-3 py-2 font-mono text-[9px] font-semibold uppercase tracking-[0.1em] text-adm-t3">
                         Flow Lines
                       </th>
@@ -514,7 +523,7 @@ const ReconciliationRunsDetailPage = () => {
                     {visibleRows.length === 0 ? (
                       <tr>
                         <td
-                          colSpan={10}
+                          colSpan={11}
                           className="px-3 py-8 text-center font-mono text-[11px] text-adm-t3"
                         >
                           {accountTable.length === 0
@@ -527,6 +536,7 @@ const ReconciliationRunsDetailPage = () => {
                         const clickable = row.bucket !== 'MATCHED' && !!row.caseNo;
                         const deltaZero = isZeroAmount(row.delta);
                         const inTransitZero = isZeroAmount(row.inTransitAmount);
+                        const internalCheck = internalCheckCell(row.internalDelta, (v) => formatAmount(v, row.decimals));
                         const displayWallet = row.walletNo ?? row.walletRef.slice(0, 8);
                         const flowWords = [
                           `${row.flowMatched} matched`,
@@ -588,6 +598,16 @@ const ReconciliationRunsDetailPage = () => {
                               ].join(' ')}
                             >
                               {inTransitZero ? '—' : formatAmount(row.inTransitAmount, row.decimals)}
+                            </td>
+                            {/* Internal check — 戊波二 T10：客户钱包两本账是否一致。✓ = Δ 为 0；不为 0 红字显示差额；公司钱包没有这条恒等式 → — */}
+                            <td className="px-3 py-2.5 font-mono text-[11px]">
+                              {internalCheck.kind === 'ok' ? (
+                                <span className="inline-flex items-center gap-1 text-adm-green"><Check size={11} /></span>
+                              ) : internalCheck.kind === 'break' ? (
+                                <span className="font-bold text-adm-red" title="Customer wallet's two books do not agree">Δ {internalCheck.text}</span>
+                              ) : (
+                                <span className="text-adm-t3">—</span>
+                              )}
                             </td>
                             {/* Flow Lines — plain-words summary, non-zero items only */}
                             <td className="px-3 py-2.5 font-mono text-[10px] text-adm-t2">

@@ -394,6 +394,40 @@ describe('WalletBalanceCheckerService', () => {
     });
   });
 
+  describe('internalBreakdown —— 案件页副行的四户净额（戊波二 T10）', () => {
+    const t = (h: number) => new Date(`2026-06-26T0${h}:00:00Z`);
+
+    it('四个户各自的净额 + delta，delta 与 checkBalance 的 internalDelta 是同一个数', async () => {
+      const { svc } = makeSvc([
+        { tbAccountId: CASH_CUST_AED, direction: 'IN', amount: 1000, createdAt: t(1) },
+        { tbAccountId: CASH_CUST_AED, direction: 'OUT', amount: 100, createdAt: t(2) },
+        { tbAccountId: SHORT_CUST_AED, direction: 'IN', amount: 100, createdAt: t(2) },
+        { tbAccountId: PAY_CUST_AED, direction: 'IN', amount: 1000, createdAt: t(1) },
+        { tbAccountId: SUSP_CUST_AED, direction: 'IN', amount: 40, createdAt: t(1) },
+        { tbAccountId: SUSP_CUST_AED, direction: 'OUT', amount: 10, createdAt: t(3) },
+      ]);
+      const b = await svc.internalBreakdown('w-cust-aed', cutoff);
+      expect(b).toEqual({ cash: 900n, shortfall: 100n, payable: 1000n, suspense: 30n, delta: -30n });
+      const r = await svc.checkBalance({ walletRef: 'w-cust-aed', externalClosing: 900n, cutoff });
+      expect(r.internalDelta).toBe(b!.delta);
+    });
+
+    it('同一个截止口径：晚于 cutoff 的行不计', async () => {
+      const { svc } = makeSvc([
+        { tbAccountId: CASH_CUST_AED, direction: 'IN', amount: 500, createdAt: t(1) },
+        { tbAccountId: PAY_CUST_AED, direction: 'IN', amount: 500, createdAt: t(1) },
+        { tbAccountId: PAY_CUST_AED, direction: 'IN', amount: 300, createdAt: new Date('2026-06-26T13:00:00Z') },
+      ]);
+      expect(await svc.internalBreakdown('w-cust-aed', cutoff)).toEqual({ cash: 500n, shortfall: 0n, payable: 500n, suspense: 0n, delta: 0n });
+    });
+
+    it('公司钱包 → null；不是钱包的 walletRef（未归属外部账户）→ null', async () => {
+      const { svc } = makeSvc([{ tbAccountId: CASH_FIRM_AED, direction: 'IN', amount: 3000, createdAt: t(1) }]);
+      await expect(svc.internalBreakdown('w-firm-aed', cutoff)).resolves.toBeNull();
+      await expect(svc.internalBreakdown('EXT-ACCT-1', cutoff)).resolves.toBeNull();
+    });
+  });
+
   describe('resolveCashAccount (shared with the case-page flow comparison)', () => {
     it('returns the padded cash account id + kind for a real wallet', async () => {
       const { svc } = makeSvc([]);

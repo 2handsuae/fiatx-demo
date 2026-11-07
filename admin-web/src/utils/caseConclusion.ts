@@ -16,6 +16,8 @@ export interface CaseConclusionInput {
   walletNo: string | null;        // 无主头判据之一：wallet 表解析不到 → null
   coaCode: string | null;         // 无主头判据之二
   deltaAmount: string;            // 原始最小单位（分）整数字符串——与 formatAmount 的入参口径一致
+  // 戊波二 T10：对内差额（签名最小单位字符串）；仅对内不平的案子 deltaAmount 恒 0，结论句要改说「两本账对不上」。
+  internalDeltaAmount?: string | null;
   actualExternal: string;
   explain?: { inTransitSigned: string; residual: string } | null;
   flowSummary?: { orphanInternal: number; orphanExternal: number; mismatch: number } | null;
@@ -46,6 +48,14 @@ export function buildCaseConclusion(
       text: `External account ${k.walletRef ?? '—'} cannot be attributed to any wallet — balance ${fmt(k.actualExternal)} ${k.assetCode} pending claim.`,
       tone: 'red',
     };
+  } else if (k.bucket === 'BREAK' && isZeroStr(k.deltaAmount) && !isZeroStr(k.internalDeltaAmount)) {
+    // 戊波二 T10：对外差额为 0、只有钱包自己的两本账对不上（INVARIANT）——下面「External balance is 0.00 … short of / in excess of
+    // our books … full amount unexplained」对这种案子是句空话。正数 = 现金 + 短缺待补 多于 应付 + 暂扣。
+    const more = parseFloat(k.internalDeltaAmount as string) > 0 ? 'more' : 'less';
+    base = {
+      text: `External balance matches our cash, but this wallet's own books do not agree — cash + shortfall is ${fmt(absStr(k.internalDeltaAmount as string))} ${k.assetCode} ${more} than payable + held. Needs a correcting entry.`,
+      tone: 'red',
+    };
   } else if (k.bucket === 'BREAK') {
     // 规则2/3（Task 8 重写；Fix round 修正方向口径）：dir 由 deltaAmount 符号定——
     // 负数=外部少于账上=short of，正数=外部多于账上（盈余案）=in excess of；此前
@@ -59,7 +69,8 @@ export function buildCaseConclusion(
       : 'partly covered by in-transit orders';
     if (!isZeroStr(k.explainedSum)) {
       base = {
-        text: `External balance is ${fmt(absStr(k.deltaAmount))} ${k.assetCode} ${dir} our books — ${coverPhrase}; ${fmt(k.explainedSum as string)} explained, awaiting re-reconcile.`,
+        // 戊波二 T10：已结案的案子（页面按结案轮重建，被解释的行已是 MATCHED）不再「等重对账」——它已经重对过了。
+        text: `External balance is ${fmt(absStr(k.deltaAmount))} ${k.assetCode} ${dir} our books — ${coverPhrase}; ${fmt(k.explainedSum as string)} explained${k.status === 'RESOLVED' ? '' : ', awaiting re-reconcile'}.`,
         tone: 'red',
       };
     } else {

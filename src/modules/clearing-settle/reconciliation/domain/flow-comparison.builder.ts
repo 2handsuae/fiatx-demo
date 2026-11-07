@@ -136,6 +136,17 @@ export class FlowComparisonBuilder {
       decimals: assetForDecimals?.decimals ?? 0,
     });
 
+    // 第 0 轮配出的行"解释掉"多少：组内属于那张单自己落账的流水（= 锚点清单项的 flowId）的金额之和（绝对值）。
+    // 不能用行两侧的金额——认损补缺时外部侧 750、内部原流水 1000，被解释的差额是记短缺那一条的 250。
+    const anchorFlowIds = new Set(explainedAnchors.map((a) => a.flowId));
+    const explainedAmountOf = (m: { internalFlowId: string; groupFlowIds?: string[] }): string => {
+      let sum = new Prisma.Decimal(0);
+      for (const id of m.groupFlowIds ?? [m.internalFlowId]) {
+        if (anchorFlowIds.has(id)) sum = sum.plus(intById.get(id)?.amount ?? 0);
+      }
+      return sum.toString();
+    };
+
     const rows: FlowComparisonRow[] = [];
     for (const m of matcher.matched) {
       const ext = m.externalLineId ? extById.get(m.externalLineId) : null;
@@ -164,7 +175,7 @@ export class FlowComparisonBuilder {
         },
         matchType: 'MATCHED',
         // 第 0 轮锚配对配出来的行：解释它的调账单 / 认损补缺单号（Pass 1 / 2 配出来的行不挂注解）。
-        ...(m.resolution ? { explainedByAdjustmentNo: m.resolution } : {}),
+        ...(m.resolution ? { explainedByAdjustmentNo: m.resolution, explainedAmount: explainedAmountOf(m) } : {}),
       });
     }
     for (const oi of matcher.orphanInternal) {

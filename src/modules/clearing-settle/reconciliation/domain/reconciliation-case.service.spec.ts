@@ -23,7 +23,7 @@ const openInput = (deps?: Partial<any>) => ({
   tbAmount: dec('100'), inTransitAmount: dec('0'), expectedExternal: dec('90'),
   actualExternal: dec('90'), deltaAmount: dec('-10'), internalDeltaAmount: dec('70') as Prisma.Decimal | null,
   severity: 'LOW', bucket: 'BREAK' as const, slaDeadline: new Date('2026-09-23T20:00:00Z'),
-  traceId: 'trace-run', delta: -10n, ...deps,
+  traceId: 'trace-run', delta: -10n, internalDelta: 70n as bigint | null, caseReason: 'wallet_balance_and_flow_break', ...deps,
 });
 
 describe('ReconciliationCaseService（波三判据 4）', () => {
@@ -40,6 +40,22 @@ describe('ReconciliationCaseService（波三判据 4）', () => {
     expect(audit.metadata.walletNo).toBe('WA2601017168');             // 铁律⑥：换业务键，非回显 walletRef
     expect(audit.metadata.walletRef).toBeUndefined();
     expect(JSON.stringify(audit.metadata)).not.toContain('w-1');      // UUID 不落 metadata
+    // 戊波二 T10（R35）：对内差额与开案原因进审计——仅对内不平的案子 deltaAmount 是 0，审计里要读得出是账簿不平
+    expect(audit.metadata.internalDeltaAmount).toBe('70');
+    expect(audit.metadata.caseReason).toBe('wallet_balance_and_flow_break');
+  });
+  it('openCase：仅对内不平的案子审计带 internalDeltaAmount 与 wallet_internal_imbalance，deltaAmount 仍是 0；公司钱包 internalDeltaAmount 为 null', async () => {
+    const d = makeDeps();
+    const svc = new ReconciliationCaseService(d.prisma, d.auditLogs);
+    await svc.openCase(openInput({ deltaAmount: dec('0'), delta: 0n, internalDeltaAmount: dec('-25000'), internalDelta: -25000n, caseReason: 'wallet_internal_imbalance' }));
+    await svc.openCase(openInput({ internalDeltaAmount: null, internalDelta: null, caseReason: 'wallet_balance_mismatch' }));
+    const first = d.auditLogs.recordSystem.mock.calls[0][0].metadata;
+    expect(first.deltaAmount).toBe('0');
+    expect(first.internalDeltaAmount).toBe('-25000');
+    expect(first.caseReason).toBe('wallet_internal_imbalance');
+    const second = d.auditLogs.recordSystem.mock.calls[1][0].metadata;
+    expect(second.internalDeltaAmount).toBeNull();
+    expect(second.caseReason).toBe('wallet_balance_mismatch');
   });
   it('reObserve：对内差额跟本轮量到的走（有值落值；公司钱包 / 已归零的案 null 也要写回，不留上一轮的旧值）', async () => {
     const d = makeDeps();

@@ -1070,6 +1070,12 @@ describe('戊波二 T9a：对内差额', () => {
     expect(rows[0].internalAmount.toString()).toBe('70');
     expect(rows[0].internalDirection).toBe('IN');
     expect(rows[0].walletRef).toBe('w-1');
+
+    // 戊波二 T10（R35）：开案审计带对内差额与原因——仅对内不平的案子 deltaAmount 是 0，不能让审计读成「差额 0」
+    const opened = deps.auditLogs.recordSystem.mock.calls.find((c: any[]) => c[0].action === 'RECON_CASE_OPENED')![0];
+    expect(opened.metadata.deltaAmount).toBe('0');
+    expect(opened.metadata.internalDeltaAmount).toBe('70');
+    expect(opened.metadata.caseReason).toBe('wallet_internal_imbalance');
   });
 
   it('对内 −30：方向 OUT、金额存绝对值 30，案件存带符号的 −30', async () => {

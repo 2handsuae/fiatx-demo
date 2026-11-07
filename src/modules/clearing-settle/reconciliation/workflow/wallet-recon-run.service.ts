@@ -866,6 +866,8 @@ export class WalletReconRunService {
         slaDeadline: input.slaDeadline,
         traceId: input.traceId,
         delta: input.delta,
+        internalDelta: input.internalDelta,
+        caseReason: input.caseReason,
       });
       caseId = opened.caseId;
       caseNo = opened.caseNo;

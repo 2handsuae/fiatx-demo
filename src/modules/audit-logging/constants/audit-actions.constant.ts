@@ -1081,7 +1081,8 @@ export const V6_SWAP_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
 /**
  * V8 对账域名册（站5-β，2026-08-27 业主终审版）——5 旧词 → 4 码。
  * 对账件（跑批/案件）天生无客户旅程 → NONE；唯推单落在父单（充值/提现）
- * 的旅程里 → INHERIT。CASE_OPENED 的破口三件套（walletRef/bucket/deltaAmount）
+ * 的旅程里 → INHERIT。CASE_OPENED 的破口件（walletNo/bucket/deltaAmount，戊波二 T10 起
+ * 加 internalDeltaAmount/caseReason——仅对内不平的案子 deltaAmount 恒 0）
  * 在 metadata——机器闸只查信封顶层，真正的强制在写方法 auditCaseOpened 的
  * TS 签名上（编译期兜底）。
  * RUN_COMPLETED 双通道：cron 走系统通道，管理员触发走操作员通道——

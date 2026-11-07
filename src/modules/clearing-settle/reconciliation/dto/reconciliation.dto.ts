@@ -96,6 +96,12 @@ export interface CaseExplain {
   delta: string;
   inTransitSigned: string;
   residual: string;
+  // 戊波二 T10：客户钱包「自己两本账」在案件截止点的四户净额与对内差额（签名最小单位字符串；
+  // 算式在 WalletBalanceCheckerService.internalBreakdown，与跑批同一份）。公司钱包案 / 未归属外部账户案 = null。
+  internalBreakdown: {
+    cash: string; shortfall: string; payable: string; suspense: string;
+    delta: string;             // (cash + shortfall) − (payable + suspense)
+  } | null;
 }
 
 // T6: observation history — when this case was first/last seen, how many
@@ -128,7 +134,8 @@ type FlowComparisonMatchType =
   | 'ORPHAN_EXTERNAL'
   | 'ORPHAN_INTERNAL'
   | 'AMOUNT_MISMATCH'
-  | 'IN_TRANSIT';        // T6: sourced from the case's persisted IN_TRANSIT line items
+  | 'IN_TRANSIT'         // T6: sourced from the case's persisted IN_TRANSIT line items
+  | 'INVARIANT';         // 戊波二 T10：对内差额 ≠ 0 的那一条（来自本案持久化的 INVARIANT 差异行；无外部侧、无内部流水、不可处置）
 
 interface FlowComparisonExternalSide {
   id?: string;
@@ -168,6 +175,14 @@ export interface FlowComparisonRow {
   // 所以只有**第 0 轮配出来的 MATCHED 行**才有值（= 该行的 resolution）；三类异常行恒 null（配不上就不算解释）；
   // 第 1 / 2 轮配出的 MATCHED 行与 IN_TRANSIT 行不带这个字段。
   explainedByAdjustmentNo?: string | null;
+  // 戊波二 T10：第 0 轮配出的 MATCHED 行（explainedByAdjustmentNo 非空）所"解释掉"的金额（绝对值，最小单位字符串）——
+  // 组内属于那张单自己落账的流水（= 引擎里的锚点清单项）的金额之和：认损补缺单 = 记短缺流水（差额本身），
+  // 调账单 = 调账流水。管理台 Hero 的「explained」合计只认它（该行的两侧金额并不等于被解释的差额：
+  // 认损补缺时外部侧是 750、内部原流水是 1000，被解释的是 250）。其余行恒 undefined。
+  explainedAmount?: string;
+  // 戊波二 T10：仅 matchType = 'INVARIANT'——本案对内差额 ≠ 0 的那一条（金额为绝对值，方向按符号：正 IN、负 OUT），
+  // 取自持久化的 INVARIANT 差异行；该行 externalLine / internalFlow 恒 null。
+  invariant?: { amount: string; direction: 'IN' | 'OUT' };
   // 平账一期半（spec §3/§8）案件读面——以下三个注解只在三类异常行上出现，
   // MATCHED/IN_TRANSIT 恒 undefined（它们不是差异、没有可处置的东西）。
   // 定性结论：这条差异如果已经被查过定过性，把结论贴回来（成因/出口/谁/何时）。
@@ -234,6 +249,7 @@ export interface FlowComparisonRow {
   // （internalTransferId 非空），这里回填对应划转单，供前端优先渲染「Transfer leg →」。
   // 戊波二 T7a（R22）：recognized = 这张单已在批准那一步记了短缺（recognizedTbTransferId 有值，认损补缺才可能为 true）——
   // 前端据 { status, recognized } 打 Pending CFO / Shortfall recognised · topping up / top-up failed 标签。
+  // 戊波二 T10：第 0 轮配成 MATCHED 且由某张认损补缺单解释的行（explainedByAdjustmentNo = ITR…）也带这个回链。
   transfer?: { transferNo: string; purpose: string; status: string; recognized: boolean } | null;
 }
 

@@ -24,6 +24,8 @@ export interface OpenCaseInput {
   severity: string; bucket: ReconBucket; slaDeadline: Date;
   traceId: string | null;   // run 的 traceId，只喂审计
   delta: bigint;            // 只喂审计 metadata.deltaAmount
+  internalDelta: bigint | null;  // 戊波二 T10（R35）：只喂审计 metadata.internalDeltaAmount——仅对内不平的案子 deltaAmount 是 0，不能让审计读成「差额 0」
+  caseReason: string;            // 戊波二 T10（R35）：只喂审计 metadata.caseReason（wallet_internal_imbalance / wallet_balance_mismatch …）
 }
 
 export interface ReObserveInput {
@@ -105,6 +107,8 @@ export class ReconciliationCaseService {
       walletRef: input.walletRef,
       bucket: input.bucket,
       delta: input.delta,
+      internalDelta: input.internalDelta,
+      caseReason: input.caseReason,
       caseNo,
       slaDeadline: input.slaDeadline,
     });
@@ -203,7 +207,7 @@ export class ReconciliationCaseService {
   }
 
   // ── Audit (DI — never `new AuditLogsService`) ─────────────────────────────
-  private async auditCaseOpened(input: { traceId: string | null; walletRef: string; bucket: ReconBucket; delta: bigint; caseNo: string; slaDeadline: Date }): Promise<void> {
+  private async auditCaseOpened(input: { traceId: string | null; walletRef: string; bucket: ReconBucket; delta: bigint; internalDelta: bigint | null; caseReason: string; caseNo: string; slaDeadline: Date }): Promise<void> {
     const walletNo = await resolveWalletNo(this.prisma, input.walletRef);
     await this.auditLogs.recordSystem({
       action: 'RECON_CASE_OPENED',
@@ -220,6 +224,10 @@ export class ReconciliationCaseService {
         walletNo,
         bucket: input.bucket,
         deltaAmount: input.delta.toString(),
+        // 戊波二 T10（R35）：对内差额与开案原因一并留痕——仅对内不平的案子 deltaAmount 恒 0，审计里要看得出是账簿不平。
+        // 公司钱包 / 未归属外部账户没有对内差额 → null。
+        internalDeltaAmount: input.internalDelta === null ? null : input.internalDelta.toString(),
+        caseReason: input.caseReason,
         caseNo: input.caseNo,
         slaDeadline: input.slaDeadline.toISOString(),
       },

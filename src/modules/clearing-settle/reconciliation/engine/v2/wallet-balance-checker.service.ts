@@ -55,6 +55,18 @@ export interface WalletCashAccount {
   tbAccountId: string;
 }
 
+/**
+ * 客户钱包「自己的两本账」在截止点的四个户净额与差额（戊波二 T10 起读面也用它，案件页 Internal 格副行）：
+ * delta = (cash + shortfall) − (payable + suspense)。checkBalance 的 internalDelta 与案件页读到的是同一份算式、同一个截止口径。
+ */
+export interface InternalBreakdown {
+  cash: bigint;
+  shortfall: bigint;
+  payable: bigint;
+  suspense: bigint;
+  delta: bigint;
+}
+
 export interface WalletBalanceCheckResult {
   pass: boolean;
   walletRef: string;
@@ -143,6 +155,42 @@ export class WalletBalanceCheckerService {
     return total;
   }
 
+  /** 客户钱包的四户净额（现金由调用方给，已经算过一次的不重算）。对内差额的唯一算式在这里。 */
+  private async customerBreakdown(
+    walletRef: string,
+    customerId: string,
+    ledger: number,
+    cash: bigint,
+    cutoff: Date,
+  ): Promise<InternalBreakdown> {
+    const accountHex = async (params: { code: number; ownerType: string; ownerUuid: string }) =>
+      bigintToHex(await this.accounting.resolveTbAccountId({ ...params, ledger }));
+    const shortfall = await this.netPosted(
+      await accountHex({ code: TB_ACCOUNT_CODES.CLIENT_SHORTFALL, ownerType: 'WALLET', ownerUuid: walletRef }),
+      cutoff,
+    );
+    const payable = await this.netPosted(
+      await accountHex({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ownerType: 'CUSTOMER', ownerUuid: customerId }),
+      cutoff,
+    );
+    const suspense = await this.netPosted(
+      await accountHex({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ownerType: 'CUSTOMER', ownerUuid: customerId }),
+      cutoff,
+    );
+    return { cash, shortfall, payable, suspense, delta: (cash + shortfall) - (payable + suspense) };
+  }
+
+  /**
+   * 读面用：一个客户钱包在截止点的四户净额与对内差额（案件页 Internal 格副行）。
+   * 公司钱包 / 不是钱包的 walletRef（未归属外部账户）→ null。算式与 checkBalance 共用 customerBreakdown。
+   */
+  async internalBreakdown(walletRef: string, cutoff: Date): Promise<InternalBreakdown | null> {
+    const loaded = await this.loadWallet(walletRef);
+    if (!loaded || loaded.cash.walletKind !== 'CUSTOMER') return null;
+    const cash = await this.netPosted(loaded.cash.tbAccountId, cutoff);
+    return this.customerBreakdown(walletRef, loaded.customerId as string, loaded.ledger, cash, cutoff);
+  }
+
   async checkBalance(input: {
     walletRef: string;
     externalClosing: bigint;
@@ -162,24 +210,9 @@ export class WalletBalanceCheckerService {
     const total = await this.netPosted(cash.tbAccountId, cutoff);
     const delta = externalClosing - total;
 
-    let internalDelta: bigint | null = null;
-    if (cash.walletKind === 'CUSTOMER') {
-      const accountHex = async (params: { code: number; ownerType: string; ownerUuid: string }) =>
-        bigintToHex(await this.accounting.resolveTbAccountId({ ...params, ledger }));
-      const shortfall = await this.netPosted(
-        await accountHex({ code: TB_ACCOUNT_CODES.CLIENT_SHORTFALL, ownerType: 'WALLET', ownerUuid: walletRef }),
-        cutoff,
-      );
-      const payable = await this.netPosted(
-        await accountHex({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ownerType: 'CUSTOMER', ownerUuid: customerId as string }),
-        cutoff,
-      );
-      const suspense = await this.netPosted(
-        await accountHex({ code: TB_ACCOUNT_CODES.DEPOSIT_SUSPENSE, ownerType: 'CUSTOMER', ownerUuid: customerId as string }),
-        cutoff,
-      );
-      internalDelta = (total + shortfall) - (payable + suspense);
-    }
+    const internalDelta = cash.walletKind === 'CUSTOMER'
+      ? (await this.customerBreakdown(walletRef, customerId as string, ledger, total, cutoff)).delta
+      : null;
 
     return {
       pass: delta === 0n,
