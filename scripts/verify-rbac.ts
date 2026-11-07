@@ -868,18 +868,20 @@ function runStaticChecks(): void {
     // due_diligence/infosec_assessment，全挂既有合规办公室域，域数不变），数字再顺延
     // （83→87 桶、92→96 组）——数字来源=运行时直接数，非手抄：在 83/92 门槛下实跑落红
     // （87 桶/96 组），差额 4/4 逐个对得上上面四个新组与四个新桶，再改成 87/96 转绿。
-    // 戊波二 T5：公司调拨单新增 treasury.view_house_transfers / treasury.act_house_transfers 两桶、不开新权限组
+    // 戊波二 T5：公司调拨单新增 view / act 两个 house_transfers 桶、不开新权限组
     // （复用 FUNDING_READ / FUNDING_WRITE），桶再顺延两格（87→89），组数不变（96）——先在 87/96 门槛下实跑落红
     // （89 桶/96 组），再改成 89/96 转绿。
-    'S13d 波前→波后计数（域 15→15 不变、桶 83→89、组 92→96；甲波六四个新组在册、戊波二调拨单两桶复用既有组）',
-    totalDomains === 15 && totalBuckets === 89 && declaredPermissionGroups.size === 96 &&
+    // 戊波三 T5：这两桶的组集合恒等于 treasury.view_funding / act_funding（FUNDING_READ / FUNDING_WRITE），属重复桶，删之，
+    // 桶 89→87，组数不变（96）——先在 89 门槛下对已删桶实跑落红，再改成 87 转绿。
+    'S13d 波前→波后计数（域 15→15 不变、桶 83→87、组 92→96；甲波六四个新组在册、调拨单复用 funding 两桶、戊波三删其重复两桶）',
+    totalDomains === 15 && totalBuckets === 87 && declaredPermissionGroups.size === 96 &&
       declaredPermissionGroups.has('FUNDING_READ') && declaredPermissionGroups.has('FUNDING_WRITE') &&
       declaredPermissionGroups.has('FUNDING_DASHBOARD_VIEW') && declaredPermissionGroups.has('PRUDENTIAL_CHECK_WRITE') &&
       declaredPermissionGroups.has('AGREEMENT_WRITE') &&
       declaredPermissionGroups.has('DSR_READ') && declaredPermissionGroups.has('DSR_WRITE') &&
       declaredPermissionGroups.has('VENDOR_APPLY') && declaredPermissionGroups.has('VENDOR_READ') &&
       declaredPermissionGroups.has('DUE_DILIGENCE_WRITE') && declaredPermissionGroups.has('INFOSEC_ASSESSMENT_WRITE'),
-    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 89）｜` +
+    `域 ${totalDomains}（预期 15）｜ACTION_BUCKET_CATALOG 共 ${totalBuckets} 桶（预期 87）｜` +
       `route∪职务绑定∪桶 三源并集共 ${declaredPermissionGroups.size} 个组（预期 96，含 FUNDING_READ/FUNDING_WRITE/FUNDING_DASHBOARD_VIEW/PRUDENTIAL_CHECK_WRITE/AGREEMENT_WRITE/DSR_READ/DSR_WRITE/VENDOR_APPLY/VENDOR_READ/DUE_DILIGENCE_WRITE/INFOSEC_ASSESSMENT_WRITE）`,
   );
 

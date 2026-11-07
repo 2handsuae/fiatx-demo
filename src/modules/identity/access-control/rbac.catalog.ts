@@ -1124,16 +1124,6 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
         groups: ['FUNDING_WRITE'],
       },
       {
-        key: 'treasury.view_house_transfers', label: 'View house transfers',
-        description: 'Browse company wallet-to-wallet transfers (operating ⇄ fee) with their funds-order leg and fee-income close entries',
-        groups: ['FUNDING_READ'],
-      },
-      {
-        key: 'treasury.act_house_transfers', label: 'Operate house transfers',
-        description: 'Initiate or cancel a transfer between the firm operating and fee wallets (fee sweep) — CFO signs off',
-        groups: ['FUNDING_WRITE'],
-      },
-      {
         key: 'treasury.view_dashboard', label: 'View company funds dashboard',
         description: 'One-screen view of firm liquidity: company wallets, due from LP, income and expenses',
         groups: ['FUNDING_DASHBOARD_VIEW'],
