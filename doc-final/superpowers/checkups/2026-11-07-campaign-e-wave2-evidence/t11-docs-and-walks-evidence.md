@@ -73,11 +73,11 @@ UI：开 LP 兑换单（Falcon，卖 10,000 AED 买 2,720 USDT）→ CFO 批 →
 ## 4. 走查中发现、需要主会话知道的事
 
 1. **brief / spec 写「CFO 拒 #18」，产品里不是 CFO**：#18 是 `WITHDRAW_LARGE_VALUE_APPROVAL`，审批链唯一一步 = `SENIOR_MANAGEMENT_OFFICER`；`cfo@` 打开那张审批单没有 Approve / Reject 按钮（`t11-scene-31-8-cfo-reject-18` 的 notfound 帧已删，未入库），`sm@` 才有。剧本按产品写成 `sm@`（场景 31 账号行与 ⑥）。不是缺陷，是前提偏差；spec 裁定 14 原话是「金库把待批提现拒掉 / 撤回」，金库同样没这个权限。
-2. **场景 8 / 16 的重摆**：`recon:demo:pass` 与 `break` 都被 R37 闸拒绝（不只 break）；场景 26 ⑦ 要现场跑 pass，已加提示。
-3. **读面小问题（未修，登记于此）**：(a) 开着的案子在「调账单已落账 / 未重对账」期间，行标签仍是「Pending CFO · ADJ…」（页面按破口那一轮的截止点读；认损补缺单的标签是随单状态走的，不受此影响）；(b) 场景 8 的 Kate 案在 Re-reconcile 之后 Hero 仍写「… 5,000.00 explained, awaiting re-reconcile」——T10 登记的「`awaiting re-reconcile` 后缀可能对开着的案子过期」**已复现**；(c) 看板「Due from LP」格副标题写「Clears when the LP delivers and the delivery is accepted」，实际在 ⚡ 到货（`DELIVERED`）那一步就归零，验收之前——剧本按实际行为写。
+2. **R37 闸的范围**：代码 `scripts/recon-demo.ts:278-287` 对**任何** POSTED 且带锚的调账单（冲正 / 冲销 / 补记 / 改记 / 核销，`disposition.service.ts:35` 要求每个处置至少带一个锚）或已记短缺的认损补缺单都拒绝重摆；`recon:demo:pass` 与 `break` 都被拒（不只 break）。首稿文字只列了场景 8 / 16 / 18 并写了「照常可用」，R41 订正为全范围；场景 26 ⑦ 要现场跑 pass，已加提示。
+3. **读面小问题（R41 已修，见 `575c6281`）**：(a) 调账单已落账、未重对账期间行标签停在「Pending CFO · ADJ…」→ 现随调账单状态走（POSTED → Explained · ADJ…）；(b) 场景 8 Kate 案 Re-reconcile 之后 Hero 仍写「awaiting re-reconcile」→ 现只在还有「已落账但没被上一轮轧掉」的行时才说；(c) 看板「Due from LP」副标题说验收后才清零 → 改成「到货即清零、之后在途等验收」。修后截图见 `t11-fix-*.png`。
 4. **`audit:vocab` exit 1**：见 §2；基线 `:432` 行已注明，不再写「exit 0」。
 5. **未走 / 未验**：场景 18（与 31 同一条事故路代码；18 的 Jack 钱包有无在途出款未查）、场景 32（只验了 ⑩ 的挂载一步）、场景 29 的 Pay From（有 T4 证据，未重走）、场景 37 的真实 LP 批准开 51 户（T1 minor「→ T11 walk」**未覆盖**：本任务用的是种子 LP，51 户是种子开的）。
-6. **其他仍写旧路径的活文档（不在本任务清单，未改）**：`doc-final/modules/overview.md:61 / :86`（「发起补款 · 垫款」）、`doc-final/delivery/decision-log.md` D-10（「认损调账＋真金白银补款划转」）。`decisions.md` 的历史条目按惯例留给收官（spec §10）。
+6. **其他仍写旧路径的活文档**：R41 已订正 `modules/overview.md:61 / :86`、`reference/recon-cause-handbook.md`、`baseline.md:289`、`company-funds.md` §5 COA / §7；`doc-final/delivery/decision-log.md` D-10 与 `reference/roadmap.md` 按 R39 / 业主维护**不动**（搜索清点见 `task-11-report.md` 修复报告）。
 
 ## 5. 收尾态
 

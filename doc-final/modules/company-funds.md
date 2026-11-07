@@ -75,7 +75,7 @@ EXECUTING ──⚡推腿确认：落 89（挪钱）+（仅手续费户 → 运�
 - 主体 `src/modules/asset-treasury/company-funding/`：注资单主体（六态迁移表）、付款单主体（六态迁移表）；工作流层各自的发起 / ⚡模拟到款 / 确认（注资）与发起 / ⚡推出款（付款）
 - 审批类型 `CAPITAL_INJECTION_APPROVAL` / `VENDOR_PAYMENT_APPROVAL`（均金库提 / CFO 单步 / 48h / 可撤，白名单表已登记）
 - 转账码：注资复用既有 70（`CAPITAL_INJECTION`）；付款新开 87（`VENDOR_PAYMENT`，本波唯一新码）；资金单第六父键 `capitalInjectionId`、第七父键 `vendorPaymentId`
-- COA：零增删（10 码内做完，铁律⑤），注资 `DR FIRM_ASSET/CR FIRM_OPS`、付款 `DR FIRM_OPS/CR FIRM_ASSET`
+- COA：乙波二当时零增删；现行口径（戊波一 / 二）——注资码 70 借运营户现金（码 50）/ 贷公司权益（码 200）；付款码 87 借 300 银行与托管费用 / 贷**所选钱包**现金户（码 50，运营户或手续费户，见 §2.2）；戊波二另新增码 2 / 51，见 `modules/accounting-coa.md` §2
 - 审计：TREASURY 域新增 12 码——注资族 6（`CAPITAL_INJECTION_{REQUESTED,APPROVED,FUNDS_RECEIVED,CONFIRMED,REJECTED,CANCELLED}`）、付款族 6（`VENDOR_PAYMENT_{REQUESTED,EXECUTION_STARTED,EXECUTED,FAILED,REJECTED,CANCELLED}`）
 - 权限：`treasury.view_dashboard`（`FUNDING_DASHBOARD_VIEW`，金库/CFO/高管/内审四职务，另以 OR 挂 `GET /admin/tb/accounts` 两路由作路由锚）、`treasury.view_funding`（`FUNDING_READ`，金库/CFO/内审三职务，照 `LP_READ` 先例）、`treasury.act_funding`（`FUNDING_WRITE`，唯金库）；前端另有一枚 `MARKER` 型标记码 `cap.treasury.funding_dashboard`（仿 `cap.incident.*` 先例，零真实路由，纯前端路由/导航门控——因 `GET /admin/tb/accounts` 本身被 `LEDGER_ACCOUNT_READ` 覆盖、持有者含技术官/运营，若看板直接借道这个既有码会把非目标职务一并放行，故新增专属标记码）
 - 端点：`admin/capital-injections`（list/create/detail/cancel/simulate-contribution/confirm）、`admin/vendor-payments`（list/create/detail/cancel）；看板零新端点，纯前端组装既有 `GET /admin/tb/accounts`、`GET /admin/tb/account-flows`
@@ -100,7 +100,7 @@ EXECUTING ──⚡推腿确认：落 89（挪钱）+（仅手续费户 → 运�
 
 **门（算术门，L1 式拒建单+留痕）**：付款单发起、LP 兑换单发起两个提单口，创建时算「动后 NLA 还达标吗」，不达标 400 拒建单（单未建、无单号），拒单话术明说三个数——当前 NLA / 动后 NLA / 红线——并落 `PRUDENTIAL_GATE_BLOCKED` 审计。检查只在发起时算一次（单人顺序假设，审批时不复检）。
 
-**豁免立场（业务立场，非遗漏）**：内部划转（补款/垫款——对客户的义务性动作）与注资（进项）**刻意不插门**；既有余额闸各管各的、不叠加。这是场景 31/32 全程的成立前提——客户资金事故的补款划转、审慎事故自己的注资复原，均需要能在 NLA 已跌破红线的窗口内照常发起成功，"补偿客户的义务优先于公司自己的流动性缓冲"不是纸面条款，是这两笔单据在跌破窗口内真实发起成功这件事本身。
+**豁免立场（业务立场，非遗漏）**：内部划转（认损补缺 / 垫款——对客户的义务性动作）与注资（进项）**刻意不插门**；既有余额闸各管各的、不叠加。这是场景 31/32 全程的成立前提——客户资金事故的认损补缺、审慎事故自己的注资复原，均需要能在 NLA 已跌破红线的窗口内照常发起成功，"补偿客户的义务优先于公司自己的流动性缓冲"不是纸面条款，是这两笔单据在跌破窗口内真实发起成功这件事本身。
 
 **巡检（跌破检测形态）**：「每日核对」的演示替身——金库在看板点「Run prudential check」，`POST /admin/prudential/check` 实算 + 写 `PRUDENTIAL_CHECK_PERFORMED` 审计（PASS/BREACH 同码，以 `reasonCode`（`NLA_OK`/`NLA_BREACH`）区分，`outcome` 恒 `SUCCESS`），零新表，「每日核对有据可查」由审计日志承担。看板另有被动红横幅（全员可见，读 `GET /admin/prudential/status`，不依赖巡检按钮）。**事故不自动生成**——巡检抓红后由 CFO 亲手登记 `PRUDENTIAL_BREACH`，操作人留痕（铁律①）。
 
