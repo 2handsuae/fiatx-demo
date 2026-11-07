@@ -1,7 +1,7 @@
 # T6 real clock (inside Dubai 00-04 window)
 date: Sun Nov  8 00:21:34 +04 2026
 date -u: Sat Nov  7 20:21:34 UTC 2026
-precondition: stack.sh reset self -> up -> on-stack.sh self demo:setup (all exit 0)
+precondition: DB state = fresh. Immediately before this run (post-ruling re-run, after the scenario-9 tail rewrite): stack.sh reset self -> stack.sh up -> on-stack.sh self demo:setup, exit 0/0/0, completed 00:20:18-00:21:33 +04 (log r1.log: "stopping services before business reset" ... "setup done"; earlier 00:17 reset/up/setup + blocked first run + probes were wiped by this reset). Jest cache dir fresh. No other jest runs between that setup and this run.
 command: bash scripts/on-stack.sh self test:e2e --runInBand --cacheDirectory=<fresh> test/recon-aging-write-off.e2e-spec.ts test/recon-supplement.e2e-spec.ts test/recon-reattribution.e2e-spec.ts test/recon-adjustment-money-arcs.e2e-spec.ts
 exit code: 1
 
