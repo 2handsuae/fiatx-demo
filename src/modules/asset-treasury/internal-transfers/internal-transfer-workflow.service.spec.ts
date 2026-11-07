@@ -285,7 +285,7 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
       // 余额闸查的是该币种 F_OPS 钱包（w-ops）在该币种账本上的现金户，金额 = 最小单位
       expect(systemWallets.resolve).toHaveBeenCalledWith(AED.id, 'F_OPS');
       expect(accounting.assertWalletBalance).toHaveBeenCalledWith('w-ops', TB_LEDGERS.AED, 90_000n);
-      // 垫款的出钱钱包恒为运营户(建单时写死,不开放选择);生效日 = 被退汇账单行的业务日(迪拜日起点);没有认损来路 / 锚
+      // 垫款的出钱钱包恒为运营户(建单时写死,不开放选择);生效日 = 案件业务日(ClaimableLine.businessDate 取自案件;迪拜日起点);没有认损来路 / 锚
       expect(transfers.create).toHaveBeenCalledWith(expect.objectContaining({ purpose: 'CLIENT_ADVANCE', amountMajor: '900.00', fromWalletId: 'w-ops', viaWalletId: 'w-set', toWalletId: 'w-cust', sourceExternalLineId: 'line-1', sourceCaseNo: 'REC2', effectiveDate: startOfBusinessDate('2026-09-05') }));
       expect(transfers.create.mock.calls[0][0]).not.toHaveProperty('lossSource');
       expect(transfers.create.mock.calls[0][0]).not.toHaveProperty('explainedFlowId');

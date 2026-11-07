@@ -115,7 +115,7 @@
 
 ## 7. 偏离 / 裁量（评审请核）
 
-1. **`InternalTransfer.effectiveDate` 存 `DateTime` = `startOfBusinessDate(<业务日>)`，读回用 `toBusinessDate()`**（迪拜日起点，只经 `business-date.util`，不手拼）。与调账单的 `String YYYY-MM-DD` 不同，但 spec / 控制器明写 `DateTime`。**`CLIENT_ADVANCE` 行**：取被退汇账单行的业务日（`assertClaimable` 已返回的 `businessDate`），不取「现在」。
+1. **`InternalTransfer.effectiveDate` 存 `DateTime` = `startOfBusinessDate(<业务日>)`，读回用 `toBusinessDate()`**（迪拜日起点，只经 `business-date.util`，不手拼）。与调账单的 `String YYYY-MM-DD` 不同，但 spec / 控制器明写 `DateTime`。**`CLIENT_ADVANCE` 行**：取 `assertClaimable` 返回的 `ClaimableLine.businessDate`（其值取自案件，`supplement-evidence.service.ts:182` `kase.businessDate`）即案件业务日，不取「现在」。（初版注释误写成「被退汇账单行的业务日」，修复轮已改。）
 2. **`lossSource` 建成可空 `String?`**（spec 写 `String`）：垫款单没有认损来路，非空列只能塞假值。认损补缺行恒为 `'AGING' | 'INCIDENT'`（服务端判，DTO 不收）。
 3. **金额 / 方向由服务端定**：DTO 没有 amount。事故路 = 事故 `assessedAmount`；账龄路 = `ReconciliationQueryService.getCase()` 里那一行的 `adjustmentPrefill`（`resolveWriteOff` 公式，与案件页 `nextStep` 同源）。代价：开单多一次案件页级读取（演示可接受）；换来「UI 看到的 = 服务端锁的」。
 4. **`recognizedTbTransferId` 存十六进制**（= `tb_transfer_evidence.tbTransferId` 的写法，T9 可直接联凭证）；调账单的 `tbTransferId` 是十进制，两者口径不同——T9 读之前别混。

@@ -69,7 +69,7 @@ export interface CreateInternalTransferInput {
   /** 认损补缺的锚 / 来路（垫款单全空）。 */
   explainedFlowId?: string | null; explainedExternalLineId?: string | null;
   lossSource?: ShortfallLossSource | null; sourceIncidentNo?: string | null;
-  /** 业务生效日（迪拜日起点）：认损补缺 = 案件业务日，垫款 = 被退汇账单行的业务日。 */
+  /** 业务生效日（迪拜日起点）：认损补缺与垫款都取案件业务日（垫款经 ClaimableLine.businessDate，其值即案件业务日）。 */
   effectiveDate: Date;
   traceId?: string | null; createdByUserId: string;
 }

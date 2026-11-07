@@ -131,11 +131,10 @@ export class InternalTransferWorkflowService {
     if (!toWallet || toWallet.ownerType !== 'CUSTOMER' || !toWallet.ownerId) throw new BadRequestException(`Case ${dto.caseNo}'s wallet is not a customer wallet — nothing to top up`);
     await this.assertClientWalletHeadroom(asset, toWallet.id, kase.ownerNo, amountMinor);
 
-    const via = asset.type === 'FIAT' ? await this.systemWallets.resolve(asset.id, 'F_SET') : null;
+    const route = await this.resolveRoute(asset, fromWallet.id, toWallet.id);
     const amountMajor = minorToMajor(amountMinor.toString(), asset.decimals);
     const row = await this.transfers.create({
-      purpose: 'SHORTFALL_TOPUP', assetId: asset.id, amountMajor,
-      fromWalletId: fromWallet.id, viaWalletId: (via?.id as string | undefined) ?? null, toWalletId: toWallet.id,
+      purpose: 'SHORTFALL_TOPUP', assetId: asset.id, amountMajor, ...route,
       customerId: toWallet.ownerId, customerNo: kase.ownerNo, reason: dto.reason, sourceCaseNo: kase.caseNo,
       explainedFlowId: dto.flowId ?? null, explainedExternalLineId: dto.externalLineId ?? null,
       lossSource, sourceIncidentNo, effectiveDate: startOfBusinessDate(kase.businessDate),
@@ -185,7 +184,7 @@ export class InternalTransferWorkflowService {
       purpose: 'CLIENT_ADVANCE', assetId: asset.id, amountMajor, ...route,
       customerId: line.ownerId, customerNo: line.ownerNo ?? line.ownerId, reason: dto.reason, sourceCaseNo: dto.caseNo,
       sourceExternalLineId: dto.externalLineId,
-      effectiveDate: startOfBusinessDate(line.businessDate), // 垫款的业务日 = 被退汇账单行的业务日
+      effectiveDate: startOfBusinessDate(line.businessDate), // 垫款的业务日 = 案件业务日（ClaimableLine.businessDate 取自案件）
       traceId: null, createdByUserId: actor.userNo ?? actor.userId,
     });
     const impact = `Advance ${amountMajor} ${asset.currency} to customer ${line.ownerNo ?? '-'} to cover the bounced-refund shortfall (case ${dto.caseNo}, statement line ${line.externalRef ?? '-'}; `

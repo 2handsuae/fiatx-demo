@@ -1,5 +1,6 @@
 // src/modules/asset-treasury/treasury/customer-statement.service.spec.ts
 import { CustomerStatementService, StatementLeg } from './customer-statement.service';
+import { TbEvidenceService } from '../../accounting/tigerbeetle/tb-evidence.service';
 
 describe('CustomerStatementService', () => {
   let service: CustomerStatementService;
@@ -232,17 +233,44 @@ describe('CustomerStatementService', () => {
       expect(items[0].subtitle).toBeNull();
     });
 
-    it('a shortfall top-up produces no client statement row: the payable-account legs of the same period are the only rows, and no row carries the retired "balance restoration" wording', async () => {
-      // A statement is built from the legs on the customer's payable account. The top-up's two postings (91: Dr 2 / Cr 1,
-      // 83: Dr 1 / Cr 2) are on the cash and shortfall accounts — they are not among the legs handed to the statement.
-      // What is handed over: just the deposit that created the balance. The statement stays exactly that one row.
-      const legs: StatementLeg[] = [
-        leg({ sourceType: 'DEPOSIT', sourceNo: 'DEP-A', eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE', direction: 'IN', amount: 100000, runningBalance: 100000 }),
+    // 真正的过滤器在取数那一层：对账单只取「碰了客户应付户的凭证行」（TbEvidenceService.getAccountStatement 按借 / 贷账户 id 过滤），
+    // buildStatement 本身不过滤、见腿就出行。所以这条把两层真代码接起来：一个按 where 真过滤的内存凭证库，里面放
+    // 认损补缺单的两笔（91 / 83，按真实 eventCode / 科目形状）+ 82，外加一条垫款 83（同样是划转单、同样 sourceType，但它贷应付）
+    // 和一笔充值作对照——证明「零行」来自账户形状，而不是过滤器把划转单 / 全部都吞了。
+    it('a shortfall top-up produces no client statement row: 91 / 83 / 82 sit off the payable account and never reach the statement, while an advance 83 and a deposit (controls) do', async () => {
+      const id = (n: number) => n.toString(16).padStart(32, '0');
+      const PAYABLE = id(100), SUSPENSE = id(101), CASH = id(1), SHORTFALL = id(2), FIRM_CASH = id(50), RECON_LOSS = id(301);
+      const row = (o: Record<string, unknown>) => ({
+        transferType: 'POSTED', assetCode: 'USDT', memo: null, externalRef: null, amount: '7500000', effectiveDate: '2026-11-05', ...o,
+      });
+      const evidence = [
+        // 对照①：充值进应付（贷应付）
+        row({ tbTransferId: 't1', sourceType: 'DEPOSIT', sourceNo: 'DEP-A', eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE', debitTbAccountId: SUSPENSE, creditTbAccountId: PAYABLE, amount: '100000000', createdAt: new Date('2026-11-01T00:00:00Z') }),
+        // 认损补缺单 ITR-TOPUP：91 记短缺（借 2 / 贷 1）、82 公司放出（借 301 / 贷 公司现金）、83 补钱（借 1 / 贷 2）——都不碰应付
+        row({ tbTransferId: 't2', sourceType: 'INTERNAL_TRANSFER', sourceNo: 'ITR-TOPUP', eventCode: 'INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED', debitTbAccountId: SHORTFALL, creditTbAccountId: CASH, createdAt: new Date('2026-11-02T00:00:00Z') }),
+        row({ tbTransferId: 't3', sourceType: 'INTERNAL_TRANSFER', sourceNo: 'ITR-TOPUP', eventCode: 'INTERNAL_TRANSFER_FIRM_OUT', debitTbAccountId: RECON_LOSS, creditTbAccountId: FIRM_CASH, createdAt: new Date('2026-11-03T00:00:00Z') }),
+        row({ tbTransferId: 't4', sourceType: 'INTERNAL_TRANSFER', sourceNo: 'ITR-TOPUP', eventCode: 'INTERNAL_TRANSFER_SHORTFALL_TOPUP_IN', debitTbAccountId: CASH, creditTbAccountId: SHORTFALL, createdAt: new Date('2026-11-03T00:00:01Z') }),
+        // 对照②：垫款单 ITR-ADV 的 83——同为划转单、同 sourceType，但贷应付，所以进对账单
+        row({ tbTransferId: 't5', sourceType: 'INTERNAL_TRANSFER', sourceNo: 'ITR-ADV', eventCode: 'INTERNAL_TRANSFER_ADVANCE_IN', debitTbAccountId: CASH, creditTbAccountId: PAYABLE, amount: '90000', createdAt: new Date('2026-11-04T00:00:00Z') }),
       ];
-      const { items, total } = await service.buildStatement(legs, { isFiat: true });
-      expect(total).toBe(1);
-      expect(items.map((i) => i.title)).toEqual(['Deposit · bank transfer']);
-      expect(JSON.stringify(items)).not.toMatch(/balance restoration|SHORTFALL|COMPENSATION/);
+      const matches = (r: any, where: any): boolean =>
+        r.transferType === where.transferType && where.OR.some((c: any) => Object.entries(c).every(([k, v]) => r[k] === v));
+      const evidenceService = new TbEvidenceService({
+        tbAccountRegistry: { findUnique: jest.fn(async () => ({ code: 100 })) },
+        tbTransferEvidence: { findMany: jest.fn(async ({ where }: any) => evidence.filter((r) => matches(r, where))) },
+      } as any, {} as any);
+
+      const { items: legs } = await evidenceService.getAccountStatement(PAYABLE);
+      // 取数层:只有碰应付户的两行(充值 + 垫款 83),认损补缺的三笔一笔都没进来
+      expect(legs.map((l: any) => l.eventCode).sort()).toEqual(['DEPOSIT_SUSPENSE_TO_PAYABLE', 'INTERNAL_TRANSFER_ADVANCE_IN']);
+      const { items, total } = await service.buildStatement(legs as StatementLeg[], { isFiat: false });
+      expect(total).toBe(2);
+      expect(items.map((i) => i.title)).toEqual(['Credit from FiatX · advance', 'Deposit · crypto']); // 新 → 旧
+      expect(JSON.stringify(items)).not.toMatch(/ITR-TOPUP|SHORTFALL|balance restoration|COMPENSATION/);
+
+      // 反证过滤器不是全吞:从同一个凭证库查「客户现金户」,认损补缺的 91 / 83 就都在(它们确实记在客户钱包上,只是不在应付上)
+      const cashLegs = (await evidenceService.getAccountStatement(CASH)).items.map((l: any) => l.eventCode).sort();
+      expect(cashLegs).toEqual(['INTERNAL_TRANSFER_ADVANCE_IN', 'INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED', 'INTERNAL_TRANSFER_SHORTFALL_TOPUP_IN']);
     });
 
     // 兜底：若有人把码 83 的客户侧事件误接到应付户，它不能再回落成旧的「balance restoration」措辞——

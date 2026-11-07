@@ -894,7 +894,7 @@ model InternalTransfer {
   purpose              String    // SHORTFALL_TOPUP | CLIENT_ADVANCE
   assetId              String
   amount               Decimal   // 元
-  fromWalletId         String    // 运营户 F_OPS 在该网络的地址行
+  fromWalletId         String    // 出钱的公司钱包在该网络的地址行：认损补缺 = 人选的运营户 F_OPS 或手续费户 F_FEE；垫款 = 运营户 F_OPS
   viaWalletId          String?   // 法币：结算户 F_SET 行；加密币 null
   toWalletId           String    // 客户在该网络的收款行 = 案子的钱包
   customerId           String
@@ -910,7 +910,7 @@ model InternalTransfer {
   // 记短缺（码 91）那笔的回执：批准那一步落账后写；有值的 FAILED 单计入阻塞集（不重补）。
   recognizedTbTransferId  String?
   recognizedAt            DateTime?
-  effectiveDate        DateTime  // 业务生效日（迪拜日起点）：认损补缺 = 案件业务日，垫款 = 被退汇账单行的业务日
+  effectiveDate        DateTime  // 业务生效日（迪拜日起点）：认损补缺与垫款都取案件业务日（垫款经 ClaimableLine.businessDate，其值即案件业务日）
   lossSource           String?   // AGING | INCIDENT（认损补缺的来路；垫款恒空）
   sourceIncidentNo     String?   // 事故路：带来路的事故单号
   approvalNo           String?
