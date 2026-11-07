@@ -1,0 +1,3 @@
+POST /admin/vendor-payments (Pay From = Company Fees WA2601014540, 10.00 AED, NLA breached)
+HTTP 400
+{"message":"Blocked by prudential floor (Company Rulebook VI.C): this payment would take Net Liquid Assets below the regulatory floor — NLA now 1114998.46 AED, after 1114988.46 AED, floor 1200000.00 AED.","error":"Bad Request","statusCode":400}
