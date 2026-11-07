@@ -1736,6 +1736,9 @@ model ReconciliationCase {
   expectedExternal          Decimal  @default(0)
   actualExternal            Decimal  @default(0)
   deltaAmount               Decimal  @default(0)
+  // 戊波二 T9a：对内差额 = (现金 1·钱包 + 短缺待补 2·钱包) − (应付 100 + 暂扣 101，该客户·该账本)，分，签名（正 = 钱包一侧多）。
+  // 只对客户钱包算；公司钱包 / 未归属外部账户 null。≠ 0 即 BREAK（对外差额为 0 也开案），归零才随钱包自愈。
+  internalDeltaAmount       Decimal?
   status                    String   @default("OPEN") // OPEN | PENDING_RECHECK | RESOLVED
   openedByRunId             String
   closedByRunId             String?
@@ -2143,6 +2146,7 @@ model ReconciliationRunWallet {
   internalTotal    Decimal  @default(0)
   externalClosing  Decimal  @default(0)
   deltaAmount      Decimal  @default(0)
+  internalDeltaAmount Decimal?          // 戊波二 T9a：对内差额（分，签名；公司钱包 / 未归属外部账户 null），口径同 ReconciliationCase.internalDeltaAmount
   inTransitAmount  Decimal  @default(0) // 签名和：IN 为正 OUT 为负
   matchedCount     Int      @default(0)
   orphanInternal   Int      @default(0)

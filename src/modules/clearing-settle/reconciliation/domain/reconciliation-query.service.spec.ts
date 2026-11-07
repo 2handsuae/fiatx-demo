@@ -273,10 +273,11 @@ describe('getRun — walletNo on accountStatusTable rows (T6 snapshot source)', 
     openedCount: 0, reObservedCount: 0, closedCount: 0,
   };
 
-  function mkSnapshotRow(walletRef: string) {
+  function mkSnapshotRow(walletRef: string, internalDeltaAmount: Prisma.Decimal | null = null) {
     return {
       walletRef, assetCode: 'AED', book: 'CUSTOMER', coaCode: 'A.CLIENT_CASH', ownerNo: 'CU-X', bucket: 'MATCHED',
       internalTotal: new Prisma.Decimal(100), externalClosing: new Prisma.Decimal(100), deltaAmount: new Prisma.Decimal(0),
+      internalDeltaAmount,
       inTransitAmount: new Prisma.Decimal(0), matchedCount: 1, orphanInternal: 0, orphanExternal: 0, mismatchCount: 0,
       inTransitCount: 0, caseNo: null,
     };
@@ -305,6 +306,16 @@ describe('getRun — walletNo on accountStatusTable rows (T6 snapshot source)', 
     const svc = mkSvc(prisma);
     const result: any = await svc.getRun('RUN-2026-0628-001');
     expect(result.accountStatusTable[0].walletNo).toBe('WAL-001');
+  });
+
+  it('戊波二 T9a：accountStatusTable 行带对内差额（带符号字符串；公司钱包 / 无值 null）', async () => {
+    const withDelta = mkPrismaWalletNo('W1', 'WAL-001');
+    withDelta.reconciliationRunWallet.findMany.mockResolvedValue([
+      mkSnapshotRow('W1', new Prisma.Decimal(-30)),
+      { ...mkSnapshotRow('W2'), internalDeltaAmount: null },
+    ]);
+    const result: any = await mkSvc(withDelta).getRun('RUN-2026-0628-001');
+    expect(result.accountStatusTable.map((r: any) => r.internalDelta)).toEqual(['-30', null]);
   });
 
   it('returns null walletNo for XREF synthetic walletRefs (retired wallets)', async () => {
@@ -737,6 +748,7 @@ describe('getRun — reads reconciliationRunWallet snapshot rows (T6)', () => {
         walletRef: 'walletA', assetCode: 'AED', book: 'CUSTOMER', coaCode: 'A.CLIENT_CASH',
         ownerNo: 'CU-1', bucket: 'MATCHED',
         internalTotal: new Prisma.Decimal(1000), externalClosing: new Prisma.Decimal(1000), deltaAmount: new Prisma.Decimal(0),
+        internalDeltaAmount: new Prisma.Decimal(0),
         inTransitAmount: new Prisma.Decimal(0), matchedCount: 2, orphanInternal: 0, orphanExternal: 0, mismatchCount: 0,
         inTransitCount: 0, caseNo: null,
       },
@@ -744,6 +756,7 @@ describe('getRun — reads reconciliationRunWallet snapshot rows (T6)', () => {
         walletRef: 'walletB', assetCode: 'AED', book: 'CUSTOMER', coaCode: 'A.CLIENT_CASH',
         ownerNo: 'CU-2', bucket: 'COMPENSATING',
         internalTotal: new Prisma.Decimal(500), externalClosing: new Prisma.Decimal(500), deltaAmount: new Prisma.Decimal(0),
+        internalDeltaAmount: null,
         inTransitAmount: new Prisma.Decimal(0), matchedCount: 0, orphanInternal: 0, orphanExternal: 1, mismatchCount: 0,
         inTransitCount: 0, caseNo: 'REC20260703-001',
       },
@@ -772,7 +785,9 @@ describe('getRun — reads reconciliationRunWallet snapshot rows (T6)', () => {
     const a = result.accountStatusTable.find((r: any) => r.walletRef === 'walletA');
     expect(a.bucket).toBe('MATCHED');
     expect(a.caseNo).toBeNull();
+    expect(a.internalDelta).toBe('0');
     const b = result.accountStatusTable.find((r: any) => r.walletRef === 'walletB');
+    expect(b.internalDelta).toBeNull();
     expect(b.bucket).toBe('COMPENSATING');
     expect(b.caseNo).toBe('REC20260703-001');
     expect(b.inTransitAmount).toBeDefined();

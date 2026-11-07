@@ -2,6 +2,8 @@
 // MATCHED 不开 case，其余三桶开。INTERNAL_BREAK 是 run 状态，不是桶——见
 // wallet-recon-run.service.ts 的 invariantStatus，与本文件的钱包级分类无关）。
 // 残差 = delta − Σ在途签名额（IN 为正 / OUT 为负）；命中即止：
+//   ⓪ 对内差额 ≠ 0（仅客户钱包；公司钱包 null 跳过）→ BREAK   （戊波二：钱包自己的两本账不平，
+//                                       只可能是记账出错 / 多腿单记了一半，不是时间差，没有在途可以解释它）
 //   ① 残差 ≠ 0                       → BREAK   （在途解释不干净，剩余就是真差异）
 //   ② 残差 = 0 且 在途行 > 0          → IN_TRANSIT（差额被在途完全解释，会自愈）
 //   ③ 残差 = 0 且 无在途 且 流水异常>0 → COMPENSATING （余额平是巧合，流水配不上=假匹配）
@@ -14,7 +16,9 @@ export function computeBucket(input: {
   inTransitSigned: bigint;  // Σ(在途 IN 为正 / OUT 为负)——inTransitSigned 与 inTransitCount 必须来自同一 inTransit 行集
   inTransitCount: number;
   anomalyCount: number;     // OI + OE + MM（不含在途行）
+  internalDelta: bigint | null; // (现金 + 短缺待补) − (应付 + 暂扣)，签名；公司钱包 null（没有逐钱包恒等式）
 }): ReconBucket {
+  if (input.internalDelta !== null && input.internalDelta !== 0n) return 'BREAK';
   const residual = input.delta - input.inTransitSigned;
   if (residual !== 0n) return 'BREAK';
   if (input.inTransitCount > 0) return 'IN_TRANSIT';

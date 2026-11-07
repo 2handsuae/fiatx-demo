@@ -120,6 +120,7 @@ export class ReconciliationQueryService {
       internalTotal: Prisma.Decimal;
       externalClosing: Prisma.Decimal;
       deltaAmount: Prisma.Decimal;
+      internalDeltaAmount: Prisma.Decimal | null;
       inTransitAmount: Prisma.Decimal;
       matchedCount: number;
       orphanInternal: number;
@@ -175,6 +176,7 @@ export class ReconciliationQueryService {
       internal: { balance: w.internalTotal.toString() },
       external: { balance: w.externalClosing.toString() },
       delta: w.deltaAmount.toString(),
+      internalDelta: w.internalDeltaAmount === null ? null : w.internalDeltaAmount.toString(),
       inTransitAmount: w.inTransitAmount.toString(),
       flowMatched: w.matchedCount,
       flowTotal: w.matchedCount + w.orphanInternal + w.orphanExternal + w.mismatchCount,

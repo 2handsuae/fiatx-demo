@@ -21,7 +21,7 @@ const openInput = (deps?: Partial<any>) => ({
   runId: 'run-1', businessDate: '2026-09-20', assetId: 'a1', assetCode: 'AED', layer: 'WALLET',
   book: 'CLIENT', walletRef: 'w-1', coaCode: '1101', ownerNo: 'CUS001',
   tbAmount: dec('100'), inTransitAmount: dec('0'), expectedExternal: dec('90'),
-  actualExternal: dec('90'), deltaAmount: dec('-10'),
+  actualExternal: dec('90'), deltaAmount: dec('-10'), internalDeltaAmount: dec('70') as Prisma.Decimal | null,
   severity: 'LOW', bucket: 'BREAK' as const, slaDeadline: new Date('2026-09-23T20:00:00Z'),
   traceId: 'trace-run', delta: -10n, ...deps,
 });
@@ -33,12 +33,26 @@ describe('ReconciliationCaseService（波三判据 4）', () => {
     const out = await svc.openCase(openInput());
     expect(out.caseNo).toBe('REC20260920-042');                       // count=41 → 042：服务算的，不是回显
     expect(d.reconciliationCase.create.mock.calls[0][0].data.status).toBe('OPEN');
+    expect(d.reconciliationCase.create.mock.calls[0][0].data.internalDeltaAmount.toString()).toBe('70');   // 戊波二 T9a：对内差额落案件
     const audit = d.auditLogs.recordSystem.mock.calls[0][0];
     expect(audit.action).toBe('RECON_CASE_OPENED');
     expect(audit.metadata.deltaAmount).toBe('-10');                   // bigint→string 是服务干的活
     expect(audit.metadata.walletNo).toBe('WA2601017168');             // 铁律⑥：换业务键，非回显 walletRef
     expect(audit.metadata.walletRef).toBeUndefined();
     expect(JSON.stringify(audit.metadata)).not.toContain('w-1');      // UUID 不落 metadata
+  });
+  it('reObserve：对内差额跟本轮量到的走（有值落值；公司钱包 / 已归零的案 null 也要写回，不留上一轮的旧值）', async () => {
+    const d = makeDeps();
+    const svc = new ReconciliationCaseService(d.prisma, d.auditLogs);
+    const base = {
+      caseId: 'c1', runId: 'run-2', tbAmount: dec('100'), inTransitAmount: dec('0'), expectedExternal: dec('90'),
+      actualExternal: dec('90'), deltaAmount: dec('-10'), severity: 'LOW', bucket: 'BREAK' as const,
+      assetId: 'a1', assetCode: 'AED', book: 'CLIENT', coaCode: '1101', ownerNo: 'CUS001',
+    };
+    await svc.reObserve({ ...base, internalDeltaAmount: dec('-30') });
+    await svc.reObserve({ ...base, internalDeltaAmount: null });
+    expect(d.reconciliationCase.update.mock.calls[0][0].data.internalDeltaAmount.toString()).toBe('-30');
+    expect(d.reconciliationCase.update.mock.calls[1][0].data.internalDeltaAmount).toBeNull();
   });
   it('resolveAutoHealed：OPEN → RESOLVED 落 AUTO_HEALED 五字段，发 RECON_CASE_AUTO_HEALED', async () => {
     const d = makeDeps();

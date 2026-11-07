@@ -100,7 +100,7 @@ function makeDeps(overrides: any = {}) {
       coaCode: 'A.CLIENT_CASH',
       ownerNo: 'c-default',
       cashTbAccountId: 'tb-cash-default',
-      internal: { total: 0n },
+      internal: { total: 0n }, internalDelta: 0n,
       external: 0n,
       delta: 0n,
     }),
@@ -203,7 +203,7 @@ describe('WalletReconRunService', () => {
       walletKind: 'CUSTOMER',
       coaCode: 'A.CLIENT_CASH',
       ownerNo: 'c-001',
-      internal: { total: 900n },
+      internal: { total: 900n }, internalDelta: 0n,
       external: 1000n,
       delta: 100n,
     });
@@ -247,7 +247,7 @@ describe('WalletReconRunService', () => {
     deps.balanceChecker.checkBalance.mockResolvedValue({
       pass: true,
       walletRef: 'w-cust-2', walletKind: 'CUSTOMER', coaCode: 'A.CLIENT_CASH',
-      ownerNo: 'c-002', internal: { total: 0n }, external: 0n, delta: 0n,
+      ownerNo: 'c-002', internal: { total: 0n }, internalDelta: 0n, external: 0n, delta: 0n,
     });
     deps.flowMatcher.matchFlows.mockResolvedValue({
       matched: [],
@@ -288,7 +288,7 @@ describe('WalletReconRunService', () => {
     deps.balanceChecker.checkBalance.mockResolvedValue({
       pass: false, walletRef: 'w-cust-7', walletKind: 'CUSTOMER',
       coaCode: 'A.CLIENT_CASH', ownerNo: 'c-007',
-      internal: { total: 0n }, external: 100n, delta: 100n,
+      internal: { total: 0n }, internalDelta: 0n, external: 100n, delta: 100n,
     });
     const at = new Date('2026-06-25T16:00:00Z');
     deps.flowMatcher.matchFlows.mockResolvedValue({
@@ -362,7 +362,7 @@ describe('WalletReconRunService', () => {
       deps.balanceChecker.checkBalance.mockResolvedValue({
         pass: false, walletRef: 'w-tid-new', walletKind: 'CUSTOMER',
         coaCode: 'A.CLIENT_CASH', ownerNo: 'c-001',
-        internal: { total: 0n }, external: 1000n, delta: 100n,
+        internal: { total: 0n }, internalDelta: 0n, external: 1000n, delta: 100n,
       });
 
       const svc = buildSvc(deps);
@@ -390,7 +390,7 @@ describe('WalletReconRunService', () => {
         deps.balanceChecker.checkBalance.mockResolvedValue({
           pass: false, walletRef: 'w-tid-exist', walletKind: 'CUSTOMER',
           coaCode: 'A.CLIENT_CASH', ownerNo: 'c-001',
-          internal: { total: 0n }, external: breakDelta, delta: breakDelta,
+          internal: { total: 0n }, internalDelta: 0n, external: breakDelta, delta: breakDelta,
         });
         deps.prisma.reconciliationCase.findFirst.mockImplementation(async ({ where }: any) => {
           for (const row of caseStore.values()) {
@@ -504,7 +504,7 @@ describe('WalletReconRunService', () => {
               walletKind: opts.breakingWallet!.walletKind ?? 'CUSTOMER',
               coaCode: 'A.CLIENT_CASH',
               ownerNo: opts.breakingWallet!.ownerNo ?? 'c-001',
-              internal: { total: 0n },
+              internal: { total: 0n }, internalDelta: 0n,
               external: opts.breakingWallet!.delta,
               delta: opts.breakingWallet!.delta,
             };
@@ -515,7 +515,7 @@ describe('WalletReconRunService', () => {
             walletKind: 'CUSTOMER',
             coaCode: 'A.CLIENT_CASH',
             ownerNo: 'c-default',
-            internal: { total: 0n },
+            internal: { total: 0n }, internalDelta: 0n,
             external: 0n,
             delta: 0n,
           };
@@ -753,13 +753,13 @@ describe('WalletReconRunService', () => {
           return {
             pass: false, walletRef, walletKind: 'CUSTOMER',
             coaCode: 'A.CLIENT_CASH', ownerNo: 'c-b1',
-            internal: { total: 0n }, external: 500n, delta: 500n,
+            internal: { total: 0n }, internalDelta: 0n, external: 500n, delta: 500n,
           };
         }
         return {
           pass: true, walletRef, walletKind: 'CUSTOMER',
           coaCode: 'A.CLIENT_CASH', ownerNo: 'c-m1',
-          internal: { total: 0n }, external: 0n, delta: 0n,
+          internal: { total: 0n }, internalDelta: 0n, external: 0n, delta: 0n,
         };
       });
 
@@ -846,7 +846,7 @@ describe('平账 A 批：开案设账龄截止（spec §2.1）', () => {
     deps.prisma.asset.findFirst.mockResolvedValue({ id: 'asset-aed' });
     deps.balanceChecker.checkBalance.mockResolvedValue({
       pass: false, walletRef: 'w-1', walletKind: 'CUSTOMER', coaCode: 'A.CLIENT_CASH', ownerNo: 'CU1',
-      internal: { total: 0n }, external: 500n, delta: 500n,
+      internal: { total: 0n }, internalDelta: 0n, external: 500n, delta: 500n,
     });
     const svc = buildSvc(deps);
     (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
@@ -869,7 +869,7 @@ describe('平账 A 批：开案设账龄截止（spec §2.1）', () => {
     deps.prisma.asset.findFirst.mockResolvedValue({ id: 'asset-aed' });
     deps.balanceChecker.checkBalance.mockResolvedValue({
       pass: false, walletRef: 'w-1', walletKind: 'CUSTOMER', coaCode: 'A.CLIENT_CASH', ownerNo: 'CU1',
-      internal: { total: 0n }, external: 500n, delta: 500n,
+      internal: { total: 0n }, internalDelta: 0n, external: 500n, delta: 500n,
     });
     const svc = buildSvc(deps);
     (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
@@ -909,7 +909,7 @@ describe('戊波一 T11：对账引擎改读现金户', () => {
     deps.prisma.asset.findFirst.mockResolvedValue({ id: 'asset-aed' });
     deps.balanceChecker.checkBalance.mockResolvedValue({
       pass: false, walletRef: 'w-firm-1', walletKind: 'FIRM', coaCode: 'A.FIRM_CASH', ownerNo: null,
-      cashTbAccountId: 'tb-cash-firm', internal: { total: 1000n }, external: 900n, delta: -100n,
+      cashTbAccountId: 'tb-cash-firm', internal: { total: 1000n }, internalDelta: null, external: 900n, delta: -100n,
     });
     const svc = buildSvc(deps);
     (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
@@ -1014,5 +1014,139 @@ describe('戊波一 T11：对账引擎改读现金户', () => {
         expect.objectContaining({ ledger: 1, side: 'FIRM', asset: '100', liab: '70', delta: '30' }),
       ]);
     });
+  });
+});
+
+// 戊波二 T9a（spec §4.5）：对内差额进跑批与案件。
+//   客户钱包 internalDelta ≠ 0 → 第 0 条 BREAK（对外差额为 0 也开案）；案件与快照都落带符号的 internalDelta；
+//   本案多写一条 INVARIANT 差异行（外部侧空、无锚、无解释）；对内差额回 0 → 钱包不在破口集合 → 随钱包自愈。
+describe('戊波二 T9a：对内差额', () => {
+  const cutoff = new Date('2026-09-01T10:00:00Z');
+
+  function setup(check: { delta: bigint; internalDelta: bigint | null; walletKind?: 'CUSTOMER' | 'FIRM' }, matcher?: any) {
+    const deps = makeDeps();
+    deps.prisma.reconciliationRun.create.mockResolvedValue({ id: 'run-t9a', runNo: 'RUN20260901-1', traceId: 't' });
+    deps.prisma.externalBalance.findMany.mockResolvedValue([
+      { walletRef: 'w-1', closingBalance: new Prisma.Decimal(1000), book: 'CLIENT', currency: 'AED', accountRef: 'acc-1' },
+    ]);
+    deps.prisma.asset.findFirst.mockResolvedValue({ id: 'asset-aed' });
+    const kind = check.walletKind ?? 'CUSTOMER';
+    deps.balanceChecker.checkBalance.mockResolvedValue({
+      pass: check.delta === 0n, walletRef: 'w-1', walletKind: kind,
+      coaCode: kind === 'CUSTOMER' ? 'A.CLIENT_CASH' : 'A.FIRM_CASH', ownerNo: kind === 'CUSTOMER' ? 'CU1' : null,
+      cashTbAccountId: 'tb-cash', internal: { total: 1000n - check.delta }, external: 1000n,
+      delta: check.delta, internalDelta: check.internalDelta,
+    });
+    if (matcher) deps.flowMatcher.matchFlows.mockResolvedValue(matcher);
+    const svc = buildSvc(deps);
+    (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
+    (svc as any).fetchExternalLinesForWallet = jest.fn().mockResolvedValue([]);
+    return { deps, svc };
+  }
+  const invariantRows = (deps: any) =>
+    deps.prisma.reconciliationLineItem.create.mock.calls.map(([a]: any[]) => a.data).filter((d: any) => d.matchStatus === 'INVARIANT');
+
+  it('对外全平、对内 +70：开 BREAK 案；案件与快照带 +70；一条 INVARIANT 行（IN、绝对值、外部侧空、无锚）', async () => {
+    const { deps, svc } = setup({ delta: 0n, internalDelta: 70n });
+    const result = await svc.run({ cutoff });
+
+    expect(result.status).toBe('BREAK');
+    expect(result.casesOpened).toBe(1);
+    const created = deps.prisma.reconciliationCase.create.mock.calls[0][0].data;
+    expect(created.bucket).toBe('BREAK');
+    expect(created.deltaAmount.toString()).toBe('0');
+    expect(created.internalDeltaAmount.toString()).toBe('70');
+
+    const snap = deps.prisma.reconciliationRunWallet.createMany.mock.calls[0][0].data[0];
+    expect(snap.bucket).toBe('BREAK');
+    expect(snap.internalDeltaAmount.toString()).toBe('70');
+
+    const rows = invariantRows(deps);
+    expect(rows).toHaveLength(1);
+    // 形状逐键相等：多写一键（比如锚 internalSourceId、外部侧、status/resolution）或少写一键都红
+    expect(Object.keys(rows[0]).sort()).toEqual([
+      'caseId', 'foundByRunId', 'internalAmount', 'internalDirection', 'lineNo', 'matchStatus', 'walletRef',
+    ]);
+    expect(rows[0].internalAmount.toString()).toBe('70');
+    expect(rows[0].internalDirection).toBe('IN');
+    expect(rows[0].walletRef).toBe('w-1');
+  });
+
+  it('对内 −30：方向 OUT、金额存绝对值 30，案件存带符号的 −30', async () => {
+    const { deps, svc } = setup({ delta: 0n, internalDelta: -30n });
+    await svc.run({ cutoff });
+    const created = deps.prisma.reconciliationCase.create.mock.calls[0][0].data;
+    expect(created.internalDeltaAmount.toString()).toBe('-30');
+    const rows = invariantRows(deps);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].internalAmount.toString()).toBe('30');
+    expect(rows[0].internalDirection).toBe('OUT');
+  });
+
+  it('对外对内同时不平：两种差异行都落（外部孤儿行 + INVARIANT 行，行号接续），案件两个差额都带', async () => {
+    const { deps, svc } = setup(
+      { delta: 500n, internalDelta: -30n },
+      {
+        matched: [], orphanInternal: [], mismatch: [], inTransit: [],
+        orphanExternal: [{ externalLineId: 'ext-1', amount: '500', direction: 'IN', externalRef: '0xabc' }],
+      },
+    );
+    await svc.run({ cutoff });
+    const created = deps.prisma.reconciliationCase.create.mock.calls[0][0].data;
+    expect(created.deltaAmount.toString()).toBe('500');
+    expect(created.internalDeltaAmount.toString()).toBe('-30');
+    const all = deps.prisma.reconciliationLineItem.create.mock.calls.map(([a]: any[]) => a.data);
+    expect(all.map((d: any) => [d.matchStatus, d.lineNo])).toEqual([['ORPHAN_EXTERNAL', 1], ['INVARIANT', 2]]);
+    // INVARIANT 行不参与解释：不带 status / resolution 键（默认 OPEN、无解释），孤儿行照旧带
+    expect(all[1]).not.toHaveProperty('status');
+    expect(all[1]).not.toHaveProperty('resolution');
+  });
+
+  it('严重度看两本账里差得更大的一本：对内差额远大于对外差额时不再恒为 LOW', async () => {
+    const { deps, svc } = setup({ delta: 0n, internalDelta: 5_000_000n });   // AED 5 万元，远过 HIGH 线
+    await svc.run({ cutoff });
+    const created = deps.prisma.reconciliationCase.create.mock.calls[0][0].data;
+    expect(created.severity).toBe('HIGH');
+  });
+
+  it('对内为 0（客户钱包）/ null（公司钱包）且对外也平：不开案、没有 INVARIANT 行；快照分别存 0 / null', async () => {
+    const cust = setup({ delta: 0n, internalDelta: 0n });
+    const r1 = await cust.svc.run({ cutoff });
+    expect(r1.status).toBe('PASS');
+    expect(cust.deps.prisma.reconciliationCase.create).not.toHaveBeenCalled();
+    expect(invariantRows(cust.deps)).toHaveLength(0);
+    expect(cust.deps.prisma.reconciliationRunWallet.createMany.mock.calls[0][0].data[0].internalDeltaAmount.toString()).toBe('0');
+
+    const firm = setup({ delta: 0n, internalDelta: null, walletKind: 'FIRM' });
+    const r2 = await firm.svc.run({ cutoff });
+    expect(r2.status).toBe('PASS');
+    expect(invariantRows(firm.deps)).toHaveLength(0);
+    expect(firm.deps.prisma.reconciliationRunWallet.createMany.mock.calls[0][0].data[0].internalDeltaAmount).toBeNull();
+  });
+
+  it('公司钱包只有对外差额：案件 internalDeltaAmount = null，不写 INVARIANT 行', async () => {
+    const { deps, svc } = setup({ delta: 100n, internalDelta: null, walletKind: 'FIRM' });
+    await svc.run({ cutoff });
+    const created = deps.prisma.reconciliationCase.create.mock.calls[0][0].data;
+    expect(created.internalDeltaAmount).toBeNull();
+    expect(invariantRows(deps)).toHaveLength(0);
+  });
+
+  it('既有 OPEN 案的钱包对内差额回到 0 且对外也平 → 不在破口集合 → 自愈关案；仍不平则不关', async () => {
+    // 仍不平：这一轮 +70，案子被复观察（update 带新值），不自愈
+    const still = setup({ delta: 0n, internalDelta: 70n });
+    still.deps.prisma.reconciliationCase.findFirst.mockResolvedValue({ id: 'case-old', caseNo: 'REC20260901-001' });
+    await still.svc.run({ cutoff });
+    const reobs = still.deps.prisma.reconciliationCase.update.mock.calls.map(([a]: any[]) => a.data);
+    expect(reobs.some((d: any) => d.resolutionReason === 'AUTO_HEALED')).toBe(false);
+    expect(reobs[0].internalDeltaAmount.toString()).toBe('70');
+
+    // 归零：下一轮 0 / 0 → 钱包被查过、没破口 → 案子 AUTO_HEALED
+    const healed = setup({ delta: 0n, internalDelta: 0n });
+    healed.deps.prisma.reconciliationCase.findMany.mockResolvedValue([{ id: 'case-old', caseNo: 'REC20260901-001', walletRef: 'w-1' }]);
+    const r = await healed.svc.run({ cutoff });
+    expect(r.casesAutoHealed).toBe(1);
+    const upd = healed.deps.prisma.reconciliationCase.update.mock.calls.map(([a]: any[]) => a);
+    expect(upd).toEqual([expect.objectContaining({ where: { id: 'case-old' }, data: expect.objectContaining({ status: 'RESOLVED', resolutionReason: 'AUTO_HEALED' }) })]);
   });
 });

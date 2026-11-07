@@ -20,6 +20,7 @@ export interface OpenCaseInput {
   book: string; walletRef: string; coaCode: string | null; ownerNo: string | null;
   tbAmount: Prisma.Decimal; inTransitAmount: Prisma.Decimal; expectedExternal: Prisma.Decimal;
   actualExternal: Prisma.Decimal; deltaAmount: Prisma.Decimal;
+  internalDeltaAmount: Prisma.Decimal | null;   // 戊波二 T9a：对内差额（签名）；公司钱包 / 未归属外部账户 null
   severity: string; bucket: ReconBucket; slaDeadline: Date;
   traceId: string | null;   // run 的 traceId，只喂审计
   delta: bigint;            // 只喂审计 metadata.deltaAmount
@@ -29,6 +30,7 @@ export interface ReObserveInput {
   caseId: string; runId: string;
   tbAmount: Prisma.Decimal; inTransitAmount: Prisma.Decimal; expectedExternal: Prisma.Decimal;
   actualExternal: Prisma.Decimal; deltaAmount: Prisma.Decimal;
+  internalDeltaAmount: Prisma.Decimal | null;
   severity: string; bucket: ReconBucket;
   assetId: string; assetCode: string; book: string; coaCode: string | null; ownerNo: string | null;
 }
@@ -78,6 +80,7 @@ export class ReconciliationCaseService {
         expectedExternal: input.expectedExternal,
         actualExternal: input.actualExternal,
         deltaAmount: input.deltaAmount,
+        internalDeltaAmount: input.internalDeltaAmount,
         status: 'OPEN',
         openedByRunId: input.runId,
         lastObservedRunId: input.runId,
@@ -119,6 +122,7 @@ export class ReconciliationCaseService {
         expectedExternal: input.expectedExternal,
         actualExternal: input.actualExternal,
         deltaAmount: input.deltaAmount,
+        internalDeltaAmount: input.internalDeltaAmount,
         severity: input.severity,
         bucket: input.bucket,
         // Locator fields can drift if a wallet's owner/coa changes

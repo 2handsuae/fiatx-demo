@@ -47,6 +47,8 @@ export interface AccountStatusRow {
   internal: { balance: string };
   external: { balance: string };
   delta: string;                    // external − internal
+  // 戊波二 T9a：对内差额 (现金 + 短缺待补) − (应付 + 暂扣)，分，带符号；公司钱包 / 无快照值 null。≠ 0 即 BREAK。
+  internalDelta: string | null;
   inTransitAmount: string;          // signed sum of in-transit lines (IN +, OUT −)
   flowMatched: number;
   flowTotal: number;

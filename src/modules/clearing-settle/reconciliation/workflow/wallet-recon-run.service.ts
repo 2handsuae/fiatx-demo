@@ -7,7 +7,8 @@
 //      If broken → status='INTERNAL_BREAK', no per-wallet checks (signal
 //      that the ledger itself has lost integrity — fix that first).
 //   2. For each wallet present in ExternalBalance @ cutoff:
-//        a. balanceChecker (T6) — open Case if delta ≠ 0
+//        a. balanceChecker (T6) — open Case if delta ≠ 0, or (客户钱包, 戊波二) the wallet's own
+//           two books disagree (internalDelta ≠ 0 → BREAK + one INVARIANT line item)
 //        b. flowMatcher       — open Case + LineItems for orphan/mismatch
 //   3. Cross-wallet same-externalRef invariant — e.g. WITHDRAW_FEE_POST
 //      (client OUT) and WITHDRAW_FEE_FIRM (firm IN) share ref WDRxxx:fee;
@@ -401,6 +402,8 @@ export class WalletReconRunService {
       inTransitSigned,
       inTransitCount: matcherResult.inTransit.length,
       anomalyCount,
+      // 戊波二 T9a：客户钱包的两本账不平 → 第 0 条直接 BREAK；公司钱包 null 不参与。
+      internalDelta: balanceCheck.internalDelta,
     });
 
     let caseNo: string | null = null;
@@ -411,11 +414,14 @@ export class WalletReconRunService {
     // break is balance, flow, or in-transit residual, we land on the same
     // Case row; line items reflect the current run's findings.
     if (bucket !== 'MATCHED') {
-      const caseReason = !balanceCheck.pass && anomalyCount > 0
-        ? 'wallet_balance_and_flow_break'
-        : !balanceCheck.pass
-          ? 'wallet_balance_mismatch'
-          : 'wallet_flow_break';
+      const internalImbalance = balanceCheck.internalDelta !== null && balanceCheck.internalDelta !== 0n;
+      const caseReason = internalImbalance && balanceCheck.pass && anomalyCount === 0
+        ? 'wallet_internal_imbalance'
+        : !balanceCheck.pass && anomalyCount > 0
+          ? 'wallet_balance_and_flow_break'
+          : !balanceCheck.pass
+            ? 'wallet_balance_mismatch'
+            : 'wallet_flow_break';
       const { created, caseNo: openedCaseNo } = await this.upsertCaseForWallet({
         runId,
         businessDate,
@@ -427,6 +433,7 @@ export class WalletReconRunService {
         coaCode: balanceCheck.coaCode,
         ownerNo: balanceCheck.ownerNo,
         delta: balanceCheck.delta,
+        internalDelta: balanceCheck.internalDelta,
         tbAmount: balanceCheck.internal.total,
         actualExternal: balanceCheck.external,
         inTransitSigned,
@@ -453,6 +460,7 @@ export class WalletReconRunService {
       internalTotal: new Prisma.Decimal(balanceCheck.internal.total.toString()),
       externalClosing: new Prisma.Decimal(balanceCheck.external.toString()),
       deltaAmount: new Prisma.Decimal(balanceCheck.delta.toString()),
+      internalDeltaAmount: balanceCheck.internalDelta === null ? null : new Prisma.Decimal(balanceCheck.internalDelta.toString()),
       inTransitAmount: new Prisma.Decimal(inTransitSigned.toString()),
       matchedCount: matcherResult.matched.length,
       orphanInternal: matcherResult.orphanInternal.length,
@@ -507,6 +515,7 @@ export class WalletReconRunService {
       coaCode: null,
       ownerNo: null,
       delta: closing,
+      internalDelta: null,
       tbAmount: 0n,
       actualExternal: closing,
       inTransitSigned: 0n,
@@ -625,7 +634,7 @@ export class WalletReconRunService {
    * Verify the two books balance per ledger by reading TigerBeetle directly
    * (mirror of `scripts/verify-realtime-coa.ts`). Per-account balance follows
    * the account class (`isDebitNormalCode`):
-   *   debit-normal (1 / 50 / 300–302):   debits_posted − credits_posted
+   *   debit-normal (1 / 2 / 50 / 51 / 300–302):   debits_posted − credits_posted
    *   credit-normal (100 / 101 / 200 / 210–212): credits_posted − debits_posted
    * Then per ledger (戊波一·总纲附录 A 两条天平；戊波二加 2 / 51):
    *   客户本  Σ(1 客户现金) + Σ(2 托管短缺待补)                    == Σ(100 客户应付) + Σ(101 充值暂扣)
@@ -785,6 +794,8 @@ export class WalletReconRunService {
     coaCode: string | null;
     ownerNo: string | null;
     delta: bigint;
+    /** 戊波二 T9a：对内差额（签名）；公司钱包 / 未归属外部账户 null。≠ 0 时本案多写一条 INVARIANT 差异行。 */
+    internalDelta: bigint | null;
     tbAmount: bigint;
     actualExternal: bigint;
     inTransitSigned: bigint;
@@ -800,7 +811,13 @@ export class WalletReconRunService {
     const externalDecimal = new Prisma.Decimal(input.actualExternal.toString());
     const inTransitDecimal = new Prisma.Decimal(input.inTransitSigned.toString());
     const expectedDecimal = externalDecimal.minus(deltaDecimal);
-    const severity = computeSeverity(input.currency, input.delta);
+    const internalDeltaDecimal = input.internalDelta === null ? null : new Prisma.Decimal(input.internalDelta.toString());
+    // 严重度看两本账里差得更大的那一本——仅对内不平的案子 delta = 0，按 delta 算恒为 LOW，与「账簿对不上」不相称。
+    const absOf = (v: bigint) => (v < 0n ? -v : v);
+    const severity = computeSeverity(
+      input.currency,
+      input.internalDelta !== null && absOf(input.internalDelta) > absOf(input.delta) ? input.internalDelta : input.delta,
+    );
 
     // Idempotency probe: cross-day unique — (walletRef, status:OPEN) only.
     // Round3 T5 Step③: businessDate intentionally dropped from the probe so
@@ -821,6 +838,7 @@ export class WalletReconRunService {
         expectedExternal: expectedDecimal,
         actualExternal: externalDecimal,
         deltaAmount: deltaDecimal,
+        internalDeltaAmount: internalDeltaDecimal,
         severity,
         bucket: input.bucket,
         assetId: input.assetId,
@@ -854,6 +872,7 @@ export class WalletReconRunService {
         expectedExternal: expectedDecimal,
         actualExternal: externalDecimal,
         deltaAmount: deltaDecimal,
+        internalDeltaAmount: internalDeltaDecimal,
         severity,
         bucket: input.bucket,
         slaDeadline: input.slaDeadline,
@@ -865,7 +884,7 @@ export class WalletReconRunService {
       created = true;
     }
 
-    await this.writeLineItems(caseId, input.runId, input.walletRef, input.matcherResult, input.explained);
+    await this.writeLineItems(caseId, input.runId, input.walletRef, input.matcherResult, input.explained, input.internalDelta);
     return { caseId, caseNo, created };
   }
 
@@ -875,6 +894,7 @@ export class WalletReconRunService {
     walletRef: string,
     matcherResult: Awaited<ReturnType<WalletFlowMatcherService['matchFlows']>>,
     explained: ExplainedIndex,
+    internalDelta: bigint | null,
   ): Promise<void> {
     let lineNo = 0;
     // ④ 已被落账调账单解释的差异行照写不误——它是案子上的证据，要给人看
@@ -954,6 +974,25 @@ export class WalletReconRunService {
           externalTimestamp: it.externalTimestamp,
           walletRef,
           externalRef: it.externalRef,
+        },
+      });
+    }
+    // 戊波二 T9a（spec §4.5）：对内差额 ≠ 0 → 一条 INVARIANT 行。它是「钱包自己的两本账对不上」的证据，
+    // 不是某条流水的配对结果：外部侧空、没有 internalSourceId 锚、不参与任何匹配、没有解释（status 恒 OPEN）、
+    // 读面不给处置菜单；下一轮对内差额算回 0，这批行随 delete-then-insert 一起消失，案子随钱包自愈。
+    // internalAmount 存绝对值、internalDirection 按符号（本表金额列一贯 = 绝对值 + 方向）：
+    // 正 = 钱包一侧（现金 + 短缺待补）多于应付 + 暂扣 → IN；负 → OUT。
+    if (internalDelta !== null && internalDelta !== 0n) {
+      lineNo += 1;
+      await this.prisma.reconciliationLineItem.create({
+        data: {
+          caseId,
+          foundByRunId: runId,
+          lineNo,
+          matchStatus: 'INVARIANT',
+          internalAmount: new Prisma.Decimal((internalDelta < 0n ? -internalDelta : internalDelta).toString()),
+          internalDirection: internalDelta > 0n ? 'IN' : 'OUT',
+          walletRef,
         },
       });
     }
