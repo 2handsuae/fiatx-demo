@@ -1114,13 +1114,13 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
         groups: ['LP_WRITE'],
       },
       {
-        key: 'treasury.view_funding', label: 'View capital injections & vendor payments',
-        description: 'Browse capital-injection and vendor-payment orders with their funds-order legs',
+        key: 'treasury.view_funding', label: 'View capital injections, vendor payments & house transfers',
+        description: 'Browse capital-injection, vendor-payment and house-transfer orders with their funds-order legs',
         groups: ['FUNDING_READ'],
       },
       {
         key: 'treasury.act_funding', label: 'Operate company funding',
-        description: 'Initiate capital injections and vendor payments, confirm receipts — CFO signs off',
+        description: 'Initiate capital injections, vendor payments & house transfers, confirm receipts — CFO signs off',
         groups: ['FUNDING_WRITE'],
       },
       {

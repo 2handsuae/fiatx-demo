@@ -540,25 +540,25 @@
 
 **期望**：观众看懂两件事——① 公司花钱跟收钱同一套门（金库开、CFO 批），批完不是扣完；② 收款方来自甲波四那本登记册，两个战役的活真的接上了，不是各画各的。
 
-## 场景 30 · 公司资金全景看板：五区巡览 + 利润体现（V7 财资 · 公司资金）
+## 场景 30 · 公司资金全景看板：六区巡览 + 利润体现（V7 财资 · 公司资金）
 
 > 战役乙波二交付（2026-09-29），2026-09-30 战役乙收官随第九幕定稿。本场景 2026-09-29 T11 在 self 栈全程实走一遍（含一笔现场客户兑换，非种子摆拍），截图 `43`~`47`。
 
-**讲什么**：看板是给管理层看家底的一屏——NLA 区（合规红线与三个计入钱包：运营 / 手续费 / 前厅）、一张公司钱包总表（Operations 带见底阈值线，见了这条线就该找 LP 补货）、LP 欠我们的货（Due from LP）、三收入格（利润体现）、开支格（Expenses）、最近资金动态，一屏读完，全部读既有账本端点，零新聚合逻辑。看板每一格与账本三列表（科目/凭证/流水）同源同值，这不是两套数字各算各的。
+**讲什么**：看板是给管理层看家底的一屏——NLA 区（合规红线与三个计入钱包：运营 / 手续费 / 前厅）、一张公司钱包总表（Operations 行低于低水位阈值时数字变红、悬停显示阈值，见了红就该找 LP 补货）、LP 欠我们的货（Due from LP）、三收入格（利润体现）、开支格（Expenses）、最近资金动态，一屏读完，全部读既有账本端点，零新聚合逻辑。看板每一格与账本三列表（科目/凭证/流水）同源同值，这不是两套数字各算各的。
 
 **造数**：`bash scripts/on-stack.sh self demo:all`（铺齐三域 35 笔标准场景数据，含若干笔真实客户兑换，先把三收入格垫上非零基线）+ 现场一笔客户兑换。⚠️ **须在场景 41 之前演**：41 把手续费户整扫之后，AED 三收入格读 0.00，下面步骤 ① 的非零基线（Trading Fee Income AED 20.00）与 ⑤ 的 20.00 → 30.00 就演不出来（Alice USDT→AED 300，看三收入格实时再涨一格）。
 
 **账号**：`treasury@fiatx.com`（看板 / 账本三列表 / 推资金单三腿——丙案已修后金库经面板正常推完，见判据说明）→ 客户端 `demo_alice`（现场兑换）→ `compliance_lead@`（KYT 裁决）。
 
 **走查**：
-① 金库登录 Company Funds 看板，从上到下巡览（2026-11-07 戊波三起改版，副标题「Firm liquidity at a glance — company wallets, due from LP, income and expenses」）：**NLA 区**（Net Liquid Assets (Regulatory)：进度条 + NLA / Floor / Headroom 三个数，其下一行算式 `AED … + USDT … = AED … @ 3.6725`，再下三个小格 **Company Operations / Company Fees / Company Liquidity**〔AED、USDT 各一行〕，脚注「Not counted: Company Settlement … and amounts due from LP …」——NLA = 这三个钱包之和，结算户与应收 LP 不计）；**Company wallets 一张总表**（Operations / Fees / Liquidity (LP front hall) / Settlement (fiat only) 四行 × AED / USDT 两列，右列「IN NLA」标 counted / in transit；Operations 行带低水位阈值线 900,000 AED / 100,000 USDT，高于线显白、低于线转红）；**Due from LP — Pending Delivery**（读 LP 应收户码 51，LP 名 × 币种 × 余额，无欠货时写「No LP delivery outstanding.」）；**Income (profit)**（三收入格 210/211/212，AED/USDT 分列，标题直读 API 下发的 `accountName`）；**Expenses**（开支格 300/301/302）；**Recent Fund Movements — Last 10**（最近 10 条流水，人话事件标签，场景 28/29 刚做的注资/付款两笔当场就在列表里）——`demo:all` 已铺过若干笔标准兑换，此刻 Trading Fee Income AED 格读到 20.00（非零基线）。
+① 金库登录 Company Funds 看板，从上到下巡览（2026-11-07 戊波三起改版，副标题「Firm liquidity at a glance — company wallets, due from LP, income and expenses」）：**NLA 区**（Net Liquid Assets (Regulatory)：进度条 + NLA / Floor / Headroom 三个数，其下一行算式 `AED … + USDT … = AED … @ 3.6725`，再下三个小格 **Company Operations / Company Fees / Company Liquidity**〔AED、USDT 各一行〕，脚注「Not counted: Company Settlement … and amounts due from LP …」——NLA = 这三个钱包之和，结算户与应收 LP 不计）；**Company wallets 一张总表**（Operations / Fees / Liquidity (LP front hall) / Settlement (fiat only) 四行 × AED / USDT 两列，右列「IN NLA」标 counted / in transit；Operations 行低于低水位阈值时数字变红，悬停显示阈值）；**Due from LP — Pending Delivery**（读 LP 应收户码 51，LP 名 × 币种 × 余额，无欠货时写「No LP delivery outstanding.」）；**Income (profit)**（三收入格 210/211/212，AED/USDT 分列，标题直读 API 下发的 `accountName`）；**Expenses**（开支格 300/301/302）；**Recent Fund Movements — Last 10**（最近 10 条流水，人话事件标签，场景 28/29 刚做的注资/付款两笔当场就在列表里）——`demo:all` 已铺过若干笔标准兑换，此刻 Trading Fee Income AED 格读到 20.00（非零基线）。
 ② 客户端登录 Alice（余额来自 `demo:all` 铺的花名册）→ Swap 页卖 300 USDT 买 AED（手续费 10.00 AED），Confirm and Swap → 单转 `PROCESSING`（COMPLIANCE_PENDING，等 KYT）。
 ③ 切 `compliance_lead@` → Swap Transactions 该单详情 → 下拉到「⚡ Simulation」区 →「① Approved」→ 单转 `PROCESSING · SELL`（等卖出腿清算）。
 ④ 卖出腿（USDT）资金单 ⚡ Broadcast → ⚡ Seen in Mempool → ⚡ Confirm；买入腿（AED）资金单 ⚡ Submit → ⚡ Settle；费腿（AED，收款方 F_FEE）⚡ Submit → ⚡ Settle——三腿逐一推进后单转 `SUCCESS`。
 ⑤ **三收入格前后对照帧**：推腿前后各切一次看板，Trading Fee Income AED 格从 20.00 涨到 30.00（涨幅精确等于本笔兑换手续费 10.00 AED）——利润体现的正戏当场演给观众看。
-⑥ **同源同值收尾核对**：切 Ledger Accounts 页，Owner 筛 WALLET →「Company Cash · Company Operations · AED_ZAND – AED」余额与看板运营户 AED 格逐位一致（判据是两页相等，不是某个固定数——具体数值随当次重铺后场景 28/29 的实际走法变化；2026-09-29 T11 干净重走一遍，从 reset 后一路只做场景 28→29→30、零练手单据，实测样例为两处均 1,091,798.62 AED，恰等于场景 29 收尾的 1,094,300.00 经 `demo:all`（−1,410.65）与本笔现场兑换（−1,090.73）两次真实扣减后的结果，链路可复算）；Owner 改筛 SYSTEM，「Trading/Withdrawal/Other Service Income – AED」三行与看板三收入格 AED 三格逐位一致（同一逻辑，T11 实测样例 30.00 / 52.00 / 42.00，其中三收入格不受注资/付款单据影响，凡重铺后只做过场景 28/29/30 全弧、未额外多开单，此三数可复现）——讲词收在"刚才看板上跳的那一格，账本页查一下，是同一个数字，不是看板另算的"。USDT 侧因既有 `LedgerAccountList` 小数位显示错（`code≠currency` 资产键不一致，`BACKLOG.md` §M 已登记更深根因），走查现场能看见新旧两页数字不一致（看板 8.000000 USDT vs 老账本页 80,000.00），讲词收在"看板这张新页已经修了这个换算坑，旧的账本科目页还没排到"，不是本波复发。
+⑥ **同源同值收尾核对**：切 Ledger Accounts 页，Owner 筛 WALLET →「Company Cash · Company Operations · AED_ZAND – AED」余额与看板运营户 AED 格逐位一致（判据是两页相等，不是某个固定数——具体数值随当次重铺后场景 28/29 的实际走法变化；2026-09-29 T11 干净重走一遍，从 reset 后一路只做场景 28→29→30、零练手单据，实测样例为两处均 1,091,798.62 AED，恰等于场景 29 收尾的 1,094,300.00 经 `demo:all`（−1,410.65）与本笔现场兑换（−1,090.73）两次真实扣减后的结果，链路可复算）；Owner 改筛 SYSTEM，「Trading/Withdrawal/Other Service Income – AED」三行与看板三收入格 AED 三格逐位一致（同一逻辑，T11 实测样例 30.00 / 52.00 / 42.00，其中三收入格不受注资/付款单据影响，凡重铺后只做过场景 28/29/30 全弧、未额外多开单，此三数可复现）——讲词收在"刚才看板上跳的那一格，账本页查一下，是同一个数字，不是看板另算的"。USDT 侧戊波三起也逐位一致：账本科目页 USDT 户按 6 位小数显示（此前 USDT-TRON 户被放大一万倍的显示错已修），看板与科目页读同一个数。
 
-**判据**：看板五区数字与账本三列表 AED 侧逐位同源同值；USDT 侧继承既有显示缺口（非本波复发，已有 BACKLOG 记录）；三收入格随现场客户兑换实时上涨，涨幅等于该笔手续费。
+**判据**：看板六区数字与账本三列表逐位同源同值（AED、USDT 两侧都是）；三收入格随现场客户兑换实时上涨，涨幅等于该笔手续费。
 
 **走查中曾发现的一处新账（已修）**：波二 T11 走查时，管理台「⚡ Simulation」面板对兑换单挂的资金单腿统一按 `FUNDS_ORDER_PUSH_WRITE` 权限门控面板可见性，但兑换单腿的真实推进端点（`POST /admin/swap-transactions/:swapNo/legs/:legSeq/advance`）当时挂的是 `TRADING_SWAP_WRITE`——金库持前者不持后者（面板看得见、点了 403），运营持后者不持前者（面板本身不出现），本仓当时没有任何非超管角色能推完整套，本弧当时改用超管账号 `admin@fiatx.com`（该账号跳过 RBAC）临时取证。**战役乙波三丙案已修**（`rbac.catalog.ts:435` 该路由 groups 改挂 `FUNDS_ORDER_ACT`，commit `a11f284b`，决策见 `decisions.md` 2026-09-30 条）：面板可见性与端点权限自此同源，步骤④推腿动作现场走 `treasury@fiatx.com` 经资金单页面板正常推完即可，不必再用超管账号；`BACKLOG.md` §E 该条已销账。
 

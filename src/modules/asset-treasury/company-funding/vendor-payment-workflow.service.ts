@@ -10,8 +10,8 @@
 // 内部 id 读 VendorPayment 行（事件只带 id，主体服务只暴露按业务号查，照
 // LpExchangeWorkflowService.handleFundsOrderChanged 先例，横向读放行）。
 // 戊波二 T4：from 钱包不再固定 F_OPS——开单时 FirmWalletPickerService 验人选的那只（运营户 / 手续费户，
-// 其余 400），余额闸与 87 的贷方都跟 row.fromWalletId；NLA 算术门只在 from = 运营户时过
-// （手续费户出钱运营户不动，spec 裁定 12），从手续费户付不结转（裁定 5）。
+// 其余 400），余额闸与 87 的贷方都跟 row.fromWalletId；从手续费户付不结转（裁定 5）。
+// 戊波三裁定 2：NLA 算术门两种 from（运营户、手续费户）都过——钱离开公司才过门（口袋间挪钱的公司调拨单不过门）。
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';

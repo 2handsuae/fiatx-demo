@@ -443,8 +443,8 @@ async function planWallets(
   //   statement_lines    ← every POSTED account_flow row on the wallet's own cash account
   //                        (CUSTOMER → code 1 客户现金 / FIRM → code 50 公司现金,
   //                         one account per wallet),
-  //                        EXCLUDING 调账行 (sourceType = RECON_ADJUSTMENT) 与认损补缺的记短缺行
-  //                        (eventCode = INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED，码 91).
+  //                        EXCLUDING 调账行 (sourceType = RECON_ADJUSTMENT)；码 91 的记短缺流水不会出现在这里——
+  //                        库里有已记短缺的认损补缺单时，R37 前置闸 assertNoAnchoredExplanations 在入口就拒绝铺场。
   //
   // 戊波一 T11：账本按"钱所在的位置"重立，钱包的现金户就是托管方真正看得见的那一条账——
   // 外部对账单从这个户的流水原样重铸。调账行与记短缺行只进余额、不进对账单（托管方没有这两笔：

@@ -598,7 +598,7 @@ sqlite3 "$DB" "select actionType,status,count(*) from approval_cases where actio
 
 **RBAC 终态**：`verify:rbac` `186 ✓ / 1 ✗`（唯一红仍是 S7 四条 sumsub demo 死行，**不得称全绿**）；S13d 域 15·桶 **87**·组 96（戊波二当时写的桶 89 已被戊波三 T5 删两重复桶订正）。
 
-**审计词表**：`npm run audit:vocab`（`ts-node scripts/export-audit-vocab.ts`）exit 0，**386 个现役码**，种子文档 `doc-final/reference/audit-actions-vocab.md` 以 `` | `码` `` 起头的表行 **393**（`grep -c '^| `' …` 的实测数，多于 386 的差额未逐行归因，含附录与说明行；脚本自己做现役码名册 ↔ 种子文档的对账，对得上才写盘；⚠️ 该脚本会重写 `doc-final/lark/2026-09-16-audit-actions-catalog-full.md`，T4 已跑，T10 不重跑）。
+**审计词表**：`npm run audit:vocab`（`ts-node scripts/export-audit-vocab.ts`）exit 0，**386 个现役码**，种子文档 `doc-final/reference/audit-actions-vocab.md` 以 `` | `码` `` 起头的表行 **393**（`grep -c '^| `' …` 的实测数，393 = 386 现役（357 + 本波补 29）+ 7 退役容忍；脚本自己做现役码名册 ↔ 种子文档的对账，对得上才写盘；⚠️ 该脚本会重写 `doc-final/lark/2026-09-16-audit-actions-catalog-full.md`，T4 已跑，T10 不重跑）。
 
 **e2e 已知红名单（B 集，戊波三起 20 名）**：戊波二收尾的 B 集 22 名（`e2e-baseline-0c6eb7b0.md` §2.1），去掉 T6 修好的两名——`Recon case aging → write-off e2e` 主链路（夹具改按迪拜业务日）与 `Recon adjustment money arcs` 用例 9（场景 9 尾部对齐第 0 轮锚配对）——余 **20 名**（**戊波三 Task 11 全量冷缓存两轮实跑已确认**：失败集均 = 本清单 20 名 + `vendor-onboarding ①`，后者记偶发——`VENDOR_ACTIVATED` 审计晚于状态落库、`vendor-onboarding.e2e-spec.ts:196` 期望 5 条收到 4 条，干净重铺单跑绿；明细与两个方向差集见 `doc-final/superpowers/checkups/2026-11-07-campaign-e-wave3-evidence/e2e-after-00a89e2f.md`）：
 

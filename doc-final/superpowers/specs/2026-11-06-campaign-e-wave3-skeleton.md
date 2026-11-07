@@ -85,7 +85,8 @@
 - T9 文档清册 1–6（交付合同、decisions 11 条、科目篇、coa-v3 + 记账总表、模块分录句、成因手册）：`f3cab756`
 - T10 剧本 / 基线 / data / CLAUDE.md / 三桶债务 + 走查：`1cfefd65`、`00a89e2f`（修复轮）
 - T11a 收尾闸、全量 e2e、计数终态取数：`76601146`、`618e6c13`（第二轮全量与新基线 20 名）
-- T11b 证据 README、CHANGELOG、本节、小修：本提交
+- T11b 证据 README、CHANGELOG、本节、小修：`81436379`、`6fb3ea92`
+- 终审修复（付款单门注释、decisions 署名、CHANGELOG / 剧本场景 30 订正、funding 桶描述、证据措辞）：终审修复提交
 
 证据索引与闸表、计数前后、清册 ✓ 表见 `checkups/2026-11-07-campaign-e-wave3-evidence/README.md`。
 
@@ -109,7 +110,9 @@
 
 ### 归档待办
 
-- 合并后由主会话归档：总纲 + 本骨架 + 波三 spec / plan → `archive/superpowers/{specs,plans}/`；归档后跑 `grep -rn "campaign-e" doc-final --exclude-dir=archive`，应只剩 CHANGELOG / decisions / 证据目录里的历史引用。
+- 合并后由主会话归档：总纲 + 本骨架 + 波三 spec / plan → `archive/superpowers/{specs,plans}/`；归档后跑 `grep -rn "campaign-e" doc-final --exclude-dir=archive`，应只剩 CHANGELOG / decisions / 证据目录，以及 TOOLING-DEBT / BACKLOG / `demo/script.md` / `demo/baseline.md` / `reference/coa-v3.md` 对证据目录或战役名的引用（合法命中）。
+- 同时归档 `specs/2026-11-06-campaign-e-wave2-skeleton.md`；总纲归档后，`doc-final/reference/coa-v3.md:4` 指向总纲的路径改到 `archive/superpowers/specs/…`。
+- 合并须知（给主会话）：主工作树 `doc-final/BACKLOG.md` 有业主未提交 2 行（2026-10-29「登记欠款入口」），另有未跟踪的本波 spec / plan 两份（与分支版逐字相同）——ff 前要先挪开，合并后把业主那 2 行补回并提交；不要用 git stash。
 - `cloud:deploy`：连欠波一至波三，`npm run cloud:deploy`，业主触发（本波不跑）。
 - 合并后主会话按 `CLAUDE.md §10`：重启后端 + `npm run db:base:sync`（删桶本身只需重启；词表 / 权限字典同步仍照 §10 做）+ `bash scripts/stack.sh reset main`。
 - 业主维护项（spec §2：agent 不碰 `reference/roadmap.md`）：V7 行，以及 `:431` / `:442` / `:452` 的旧充值路径表述，待业主更新。

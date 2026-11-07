@@ -106,7 +106,7 @@ e2e 基线不重跑，复用波二 `doc-final/superpowers/checkups/2026-11-07-ca
 
 | # | 文件 | 改了什么 | 提交 | grep 命令 → 结果 | ✓ |
 |---|---|---|---|---|---|
-| 1 | `delivery/semantic-contract.md`、`decision-log.md`、`dependency-contract-status.md`、`nonfunctional-baseline.md` | S9 按 COA v3 重写、S10 / S13 核认损补缺一张单；D-5 标被 D-31 取代、D-10 改一张单、新增 D-31…D-37；其余两篇核过零改动 | `f3cab756` | `grep -n -E "$G\|$P" delivery/*.md` → semantic-contract 0、decision-log 1（`:10` D-5 历史原文，后接「被 D-31 取代」）、dependency-contract-status 0、nonfunctional-baseline 0 | ✓ |
+| 1 | `delivery/semantic-contract.md`、`decision-log.md`、`dependency-contract-status.md`、`nonfunctional-baseline.md` | S9 按 COA v3 重写、S10 / S13 核认损补缺一张单；D-5 标被 D-31 取代、D-10 改一张单、新增 D-31…D-37；`dependency-contract-status.md` 实改 2 行（TigerBeetle 行补按钱包开户、托管方回单行补认损补缺单批准时的腿），`nonfunctional-baseline.md` 核过零改动 | `f3cab756` | `grep -n -E "$G\|$P" delivery/*.md` → semantic-contract 0、decision-log 1（`:10` D-5 历史原文，后接「被 D-31 取代」）、dependency-contract-status 0、nonfunctional-baseline 0 | ✓ |
 | 2 | `decisions.md` | 追加 11 条（2026-11-07）：COA v3 … 入账追回与垫款链挂起；其中 ⑧ 点名翻 `:152`；T11b 把调拨单条的签署语改为「业主拍板（裁定 2）＋作者裁定、业主已知（裁定 4）」 | `f3cab756`（T11b 复改一处） | `grep -c "^- \[2026-11-07\]" decisions.md` → 11；`wc -l decisions.md` → 181 | ✓ |
 | 3 | `modules/accounting-coa.md` | 整篇重写（13 码五类、开户粒度、两条天平、NLA 一句、§5 技术节点、§6 缺口） | `f3cab756` | `grep -n -E "$G\|$P" modules/accounting-coa.md` → 1 处（`:41`「结算中转」，说明旧科目已退役的历史交代） | ✓ |
 | 4 | `reference/coa-v3.md` | 状态行改现状；科目表按落地核对；新增 §2 七单与调账单记账总表 | `f3cab756` | `grep -n -E "$G\|$P" reference/coa-v3.md` → 9 处，全在「原 xx」对照列、退役码行与物理位置表（新旧对照，非现状描述） | ✓ |

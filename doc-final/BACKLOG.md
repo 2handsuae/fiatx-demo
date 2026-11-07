@@ -221,7 +221,7 @@ Last Updated: 2026-10-08（报送台整备波文档收口：销 6 行（整行�
 
 - [ ] **已结案（Resolved）的案件页自相矛盾：五个余额格取破口那一刻的快照，差异行和副行按结案那一轮重建**：场景 16 走完认损补缺并 Re-reconcile 后，案件页上 `CaseBalanceTiles` 的五格仍显示破口当时的红色 "Unexplained −7.5 needs investigation"，而下方差异行 / 副行已是 Explained、Resolved（证据截图 `superpowers/checkups/2026-11-07-campaign-e-wave2-evidence/t11-scene-16-12-healed.png`）。格子算法波前就这样，戊波二把重对账后的行改成过去时，反差被放大。修法方向：已结案案件的格子也按结案那一轮重算，或在格子上标「as of 开案」｜复现: 重铺后走场景 16 全程（Hold → 认损补缺 → CFO 批 → 执行 → Re-reconcile），打开该案详情页 ｜来源: 戊波二终审 M5（2026-11-07）
 
-- [ ] **被锚定的调账单少付（落账金额低于差额）后，差异行仍读绿色「Explained · ADJ…」**：调账单锚到某条差异行、落账后匹配器第 0 轮按锚配对判 AMOUNT_MISMATCH，但行上的 chip 只看单据状态——`POSTED` 一律打「Explained」（`admin-web/src/utils/adjustmentChip.ts:20`），不看金额够不够。只有操作员改了预填金额、落账低于差额才会出现「行读 Explained 但金额对不上」——pass 0（预填原值）按锚配对判 AMOUNT_MISMATCH，行保持 AMOUNT_MISMATCH，不受影响 ｜复现: 在带锚的调账弹窗里把预填金额改小 → CFO 批 → 落账，看案件页该差异行的状态标签 ｜来源: 戊波二终审（2026-11-07），波三骨架悬挂项「读面小尾巴」同条
+- [ ] **被锚定的调账单少付（落账金额低于差额）后，差异行仍读绿色「Explained · ADJ…」**：调账单锚到某条差异行、落账后匹配器第 0 轮按锚配对判 AMOUNT_MISMATCH，但行上的 chip 只看单据状态——`POSTED` 一律打「Explained」（`admin-web/src/utils/adjustmentChip.ts:20`），不看金额够不够。只有操作员改了预填金额、落账低于差额才会出现「行读 Explained 但金额对不上」——pass 0（预填原值）按锚配对判 AMOUNT_MISMATCH，行保持 AMOUNT_MISMATCH，不受影响；已结案案件页侧栏 Books Δ 同为破口那一轮的快照（不是现值） ｜复现: 在带锚的调账弹窗里把预填金额改小 → CFO 批 → 落账，看案件页该差异行的状态标签 ｜来源: 戊波二终审（2026-11-07），波三骨架悬挂项「读面小尾巴」同条
 
 ## H. 第七幕 · 事后说得清（审计追溯）
 
