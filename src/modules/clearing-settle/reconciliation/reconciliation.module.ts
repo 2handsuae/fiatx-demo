@@ -66,6 +66,7 @@ import { SimulatedCustodianStatementService } from './simulation/simulated-custo
     SupplementEvidenceService,
     SimulatedCustodianStatementService,
   ],
-  exports: [WalletReconRunService, CaseAgingService, DispositionService, SupplementEvidenceService, SimulatedCustodianStatementService],
+  // 戊波二 T7a：ReconciliationQueryService 也导出——认损补缺单（划转单 workflow）按锚取案件页同一行的差额，金额 / 方向与 nextStep 同源。
+  exports: [WalletReconRunService, CaseAgingService, DispositionService, SupplementEvidenceService, SimulatedCustodianStatementService, ReconciliationQueryService],
 })
 export class ReconciliationModule {}

@@ -83,6 +83,9 @@ export class DispositionService {
     if (existing?.adjustmentNo) {
       throw new BadRequestException(`This line's finding is already linked to adjustment ${existing.adjustmentNo} — cannot overwrite; the order and the conclusion must stay consistent`);
     }
+    if (existing?.transferNo) {
+      throw new BadRequestException(`This line's finding is already linked to shortfall top-up ${existing.transferNo} — cannot overwrite; the order and the conclusion must stay consistent`);
+    }
     if (existing?.supplementNo) {
       throw new BadRequestException(`This line's finding is already linked to supplement ${existing.supplementNo} — cannot overwrite; the order and the conclusion must stay consistent`);
     }
@@ -166,7 +169,25 @@ export class DispositionService {
       throw new BadRequestException(`Finding ${dispositionNo}'s outlet is ${row.outlet} — it does not route to an adjustment`);
     }
     if (row.adjustmentNo) throw new BadRequestException(`Finding ${dispositionNo} is already linked to adjustment ${row.adjustmentNo}`);
+    if (row.transferNo) throw new BadRequestException(`Finding ${dispositionNo} is already linked to shortfall top-up ${row.transferNo}`);
     await this.prisma.reconciliationDisposition.update({ where: { dispositionNo }, data: { adjustmentNo } });
+  }
+
+  /**
+   * 戊波二 T7a：认损补缺单回挂——客户池认损改走划转单后，「开单即挂、行锁定」落在这一列（与 adjustmentNo 平行）。
+   * 不加 DispositionKind、不改写 outlet（加了会进 disposition.dto.ts 的白名单，变成可直接 record 的后门）：
+   * 出口仍是「挂起·调查中」（账龄路）或 INCIDENT（事故路），只多一个 transferNo。
+   * 挂了就锁死（record 的覆盖锁认 transferNo），驳回 / 撤回 / 超时 / 记短缺失败由划转单 workflow 调 unlinkTransfer 解开。
+   */
+  async linkTransfer(dispositionNo: string, transferNo: string): Promise<void> {
+    const row = await this.prisma.reconciliationDisposition.findUnique({ where: { dispositionNo } });
+    if (!row) throw new NotFoundException(`Finding record not found: ${dispositionNo}`);
+    if (row.outlet !== 'HOLD_INVESTIGATING' && row.outlet !== 'INCIDENT') {
+      throw new BadRequestException(`Finding ${dispositionNo}'s outlet is ${row.outlet} — it does not route to a shortfall top-up`);
+    }
+    if (row.adjustmentNo) throw new BadRequestException(`Finding ${dispositionNo} is already linked to adjustment ${row.adjustmentNo}`);
+    if (row.transferNo) throw new BadRequestException(`Finding ${dispositionNo} is already linked to shortfall top-up ${row.transferNo}`);
+    await this.prisma.reconciliationDisposition.update({ where: { dispositionNo }, data: { transferNo } });
   }
 
   /**
@@ -210,6 +231,16 @@ export class DispositionService {
     const row = await this.prisma.reconciliationDisposition.findFirst({ where: { adjustmentNo } });
     if (!row) return;
     await this.prisma.reconciliationDisposition.update({ where: { dispositionNo: row.dispositionNo }, data: { adjustmentNo: null } });
+  }
+
+  /**
+   * 戊波二 T7a：认损补缺单驳回 / 撤回 / 超时 / 记短缺失败清锁——镜像 unlinkAdjustment：按 transferNo 反查挂着的定性行，
+   * 查不到就是没挂过，不动；查到只清 transferNo 这一列，定性本体（成因 / 说明 / 出口）原样保留。
+   */
+  async unlinkTransfer(transferNo: string): Promise<void> {
+    const row = await this.prisma.reconciliationDisposition.findFirst({ where: { transferNo } });
+    if (!row) return;
+    await this.prisma.reconciliationDisposition.update({ where: { dispositionNo: row.dispositionNo }, data: { transferNo: null } });
   }
 
   /**

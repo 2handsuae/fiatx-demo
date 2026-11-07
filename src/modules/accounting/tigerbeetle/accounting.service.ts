@@ -430,16 +430,25 @@ export class AccountingService {
   }
 
   /**
-   * 钱包余额闸 —— 公司侧出款类单据（划转 / 付款 / LP 兑换，戊波二起加调拨）共用的唯一一份（戊波二 T3）。
-   * 读该钱包的现金户（借方户，经 resolveCashAccountId 取，不回落别的户）：
-   *   可用 = 借已过账 − 贷已过账 − 贷挂起（出款挂起是贷方挂起；借挂起是待入账，不可花、不抬高可用）≥ 金额（最小单位）。
-   * 不够 → 400 INSUFFICIENT_FIRM_BALANCE（话术带币种 / 钱包号 / 可用 / 需要，铁律⑥：不带 UUID）。
-   * 调用方决定「查哪只钱包」；今天三张单都是该币种的 F_OPS，T4 / T7 起改读单上人选的 from 钱包。
+   * 钱包现金户可用额 —— 「可用 = 借已过账 − 贷已过账 − 贷挂起」这条算式在全仓的唯一一份（戊波二 T7a 从 assertWalletBalance 里提出）。
+   * 读该钱包的现金户（借方户，经 resolveCashAccountId 取，不回落别的户）；出款挂起是贷方挂起，借挂起是待入账，不可花、不抬高可用。
+   * 公司钱包的出款余额闸（assertWalletBalance）与客户钱包的「认损前余量」复查（认损补缺单：待批提现的锁定是贷方挂起，
+   * TB 判「贷不得超借」把它算在内）共用它，只是各自的话术与错误码不同。
    */
-  async assertWalletBalance(walletId: string, ledger: number, amountMinor: bigint): Promise<void> {
+  async getWalletCashAvailable(walletId: string, ledger: number): Promise<bigint> {
     const cashId = await this.resolveCashAccountId(walletId, ledger);
     const bal = await this.lookupBalance(cashId);
-    const available = bal.debitsPosted - bal.creditsPosted - bal.creditsPending;
+    return bal.debitsPosted - bal.creditsPosted - bal.creditsPending;
+  }
+
+  /**
+   * 钱包余额闸 —— 公司侧出款类单据（划转 / 付款 / LP 兑换，戊波二起加调拨）共用的唯一一份（戊波二 T3）。
+   * 可用额（getWalletCashAvailable）≥ 金额（最小单位）。
+   * 不够 → 400 INSUFFICIENT_FIRM_BALANCE（话术带币种 / 钱包号 / 可用 / 需要，铁律⑥：不带 UUID）。
+   * 调用方决定「查哪只钱包」；划转 / 付款 / 调拨读单上人选的 from 钱包，LP 兑换恒是 F_OPS。
+   */
+  async assertWalletBalance(walletId: string, ledger: number, amountMinor: bigint): Promise<void> {
+    const available = await this.getWalletCashAvailable(walletId, ledger);
     if (available >= amountMinor) return;
     const wallet = await this.prisma.wallet.findUnique({ where: { id: walletId }, select: { walletNo: true } });
     const currency = Object.entries(TB_LEDGERS).find(([, id]) => id === ledger)?.[0] ?? `ledger ${ledger}`;

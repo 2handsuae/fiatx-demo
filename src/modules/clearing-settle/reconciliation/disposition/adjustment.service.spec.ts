@@ -1,6 +1,9 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AdjustmentStatus } from '../constants/adjustment-transitions.constant';
+import { validate } from 'class-validator';
+import { plainToInstance } from 'class-transformer';
+import { CreateAdjustmentDto } from '../dto/adjustment.dto';
 import { AdjustmentService } from './adjustment.service';
 import { DispositionService } from './disposition.service';
 import { TB_ACCOUNT_CODES } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
@@ -263,12 +266,10 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
     }
   });
 
-  // Recon wave 2 Task 4: client pool write-off unlocked as "loss recognition" — UNEXPLAINED_CLIENT_LOSS
-  // only allows REDUCE, excess funds (INCREASE) are routed to deposit backfill instead; book × reason
-  // code pairing does not allow cross-using codes. This describe's existing makeSvc(kase, create) takes
-  // two positional args, unlike the three named sub-objects (kase/disposition/asset) used here, so this
-  // is a separate same-named local factory (shadowed within this nested describe's scope, does not affect other cases in this describe).
-  describe('Client pool loss recognition (recon wave 2 Task 4) —— UNEXPLAINED_CLIENT_LOSS allowed / rejected', () => {
+  // 戊波二 T7a：客户池认损不再是调账单（改走划转单「认损补缺」：一张单、一次批、客户余额不动）。
+  // 原来这里锁的是「客户池认损允许 / 拒绝」；现在调账单写面对客户池的认损一律拒绝，守卫的客户池用法
+  // 搬到了 InternalTransferWorkflowService.initiateShortfallTopup（同一份 write-off-guards，其 spec 在划转单那边）。
+  describe('Client pool loss recognition is no longer an adjustment (campaign E wave 2 T7a)', () => {
     const treasury = { actorType: 'ADMIN' as const, userId: 'U_TREASURY', userNo: 'U_TREASURY', roleCodes: ['TREASURY_OFFICER'] };
 
     const makeSvc = (opts: { kase: any; disposition: any; asset: any }) => {
@@ -284,28 +285,32 @@ describe('AdjustmentService.createDraft two gates —— where the gate cannot b
       );
       return { svc, prisma };
     };
+    const agedHeld = { dispositionNo: 'RCD-1', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null };
 
-    it('client pool loss recognition · allowed: overdue + investigating + small amount + REDUCE + code UNEXPLAINED_CLIENT_LOSS → adjustment opened', async () => {
+    it('the retired code UNEXPLAINED_CLIENT_LOSS is rejected as an unknown reason on a client case — an overdue + investigating + small + REDUCE row no longer opens an adjustment', async () => {
       const { svc, prisma } = makeSvc({
         kase: { caseNo: 'REC-C1', status: 'OPEN', book: 'CUSTOMER', assetCode: 'USDT-TRON', walletRef: 'w-1', ownerNo: 'CU-1', slaBreached: true, businessDate: '2026-09-05' },
-        disposition: { dispositionNo: 'RCD-1', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null },
-        asset: { currency: 'USDT', decimals: 6 },
+        disposition: agedHeld, asset: { currency: 'USDT', decimals: 6 },
       });
-      const r = await svc.createDraft({ caseNo: 'REC-C1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '7500000', effectiveDate: '2026-09-05', explainedFlowId: 'f-1', reasonInternal: 'x' } as any, treasury);
-      expect(r.adjustmentNo).toMatch(/^ADJ/);
-      expect(prisma.reconciliationAdjustment.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ book: 'CLIENT', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE' }) }));
+      await expect(svc.createDraft({ caseNo: 'REC-C1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '7500000', effectiveDate: '2026-09-05', explainedFlowId: 'f-1', reasonInternal: 'x' } as any, treasury))
+        .rejects.toThrow(/Unknown reason code: UNEXPLAINED_CLIENT_LOSS/);
+      expect(prisma.reconciliationAdjustment.create).not.toHaveBeenCalled();
     });
-    it('client pool · excess funds (INCREASE) → 400 pointing to deposit backfill', async () => {
-      const { svc } = makeSvc({ kase: { caseNo: 'REC-C2', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED', walletRef: 'w-2', ownerNo: 'CU-2', slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-2', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
-      await expect(svc.createDraft({ caseNo: 'REC-C2', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'INCREASE', amount: '100', effectiveDate: '2026-09-05', explainedExternalLineId: 'x-1', reasonInternal: 'x' } as any, treasury)).rejects.toThrow(/backfill/);
+    it('the admin API cannot even deliver the retired code: the create DTO\'s reasonCode whitelist rejects it (and still accepts the firm write-off code)', async () => {
+      const base = { caseNo: 'REC-C1', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', reasonInternal: 'x' };
+      const bad = await validate(plainToInstance(CreateAdjustmentDto, { ...base, reasonCode: 'UNEXPLAINED_CLIENT_LOSS' }));
+      expect(bad.map((e) => e.property)).toContain('reasonCode');
+      const ok = await validate(plainToInstance(CreateAdjustmentDto, { ...base, reasonCode: 'UNEXPLAINED_WRITE_OFF' }));
+      expect(ok.map((e) => e.property)).not.toContain('reasonCode');
     });
-    it('client pool using the firm pool code / firm pool using the client pool code → 400', async () => {
-      const { svc } = makeSvc({ kase: { caseNo: 'REC-C3', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED', walletRef: 'w-3', ownerNo: 'CU-3', slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-3', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
-      await expect(svc.createDraft({ caseNo: 'REC-C3', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-3', reasonInternal: 'x' } as any, treasury)).rejects.toThrow(/Client pool loss recognition/);
-
-      // The other way around: a firm-book case using the client pool's loss-recognition code → 400, copy points to the firm's own write-off code.
+    it('a client-pool case using the firm pool write-off code → 400 pointing to "Recognize loss & top up" (the client pool is never written off by an adjustment)', async () => {
+      const { svc, prisma } = makeSvc({ kase: { caseNo: 'REC-C3', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED', walletRef: 'w-3', ownerNo: 'CU-3', slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-3', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
+      await expect(svc.createDraft({ caseNo: 'REC-C3', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-3', reasonInternal: 'x' } as any, treasury)).rejects.toThrow(/Recognize loss & top up/);
+      expect(prisma.reconciliationAdjustment.create).not.toHaveBeenCalled();
+    });
+    it('a firm-pool case using the retired client code → 400 (unknown reason); the firm pool keeps its own write-off code', async () => {
       const { svc: svcFirm } = makeSvc({ kase: { caseNo: 'REC-C4', status: 'OPEN', book: 'FIRM', assetCode: 'AED', walletRef: 'w-4', ownerNo: null, slaBreached: true, businessDate: '2026-09-05' }, disposition: { dispositionNo: 'RCD-4', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null }, asset: { currency: 'AED', decimals: 2 } });
-      await expect(svcFirm.createDraft({ caseNo: 'REC-C4', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-4', reasonInternal: 'x' } as any, treasury)).rejects.toThrow(/Firm pool unexplained differences use/);
+      await expect(svcFirm.createDraft({ caseNo: 'REC-C4', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '100', effectiveDate: '2026-09-05', explainedFlowId: 'f-4', reasonInternal: 'x' } as any, treasury)).rejects.toThrow(/Unknown reason code/);
     });
   });
 });
@@ -518,6 +523,9 @@ describe('createDraft atomic finding (Task 3: write-side flip) — causeCode + f
   });
 });
 
+// 戊波二 T7a：客户池认损改走划转单（认损补缺），这条事故路守卫的调账单用法只剩公司池——
+// 本组用例因此在公司簿（UNEXPLAINED_WRITE_OFF）上跑同一份守卫（write-off-guards.ts 的事故三重闸），行为断言原样；
+// 客户池的同款用例在划转单 workflow 的 spec 里（initiateShortfallTopup · incident path）。
 // Recon wave 3 Task 10: the loss-recognition adjustment incident branch. When the anchored finding
 // line's outlet='INCIDENT' (cause-registry UNAUTHORIZED_OUTFLOW, a large unauthorized outflow), it
 // skips the "unexplained" four preconditions and instead checks the incident's assessment conclusion —
@@ -527,12 +535,12 @@ describe('createDraft atomic finding (Task 3: write-side flip) — causeCode + f
 describe('Incident-path loss recognition (recon wave 3 Task 10) —— outlet=INCIDENT branch: assessment basis + amount lock + status', () => {
   const treasury = { actorType: 'ADMIN' as const, userId: 'U_TREASURY', userNo: 'U_TREASURY', roleCodes: ['TREASURY_OFFICER'] };
   const kase = {
-    caseNo: 'REC-INC-1', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED',
-    walletRef: 'w-inc-1', ownerNo: 'CU-9', slaBreached: false, businessDate: '2026-09-06',
+    caseNo: 'REC-INC-1', status: 'OPEN', book: 'FIRM', assetCode: 'AED',
+    walletRef: 'w-inc-1', ownerNo: null, slaBreached: false, businessDate: '2026-09-06',
   };
   const disposition = { dispositionNo: 'RCD-INC-1', outlet: 'INCIDENT', incidentNo: 'INC-0001', adjustmentNo: null };
   const dto = {
-    caseNo: 'REC-INC-1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE',
+    caseNo: 'REC-INC-1', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE',
     amount: '123456', // 1234.56 AED (minor units) — well past the small-amount threshold (100.00 AED), deliberately verifies the threshold is not checked
     effectiveDate: '2026-09-06', explainedFlowId: 'f-inc-1',
     reasonInternal: 'Unauthorized outflow loss recognition',
@@ -576,7 +584,7 @@ describe('Incident-path loss recognition (recon wave 3 Task 10) —— outlet=IN
     const r = await svc.createDraft(dto as any, treasury);
     expect(r.adjustmentNo).toBe('ADJ_INC');
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ book: 'CLIENT', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '123456' }),
+      data: expect.objectContaining({ book: 'FIRM', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '123456' }),
     }));
     expect(dispositions.linkAdjustment).toHaveBeenCalledWith('RCD-INC-1', 'ADJ_INC', { family: 'WRITE_OFF' });
     // Evidence that the real allowlist actually let it through: the finding line was genuinely linked
@@ -638,14 +646,17 @@ describe('Incident-path loss recognition (recon wave 3 Task 10) —— outlet=IN
     expect(prisma.reconciliationAdjustment.create).not.toHaveBeenCalled();
   });
 
-  it('reason code pairing unchanged: the client pool still requires UNEXPLAINED_CLIENT_LOSS + REDUCE, excess funds (INCREASE) → 400 pointing to deposit backfill', async () => {
-    const { svc } = makeSvc({
+  it('the client pool is no longer an adjustment: a client-book case on the incident path → 400 pointing to "Recognize loss & top up" (the incident three-gate itself passes first)', async () => {
+    const { svc, create } = makeSvc({
+      kase: { ...kase, book: 'CUSTOMER', ownerNo: 'CU-9' },
       incident: { incidentNo: 'INC-0001', status: 'ASSESSED', assessmentBasis: 'FIRM_LOSS', assessedAmount: new Prisma.Decimal('1234.56') },
     });
-    await expect(svc.createDraft({ ...dto, direction: 'INCREASE' } as any, treasury)).rejects.toThrow(/backfill/);
+    await expect(svc.createDraft(dto as any, treasury)).rejects.toThrow(/Recognize loss & top up/);
+    expect(create).not.toHaveBeenCalled();
   });
 });
 
+// 戊波二 T7a：同上——这条升级事故路（LARGE_UNEXPLAINED）的调账单用法只剩公司池，用例在公司簿上跑；客户池见划转单 spec。
 // Recon disposition rework Task 4 (dead-end fix): the LARGE_UNEXPLAINED escalation path
 // (Hold · Investigating → aged out → Escalate → incident registered via
 // DispositionService.attachIncident) never changes the finding line's outlet away from
@@ -661,13 +672,13 @@ describe('Incident-path loss recognition (recon wave 3 Task 10) —— outlet=IN
 describe('Incident-path loss recognition also covers the LARGE_UNEXPLAINED escalation path (outlet stays HOLD_INVESTIGATING, only incidentNo is attached)', () => {
   const treasury = { actorType: 'ADMIN' as const, userId: 'U_TREASURY', userNo: 'U_TREASURY', roleCodes: ['TREASURY_OFFICER'] };
   const kase = {
-    caseNo: 'REC-ESC-1', status: 'OPEN', book: 'CUSTOMER', assetCode: 'AED',
-    walletRef: 'w-esc-1', ownerNo: 'CU-9', slaBreached: false, businessDate: '2026-09-06',
+    caseNo: 'REC-ESC-1', status: 'OPEN', book: 'FIRM', assetCode: 'AED',
+    walletRef: 'w-esc-1', ownerNo: null, slaBreached: false, businessDate: '2026-09-06',
   };
   // outlet stays HOLD_INVESTIGATING — attachIncident() only ever writes the incidentNo column.
   const disposition = { dispositionNo: 'RCD-ESC-1', outlet: 'HOLD_INVESTIGATING', incidentNo: 'INC-ESC-1', adjustmentNo: null };
   const dto = {
-    caseNo: 'REC-ESC-1', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE',
+    caseNo: 'REC-ESC-1', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE',
     amount: '123456', // well past the small-amount threshold (100.00 AED) — precisely why it escalated
     effectiveDate: '2026-09-06', explainedFlowId: 'f-esc-1',
     reasonInternal: 'Large unexplained difference, assessed via incident',
@@ -702,7 +713,7 @@ describe('Incident-path loss recognition also covers the LARGE_UNEXPLAINED escal
     const r = await svc.createDraft(dto as any, treasury);
     expect(r.adjustmentNo).toBe('ADJ_ESC');
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ book: 'CLIENT', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '123456' }),
+      data: expect.objectContaining({ book: 'FIRM', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: 'REDUCE', amount: '123456' }),
     }));
     expect(dispositions.linkAdjustment).toHaveBeenCalledWith('RCD-ESC-1', 'ADJ_ESC', { family: 'WRITE_OFF' });
   });
@@ -868,7 +879,6 @@ describe('AdjustmentService.onApproved posting', () => {
     // 客户池
     ['CLIENT', 'DUP_BOOKING', 'REDUCE', payableKey('uuid-cust'), cashKey('W_CUST_1'), 'L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
     ['CLIENT', 'PAYOUT_NOT_EXECUTED', 'INCREASE', cashKey('W_CUST_1'), payableKey('uuid-cust'), 'A.CLIENT_CASH', 'L.CLIENT_PAYABLE'],
-    ['CLIENT', 'UNEXPLAINED_CLIENT_LOSS', 'REDUCE', payableKey('uuid-cust'), cashKey('W_CUST_1'), 'L.CLIENT_PAYABLE', 'A.CLIENT_CASH'],
     // 公司池 · 更正 / 冲销 → 公司权益（两个方向）
     ['FIRM', 'AMT_MISBOOKED', 'REDUCE', systemKey(TB_ACCOUNT_CODES.FIRM_EQUITY), cashKey('W_FIRM_AED'), 'E.FIRM_EQUITY', 'A.FIRM_CASH'],
     ['FIRM', 'AMT_MISBOOKED', 'INCREASE', cashKey('W_FIRM_AED'), systemKey(TB_ACCOUNT_CODES.FIRM_EQUITY), 'A.FIRM_CASH', 'E.FIRM_EQUITY'],
@@ -1606,14 +1616,10 @@ describe('Recon batch A: write-off four preconditions (spec §3.2) —— missin
   it('precondition 2b: the finding is already linked to an adjustment → 400', async () => {
     await expect(makeSvc(firmCase, { ...heldDisposition, adjustmentNo: 'ADJ_OLD' }).svc.createDraft(dto as any, OP)).rejects.toThrow(/ADJ_OLD/);
   });
-  // Recon wave 2 Task 4 change: the client pool is no longer always 400 — it is rejected only when
-  // using the firm pool's write-off code (UNEXPLAINED_WRITE_OFF), the rejection reason being a "book
-  // × reason code pairing" mismatch pointing to the client pool's own loss-recognition code, no longer
-  // "wave 2 transfer" (the path where the client pool uses the correct code UNEXPLAINED_CLIENT_LOSS
-  // and is allowed is covered in the new describe below).
-  it('precondition 3: the client pool used the firm pool\'s write-off code → 400, copy points to the client pool\'s loss-recognition code', async () => {
+  // 戊波二 T7a：客户池的认损不再是调账单——客户池用公司池核销码仍是 400，文案指路「认损补缺」（Recognize loss & top up）。
+  it('precondition 3: the client pool used the firm pool\'s write-off code → 400, copy points to "Recognize loss & top up" (the client pool is never an adjustment write-off)', async () => {
     const { svc } = makeSvc({ ...firmCase, book: 'CLIENT', ownerNo: 'C0042' }, heldDisposition);
-    await expect(svc.createDraft(dto as any, OP)).rejects.toThrow(/Client pool loss recognition/);
+    await expect(svc.createDraft(dto as any, OP)).rejects.toThrow(/Recognize loss & top up/);
   });
   it('precondition 4: amount exceeds the small-amount threshold → 400, copy points to incident registration', async () => {
     const { svc } = makeSvc(firmCase, heldDisposition);
@@ -1653,49 +1659,20 @@ describe('Recon batch A: the approval page tells it straight —— write-off fa
   });
 });
 
-// 平账三期 Task 10 评审 Fix 3（Important）：UNEXPLAINED_CLIENT_LOSS 的审批页 impact
-// 文案有两条来路——HOLD_INVESTIGATING 老路（拖到账龄线还查不出原因）与 INCIDENT 事故
-// 路（大额未授权转出，结论已经定成「公司承损」）。CFO 审批那一屏是动钱前最后人闸
-// （describeImpact 函数头注释自己写的），继续对事故路说「查无果」「已超期 N 天」是在
-// 审批页撒谎——两条路各自的文案在这里锁死，互不外溢。
-describe('AdjustmentService.describeImpact —— client pool loss recognition\'s two paths each get their own copy (Task 10 review Fix 3)', () => {
+// 戊波二 T7a：「客户池认损」的审批页文案（老路 / 事故路两套）随客户池认损退出调账单而删除——客户池认损补缺的审批
+// 文案在划转单 workflow 里（impact 句式见 internal-transfer-workflow.service.spec.ts），不再经 describeImpact。
+// 下面公司池核销的两套文案（老路 / 事故路）原样保留；这一条锁住「旧的两张单话术没有残留」。
+describe('AdjustmentService.describeImpact —— no adjustment copy promises a follow-up compensation transfer any more (the two-document path is retired)', () => {
   const svc = new AdjustmentService(null as any, null as any, null as any, null as any, null as any);
-  const baseRow = {
-    book: 'CLIENT', ownerNo: 'C0042', amount: '150000', assetCode: 'AED',
-    direction: 'REDUCE', reasonCode: 'UNEXPLAINED_CLIENT_LOSS',
-  } as any;
-
-  it('HOLD_INVESTIGATING old path: copy keeps "unexplained" + days overdue as-is (no incidentNo passed)', () => {
+  it.each([
+    ['aging path', undefined],
+    ['incident path', 'INC-0009'],
+  ])('firm write-off · %s: the copy never says a compensation transfer will follow', (_name, incidentNo) => {
     const text = svc.describeImpact(
-      { ...baseRow, reasonInternal: 'Client loss recognition', caseNo: 'REC-HOLD-1' },
-      2,
-      { walletNo: 'WA001', agedDays: 5, findingNote: 'Multiple reconciliation passes turned up nothing' },
+      { book: 'FIRM', ownerNo: null, amount: '150000', assetCode: 'AED', direction: 'REDUCE', reasonCode: 'UNEXPLAINED_WRITE_OFF', reasonInternal: 'x', caseNo: 'REC-1' } as any,
+      2, { walletNo: 'WA001', agedDays: 5, findingNote: 'n', ...(incidentNo ? { incidentNo } : {}) },
     );
-    expect(text).toContain('Client pool unexplained loss recognition');
-    expect(text).toContain('overdue 5 days');
-    expect(text).not.toContain('incident');
-  });
-
-  it('INCIDENT path: does not say "unexplained", carries no days-overdue, carries the incident number + assessed amount, states "firm bears the loss"', () => {
-    const text = svc.describeImpact(
-      { ...baseRow, reasonInternal: 'Unauthorized outflow loss recognition', caseNo: 'REC-INC-1' },
-      2,
-      // agedDays is deliberately still passed a value (30) — to prove the incident path genuinely
-      // does not read it, not that it merely failed to compute a days-overdue figure to show.
-      { walletNo: 'WA001', agedDays: 30, findingNote: 'Large unauthorized outflow; incident has been assessed', incidentNo: 'INC-0009' },
-    );
-    expect(text).toContain('INC-0009');
-    expect(text).toContain('Client pool loss recognition');
-    expect(text).not.toContain('unexplained');
-    expect(text).not.toContain('overdue');
-    expect(text).not.toContain('30');
-    expect(text).toContain('firm bears the loss');
-    // 戊波一：客户池认损贷的是客户现金户（案子钱包），不再是聚合「客户资产池」。
-    expect(text).toContain('debit client payable, credit client cash');
-    expect(text).not.toContain('asset pool');
-    // 150000 minor units at decimals=2 is 1500.00 AED — the assessed amount and the adjustment amount
-    // are the same number (assertIncidentWriteOffAllowed already locks the amount, the two must be equal).
-    expect(text).toContain('1500.00');
+    expect(text).not.toMatch(/compensation/i);
   });
 });
 
@@ -1745,8 +1722,8 @@ describe('AdjustmentService.submit —— escalation path (outlet stays HOLD_INV
   const actor = { actorType: 'ADMIN' as const, userId: 'U_OPS', userNo: 'U_OPS', roleCodes: ['OPS_OFFICER'] };
   const row = {
     adjustmentNo: 'ADJ_ESC_SUBMIT', status: AdjustmentStatus.DRAFT, caseNo: 'REC-ESC-SUB',
-    book: 'CLIENT', direction: 'REDUCE', reasonCode: 'UNEXPLAINED_CLIENT_LOSS',
-    amount: '123456', assetCode: 'AED', ownerNo: 'CU-9', toOwnerNo: null,
+    book: 'FIRM', direction: 'REDUCE', reasonCode: 'UNEXPLAINED_WRITE_OFF',
+    amount: '123456', assetCode: 'AED', ownerNo: null, toOwnerNo: null,
     walletRef: 'w-esc-sub', reasonInternal: 'Large unexplained difference, assessed via incident',
     traceId: null,
   };

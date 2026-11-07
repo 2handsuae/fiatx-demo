@@ -5,6 +5,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/prisma/prisma.service';
 import { generateReferenceNo } from '../../../common/utils/no-generator.util';
+import { toBusinessDate } from '../../accounting/tigerbeetle/utils/business-date.util';
 import { INTERNAL_TRANSFER_BLOCKING_STATUSES, INTERNAL_TRANSFER_TRANSITIONS } from './constants/internal-transfer-transitions.constant';
 import { CreateInternalTransferInput, InternalTransferListQueryDto, InternalTransferStatus, InternalTransferView } from './dto/internal-transfer.dto';
 
@@ -32,8 +33,12 @@ export class InternalTransferService {
         status: InternalTransferStatus.PENDING_APPROVAL,
         reason: input.reason,
         sourceCaseNo: input.sourceCaseNo,
-        sourceAdjustmentNo: input.sourceAdjustmentNo ?? null,
         sourceExternalLineId: input.sourceExternalLineId ?? null,
+        explainedFlowId: input.explainedFlowId ?? null,
+        explainedExternalLineId: input.explainedExternalLineId ?? null,
+        effectiveDate: input.effectiveDate,
+        lossSource: input.lossSource ?? null,
+        sourceIncidentNo: input.sourceIncidentNo ?? null,
         traceId: input.traceId ?? randomUUID(),
         createdByUserId: input.createdByUserId,
       },
@@ -47,10 +52,35 @@ export class InternalTransferService {
     return row;
   }
 
-  /** 同一来源上「未走完或已成功」的划转单——出生守卫②。 */
-  async findBlockingBySource(source: { sourceAdjustmentNo?: string; sourceExternalLineId?: string }) {
+  /** 同一来源上「未走完或已成功」的划转单——出生守卫②（垫款：按被退汇账单行）。 */
+  async findBlockingBySource(source: { sourceExternalLineId?: string }) {
     return this.prisma.internalTransfer.findFirst({
       where: { ...source, status: { in: [...INTERNAL_TRANSFER_BLOCKING_STATUSES] } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * 同一差异行上挡住新认损补缺单的那张（出生守卫②，认损补缺版）：按锚（内部流水 id / 外部账单行 id 任一命中）找，
+   * 挡人的有两类——未走完或已成功的单（INTERNAL_TRANSFER_BLOCKING_STATUSES），以及「已记短缺却 FAILED」的单
+   * （recognizedTbTransferId 有值：短缺已记在账上，再开一张会记两次，不做重补，戊波二裁定 15）。
+   * 记短缺前就失败 / 拒绝 / 撤回的单不挡（recognizedTbTransferId 为空）。
+   */
+  async findBlockingShortfallTopup(anchors: { explainedFlowId?: string; explainedExternalLineId?: string }) {
+    const anchorOr = [
+      anchors.explainedFlowId ? { explainedFlowId: anchors.explainedFlowId } : null,
+      anchors.explainedExternalLineId ? { explainedExternalLineId: anchors.explainedExternalLineId } : null,
+    ].filter((c): c is NonNullable<typeof c> => c !== null);
+    if (anchorOr.length === 0) return null;
+    return this.prisma.internalTransfer.findFirst({
+      where: {
+        purpose: 'SHORTFALL_TOPUP',
+        OR: anchorOr,
+        AND: [{ OR: [
+          { status: { in: [...INTERNAL_TRANSFER_BLOCKING_STATUSES] } },
+          { status: InternalTransferStatus.FAILED, recognizedTbTransferId: { not: null } },
+        ] }],
+      },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -64,6 +94,11 @@ export class InternalTransferService {
   /** 铁律③：approvalNo 回填走主体服务，workflow 不直写自己域外……的表。 */
   async stampApprovalNo(transferNo: string, approvalNo: string): Promise<void> {
     await this.prisma.internalTransfer.update({ where: { transferNo }, data: { approvalNo } });
+  }
+
+  /** 记短缺（码 91）落账成功后立刻写回执——先于建腿，之后无论腿成败，这张单都「已记短缺」（阻塞集看它）。 */
+  async stampRecognized(transferNo: string, tbTransferId: string): Promise<void> {
+    await this.prisma.internalTransfer.update({ where: { transferNo }, data: { recognizedTbTransferId: tbTransferId, recognizedAt: new Date() } });
   }
 
   async list(q: InternalTransferListQueryDto): Promise<{ items: InternalTransferView[]; total: number }> {
@@ -105,8 +140,11 @@ export class InternalTransferService {
       transferNo: row.transferNo, purpose: row.purpose, status: row.status,
       customerNo: row.customerNo, assetCode: row.asset.code, currency: row.asset.currency, decimals: row.asset.decimals,
       amount: new Prisma.Decimal(row.amount).toFixed(row.asset.decimals),
-      reason: row.reason, sourceCaseNo: row.sourceCaseNo, sourceAdjustmentNo: row.sourceAdjustmentNo ?? null,
+      reason: row.reason, sourceCaseNo: row.sourceCaseNo,
       sourceExternalRef: sourceLine?.externalRef ?? null,
+      effectiveDate: toBusinessDate(row.effectiveDate),
+      lossSource: (row.lossSource as InternalTransferView['lossSource']) ?? null, sourceIncidentNo: row.sourceIncidentNo ?? null,
+      recognizedAt: row.recognizedAt ? row.recognizedAt.toISOString() : null,
       approvalNo: row.approvalNo ?? null, failureReasonCode: row.failureReasonCode ?? null, failureNote: row.failureNote ?? null,
       fromWalletNo: noOf(row.fromWalletId), viaWalletNo: noOf(row.viaWalletId), toWalletNo: noOf(row.toWalletId),
       createdBy: row.createdByUserId, createdAt: row.createdAt.toISOString(),

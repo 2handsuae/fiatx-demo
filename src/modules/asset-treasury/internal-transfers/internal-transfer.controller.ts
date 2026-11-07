@@ -7,9 +7,10 @@ import { buildPermissionCode } from '../../identity/access-control/permission-co
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { InternalTransferService } from './internal-transfer.service';
 import { InternalTransferWorkflowService } from './internal-transfer-workflow.service';
-import { CancelInternalTransferDto, InitiateAdvanceDto, InitiateCompensationDto, InternalTransferListQueryDto } from './dto/internal-transfer.dto';
+import { CancelInternalTransferDto, InitiateAdvanceDto, InitiateShortfallTopupDto, InternalTransferListQueryDto } from './dto/internal-transfer.dto';
 
-/** 平账二期 · 内部划转单端点。发起 / 撤回归金库（INTERNAL_TRANSFER_WRITE），列表 / 详情归 READ；写动作全在 workflow。 */
+/** 平账二期 · 内部划转单端点。发起 / 撤回归金库（INTERNAL_TRANSFER_WRITE），列表 / 详情归 READ；写动作全在 workflow。
+ *  戊波二：补款（/compensation）退役，认损补缺（/shortfall-topup）取而代之。 */
 @ApiTags('Admin - Internal Transfers')
 @ApiBearerAuth()
 @Controller('admin/internal-transfers')
@@ -27,11 +28,11 @@ export class InternalTransferController {
     return { actorType: 'ADMIN', userId: user.userId || user.sub, userNo: user.userNo, role: user.role, roleCodes: user.roleCodes || (user.role ? [user.role] : []) };
   }
 
-  @Post('compensation')
-  @ApiOperation({ summary: 'Initiate compensation (source = posted client-pool loss-recognition adjustment)' })
-  @RequirePermissions(buildPermissionCode('POST', '/admin/internal-transfers/compensation'))
-  compensation(@Body() dto: InitiateCompensationDto, @Req() req: any) {
-    return this.workflow.initiateCompensation(dto, this.buildActor(req));
+  @Post('shortfall-topup')
+  @ApiOperation({ summary: 'Initiate a shortfall top-up (recognize a custody shortfall on a client wallet and top it up from a company wallet, one approval)' })
+  @RequirePermissions(buildPermissionCode('POST', '/admin/internal-transfers/shortfall-topup'))
+  shortfallTopup(@Body() dto: InitiateShortfallTopupDto, @Req() req: any) {
+    return this.workflow.initiateShortfallTopup(dto, this.buildActor(req));
   }
 
   @Post('advance')

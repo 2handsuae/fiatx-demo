@@ -565,7 +565,8 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     expect((await caseRow(mainCaseId)).status).toBe('RESOLVED');
 
     // ② 补款：公司认赔，走 initiateCompensation → CFO 批 → ⚡ 提交腿 → ⚡ 确认 → SUCCESS。
-    const req = await transferWf.initiateCompensation({ adjustmentNo: mainAdjustmentNo, reason: '公司认赔未授权转出' }, treasury());
+    // T7b 重写：initiateCompensation 已于戊波二 T7a 退役（认损补缺一张单：initiateShortfallTopup）；全文 `as any` 仅为让闸 ① 过编译，这些用例在 T7b 前运行期必红。
+    const req = await (transferWf as any).initiateCompensation({ adjustmentNo: mainAdjustmentNo, reason: '公司认赔未授权转出' }, treasury());
     mainCompensationTransferNo = req.transferNo;
     await approvalsService.approve(req.approvalNo, { reason: 'e2e CFO approve compensation' }, cfo());
     await waitUntil(async () => (await transferRow(mainCompensationTransferNo)).status === 'EXECUTING');

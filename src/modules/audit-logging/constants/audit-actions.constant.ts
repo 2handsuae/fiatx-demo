@@ -430,6 +430,8 @@ export const AuditActions = {
   INTERNAL_TRANSFER_LEG_POSTED: 'INTERNAL_TRANSFER_LEG_POSTED',
   INTERNAL_TRANSFER_SETTLED: 'INTERNAL_TRANSFER_SETTLED',
   INTERNAL_TRANSFER_FAILED: 'INTERNAL_TRANSFER_FAILED',
+  // 戊波二 T7a：认损补缺单批准那一步记短缺（码 91）——V7 名册 +1
+  INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED: 'INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED',
   // ── Material Request Ledger（向客户要材料）──
   MATERIAL_REQUEST_ISSUED: 'MATERIAL_REQUEST_ISSUED',
   MATERIAL_REQUEST_SUBMITTED: 'MATERIAL_REQUEST_SUBMITTED',
@@ -1164,9 +1166,11 @@ export const V2_CUSTOMER_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
 };
 
 /**
- * V7 财资名册（平账二期，2026-09-05）——内部划转单七码。主对象一律 INTERNAL_TRANSFER · transferNo，
- * 子主体：客户 OWNER、对账案 RELATED、认损调账单 RELATED（仅补款）、审批单 INSTRUMENT。
- * REQUESTED 起划转单自己的旅程（NONE），其余继承（INHERIT）；批准 / 拒绝由审批裁决驱动带因果。
+ * V7 财资名册（平账二期，2026-09-05）——内部划转单七码；戊波二 T7a（2026-11-07）+1：认损补缺单批准那一步记短缺
+ * （INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED，码 91 落账成功才写；失败走既有 INTERNAL_TRANSFER_FAILED）。
+ * 主对象一律 INTERNAL_TRANSFER · transferNo，子主体：客户 OWNER、对账案 RELATED、审批单 INSTRUMENT
+ * （戊波二起认损调账单子主体随补款旧路退役；认损补缺单不挂调账单）。
+ * REQUESTED 起划转单自己的旅程（NONE），其余继承（INHERIT）；批准 / 拒绝 / 记短缺由审批裁决驱动带因果。
  * 划转单是公司自己的钱在动，故域是 TREASURY 不是 RECON——案子只是入口，主体是财资件。
  */
 export const V7_TREASURY_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
@@ -1177,6 +1181,7 @@ export const V7_TREASURY_AUDIT_ACTIONS: Record<string, AuditActionSpec> = {
   INTERNAL_TRANSFER_LEG_POSTED:        { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount'], requiresCausation: false },
   INTERNAL_TRANSFER_SETTLED:           { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount', 'effectiveDate'], requiresCausation: false },
   INTERNAL_TRANSFER_FAILED:            { domain: 'TREASURY', correlationMode: I, requiredFields: ['reasonCode'], requiresCausation: false },
+  INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED: { domain: 'TREASURY', correlationMode: I, requiredFields: ['amount', 'effectiveDate'], requiresCausation: true },
 };
 
 /**

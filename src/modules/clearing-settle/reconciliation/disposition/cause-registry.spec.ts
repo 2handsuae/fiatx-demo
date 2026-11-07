@@ -1,4 +1,4 @@
-import { CAUSE_REGISTRY, CauseCode, causeDisplayLabel, resolveWriteOff, resolveAdjustmentPrefill } from './cause-registry';
+import { CAUSE_REGISTRY, CLIENT_SHORTFALL_CAUSE, CauseCode, causeDisplayLabel, resolveWriteOff, resolveAdjustmentPrefill } from './cause-registry';
 import { dispositionsFor, causesFor, outletOf, rowDirection } from './cause-registry';
 
 describe('cause-registry —— six-cell cause menu (spec §4, registry is the single source of truth)', () => {
@@ -61,30 +61,35 @@ describe('Recon batch A: firm-book reversal codes + write-off determination (spe
   describe('resolveWriteOff: one principle — "make internal equal external"', () => {
     it('mismatch: external < internal (booked) → REDUCE, amount = |delta|', () => {
       expect(resolveWriteOff({ matchType: 'AMOUNT_MISMATCH', book: 'FIRM', deltaSign: -1, internalDirection: 'IN', deltaAmount: '-7' }))
-        .toEqual({ reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction: 'REDUCE', amountMinor: '7' });
+        .toEqual({ kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction: 'REDUCE', amountMinor: '7' });
     });
     it('mismatch: outbound flow flips sign — internal OUT records 90, external deducted 100, raw delta +10 → REDUCE', () => {
       expect(resolveWriteOff({ matchType: 'AMOUNT_MISMATCH', book: 'FIRM', deltaSign: 1, internalDirection: 'OUT', deltaAmount: '10' }).direction).toBe('REDUCE');
     });
     it('internal only: internal IN → REDUCE, OUT → INCREASE, amount = internal line amount', () => {
       expect(resolveWriteOff({ matchType: 'ORPHAN_INTERNAL', book: 'FIRM', internalDirection: 'IN', internalAmount: '500' }))
-        .toEqual({ reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction: 'REDUCE', amountMinor: '500' });
+        .toEqual({ kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction: 'REDUCE', amountMinor: '500' });
       expect(resolveWriteOff({ matchType: 'ORPHAN_INTERNAL', book: 'FIRM', internalDirection: 'OUT', internalAmount: '500' }).direction).toBe('INCREASE');
     });
     it('external only: external IN → INCREASE, OUT → REDUCE, amount = external line amount', () => {
       expect(resolveWriteOff({ matchType: 'ORPHAN_EXTERNAL', book: 'FIRM', externalDirection: 'IN', externalAmount: '300' }))
-        .toEqual({ reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction: 'INCREASE', amountMinor: '300' });
+        .toEqual({ kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_WRITE_OFF', family: 'WRITE_OFF', direction: 'INCREASE', amountMinor: '300' });
       expect(resolveWriteOff({ matchType: 'ORPHAN_EXTERNAL', book: 'FIRM', externalDirection: 'OUT', externalAmount: '300' }).direction).toBe('REDUCE');
     });
-    it('client pool: reason code is UNEXPLAINED_CLIENT_LOSS, direction still follows "make internal equal external"', () => {
+    // 戊波二 T7a：客户池认损不再是调账单——客户池分支产出 kind = SHORTFALL_TOPUP（认损补缺），成因是固定常量。
+    it('client pool: kind is SHORTFALL_TOPUP with the fixed cause constant; direction still follows "make internal equal external"', () => {
+      expect(CLIENT_SHORTFALL_CAUSE).toBe('UNEXPLAINED_CLIENT_LOSS');
       const r = resolveWriteOff({ matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', deltaSign: -1, internalDirection: 'IN', deltaAmount: '-7500000' });
-      expect(r).toEqual({ reasonCode: 'UNEXPLAINED_CLIENT_LOSS', family: 'WRITE_OFF', direction: 'REDUCE', amountMinor: '7500000' });
+      expect(r).toEqual({ kind: 'SHORTFALL_TOPUP', reasonCode: CLIENT_SHORTFALL_CAUSE, family: 'WRITE_OFF', direction: 'REDUCE', amountMinor: '7500000' });
       const inc = resolveWriteOff({ matchType: 'ORPHAN_EXTERNAL', book: 'CLIENT', externalDirection: 'IN', externalAmount: '100' });
-      expect(inc.reasonCode).toBe('UNEXPLAINED_CLIENT_LOSS');
-      expect(inc.direction).toBe('INCREASE'); // direction is computed as-is; "client pool cannot INCREASE" is enforced by adjustment.service and the read side, not this pure function
+      expect(inc.kind).toBe('SHORTFALL_TOPUP');
+      expect(inc.reasonCode).toBe(CLIENT_SHORTFALL_CAUSE);
+      expect(inc.direction).toBe('INCREASE'); // direction is computed as-is; "client pool cannot INCREASE" is enforced by the shortfall top-up guard and the read side, not this pure function
     });
     it('firm pool is still UNEXPLAINED_WRITE_OFF', () => {
-      expect(resolveWriteOff({ matchType: 'ORPHAN_INTERNAL', book: 'FIRM', internalDirection: 'IN', internalAmount: '7' }).reasonCode).toBe('UNEXPLAINED_WRITE_OFF');
+      const r = resolveWriteOff({ matchType: 'ORPHAN_INTERNAL', book: 'FIRM', internalDirection: 'IN', internalAmount: '7' });
+      expect(r.reasonCode).toBe('UNEXPLAINED_WRITE_OFF');
+      expect(r.kind).toBe('WRITE_OFF');
     });
   });
   it('FIRM_TRANSFER_UNTRACKED retired (wave 2 does not do firm-pool reallocation, this outlet never lights up)', () => {
@@ -293,7 +298,7 @@ describe('causeDisplayLabel（2026-11-04：Other 带上一行成因名，其余�
   });
   it('非 OTHER 成因忽略 otherCause，取注册表 label；未登记的码原样回码', () => {
     expect(causeDisplayLabel('AMT_FEE_NETTED', 'ignored')).toBe(CAUSE_REGISTRY.AMT_FEE_NETTED.label);
-    expect(causeDisplayLabel('UNEXPLAINED_CLIENT_LOSS')).toBe('UNEXPLAINED_CLIENT_LOSS');
+    expect(causeDisplayLabel('UNEXPLAINED_CLIENT_LOSS')).toBe('UNEXPLAINED_CLIENT_LOSS'); // 退出调账单成因表后仍不是 CAUSE_REGISTRY 的码，原样回码
   });
   it('OTHER 的查证线索指向两处分工：成因名写 Other cause、查了什么写调查说明', () => {
     expect(CAUSE_REGISTRY.OTHER.clue).toBe('Name the cause in one line under Other cause; put what was checked in the investigation note.');

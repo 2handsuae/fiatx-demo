@@ -359,6 +359,88 @@ describe('DispositionService.unlinkAdjustment (终审修复批 Item 1: reject/ca
   });
 });
 
+// 戊波二 T7a：认损补缺单开单即挂 transferNo、行锁定——与 adjustmentNo 平行，镜像 linkAdjustment / unlinkAdjustment。
+// 不加 DispositionKind、不改写 outlet（加了会进 disposition.dto.ts 的白名单，变成可直接 record 的后门）。
+describe('DispositionService.linkTransfer / unlinkTransfer (campaign E wave 2: shortfall top-up locks the row)', () => {
+  const withRow = (row: any) => {
+    const prisma: any = {
+      reconciliationDisposition: {
+        findUnique: jest.fn().mockResolvedValue(row),
+        findFirst: jest.fn().mockResolvedValue(row),
+        update: jest.fn().mockResolvedValue({ ...row }),
+      },
+    };
+    return { svc: new DispositionService(prisma, { recordByActor: jest.fn() } as any), prisma };
+  };
+
+  it('links on a Hold·Investigating line (aging path): writes only the transferNo column, does NOT touch the outlet', async () => {
+    const { svc, prisma } = withRow({ dispositionNo: 'RCD1', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null, transferNo: null });
+    await svc.linkTransfer('RCD1', 'ITR1');
+    expect(prisma.reconciliationDisposition.update).toHaveBeenCalledWith({ where: { dispositionNo: 'RCD1' }, data: { transferNo: 'ITR1' } });
+  });
+  it('links on an INCIDENT line (incident path) the same way', async () => {
+    const { svc, prisma } = withRow({ dispositionNo: 'RCD2', outlet: 'INCIDENT', incidentNo: 'INC1', adjustmentNo: null, transferNo: null });
+    await svc.linkTransfer('RCD2', 'ITR2');
+    expect(prisma.reconciliationDisposition.update).toHaveBeenCalledWith({ where: { dispositionNo: 'RCD2' }, data: { transferNo: 'ITR2' } });
+  });
+  it.each([
+    ['an adjustment-routed outlet', { outlet: 'ADJUST_CORRECT' }, /does not route to a shortfall top-up/],
+    ['a supplement outlet', { outlet: 'SUPPLEMENT' }, /does not route to a shortfall top-up/],
+    ['a line already linked to an adjustment', { outlet: 'HOLD_INVESTIGATING', adjustmentNo: 'ADJ0' }, /already linked to adjustment ADJ0/],
+    ['a line already linked to another top-up', { outlet: 'HOLD_INVESTIGATING', transferNo: 'ITR0' }, /already linked to shortfall top-up ITR0/],
+  ])('refuses %s (400) and writes nothing', async (_n, over, re) => {
+    const { svc, prisma } = withRow({ dispositionNo: 'RCD3', adjustmentNo: null, transferNo: null, ...over });
+    await expect(svc.linkTransfer('RCD3', 'ITR9')).rejects.toThrow(re as RegExp);
+    expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
+  });
+  it('an unknown finding → 404', async () => {
+    const { svc } = withRow(null);
+    await expect(svc.linkTransfer('NOPE', 'ITR1')).rejects.toBeInstanceOf(NotFoundException);
+  });
+  it('linkAdjustment now refuses a line already locked by a shortfall top-up (the two locks exclude each other)', async () => {
+    const { svc, prisma } = withRow({ dispositionNo: 'RCD4', outlet: 'HOLD_INVESTIGATING', adjustmentNo: null, transferNo: 'ITR0' });
+    await expect(svc.linkAdjustment('RCD4', 'ADJ9', { family: 'WRITE_OFF' })).rejects.toThrow(/already linked to shortfall top-up ITR0/);
+    expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
+  });
+  it('record() cannot overwrite a finding locked by a shortfall top-up (400) — the order and the conclusion must stay consistent', async () => {
+    const { svc, prisma } = build({
+      reconciliationDisposition: { findFirst: jest.fn().mockResolvedValue({ dispositionNo: 'RCD000', adjustmentNo: null, transferNo: 'ITR1' }), update: jest.fn(), create: jest.fn() },
+    });
+    await expect(svc.record({
+      caseNo: 'REC-1', matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
+      causeCode: 'DUP_BOOKING', disposition: 'REVERSE', findingNote: 'x', internalDirection: 'IN', internalSourceType: 'DEPOSIT',
+    } as any, ACTOR)).rejects.toThrow(/already linked to shortfall top-up ITR1/);
+    expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
+    expect(prisma.reconciliationDisposition.create).not.toHaveBeenCalled();
+  });
+
+  it('unlinkTransfer finds the row by transferNo and clears only that column — cause / note / outlet stay (reject / cancel / expire / recognition failed)', async () => {
+    const { svc, prisma } = withRow({ dispositionNo: 'RCD5', transferNo: 'ITR5', causeCode: 'UNEXPLAINED', findingNote: 'n', outlet: 'HOLD_INVESTIGATING' });
+    await svc.unlinkTransfer('ITR5');
+    expect(prisma.reconciliationDisposition.findFirst).toHaveBeenCalledWith({ where: { transferNo: 'ITR5' } });
+    expect(prisma.reconciliationDisposition.update).toHaveBeenCalledWith({ where: { dispositionNo: 'RCD5' }, data: { transferNo: null } });
+  });
+  it('unlinkTransfer on a transfer that never locked a row is a no-op (no write)', async () => {
+    const { svc, prisma } = withRow(null);
+    await svc.unlinkTransfer('ITR-NONE');
+    expect(prisma.reconciliationDisposition.update).not.toHaveBeenCalled();
+  });
+  it('after unlink the same anchor can record() again (the lock is released)', async () => {
+    const { svc, prisma } = build({
+      reconciliationDisposition: {
+        findFirst: jest.fn().mockResolvedValue({ dispositionNo: 'RCD5', adjustmentNo: null, transferNo: null, supplementNo: null }),
+        update: jest.fn().mockImplementation(({ data }) => Promise.resolve({ dispositionNo: 'RCD5', ...data })), create: jest.fn(),
+      },
+    });
+    const r = await svc.record({
+      caseNo: 'REC-1', matchType: 'ORPHAN_INTERNAL', explainedFlowId: 'f1',
+      causeCode: 'DUP_BOOKING', disposition: 'REVERSE', findingNote: 'reopened after the top-up was rejected', internalDirection: 'IN', internalSourceType: 'DEPOSIT',
+    } as any, ACTOR);
+    expect(r.dispositionNo).toBe('RCD5');
+    expect(prisma.reconciliationDisposition.update).toHaveBeenCalled();
+  });
+});
+
 // Recon wave 3 (Task 9): three behavioral tests migrated from the placeholder
 // InterimDispositionIncidentLink class in incidents.module.ts — the placeholder class was
 // deleted, and the behavior is locked here as-is (404/409/writes only the incidentNo column).

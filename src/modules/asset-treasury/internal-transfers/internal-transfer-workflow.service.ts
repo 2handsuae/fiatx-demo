@@ -1,5 +1,8 @@
 // 平账二期 · 内部划转单工作流（spec §3–§6）。铁律③：只调各主体服务方法，不直写别人的表
 //（读案子 / 调账单 / 定性 / 钱包 / 资产是横向读，放行）。
+// 戊波二 T7a：补款用途改名 SHORTFALL_TOPUP（认损补缺）——一张单、CFO 批一次：批准那一步记短缺
+//（码 91：借 2·客户钱包 / 贷 1·客户钱包），再建腿把钱从公司钱包补进客户钱包，最后一腿 83 贷 2 消掉短缺；
+// 客户应付全程不动。旧的「认损调账单 + 补款划转单」两张单两次批的走法退役。
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
@@ -9,8 +12,9 @@ import { DomainEventNames } from '../../../common/events/domain-events.constants
 import { AccountingService } from '../../accounting/tigerbeetle/accounting.service';
 import { TB_ACCOUNT_CODES, TB_CODE_TO_COA } from '../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.constant';
+import { bigintToHex } from '../../accounting/tigerbeetle/utils/tb-id.util';
 import { TB_TRANSFER_CODES } from '../../accounting/tigerbeetle/constants/tb-transfer-codes.constant';
-import { toBusinessDate } from '../../accounting/tigerbeetle/utils/business-date.util';
+import { startOfBusinessDate, toBusinessDate } from '../../accounting/tigerbeetle/utils/business-date.util';
 import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditBusinessWorkflowTypes, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditOutcome, AuditSubjectInput, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
@@ -18,12 +22,17 @@ import { ApprovalDecidedEvent } from '../../governance/approvals/approval-handle
 import { ApprovalsService } from '../../governance/approvals/approvals.service';
 import { ApprovalActionTypes, ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
 import { SystemWalletResolver } from '../../funds-layer/domain/system-wallet-resolver.service';
+import { FirmWalletPickerService } from '../../funds-layer/domain/firm-wallet-picker.service';
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { FundsOrderAction, FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 import { SimulatedCustodianStatementService } from '../../clearing-settle/reconciliation/simulation/simulated-custodian-statement.service';
 import { SupplementEvidenceService, minorToMajor } from '../../clearing-settle/reconciliation/disposition/supplement-evidence.service';
+import { DispositionService } from '../../clearing-settle/reconciliation/disposition/disposition.service';
+import { ReconciliationQueryService } from '../../clearing-settle/reconciliation/domain/reconciliation-query.service';
+import { CLIENT_SHORTFALL_CAUSE } from '../../clearing-settle/reconciliation/disposition/cause-registry';
+import { assertAgingWriteOffAllowed, assertIncidentWriteOffAllowed, writeOffPathOf } from '../../clearing-settle/reconciliation/disposition/write-off-guards';
 import { InternalTransferService } from './internal-transfer.service';
-import { InternalTransferStatus } from './dto/internal-transfer.dto';
+import { InitiateShortfallTopupDto, InternalTransferStatus, ShortfallLossSource } from './dto/internal-transfer.dto';
 
 interface FundsOrderStatusChangedEvent {
   fundsOrderId: string; fundsOrderNo: string;
@@ -48,34 +57,110 @@ export class InternalTransferWorkflowService {
     private readonly systemWallets: SystemWalletResolver,
     private readonly supplementEvidence: SupplementEvidenceService,
     private readonly custodianStatement: SimulatedCustodianStatementService,
+    private readonly firmWallets: FirmWalletPickerService,
+    private readonly dispositions: DispositionService,
+    private readonly reconQuery: ReconciliationQueryService,
   ) {}
 
   // ── 发起（金库，案子上点）────────────────────────────────────────────────
 
-  /** 认损补款：来源 = 已落账的客户池认损调账单；金额锁定 = 认损额。 */
-  async initiateCompensation(dto: { adjustmentNo: string; reason: string }, actor: ApprovalActorContext) {
-    const adj = await this.prisma.reconciliationAdjustment.findUnique({ where: { adjustmentNo: dto.adjustmentNo } });
-    if (!adj) throw new NotFoundException(`Adjustment not found: ${dto.adjustmentNo}`);
-    if (adj.status !== 'POSTED') throw new BadRequestException(`Loss-recognition adjustment ${dto.adjustmentNo} is not yet posted (${adj.status}) — the books must reflect it before compensation can be paid`);
-    if (adj.reasonCode !== 'UNEXPLAINED_CLIENT_LOSS' || adj.book !== 'CLIENT') throw new BadRequestException(`Adjustment ${dto.adjustmentNo} is not a client-pool loss-recognition adjustment — compensation cannot be paid`);
-    if (!adj.ownerId || !adj.ownerNo || !adj.walletRef) throw new BadRequestException(`Loss-recognition adjustment ${dto.adjustmentNo} is missing customer or wallet information`);
-    const blocking = await this.transfers.findBlockingBySource({ sourceAdjustmentNo: dto.adjustmentNo });
-    if (blocking) throw new ConflictException(`Loss-recognition adjustment ${dto.adjustmentNo} already has transfer ${blocking.transferNo} (${blocking.status}) — another cannot be opened`);
-    const asset = await this.prisma.asset.findUnique({ where: { code: adj.assetCode } });
-    if (!asset) throw new NotFoundException(`Asset not found: ${adj.assetCode}`);
-    const wallet = await this.prisma.wallet.findUnique({ where: { id: adj.walletRef }, select: { id: true, ownerId: true } });
-    if (!wallet || wallet.ownerId !== adj.ownerId) throw new BadRequestException("The loss-recognition adjustment's wallet does not belong to this customer");
-    const amountMinor = BigInt(adj.amount);
-    await this.assertOpsBalance(asset, amountMinor);
-    const route = await this.resolveRoute(asset, wallet.id);
-    const amountMajor = minorToMajor(adj.amount, asset.decimals);
+  /**
+   * 认损补缺（戊波二 spec §4.1）：托管方少了客户的钱、查无果（账龄路）或事故已定损公司承损（事故路），公司认下并把钱补进客户钱包——
+   * 一张单、CFO 批一次。金额、成因、生效日都不由客户端传：账龄路取差异行的差额，事故路锁定为定损额；成因固定；生效日 = 案件业务日。
+   * 守卫（顺序即错误优先级）：案 OPEN → 两路守卫（write-off-guards，与公司池核销共用）→ 阻塞 → from 钱包配不配 →
+   * from 余额闸 → 客户钱包余量（待批提现的锁定会让码 91 被 TB 拒）→ 建单 → 处置记录挂 transferNo（开单即挂、行锁定）→ 提审。
+   * NLA 门不过（义务性付款，照 prudential.service 既有口径）。
+   */
+  async initiateShortfallTopup(dto: InitiateShortfallTopupDto, actor: ApprovalActorContext) {
+    if (!dto.flowId && !dto.externalLineId) {
+      throw new BadRequestException('A shortfall top-up must be anchored to a difference row (its internal flow or its statement line) already found as "Hold · Investigating" or assessed as an incident loss');
+    }
+    const kase = await this.prisma.reconciliationCase.findUnique({ where: { caseNo: dto.caseNo } });
+    if (!kase) throw new NotFoundException(`Reconciliation case not found: ${dto.caseNo}`);
+    if (kase.status !== 'OPEN') throw new BadRequestException('A shortfall top-up can only be opened on an open case');
+    if (kase.book === 'FIRM') throw new BadRequestException('A shortfall top-up is a client-pool action — a company-pool difference is written off with an adjustment');
+    if (!kase.walletRef || kase.walletRef.startsWith('XREF:') || !kase.ownerNo) {
+      throw new BadRequestException(`Case ${dto.caseNo} is not anchored to a customer wallet — a shortfall top-up can only be raised on a wallet-anchored client case`);
+    }
+
+    // 守卫：锚中定性行 → 账龄路 / 事故路（判据沿用调账单 writeOffPathOf）；金额由服务端定。
+    const anchors = [
+      dto.flowId ? { explainedFlowId: dto.flowId } : null,
+      dto.externalLineId ? { explainedExternalLineId: dto.externalLineId } : null,
+    ].filter((c): c is NonNullable<typeof c> => c !== null);
+    const held = await this.prisma.reconciliationDisposition.findFirst({ where: { caseNo: dto.caseNo, OR: anchors } });
+    const noun = 'shortfall top-up';
+    let amountMinor: bigint;
+    let lossSource: ShortfallLossSource;
+    let sourceIncidentNo: string | null = null;
+    let dispositionNo: string;
+    if (writeOffPathOf(held) === 'INCIDENT') {
+      // 事故路：不看账龄线 / 小额线，改查事故侧三重闸；金额锁定为定损额。
+      const g = await assertIncidentWriteOffAllowed(this.prisma, { kase, held, noun, assertPairing: () => undefined });
+      amountMinor = g.assessedMinor; lossSource = 'INCIDENT'; sourceIncidentNo = g.incidentNo; dispositionNo = g.dispositionNo;
+    } else {
+      // 账龄路：差额与方向取案件页同一行的开单预填（resolveWriteOff 公式，与 nextStep 同源）；客户池只许「托管里少了」。
+      const row = await this.findDifferenceRow(dto);
+      const prefill = row.adjustmentPrefill;
+      if (!prefill) throw new BadRequestException('The anchored difference row is not a difference that can be recognized (it may have been matched or changed since the case page was loaded)');
+      amountMinor = BigInt(prefill.amountMinor);
+      const g = await assertAgingWriteOffAllowed(this.prisma, {
+        kase, held, amountMinor, noun,
+        assertPairing: () => {
+          if (prefill.direction !== 'REDUCE') {
+            throw new BadRequestException('Excess funds in the client pool cannot be recognized as a custody shortfall: identify the true owner first, then record it via deposit backfill — not loss recognition');
+          }
+        },
+      });
+      lossSource = 'AGING'; dispositionNo = g.dispositionNo;
+    }
+
+    const blocking = await this.transfers.findBlockingShortfallTopup({ explainedFlowId: dto.flowId, explainedExternalLineId: dto.externalLineId });
+    if (blocking) {
+      const why = blocking.status === InternalTransferStatus.FAILED
+        ? 'its shortfall was already recognized on the books and the top-up is not re-opened — Treasury handles the remaining shortfall manually'
+        : 'another cannot be opened';
+      throw new ConflictException(`This difference row already has shortfall top-up ${blocking.transferNo} (${blocking.status}) — ${why}`);
+    }
+
+    const asset = await this.prisma.asset.findUnique({ where: { code: kase.assetCode } });
+    if (!asset) throw new NotFoundException(`Asset not found: ${kase.assetCode}`);
+    const fromWallet = await this.firmWallets.assertEligible(dto.fromWalletId, asset.id);
+    await this.assertFromBalance(asset, fromWallet.id, amountMinor);
+    const toWallet = await this.prisma.wallet.findUnique({ where: { id: kase.walletRef }, select: { id: true, ownerId: true, ownerType: true, walletNo: true } });
+    if (!toWallet || toWallet.ownerType !== 'CUSTOMER' || !toWallet.ownerId) throw new BadRequestException(`Case ${dto.caseNo}'s wallet is not a customer wallet — nothing to top up`);
+    await this.assertClientWalletHeadroom(asset, toWallet.id, kase.ownerNo, amountMinor);
+
+    const via = asset.type === 'FIAT' ? await this.systemWallets.resolve(asset.id, 'F_SET') : null;
+    const amountMajor = minorToMajor(amountMinor.toString(), asset.decimals);
     const row = await this.transfers.create({
-      purpose: 'CLIENT_COMPENSATION', assetId: asset.id, amountMajor, ...route,
-      customerId: adj.ownerId, customerNo: adj.ownerNo, reason: dto.reason, sourceCaseNo: adj.caseNo,
-      sourceAdjustmentNo: adj.adjustmentNo, traceId: adj.traceId ?? null, createdByUserId: actor.userNo ?? actor.userId,
+      purpose: 'SHORTFALL_TOPUP', assetId: asset.id, amountMajor,
+      fromWalletId: fromWallet.id, viaWalletId: (via?.id as string | undefined) ?? null, toWalletId: toWallet.id,
+      customerId: toWallet.ownerId, customerNo: kase.ownerNo, reason: dto.reason, sourceCaseNo: kase.caseNo,
+      explainedFlowId: dto.flowId ?? null, explainedExternalLineId: dto.externalLineId ?? null,
+      lossSource, sourceIncidentNo, effectiveDate: startOfBusinessDate(kase.businessDate),
+      traceId: kase.traceId ?? null, createdByUserId: actor.userNo ?? actor.userId,
     });
-    const impact = `Pay customer ${adj.ownerNo} compensation of ${amountMajor} ${asset.currency} (adjustment ${adj.adjustmentNo}, case ${adj.caseNo}); the firm operating account decreases accordingly`;
-    return this.submitForApproval({ ...row, asset }, impact, dto.reason, actor, { sourceAdjustmentNo: adj.adjustmentNo });
+    // 开单即挂：处置记录落 transferNo、差异行锁定（驳回 / 撤回 / 超时 / 记短缺失败时由 releaseRowLock 解开）。
+    await this.dispositions.linkTransfer(dispositionNo, row.transferNo);
+
+    const impact = `Recognize custody shortfall of ${amountMajor} ${asset.currency} on wallet ${toWallet.walletNo} for customer ${kase.ownerNo} and top it up from ${fromWallet.walletNo}; customer balance unchanged`;
+    return this.submitForApproval({ ...row, asset }, impact, dto.reason, actor, {
+      snapshot: {
+        fromWalletNo: fromWallet.walletNo, lossSource, effectiveDate: kase.businessDate,
+        ...(sourceIncidentNo ? { sourceIncidentNo } : {}),
+      },
+      // 人选的 from 钱包、固定成因、来路进审计（铁律①：这个选择是持久化的）
+      metadata: { causeCode: CLIENT_SHORTFALL_CAUSE, lossSource, sourceIncidentNo, effectiveDate: kase.businessDate, fromWalletNo: fromWallet.walletNo, walletNo: toWallet.walletNo },
+    });
+  }
+
+  /** 按锚在案件页同一份差异行里找那一行（getCase 的 flowComparison；金额 / 方向取它的 adjustmentPrefill，与 nextStep 同源）。 */
+  private async findDifferenceRow(dto: { caseNo: string; flowId?: string; externalLineId?: string }) {
+    const view = await this.reconQuery.getCase(dto.caseNo);
+    const row = view.flowComparison.find((r: any) => (dto.flowId && r.internalFlow?.id === dto.flowId) || (dto.externalLineId && r.externalLine?.id === dto.externalLineId));
+    if (!row) throw new BadRequestException('The anchored difference row is no longer on the case (it may have been matched or changed since the case page was loaded)');
+    return row;
   }
 
   /** 退汇垫款：来源 = 定性为「入金被退汇」且尚未认领的账单行；金额锁定 = 账单行 − 客户可用。 */
@@ -91,35 +176,56 @@ export class InternalTransferWorkflowService {
     if (blocking) throw new ConflictException(`This statement line already has advance ${blocking.transferNo} (${blocking.status}) — another cannot be opened`);
     const asset = await this.prisma.asset.findUnique({ where: { id: line.assetId } });
     if (!asset) throw new NotFoundException(`Asset not found: ${line.assetId}`);
-    await this.assertOpsBalance(asset, shortfall);
-    const route = await this.resolveRoute(asset, line.walletId);
+    // 垫款路径（置灰入口，代码原样留着）出钱的钱包恒为运营户，建单时写死、不开放选择。
+    const ops = await this.systemWallets.resolve(asset.id, 'F_OPS');
+    await this.assertFromBalance(asset, ops.id, shortfall);
+    const route = await this.resolveRoute(asset, ops.id, line.walletId);
     const amountMajor = minorToMajor(shortfall.toString(), asset.decimals);
     const row = await this.transfers.create({
       purpose: 'CLIENT_ADVANCE', assetId: asset.id, amountMajor, ...route,
       customerId: line.ownerId, customerNo: line.ownerNo ?? line.ownerId, reason: dto.reason, sourceCaseNo: dto.caseNo,
-      sourceExternalLineId: dto.externalLineId, traceId: null, createdByUserId: actor.userNo ?? actor.userId,
+      sourceExternalLineId: dto.externalLineId,
+      effectiveDate: startOfBusinessDate(line.businessDate), // 垫款的业务日 = 被退汇账单行的业务日
+      traceId: null, createdByUserId: actor.userNo ?? actor.userId,
     });
     const impact = `Advance ${amountMajor} ${asset.currency} to customer ${line.ownerNo ?? '-'} to cover the bounced-refund shortfall (case ${dto.caseNo}, statement line ${line.externalRef ?? '-'}; `
       + `customer available ${minorToMajor(available.toString(), asset.decimals)}, recalled ${line.amountMajor}); the advance must be recovered by Treasury`;
-    return this.submitForApproval({ ...row, asset }, impact, dto.reason, actor, { externalRef: line.externalRef ?? null });
+    return this.submitForApproval({ ...row, asset }, impact, dto.reason, actor, { metadata: { sourceExternalRef: line.externalRef ?? null }, snapshot: { externalRef: line.externalRef ?? null } });
   }
 
-  /** 运营户余额闸（出生守卫 / 批准时复核共用）：该币种 F_OPS 钱包的现金户够不够付。闸本体是
-   *  AccountingService.assertWalletBalance（戊波二 T3：划转 / 付款 / LP 兑换三份收成一份）；
-   *  今天 from 固定是 F_OPS，后续任务让付款单 / 划转单改读单上人选的 from 钱包时，只换这里查哪只钱包。 */
-  private async assertOpsBalance(asset: { id: string; currency: string }, amountMinor: bigint): Promise<void> {
-    const ops = await this.systemWallets.resolve(asset.id, 'F_OPS');
-    await this.accounting.assertWalletBalance(ops.id, TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS], amountMinor);
+  /** from 钱包余额闸（出生守卫 / 批准时复核共用）：单上的出钱钱包（认损补缺 = 人选的运营户 / 手续费户，垫款 = 运营户）现金户够不够付。
+   *  闸本体是 AccountingService.assertWalletBalance（戊波二 T3：划转 / 付款 / LP 兑换三份收成一份）。 */
+  private async assertFromBalance(asset: { currency: string }, fromWalletId: string, amountMinor: bigint): Promise<void> {
+    await this.accounting.assertWalletBalance(fromWalletId, TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS], amountMinor);
   }
 
-  /** 出方运营户 + 中转结算户（法币）+ 入方客户钱包——提交时解析落库，批准时不再查。 */
-  private async resolveRoute(asset: any, toWalletId: string) {
-    const from = await this.systemWallets.resolve(asset.id, 'F_OPS');
+  /**
+   * 认损前客户钱包余量（裁定 14）：客户钱包现金户「可用 = 借已过账 − 贷已过账 − 贷挂起」≥ 短缺额，开单与批准各查一次。
+   * 码 91 贷客户现金户，该户带「贷不得超借」标志，TB 判标志时把挂起的贷方也算进去——钱包上挂着待批提现的锁定时，
+   * 码 91 必被拒。真实运营里本就如此（托管少了钱，这只钱包的出款先停），所以不够就拒并指路。算式只在 AccountingService 一份。
+   */
+  private async assertClientWalletHeadroom(asset: { currency: string; decimals: number }, walletId: string, customerNo: string, amountMinor: bigint): Promise<void> {
+    const available = await this.accounting.getWalletCashAvailable(walletId, TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS]);
+    if (available >= amountMinor) return;
+    const wallet = await this.prisma.wallet.findUnique({ where: { id: walletId }, select: { walletNo: true } });
+    const fmt = (minor: bigint) => `${minorToMajor(minor.toString(), asset.decimals)} ${asset.currency}`;
+    throw new BadRequestException({
+      code: 'CLIENT_WALLET_PAYOUTS_IN_FLIGHT',
+      message: `Customer ${customerNo}'s wallet ${wallet?.walletNo ?? '-'} has only ${fmt(available)} of cash free of in-flight payouts, `
+        + `but the custody shortfall to recognize is ${fmt(amountMinor)} — first handle this wallet's in-flight payouts (reject or withdraw the pending withdrawal), then recognize the shortfall`,
+    });
+  }
+
+  /** 出方钱包（认损补缺 = 人选；垫款 = 运营户）+ 中转结算户（法币）+ 入方客户钱包——提交时解析落库，批准时不再查。 */
+  private async resolveRoute(asset: any, fromWalletId: string, toWalletId: string) {
     const via = asset.type === 'FIAT' ? await this.systemWallets.resolve(asset.id, 'F_SET') : null;
-    return { fromWalletId: from.id as string, viaWalletId: (via?.id as string | undefined) ?? null, toWalletId };
+    return { fromWalletId, viaWalletId: (via?.id as string | undefined) ?? null, toWalletId };
   }
 
-  private async submitForApproval(row: any, impact: string, reason: string, actor: ApprovalActorContext, extra: Record<string, unknown> & { externalRef?: string | null }) {
+  private async submitForApproval(
+    row: any, impact: string, reason: string, actor: ApprovalActorContext,
+    opts: { snapshot?: Record<string, unknown>; metadata?: Record<string, unknown> } = {},
+  ) {
     const approval = await this.approvals.createAndSubmit(
       {
         actionType: ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL,
@@ -129,7 +235,7 @@ export class InternalTransferWorkflowService {
         objectSnapshot: {
           transferNo: row.transferNo, purpose: row.purpose, customerNo: row.customerNo,
           amount: new Prisma.Decimal(row.amount).toFixed(row.asset.decimals), currency: row.asset.currency,
-          sourceCaseNo: row.sourceCaseNo, ...extra, impact,
+          sourceCaseNo: row.sourceCaseNo, ...(opts.snapshot ?? {}), impact,
         },
       },
       { reason: impact, traceId: row.traceId },
@@ -138,7 +244,7 @@ export class InternalTransferWorkflowService {
     await this.transfers.stampApprovalNo(row.transferNo, approval.approvalNo);
     await this.transferAudit({ ...row, approvalNo: approval.approvalNo }, {
       action: AuditActions.INTERNAL_TRANSFER_REQUESTED, reason, approvalNo: approval.approvalNo,
-      metadata: { impact, sourceExternalRef: extra.externalRef ?? null }, actor,
+      metadata: { impact, ...(opts.metadata ?? {}) }, actor,
     });
     return { transferNo: row.transferNo as string, approvalNo: approval.approvalNo as string, status: InternalTransferStatus.PENDING_APPROVAL };
   }
@@ -150,8 +256,15 @@ export class InternalTransferWorkflowService {
     if (row.status !== InternalTransferStatus.PENDING_APPROVAL) throw new BadRequestException(`Transfer ${transferNo} is already in ${row.status} — funds are in flight or settled, it cannot be cancelled`);
     if (row.approvalNo) await this.approvals.cancel(row.approvalNo, { reason: dto.reason }, actor);
     const updated = await this.transfers.transition(transferNo, InternalTransferStatus.CANCELLED, { failureNote: dto.reason });
+    await this.releaseRowLock(row);
     await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_CANCELLED, reason: dto.reason, fromStatus: row.status, toStatus: updated.status, actor });
     return { transferNo, status: updated.status as string };
+  }
+
+  /** 认损补缺单开单即挂（处置记录落 transferNo、差异行锁定）；驳回 / 撤回 / 超时 / 记短缺失败 / 批准时余额不足时解开。
+   *  走处置主体自己的方法（铁律③）。垫款单不挂处置记录。已记短缺的单（腿失败）不解——短缺挂着等人工，行继续锁着（裁定 15）。 */
+  private async releaseRowLock(row: { purpose: string; transferNo: string }): Promise<void> {
+    if (row.purpose === 'SHORTFALL_TOPUP') await this.dispositions.unlinkTransfer(row.transferNo);
   }
 
   // ── 审批裁决 ──────────────────────────────────────────────────────────
@@ -166,23 +279,69 @@ export class InternalTransferWorkflowService {
     if (event.decision !== 'APPROVED') {
       const note = event.decision === 'EXPIRED' ? 'Approval expired' : (event.decisionReason ?? 'Rejected by CFO');
       const updated = await this.transfers.transition(row.transferNo, InternalTransferStatus.REJECTED, { failureNote: note });
+      await this.releaseRowLock(row);
       await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_REJECTED, reason: note, approvalNo: event.approvalNo, causationId: event.approvalId, fromStatus: row.status, toStatus: updated.status });
       return;
     }
 
-    // 批准时再查一次运营户余额（提交查一次、批准查一次——与 B 批退汇同一纪律）
+    // 批准时再查一次出钱钱包的余额（提交查一次、批准查一次——与 B 批退汇同一纪律）
     const amountMinor = majorToMinor(row.amount, row.asset.decimals);
     try {
-      await this.assertOpsBalance(row.asset, amountMinor);
+      await this.assertFromBalance(row.asset, row.fromWalletId, amountMinor);
     } catch (err) {
       const updated = await this.transfers.transition(row.transferNo, InternalTransferStatus.FAILED, { failureReasonCode: 'INSUFFICIENT_FIRM_BALANCE', failureNote: (err as Error).message });
+      await this.releaseRowLock(row);
       await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'INSUFFICIENT_FIRM_BALANCE', reason: (err as Error).message, approvalNo: event.approvalNo, causationId: event.approvalId, fromStatus: row.status, toStatus: updated.status });
       return;
     }
 
+    // 认损补缺：先记短缺（码 91），记不了就整张单失败、行锁解开；记成了才建腿。
+    if (row.purpose === 'SHORTFALL_TOPUP' && !(await this.recognizeShortfall(row, amountMinor, event))) return;
+
     const leg = await this.createLeg(row, 1);
     const updated = await this.transfers.transition(row.transferNo, InternalTransferStatus.EXECUTING, { executedAt: new Date() });
-    await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_EXECUTION_STARTED, reason: 'Approved by CFO, first leg funds order created', approvalNo: event.approvalNo, causationId: event.approvalId, fundsOrderNo: leg.fundsOrderNo, fromStatus: row.status, toStatus: updated.status });
+    await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_EXECUTION_STARTED, reason: row.purpose === 'SHORTFALL_TOPUP' ? 'Approved by CFO, shortfall recognized, first leg funds order created' : 'Approved by CFO, first leg funds order created', approvalNo: event.approvalNo, causationId: event.approvalId, fundsOrderNo: leg.fundsOrderNo, fromStatus: row.status, toStatus: updated.status });
+  }
+
+  /**
+   * 记短缺（码 91）：批准那一步，先于建腿。复查客户钱包余量 → 借 2·客户钱包 / 贷 1·同一只客户钱包（生效日 = 案件业务日，
+   * 事后分录靠它才在案件业务日的对账里看得见）→ 回执落单（先于建腿，之后无论腿成败，这张单都「已记短缺」）→ 审计。
+   * 复查不过 / TB 拒绝 = 记账失败 = 流程失败（铁律⑤）：走既有 PENDING_APPROVAL → FAILED 边，failureReasonCode = RECOGNITION_FAILED，
+   * 解开行锁；这时没有任何分录落下，可以重新开单。返回 false 表示已收口为 FAILED，调用方直接结束。
+   */
+  private async recognizeShortfall(row: any, amountMinor: bigint, event: ApprovalDecidedEvent): Promise<boolean> {
+    let tbTransferId: bigint;
+    const effectiveDate = toBusinessDate(row.effectiveDate);
+    try {
+      await this.assertClientWalletHeadroom(row.asset, row.toWalletId, row.customerNo, amountMinor);
+      const ledger = TB_LEDGERS[row.asset.currency as keyof typeof TB_LEDGERS];
+      ({ tbTransferId } = await this.accounting.executeTransfer({
+        debitAccountId: await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_SHORTFALL, ledger, ownerType: 'WALLET', ownerUuid: row.toWalletId }),
+        creditAccountId: await this.accounting.resolveCashAccountId(row.toWalletId, ledger),
+        amount: amountMinor, ledger, code: TB_TRANSFER_CODES.CLIENT_SHORTFALL_RECOGNIZED,
+        evidence: {
+          sourceType: 'INTERNAL_TRANSFER', sourceNo: row.transferNo, eventCode: 'INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED', traceId: row.traceId,
+          debitCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_SHORTFALL], creditCode: TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH],
+          assetCurrency: row.asset.currency, // ⚠ currency 不是 code（USDT-TRON vs USDT）
+          actorType: 'ADMIN', actorId: event.decisionByUserNo ?? event.decisionByUserId ?? 'INTERNAL_TRANSFER_WORKFLOW',
+          memo: `Shortfall recognized ${row.transferNo} (case ${row.sourceCaseNo})`,
+          effectiveDate,
+        },
+      }));
+    } catch (err) {
+      const note = (err as Error).message;
+      const updated = await this.transfers.transition(row.transferNo, InternalTransferStatus.FAILED, { failureReasonCode: 'RECOGNITION_FAILED', failureNote: note });
+      await this.releaseRowLock(row);
+      await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'RECOGNITION_FAILED', reason: `Recognizing the custody shortfall failed: ${note} — nothing was posted, the row is released`, approvalNo: event.approvalNo, causationId: event.approvalId, fromStatus: row.status, toStatus: updated.status });
+      return false;
+    }
+    await this.transfers.stampRecognized(row.transferNo, bigintToHex(tbTransferId));
+    await this.transferAudit(row, {
+      action: AuditActions.INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED, reason: 'Approved by CFO, custody shortfall recognized — customer balance unchanged',
+      approvalNo: event.approvalNo, causationId: event.approvalId, effectiveDate,
+      metadata: { tbTransferId: bigintToHex(tbTransferId), causeCode: CLIENT_SHORTFALL_CAUSE, lossSource: row.lossSource ?? null },
+    });
+    return true;
   }
 
   /** 腿 1：法币 运营户 → 结算户 / 加密币 运营户 → 客户；腿 2（法币）：结算户 → 客户。资金单在此诞生（spec §4）。 */
@@ -254,7 +413,7 @@ export class InternalTransferWorkflowService {
     const updated = await this.transfers.transition(row.transferNo, InternalTransferStatus.SUCCESS, { settledAt: new Date() });
     await this.transferAudit(row, {
       action: AuditActions.INTERNAL_TRANSFER_SETTLED,
-      reason: row.purpose === 'CLIENT_COMPENSATION' ? 'Compensation received, customer balance restored' : 'Advance received, customer available balance now covers the recalled amount',
+      reason: row.purpose === 'SHORTFALL_TOPUP' ? 'Top-up received, the custody shortfall is cleared (the customer balance was never touched)' : 'Advance received, customer available balance now covers the recalled amount',
       fromStatus: row.status, toStatus: updated.status,
     });
   }
@@ -263,16 +422,21 @@ export class InternalTransferWorkflowService {
     if (row.status !== InternalTransferStatus.EXECUTING) return;
     const note = row.asset.type === 'FIAT' && leg.legSeq === 2
       ? `Leg 2 ${newStatus}: funds remain in the settlement account, Treasury to handle manually (leg 1 already posted, books match funds)`
-      : `Leg ${leg.legSeq} ${newStatus}: no funds moved, this can be reinitiated`;
+      : row.purpose === 'SHORTFALL_TOPUP'
+        // 已记短缺：不重补（项目总纲 §2 不做补偿 / repair）——短缺户挂着等人工，同一行开不出第二张
+        ? `Leg ${leg.legSeq} ${newStatus}: no funds moved, but the custody shortfall is already recognized on the books and stays open — it is not re-opened automatically, Treasury to handle manually`
+        : `Leg ${leg.legSeq} ${newStatus}: no funds moved, this can be reinitiated`;
     const updated = await this.transfers.transition(row.transferNo, InternalTransferStatus.FAILED, { failureReasonCode: 'LEG_FAILED', failureNote: note });
     await this.transferAudit(row, { action: AuditActions.INTERNAL_TRANSFER_FAILED, outcome: AuditOutcome.FAILED, reasonCode: 'LEG_FAILED', reason: note, fundsOrderNo: leg.fundsOrderNo, fromStatus: row.status, toStatus: updated.status });
   }
 
-  // ── 分录（spec §5；戊波一·附录 B「内部转账」）──────────────────────────
-  // 81 补款腿 1（法币）：借 现金·结算钱包(viaWalletId) ／ 贷 现金·运营钱包(fromWalletId)
-  // 82 公司放出：借 对账核销损失 ／ 贷 现金·公司钱包（法币 = 结算钱包，加密币 = 运营钱包）
-  // 83 客户收到：借 现金·客户钱包(toWalletId) ／ 贷 应付·客户
-  // 垫款路径同法接线（UI 置灰，无新行为）。现金户一钱包一户，只经 resolveCashAccountId 取。
+  // ── 分录（spec §5；戊波一·附录 B「内部转账」；戊波二改认损补缺形状）──────────────────
+  // 91 记短缺（认损补缺，批准那一步）：借 托管短缺待补·客户钱包(toWalletId) ／ 贷 现金·同一只客户钱包——见 recognizeShortfall
+  // 81 补款腿 1（法币）：借 现金·结算钱包(viaWalletId) ／ 贷 现金·出钱钱包(fromWalletId)
+  // 82 公司放出：借 对账核销损失 ／ 贷 现金·公司钱包（法币 = 结算钱包，加密币 = 出钱钱包）
+  // 83 客户收到：认损补缺 借 现金·客户钱包(toWalletId) ／ 贷 托管短缺待补·同一只客户钱包（不碰应付，客户端零行）；
+  //              垫款 借 现金·客户钱包 ／ 贷 应付·客户（置灰入口，代码原样）
+  // 现金户一钱包一户，只经 resolveCashAccountId 取；码 2 经 resolveTbAccountId（ownerType WALLET）取。
 
   private async accounts(row: any) {
     const ledger = TB_LEDGERS[row.asset.currency as keyof typeof TB_LEDGERS];
@@ -291,7 +455,7 @@ export class InternalTransferWorkflowService {
       debitCode: TB_CODE_TO_COA[debitCode], creditCode: TB_CODE_TO_COA[creditCode],
       assetCurrency: row.asset.currency, // ⚠ currency 不是 code（USDT-TRON vs USDT）
       actorType: 'SYSTEM', actorId: 'INTERNAL_TRANSFER_WORKFLOW',
-      memo: `${row.purpose === 'CLIENT_COMPENSATION' ? 'Compensation' : 'Advance'} ${row.transferNo} leg ${leg.legSeq} (case ${row.sourceCaseNo})`,
+      memo: `${row.purpose === 'SHORTFALL_TOPUP' ? 'Shortfall top-up' : 'Advance'} ${row.transferNo} leg ${leg.legSeq} (case ${row.sourceCaseNo})`,
       externalRef: this.fundsOrders.resolveExternalRef({ ...leg, asset: row.asset }),
     };
   }
@@ -307,7 +471,7 @@ export class InternalTransferWorkflowService {
     });
   }
 
-  /** 最后一腿（法币腿 2 / 加密币腿 1）：公司放出（82）+ 客户收到（83），一步两笔，任一失败整步失败。 */
+  /** 最后一腿（法币腿 2 / 加密币腿 1）：公司放出（82）+ 客户收到（83，认损补缺贷码 2 / 垫款贷应付），一步两笔，任一失败整步失败。 */
   private async postFinalLeg(row: any, leg: any) {
     const a = await this.accounts(row);
     const amount = majorToMinor(leg.amount, row.asset.decimals);
@@ -318,20 +482,27 @@ export class InternalTransferWorkflowService {
       code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_FIRM_OUT,
       evidence: this.evidence(row, leg, 'INTERNAL_TRANSFER_FIRM_OUT', TB_ACCOUNT_CODES.EXPENSE_RECON_LOSS, TB_ACCOUNT_CODES.FIRM_CASH),
     });
-    // 客户侧事件码按用途分——客户端对账单靠它显示「平台补款 / 平台垫付」（spec §11）
-    const clientEvent = row.purpose === 'CLIENT_COMPENSATION' ? 'INTERNAL_TRANSFER_COMPENSATION_IN' : 'INTERNAL_TRANSFER_ADVANCE_IN';
+    // 83 按用途分两种形状（码不改号，借贷由 eventCode 区分）：
+    //   认损补缺：贷 码 2 托管短缺待补·同一只客户钱包——把批准时记下的短缺消掉；不碰应付，客户端对账单靠应付户取流水，故零行
+    //   垫款：    贷 应付·客户，客户端显示「平台垫付」（spec §11）
+    const topup = row.purpose === 'SHORTFALL_TOPUP';
+    const clientCredit = topup
+      ? await this.accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_SHORTFALL, ledger: a.ledger, ownerType: 'WALLET', ownerUuid: row.toWalletId })
+      : await a.clientPayable();
     await this.accounting.executeTransfer({
-      debitAccountId: await a.cash(row.toWalletId), creditAccountId: await a.clientPayable(), amount, ledger: a.ledger,
+      debitAccountId: await a.cash(row.toWalletId), creditAccountId: clientCredit, amount, ledger: a.ledger,
       code: TB_TRANSFER_CODES.INTERNAL_TRANSFER_CLIENT_IN,
-      evidence: this.evidence(row, leg, clientEvent, TB_ACCOUNT_CODES.CLIENT_CASH, TB_ACCOUNT_CODES.CLIENT_PAYABLE),
+      evidence: this.evidence(row, leg, topup ? 'INTERNAL_TRANSFER_SHORTFALL_TOPUP_IN' : 'INTERNAL_TRANSFER_ADVANCE_IN', TB_ACCOUNT_CODES.CLIENT_CASH, topup ? TB_ACCOUNT_CODES.CLIENT_SHORTFALL : TB_ACCOUNT_CODES.CLIENT_PAYABLE),
     });
   }
 
-  // ── 审计（七码共用信封）──────────────────────────────────────────────
+  // ── 审计（八码共用信封）──────────────────────────────────────────────
 
   private async transferAudit(row: any, patch: {
     action: string; reason?: string; outcome?: AuditOutcome; reasonCode?: string;
     fromStatus?: string; toStatus?: string; approvalNo?: string; causationId?: string; fundsOrderNo?: string;
+    /** 生效日（YYYY-MM-DD）；缺省 = 今天。记短缺那一条带案件业务日。 */
+    effectiveDate?: string;
     metadata?: Record<string, unknown>; actor?: ApprovalActorContext;
   }): Promise<void> {
     const subjects: AuditSubjectInput[] = [
@@ -339,7 +510,6 @@ export class InternalTransferWorkflowService {
       { subjectType: 'CUSTOMER', subjectNo: row.customerNo, subjectRole: AuditSubjectRole.OWNER },
       { subjectType: 'RECONCILIATION_CASE', subjectNo: row.sourceCaseNo, subjectRole: AuditSubjectRole.RELATED },
     ];
-    if (row.sourceAdjustmentNo) subjects.push({ subjectType: AuditEntityTypes.RECON_ADJUSTMENT, subjectNo: row.sourceAdjustmentNo, subjectRole: AuditSubjectRole.RELATED });
     if (patch.approvalNo) subjects.push({ subjectType: AuditEntityTypes.APPROVAL_CASE, subjectNo: patch.approvalNo, subjectRole: AuditSubjectRole.INSTRUMENT });
     if (patch.fundsOrderNo) subjects.push({ subjectType: AuditEntityTypes.FUNDS_ORDER, subjectNo: patch.fundsOrderNo, subjectRole: AuditSubjectRole.RELATED });
     const decimals = row.asset?.decimals ?? 0;
@@ -352,11 +522,11 @@ export class InternalTransferWorkflowService {
       fromStatus: patch.fromStatus, toStatus: patch.toStatus,
       approvalNo: patch.approvalNo, causationId: patch.causationId,
       amount: new Prisma.Decimal(row.amount).toFixed(decimals),
-      effectiveDate: toBusinessDate(new Date()),
+      effectiveDate: patch.effectiveDate ?? toBusinessDate(new Date()),
       // REQUESTED 起划转单自己的旅程（NONE，不传 correlationId）；其余继承（INHERIT）
       ...(patch.action === AuditActions.INTERNAL_TRANSFER_REQUESTED ? {} : { correlationId: row.traceId }),
       requestId: `${patch.action}_${row.transferNo}_${randomUUID()}`,
-      metadata: { transferNo: row.transferNo, purpose: row.purpose, sourceCaseNo: row.sourceCaseNo, sourceAdjustmentNo: row.sourceAdjustmentNo ?? null, fundsOrderNo: patch.fundsOrderNo ?? null, ...(patch.metadata ?? {}) },
+      metadata: { transferNo: row.transferNo, purpose: row.purpose, sourceCaseNo: row.sourceCaseNo, fundsOrderNo: patch.fundsOrderNo ?? null, ...(patch.metadata ?? {}) },
       sourcePlatform: patch.actor ? 'ADMIN' : 'SYSTEM',
     };
     if (patch.actor) {

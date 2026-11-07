@@ -175,22 +175,29 @@ describe('CustomerStatementService', () => {
     // The customer-facing title is generated from the reason code alone
     // (REASON_SPECS.customerLabel) — no operator-typed customer reason exists any more
     // (the reasonCustomer column was retired 2026-11-04).
-    it('title is generated from the reason code alone (UNEXPLAINED_CLIENT_LOSS → controlled wording "Balance adjustment")', async () => {
+    it('title is generated from the reason code alone (a live reason code → its controlled customerLabel)', async () => {
       mockPrisma.reconciliationAdjustment.findMany.mockResolvedValue([
-        {
-          adjustmentNo: 'ADJ-LOSS',
-          reasonCode: 'UNEXPLAINED_CLIENT_LOSS',
-          relatedOrderNo: null,
-          direction: 'REDUCE',
-        },
+        { adjustmentNo: 'ADJ-PHANTOM', reasonCode: 'PHANTOM_BOOKING', relatedOrderNo: null, direction: 'REDUCE' },
       ]);
       const legs: StatementLeg[] = [
         leg({
-          sourceType: 'RECON_ADJUSTMENT', sourceNo: 'ADJ-LOSS', eventCode: 'RECON_ADJUSTMENT_POSTED',
+          sourceType: 'RECON_ADJUSTMENT', sourceNo: 'ADJ-PHANTOM', eventCode: 'RECON_ADJUSTMENT_POSTED',
           direction: 'OUT', amount: 4000, runningBalance: 96000,
         }),
       ];
       const { items } = await service.buildStatement(legs, { isFiat: true });
+      expect(items[0].title).toBe('Balance correction · Deposit reversal');
+    });
+
+    // 戊波二 T7a：客户池认损不再是调账单——UNEXPLAINED_CLIENT_LOSS 已退出 REASON_SPECS，
+    // 留在库里的老调账单（若有）按「查不到客户口径词」回落通用话术，不再有专属客户措辞。
+    it('the retired client-pool loss code no longer has its own customer wording (falls back to the generic one)', async () => {
+      mockPrisma.reconciliationAdjustment.findMany.mockResolvedValue([
+        { adjustmentNo: 'ADJ-OLD-LOSS', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', relatedOrderNo: null, direction: 'REDUCE' },
+      ]);
+      const { items } = await service.buildStatement([
+        leg({ sourceType: 'RECON_ADJUSTMENT', sourceNo: 'ADJ-OLD-LOSS', eventCode: 'RECON_ADJUSTMENT_POSTED', direction: 'OUT', amount: 4000, runningBalance: 96000 }),
+      ], { isFiat: true });
       expect(items[0].title).toBe('Balance adjustment');
     });
 
@@ -209,21 +216,10 @@ describe('CustomerStatementService', () => {
     });
   });
 
-  // ③ internal transfer COMPENSATION/ADVANCE rows.
+  // ③ internal transfer credit rows. Wave 2: the shortfall top-up (code 91 recognition + code 83 top-up
+  // crediting the custody-shortfall account) never touches the client's CLIENT_PAYABLE account, which is the only
+  // thing a statement reads — so it yields zero client statement rows. Only the advance still reaches the payable.
   describe('③ internal transfer credit rows', () => {
-    it('CLIENT_COMPENSATION → "balance restoration" wording, no subtitle', async () => {
-      const legs: StatementLeg[] = [
-        leg({
-          sourceType: 'INTERNAL_TRANSFER', sourceNo: 'IT-0001', eventCode: 'INTERNAL_TRANSFER_COMPENSATION_IN',
-          direction: 'IN', amount: 20000, runningBalance: 120000,
-        }),
-      ];
-      const { items } = await service.buildStatement(legs, { isFiat: true });
-      expect(items[0].kind).toBe('TRANSFER');
-      expect(items[0].title).toBe('Credit from FiatX · balance restoration');
-      expect(items[0].subtitle).toBeNull();
-    });
-
     it('CLIENT_ADVANCE → "advance" wording, no subtitle', async () => {
       const legs: StatementLeg[] = [
         leg({
@@ -234,6 +230,32 @@ describe('CustomerStatementService', () => {
       const { items } = await service.buildStatement(legs, { isFiat: true });
       expect(items[0].title).toBe('Credit from FiatX · advance');
       expect(items[0].subtitle).toBeNull();
+    });
+
+    it('a shortfall top-up produces no client statement row: the payable-account legs of the same period are the only rows, and no row carries the retired "balance restoration" wording', async () => {
+      // A statement is built from the legs on the customer's payable account. The top-up's two postings (91: Dr 2 / Cr 1,
+      // 83: Dr 1 / Cr 2) are on the cash and shortfall accounts — they are not among the legs handed to the statement.
+      // What is handed over: just the deposit that created the balance. The statement stays exactly that one row.
+      const legs: StatementLeg[] = [
+        leg({ sourceType: 'DEPOSIT', sourceNo: 'DEP-A', eventCode: 'DEPOSIT_SUSPENSE_TO_PAYABLE', direction: 'IN', amount: 100000, runningBalance: 100000 }),
+      ];
+      const { items, total } = await service.buildStatement(legs, { isFiat: true });
+      expect(total).toBe(1);
+      expect(items.map((i) => i.title)).toEqual(['Deposit · bank transfer']);
+      expect(JSON.stringify(items)).not.toMatch(/balance restoration|SHORTFALL|COMPENSATION/);
+    });
+
+    // 兜底：若有人把码 83 的客户侧事件误接到应付户，它不能再回落成旧的「balance restoration」措辞——
+    // 白名单里已没有 COMPENSATION / SHORTFALL_TOPUP 的任何登记，落到 default-deny 通用话术，不吐 eventCode。
+    it('the retired compensation event code and the top-up event codes are not on the whitelist (default-deny wording, never the raw code)', async () => {
+      for (const eventCode of ['INTERNAL_TRANSFER_COMPENSATION_IN', 'INTERNAL_TRANSFER_SHORTFALL_TOPUP_IN', 'INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED']) {
+        const { items } = await service.buildStatement([
+          leg({ sourceType: 'INTERNAL_TRANSFER', sourceNo: 'IT-0001', eventCode, direction: 'IN', amount: 20000, runningBalance: 120000 }),
+        ], { isFiat: true });
+        expect(items[0].title).toBe('Balance adjustment');
+        expect(items[0].title).not.toMatch(/restoration/);
+        expect(JSON.stringify(items[0])).not.toContain(eventCode);
+      }
     });
   });
 

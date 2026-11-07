@@ -156,7 +156,7 @@ const ReconciliationCasesDetailPage = () => {
     PERMISSIONS.WITHDRAW_RETURN_CLAIM_WRITE,
   ]);
   // 平账二期：补款 / 垫款发起归金库——持两个写码任一即可看到按钮；运营只看到指路文字。
-  const canFundClient = hasAnyPermission([PERMISSIONS.INTERNAL_TRANSFER_COMPENSATION_WRITE, PERMISSIONS.INTERNAL_TRANSFER_ADVANCE_WRITE]);
+  const canFundClient = hasAnyPermission([PERMISSIONS.INTERNAL_TRANSFER_SHORTFALL_TOPUP_WRITE, PERMISSIONS.INTERNAL_TRANSFER_ADVANCE_WRITE]);
   // 平账三期（Task 12）：案件页三入口共用——登记事故写权。战役甲波一 T10（item8）：本页
   // 两个登记按钮只会创建 FUNDS 族类型（LARGE_UNEXPLAINED/CLIENT_SHORTFALL），改用族独占
   // 能力码而不是被五组共享而失去区分力的路由级码 PERMISSIONS.INCIDENT_WRITE（见

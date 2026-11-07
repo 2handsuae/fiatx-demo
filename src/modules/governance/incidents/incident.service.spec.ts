@@ -312,7 +312,7 @@ describe('IncidentService (Task 5)', () => {
       await expect(svc.register({ type: T.CLIENT_SHORTFALL, title: 't', description: 'd', customerNo: 'CU1', amount: '900', sourceAdvanceTransferNo: 'ITR9' }, ops)).rejects.toBeInstanceOf(NotFoundException);
     });
     it('advance transfer purpose is not CLIENT_ADVANCE → 400', async () => {
-      const { svc } = makeService({ transfer: { transferNo: 'ITR9', purpose: 'CLIENT_COMPENSATION' } });
+      const { svc } = makeService({ transfer: { transferNo: 'ITR9', purpose: 'SHORTFALL_TOPUP' } });
       await expect(svc.register({ type: T.CLIENT_SHORTFALL, title: 't', description: 'd', customerNo: 'CU1', amount: '900', sourceAdvanceTransferNo: 'ITR9' }, ops)).rejects.toThrow(/not an advance transfer/);
     });
     it('happy path: can register without an advance transfer number (a shortfall can start unanchored)', async () => {
@@ -424,6 +424,20 @@ describe('IncidentService (Task 5)', () => {
       const call = auditLogs.recordByActor.mock.calls[0][0];
       expect(call).toMatchObject({ action: 'INCIDENT_REMEDIATION_LINKED', referenceNo: 'ADJ1', fromStatus: S.ASSESSED, toStatus: S.RESOLVING });
       expect(call.metadata).toMatchObject({ statusAdvanced: 'ASSESSED→RESOLVING' });
+    });
+
+    // 戊波二 T7a：事故路的认损补缺单（TRANSFER 类善后）本身就满足「善后已挂」——不必先挂一张认损调账单（调账单那条路对客户池已退役）。
+    it('a shortfall top-up (TRANSFER) alone satisfies remediation on an ASSESSED incident: advances to RESOLVING, never looks for an ADJUSTMENT', async () => {
+      const { svc, prisma, auditLogs } = makeService({
+        transfer: { transferNo: 'ITR1', purpose: 'SHORTFALL_TOPUP' },
+        incidentRow: { id: 'uuid-inc', incidentNo: 'INC1', type: T.LARGE_UNEXPLAINED, status: S.ASSESSED },
+      });
+      await svc.linkRemediation('INC1', { kind: 'TRANSFER', referenceNo: 'ITR1' }, ops);
+      expect(prisma.internalTransfer.findUnique).toHaveBeenCalledWith({ where: { transferNo: 'ITR1' } });
+      expect(prisma.reconciliationAdjustment.findUnique).not.toHaveBeenCalled();
+      expect(prisma.incident.update).toHaveBeenCalledWith(expect.objectContaining({ where: { incidentNo: 'INC1' }, data: expect.objectContaining({ status: S.RESOLVING }) }));
+      expect(prisma.incidentRemediation.create).toHaveBeenCalledWith({ data: expect.objectContaining({ incidentId: 'uuid-inc', kind: 'TRANSFER', referenceNo: 'ITR1' }) });
+      expect(auditLogs.recordByActor.mock.calls[0][0]).toMatchObject({ action: 'INCIDENT_REMEDIATION_LINKED', referenceNo: 'ITR1', fromStatus: S.ASSESSED, toStatus: S.RESOLVING });
     });
 
     it('linking while RESOLVING → status unchanged, pure append, audit metadata has no statusAdvanced', async () => {

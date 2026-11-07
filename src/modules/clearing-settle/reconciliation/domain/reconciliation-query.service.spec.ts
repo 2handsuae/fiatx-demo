@@ -924,16 +924,18 @@ describe('getCase — explain / observation / bucket (T6)', () => {
       {
         fundsOrderNo: 'FO-2026-000123',
         status: 'SUBMITTED',
-        internalTransfer: { transferNo: 'ITR260921996176', purpose: 'CLIENT_COMPENSATION', status: 'EXECUTING' },
+        internalTransfer: { transferNo: 'ITR260921996176', purpose: 'SHORTFALL_TOPUP', status: 'EXECUTING', recognizedTbTransferId: 'tb-91-hex' },
       },
     ]);
     const svc = mkSvc(prisma);
     const result: any = await svc.getCase('REC20260630-005');
 
     const inTransitRow = result.flowComparison.find((r: any) => r.matchType === 'IN_TRANSIT');
+    // 戊波二 T7a（R22）：回链多带「是否已记短缺」(recognized)，不带回执本身（内部 id 不下发）
     expect(inTransitRow.transfer).toEqual({
-      transferNo: 'ITR260921996176', purpose: 'CLIENT_COMPENSATION', status: 'EXECUTING',
+      transferNo: 'ITR260921996176', purpose: 'SHORTFALL_TOPUP', status: 'EXECUTING', recognized: true,
     });
+    expect(JSON.stringify(inTransitRow.transfer)).not.toContain('tb-91-hex');
   });
 
   it('IN_TRANSIT line item 带 externalTimestamp → 下发真实 ISO 串（红3甲·读端）', async () => {
@@ -1556,6 +1558,7 @@ describe('getCase 行注解（spec §3/§8）', () => {
       outletLabel: DISPOSITION_LABEL.REVERSE, // 存储 outlet 反查处置种类（KIND_OF_OUTLET）→ DISPOSITION_LABEL
       findingNote: '银行/链上查无此笔，客户确认未收到通知',
       adjustmentNo: null,
+      transferNo: null, // 戊波二 T7a：认损补缺单号，与 adjustmentNo 平行（有值 = 行被认损补缺单锁住）
       deferredTarget: null,
       supplementNo: null,
       supplementRef: null,
@@ -1730,7 +1733,7 @@ describe('getCase 行注解（spec §3/§8）', () => {
   // 「公司承损」（FIRM_LOSS），案件页要给出「认损」开单入口——不受账龄线约束
   // （这条行天生不是 HOLD_INVESTIGATING，走不进上面那组超期判断）。复用 WRITE_OFF
   // 这个 nextStep 形状，金额锁定为事故定损额（元→最小单位）。
-  it('出口 = INCIDENT 且事故已定损 FIRM_LOSS → nextStep = WRITE_OFF（认损开单入口，金额锁定为定损额，不受账龄线约束）', async () => {
+  it('出口 = INCIDENT 且事故已定损 FIRM_LOSS → 客户池 nextStep = SHORTFALL_TOPUP（认损补缺入口，金额锁定为定损额，不受账龄线约束）', async () => {
     const externalLines = [
       { id: 'ext-uo', direction: 'OUT', amount: new Prisma.Decimal(500), externalRef: 'REF-UO', datetime: new Date('2026-06-27T09:00:00Z'), description: null },
     ];
@@ -1743,6 +1746,8 @@ describe('getCase 行注解（spec §3/§8）', () => {
       createdAt: new Date('2026-06-27T12:00:00Z'), updatedAt: new Date('2026-06-27T12:00:00Z'),
     };
     const prisma = mkBasePrisma({
+      reconciliationCase: { findUnique: jest.fn().mockResolvedValue({ ...baseKase, ownerNo: 'CU7' }) },
+      wallet: { findUnique: jest.fn().mockResolvedValue({ walletNo: 'WA7', ownerId: 'uuid-owner-7' }) },
       externalBalance: { findMany: jest.fn().mockResolvedValue([]) },
       externalStatementLine: { findMany: jest.fn().mockResolvedValue(externalLines) },
       accountFlow: { findMany: jest.fn().mockResolvedValue([]) },
@@ -1758,7 +1763,9 @@ describe('getCase 行注解（spec §3/§8）', () => {
     const result: any = await svc.getCase(baseKase.caseNo);
     const row = result.flowComparison.find((r: any) => r.externalLine?.id === 'ext-uo');
     // decimals=2（mkBasePrisma 默认）：123.45 → 12345 最小单位。
-    expect(row.nextStep).toEqual({ kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '12345', effectiveDate: baseKase.businessDate });
+    // 戊波二 T7a：客户池事故路改叫 SHORTFALL_TOPUP（认损补缺），带来路 INCIDENT、客户号 / 钱包号（业务键，无 UUID），不再带 reasonCode / direction
+    expect(row.nextStep).toEqual({ kind: 'SHORTFALL_TOPUP', amount: '12345', effectiveDate: baseKase.businessDate, lossSource: 'INCIDENT', customerNo: 'CU7', walletNo: 'WA7' });
+    expect(JSON.stringify(row.nextStep)).not.toMatch(/uuid/i);
   });
 
   it('出口 = INCIDENT 但事故还没定损（REGISTERED）→ 没有 nextStep（等定损结论，不许提前解锁）', async () => {
@@ -1897,6 +1904,7 @@ describe('平账 A 批：超期后的下一步 nextStep（spec §2.6）', () => 
   function prismaFor(opts: { book: 'CLIENT' | 'FIRM'; slaBreached: boolean; disposition: any | null; currency?: string; decimals?: number }) {
     const kase = {
       id: 'c1', caseNo: 'REC-A', businessDate: '2026-09-02', assetCode: opts.currency === 'USDT' ? 'USDT-TRON' : 'AED', walletRef: 'w-1', status: 'OPEN',
+      ownerNo: opts.book === 'CLIENT' ? 'CU100' : null, // 戊波二 T7a：认损补缺 nextStep 带客户号
       book: opts.book, slaBreached: opts.slaBreached, lastObservedRunId: 'run-x', firstSeenRunId: 'run-x', closedByRunId: null, openedByRunId: 'run-x',
       tbAmount: new Prisma.Decimal(0), actualExternal: new Prisma.Decimal(0), deltaAmount: new Prisma.Decimal(-7), createdAt: new Date(), lineItems: [],
     };
@@ -1936,12 +1944,20 @@ describe('平账 A 批：超期后的下一步 nextStep（spec §2.6）', () => 
     expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'INCIDENT_DEFERRED', amount: '20000' });
   });
   // 平账二期 Task 4 改口：客户池超期不再一律 TRANSFER_DEFERRED——小额且「托管里少了」
-  // （REDUCE）直接解锁认损（reasonCode 换成 UNEXPLAINED_CLIENT_LOSS，其余三项与公司池
-  // 同款预填）；多出来的（INCREASE）→ CLIENT_SURPLUS、大额 → INCIDENT_DEFERRED，
-  // 由 adjustment.service 的账簿 × 成因码守卫兜底，本用例只覆盖小额 REDUCE 这一支。
-  it('客户池 + 超期 + 调查中 + 小额 + REDUCE → WRITE_OFF（认损码，平账二期解锁）', async () => {
+  // （REDUCE）直接解锁认损；多出来的（INCREASE）→ CLIENT_SURPLUS、大额 → INCIDENT_DEFERRED，
+  // 本用例只覆盖小额 REDUCE 这一支。戊波二 T7a：这一支改叫 SHORTFALL_TOPUP（认损补缺，一张划转单一次批），
+  // 带 amount / effectiveDate / lossSource=AGING / customerNo / walletNo，不再带 reasonCode / direction。
+  it('客户池 + 超期 + 调查中 + 小额 + REDUCE → SHORTFALL_TOPUP（认损补缺，来路 AGING）', async () => {
     const res = await mkSvc(prismaFor({ book: 'CLIENT', slaBreached: true, disposition: { ...held, book: 'CLIENT' } }), { flowMatcher: mismatchMatcher }).getCase('REC-A');
-    expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '7', effectiveDate: '2026-09-02' });
+    expect(res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toEqual({ kind: 'SHORTFALL_TOPUP', amount: '7', effectiveDate: '2026-09-02', lossSource: 'AGING', customerNo: 'CU100', walletNo: 'WA1' });
+  });
+  // 开单即挂：行上挂着认损补缺单（transferNo）= 行锁定，认损补缺入口收起，不论账龄线 / 事故。
+  it('行已挂认损补缺单（disposition.transferNo）→ 没有 nextStep（锁行，和挂调账单同一规矩）；disposition 注解下发 transferNo', async () => {
+    const res = await mkSvc(prismaFor({ book: 'CLIENT', slaBreached: true, disposition: { ...held, book: 'CLIENT', transferNo: 'ITR1' } }), { flowMatcher: mismatchMatcher }).getCase('REC-A');
+    const row = res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!;
+    expect(row.nextStep).toBeUndefined();
+    expect(row.disposition!.transferNo).toBe('ITR1');
+    expect(row.disposition!.adjustmentNo).toBeNull();
   });
   // 大额而非小额：金额刻意选在小额线之上，用来证明「多出来的不论大小都指路补录」
   // ——如果 CLIENT_SURPLUS 判断被错放到小额线检查之后，这一支会被误判成 INCIDENT_DEFERRED。
@@ -2031,32 +2047,49 @@ describe('getCase — 补款 / 垫款回挂行为覆盖（平账二期 Task 8 �
     };
   }
   const mismatchMatcher = { matchFlows: jest.fn().mockResolvedValue({ matched: [], orphanInternal: [], orphanExternal: [], mismatch: [{ internalFlowId: flowId, externalLineId: extId }] }) };
-  // adjustmentNo 非空使旧 write-off nextStep 块的 `!d.adjustmentNo` 守卫恒假，
-  // 与补款块互不干扰（同 T4 已证明的写法）。
-  const lossLinked = { dispositionNo: 'RCD-FUND-1', explainedFlowId: flowId, explainedExternalLineId: extId, matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', causeCode: 'UNEXPLAINED', outlet: 'HOLD_INVESTIGATING', findingNote: 'n', adjustmentNo: 'ADJ1', deferredTarget: null, supplementNo: null, createdByUserId: 'ADM', createdAt: new Date(), updatedAt: new Date() };
-
-  it('补款：认损已落账（POSTED/UNEXPLAINED_CLIENT_LOSS）、无划转单 → nextStep=COMPENSATION，transfer 不下发', async () => {
-    const prisma = prismaFor({
-      disposition: lossLinked,
-      adjustments: [{ adjustmentNo: 'ADJ1', status: 'POSTED', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '4200000' }],
-      transfers: [],
-    });
-    const res: any = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-FUND');
-    const row = res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH');
-    expect(row.nextStep).toEqual({ kind: 'COMPENSATION', adjustmentNo: 'ADJ1', amount: '4200000', customerNo: 'CU100', walletNo: 'WA1' });
-    expect(row.transfer).toBeUndefined();
+  // 戊波二 T7a：补款（认损调账单已落账 → COMPENSATION）整条退役；认损补缺单的回链改按处置记录上的 transferNo 贴行。
+  const topupLocked = (transferNo: string | null) => ({
+    dispositionNo: 'RCD-FUND-1', explainedFlowId: flowId, explainedExternalLineId: extId, matchType: 'AMOUNT_MISMATCH', book: 'CLIENT', causeCode: 'UNEXPLAINED',
+    outlet: 'HOLD_INVESTIGATING', findingNote: 'n', adjustmentNo: null, transferNo, deferredTarget: null, supplementNo: null,
+    createdByUserId: 'ADM', createdAt: new Date(), updatedAt: new Date(),
   });
 
-  it('补款：划转单已在走（EXECUTING）→ transfer 回挂三字段，nextStep 收起（不再给按钮）', async () => {
+  it('认损补缺：行挂着单（transferNo）→ transfer 回挂 { 单号, 用途, 状态, recognized }，nextStep 收起；批准前 recognized=false', async () => {
     const prisma = prismaFor({
-      disposition: lossLinked,
-      adjustments: [{ adjustmentNo: 'ADJ1', status: 'POSTED', reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE', amount: '4200000' }],
-      transfers: [{ transferNo: 'ITR1', purpose: 'CLIENT_COMPENSATION', status: 'EXECUTING', sourceAdjustmentNo: 'ADJ1', sourceExternalLineId: null }],
+      disposition: topupLocked('ITR1'),
+      transfers: [{ transferNo: 'ITR1', purpose: 'SHORTFALL_TOPUP', status: 'PENDING_APPROVAL', sourceExternalLineId: null, recognizedTbTransferId: null }],
     });
     const res: any = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-FUND');
     const row = res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH');
-    expect(row.transfer).toEqual({ transferNo: 'ITR1', purpose: 'CLIENT_COMPENSATION', status: 'EXECUTING' });
+    expect(row.transfer).toEqual({ transferNo: 'ITR1', purpose: 'SHORTFALL_TOPUP', status: 'PENDING_APPROVAL', recognized: false });
+    expect(row.disposition.transferNo).toBe('ITR1');
     expect(row.nextStep).toBeUndefined();
+  });
+
+  it.each([
+    ['EXECUTING', true, 'Shortfall recognised · topping up'],
+    ['FAILED', true, 'Shortfall recognised · top-up failed'],
+    ['SUCCESS', true, 'Explained'],
+  ])('认损补缺：单状态 %s · 已记短缺 → transfer.recognized 为 %s（前端据 status + recognized 打「%s」标签）；回链不下发回执 id', async (status, recognized) => {
+    const prisma = prismaFor({
+      disposition: topupLocked('ITR2'),
+      transfers: [{ transferNo: 'ITR2', purpose: 'SHORTFALL_TOPUP', status, sourceExternalLineId: null, recognizedTbTransferId: 'tb-91-hex' }],
+    });
+    const res: any = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-FUND');
+    const row = res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH');
+    expect(row.transfer).toEqual({ transferNo: 'ITR2', purpose: 'SHORTFALL_TOPUP', status, recognized });
+    expect(JSON.stringify(row.transfer)).not.toContain('tb-91-hex');
+    expect(row.nextStep).toBeUndefined();
+  });
+
+  it('认损补缺单被驳回 / 撤回后处置记录已解锁（transferNo 空）→ 读面没有回链了（不会再把一张已死的单贴在行上）', async () => {
+    const prisma = prismaFor({
+      disposition: topupLocked(null),
+      transfers: [{ transferNo: 'ITR3', purpose: 'SHORTFALL_TOPUP', status: 'REJECTED', sourceExternalLineId: null, recognizedTbTransferId: null }],
+    });
+    const res: any = await mkSvc(prisma, { flowMatcher: mismatchMatcher }).getCase('REC-FUND');
+    const row = res.flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH');
+    expect(row.transfer).toBeUndefined();
   });
 
   it('垫款：退汇定性（SUPPLEMENT/SUPPLEMENT_BOUNCE）行余额不足 → nextStep=ADVANCE，金额 = 账单行 − 可用', async () => {
@@ -2074,39 +2107,54 @@ describe('getCase — 补款 / 垫款回挂行为覆盖（平账二期 Task 8 �
   });
 });
 
-describe('listCases — 补款 / 垫款徽标（平账二期 Task 8 评审补测）', () => {
-  it('待补款 PENDING / 挂着划转单 IN_PROGRESS / 已成功不再挂 → pendingFunding 三态', async () => {
+describe('listCases — 垫款徽标（平账二期 Task 8 评审补测；戊波二 T7a：「待补款」徽标随补款旧路退役）', () => {
+  it('不再有 COMPENSATION 徽标：即便库里还有一张已落账的认损调账单、一张挂着认损补缺单的案子，pendingFunding 也不出补款', async () => {
     const caseA = { id: 'c-fund-a', caseNo: 'REC-FUND-A', status: 'OPEN', book: 'CLIENT', assetCode: 'AED', createdAt: new Date() };
     const caseB = { id: 'c-fund-b', caseNo: 'REC-FUND-B', status: 'OPEN', book: 'CLIENT', assetCode: 'AED', createdAt: new Date() };
-    const caseC = { id: 'c-fund-c', caseNo: 'REC-FUND-C', status: 'OPEN', book: 'CLIENT', assetCode: 'AED', createdAt: new Date() };
     const prisma = {
-      reconciliationCase: { findMany: jest.fn().mockResolvedValue([caseA, caseB, caseC]) },
-      // Task 5（读面翻转）：demoScenarios 气泡数据源查询——本用例不关心气泡。
+      reconciliationCase: { findMany: jest.fn().mockResolvedValue([caseA, caseB]) },
       reconciliationRun: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
       reconciliationDisposition: { groupBy: jest.fn().mockResolvedValue([]), findMany: jest.fn().mockResolvedValue([]) },
       reconciliationLineItem: { groupBy: jest.fn().mockResolvedValue([]) },
       asset: { findMany: jest.fn().mockResolvedValue([]) },
-      // 三个案子各挂一张 POSTED 客损调账单——B/C 各配一张 sourceAdjustmentNo 对应的
-      // 在途划转单（B=EXECUTING，C=SUCCESS），A 没有划转单。
-      reconciliationAdjustment: {
-        findMany: jest.fn().mockResolvedValue([
-          { caseNo: 'REC-FUND-A', adjustmentNo: 'ADJ-A' },
-          { caseNo: 'REC-FUND-B', adjustmentNo: 'ADJ-B' },
-          { caseNo: 'REC-FUND-C', adjustmentNo: 'ADJ-C' },
-        ]),
-      },
+      reconciliationAdjustment: { findMany: jest.fn().mockResolvedValue([{ caseNo: 'REC-FUND-A', adjustmentNo: 'ADJ-A' }]) },
       internalTransfer: {
         findMany: jest.fn().mockResolvedValue([
-          { sourceCaseNo: 'REC-FUND-B', purpose: 'CLIENT_COMPENSATION', status: 'EXECUTING', sourceAdjustmentNo: 'ADJ-B', sourceExternalLineId: null },
-          { sourceCaseNo: 'REC-FUND-C', purpose: 'CLIENT_COMPENSATION', status: 'SUCCESS', sourceAdjustmentNo: 'ADJ-C', sourceExternalLineId: null },
+          { sourceCaseNo: 'REC-FUND-B', purpose: 'SHORTFALL_TOPUP', status: 'EXECUTING', sourceExternalLineId: null },
         ]),
       },
     };
     const rows = await mkSvc(prisma).listCases({});
     const byCaseNo = new Map(rows.map((r: any) => [r.caseNo, r]));
-    expect(byCaseNo.get('REC-FUND-A').pendingFunding).toEqual({ kind: 'COMPENSATION', status: 'PENDING' });
-    expect(byCaseNo.get('REC-FUND-B').pendingFunding).toEqual({ kind: 'COMPENSATION', status: 'IN_PROGRESS' });
-    expect(byCaseNo.get('REC-FUND-C').pendingFunding).toBeNull();
+    expect(byCaseNo.get('REC-FUND-A').pendingFunding).toBeNull();
+    expect(byCaseNo.get('REC-FUND-B').pendingFunding).toBeNull();
+  });
+  it('垫款徽标仍在：退汇定性行余额不足 → ADVANCE PENDING；挂着垫款单 → IN_PROGRESS；已成功不再挂', async () => {
+    const mk = (n: string) => ({ id: `c-${n}`, caseNo: `REC-ADV-${n}`, status: 'OPEN', book: 'CLIENT', assetCode: 'AED', createdAt: new Date() });
+    const prisma = {
+      reconciliationCase: { findMany: jest.fn().mockResolvedValue([mk('A'), mk('B'), mk('C')]) },
+      reconciliationRun: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
+      reconciliationDisposition: {
+        groupBy: jest.fn().mockResolvedValue([]),
+        findMany: jest.fn().mockResolvedValue(['A', 'B', 'C'].map((n) => ({ caseNo: `REC-ADV-${n}`, explainedExternalLineId: `line-${n}`, walletRef: 'w-1' }))),
+      },
+      reconciliationLineItem: { groupBy: jest.fn().mockResolvedValue([]) },
+      asset: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn().mockResolvedValue({ currency: 'AED' }) },
+      externalStatementLine: { findUnique: jest.fn().mockResolvedValue({ amount: new Prisma.Decimal(120_000) }) },
+      wallet: { findUnique: jest.fn().mockResolvedValue({ ownerId: 'owner-uuid' }) },
+      internalTransfer: {
+        findMany: jest.fn().mockResolvedValue([
+          { sourceCaseNo: 'REC-ADV-B', purpose: 'CLIENT_ADVANCE', status: 'EXECUTING', sourceExternalLineId: 'line-B' },
+          { sourceCaseNo: 'REC-ADV-C', purpose: 'CLIENT_ADVANCE', status: 'SUCCESS', sourceExternalLineId: 'line-C' },
+        ]),
+      },
+    };
+    const accounting = { getCustomerAvailableBalance: jest.fn(async () => ({ available: 30_000n })) };
+    const rows = await mkSvc(prisma, { accounting }).listCases({});
+    const byCaseNo = new Map(rows.map((r: any) => [r.caseNo, r]));
+    expect(byCaseNo.get('REC-ADV-A').pendingFunding).toEqual({ kind: 'ADVANCE', status: 'PENDING' });
+    expect(byCaseNo.get('REC-ADV-B').pendingFunding).toEqual({ kind: 'ADVANCE', status: 'IN_PROGRESS' });
+    expect(byCaseNo.get('REC-ADV-C').pendingFunding).toBeNull();
   });
 });
 

@@ -17,6 +17,13 @@
 // 读面对全部处置统一按行方向过滤（rowDirection / causesFor 第四参）。
 // 纯常量 + 纯函数，无 IO，无 Nest 依赖。
 
+/**
+ * 客户池认损的固定成因码（戊波二 T7a）。客户池认损不再是调账单——它从 adjustment-rules.ts 的 REASON_SPECS 退出，
+ * 调账单写面（DTO 白名单 + assertReasonAllowed）不再接受；码本身保留，作「认损补缺」划转单的固定成因：
+ * resolveWriteOff 客户池分支产出它，认损补缺的审批快照 / 审计留痕带它。成因固定、不由人选。
+ */
+export const CLIENT_SHORTFALL_CAUSE = 'UNEXPLAINED_CLIENT_LOSS' as const;
+
 export type CauseMatchType = 'AMOUNT_MISMATCH' | 'ORPHAN_INTERNAL' | 'ORPHAN_EXTERNAL';
 export type CauseBook = 'CLIENT' | 'FIRM';
 export type AdjustFamily = 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE' | 'WRITE_OFF';
@@ -201,23 +208,27 @@ interface WriteOffFacts extends RowFacts {
  * 核销判定（spec §3.3）——不是成因出口，是账龄到线后「挂起·调查中」行的后续处置。
  * 一句原则：让内部等于外部。金额不对按差额符号（出账翻符号，同冲正）；我有外无
  * 取内部方向的反向（同冲销）；外有我无照外部方向（同补记孤儿）。
+ *
+ * 戊波二 T7a：客户池认损不再是调账单——客户池分支产出 kind = 'SHORTFALL_TOPUP'（认损补缺：一张划转单、一次批，
+ * 客户余额不动），成因是固定常量 CLIENT_SHORTFALL_CAUSE；公司池仍是 kind = 'WRITE_OFF'（调账单核销）。
  */
 export function resolveWriteOff(facts: WriteOffFacts): {
-  reasonCode: 'UNEXPLAINED_WRITE_OFF' | 'UNEXPLAINED_CLIENT_LOSS'; family: 'WRITE_OFF'; direction: 'REDUCE' | 'INCREASE'; amountMinor: string;
+  kind: 'WRITE_OFF' | 'SHORTFALL_TOPUP';
+  reasonCode: 'UNEXPLAINED_WRITE_OFF' | typeof CLIENT_SHORTFALL_CAUSE; family: 'WRITE_OFF'; direction: 'REDUCE' | 'INCREASE'; amountMinor: string;
 } {
-  // 平账二期：客户池另立成因码（分录同为借应付 / 贷该钱包的客户现金户，但审批文案、客户可见标签、守卫都不同）
-  const reasonCode = facts.book === 'FIRM' ? 'UNEXPLAINED_WRITE_OFF' : 'UNEXPLAINED_CLIENT_LOSS';
+  const kind = facts.book === 'FIRM' ? 'WRITE_OFF' : 'SHORTFALL_TOPUP';
+  const reasonCode = facts.book === 'FIRM' ? 'UNEXPLAINED_WRITE_OFF' : CLIENT_SHORTFALL_CAUSE;
   const abs = (s: string | undefined) => (s ?? '0').replace(/^-/, '');
   if (facts.matchType === 'AMOUNT_MISMATCH') {
     const direction: 'REDUCE' | 'INCREASE' = signedDeltaSign(facts) === -1 ? 'REDUCE' : 'INCREASE';
-    return { reasonCode, family: 'WRITE_OFF', direction, amountMinor: abs(facts.deltaAmount) };
+    return { kind, reasonCode, family: 'WRITE_OFF', direction, amountMinor: abs(facts.deltaAmount) };
   }
   if (facts.matchType === 'ORPHAN_INTERNAL') {
     const direction: 'REDUCE' | 'INCREASE' = facts.internalDirection === 'OUT' ? 'INCREASE' : 'REDUCE';
-    return { reasonCode, family: 'WRITE_OFF', direction, amountMinor: abs(facts.internalAmount) };
+    return { kind, reasonCode, family: 'WRITE_OFF', direction, amountMinor: abs(facts.internalAmount) };
   }
   const direction: 'REDUCE' | 'INCREASE' = facts.externalDirection === 'IN' ? 'INCREASE' : 'REDUCE';
-  return { reasonCode, family: 'WRITE_OFF', direction, amountMinor: abs(facts.externalAmount) };
+  return { kind, reasonCode, family: 'WRITE_OFF', direction, amountMinor: abs(facts.externalAmount) };
 }
 
 /**

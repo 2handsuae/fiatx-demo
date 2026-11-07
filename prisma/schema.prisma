@@ -885,11 +885,13 @@ model DepositTransaction {
 }
 
 // 平账二期（2026-09-05）：第四类订单——公司 → 客户的补款 / 垫款。
+// 戊波二（2026-11-07）：补款改名「认损补缺」SHORTFALL_TOPUP，一张单、一次批——批准那一步记短缺（码 91），
+// 再建腿补钱（码 83 贷码 2），客户应付全程不动；旧的「认损调账单 + 补款划转单」两张单退役。
 // 订单层金额按三域惯例存元；账本分录与外部账单最小单位。
 model InternalTransfer {
   id                   String    @id @default(uuid())
   transferNo           String    @unique
-  purpose              String    // CLIENT_COMPENSATION | CLIENT_ADVANCE
+  purpose              String    // SHORTFALL_TOPUP | CLIENT_ADVANCE
   assetId              String
   amount               Decimal   // 元
   fromWalletId         String    // 运营户 F_OPS 在该网络的地址行
@@ -900,10 +902,19 @@ model InternalTransfer {
   status               String    @default("PENDING_APPROVAL") // PENDING_APPROVAL | EXECUTING | SUCCESS | FAILED | REJECTED | CANCELLED
   reason               String
   sourceCaseNo         String
-  sourceAdjustmentNo   String?   // 补款：认损调账单号
   sourceExternalLineId String?   // 垫款：被退汇的那条账单行（内部 id，任何界面不得展示）
+  // 认损补缺（SHORTFALL_TOPUP）：锚在真实证据 id 上（语义同调账单 explainedFlowId / explainedExternalLineId，
+  // 不锚每轮重建的差异行）——匹配器第 0 轮靠它把记短缺那笔与差异行配成一对；垫款单恒空。
+  explainedFlowId         String?
+  explainedExternalLineId String?
+  // 记短缺（码 91）那笔的回执：批准那一步落账后写；有值的 FAILED 单计入阻塞集（不重补）。
+  recognizedTbTransferId  String?
+  recognizedAt            DateTime?
+  effectiveDate        DateTime  // 业务生效日（迪拜日起点）：认损补缺 = 案件业务日，垫款 = 被退汇账单行的业务日
+  lossSource           String?   // AGING | INCIDENT（认损补缺的来路；垫款恒空）
+  sourceIncidentNo     String?   // 事故路：带来路的事故单号
   approvalNo           String?
-  failureReasonCode    String?   // INSUFFICIENT_FIRM_BALANCE | LEG_FAILED | POSTING_FAILED
+  failureReasonCode    String?   // INSUFFICIENT_FIRM_BALANCE | LEG_FAILED | POSTING_FAILED | RECOGNITION_FAILED
   failureNote          String?
   executedAt           DateTime?
   settledAt            DateTime?
@@ -916,7 +927,6 @@ model InternalTransfer {
 
   @@index([status])
   @@index([sourceCaseNo])
-  @@index([sourceAdjustmentNo])
   @@index([sourceExternalLineId])
   @@map("internal_transfers")
 }
@@ -1859,6 +1869,7 @@ model ReconciliationDisposition {
   otherCause              String?   // 成因=OTHER 时必填的一行成因名（展示为「Other · <otherCause>」）；其余成因恒 null
   findingNote             String    // 调查说明（Investigation note）：一次处置只写一次
   adjustmentNo            String?
+  transferNo              String?   // 戊波二：认损补缺单号，与 adjustmentNo 平行——开单即挂、行锁定；驳回 / 撤回 / 超时 / 记短缺失败时解开（不改写 outlet）
   supplementNo            String?   // 平账 B 批：与 adjustmentNo 平行，① 先写信号号、执行后改写为充值单号
   incidentNo              String?   // 平账三期：与 adjustmentNo/supplementNo 平行，登记事故后写回
   createdByUserId         String

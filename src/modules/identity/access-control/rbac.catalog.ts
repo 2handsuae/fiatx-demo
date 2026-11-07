@@ -508,8 +508,8 @@ export const RBAC_PERMISSION_DEFINITIONS: RbacPermissionDefinition[] = [
   route('POST', '/admin/reconciliation/cases/:caseNo/dispositions', 'Record disposition conclusion on a reconciliation diff row', ['RECON_DISPOSITION_WRITE']),
   route('GET', '/admin/reconciliation/cases/:caseNo/reattribution-candidates', 'List counterpart candidates for a reattribution', ['RECON_CASE_READ']),
   route('GET', '/admin/reconciliation/cases/:caseNo/supplement-candidates', 'Statement-line facts + candidate original orders for a supplement', ['RECON_CASE_READ']),
-  // ─── 平账二期 · 内部划转单（2026-09-05）：公司 → 客户的补款 / 垫款，入口在案子上 ───
-  route('POST', '/admin/internal-transfers/compensation', 'Initiate a client compensation transfer from a posted client-loss write-off', ['INTERNAL_TRANSFER_WRITE']),
+  // ─── 平账二期 · 内部划转单（2026-09-05）：公司 → 客户的垫款，入口在案子上；戊波二：补款改名认损补缺（shortfall-topup）───
+  route('POST', '/admin/internal-transfers/shortfall-topup', 'Initiate a shortfall top-up: recognize a custody shortfall on a client wallet and top it up from a company wallet', ['INTERNAL_TRANSFER_WRITE']),
   route('POST', '/admin/internal-transfers/advance', 'Initiate a client advance transfer to cover a clawback shortfall', ['INTERNAL_TRANSFER_WRITE']),
   route('POST', '/admin/internal-transfers/:transferNo/cancel', 'Cancel a pending internal transfer (maker only)', ['INTERNAL_TRANSFER_WRITE']),
   route('GET', '/admin/internal-transfers', 'List internal transfers', ['INTERNAL_TRANSFER_READ']),
@@ -1092,12 +1092,12 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       {
         key: 'treasury.view_transfers',
         label: 'View internal transfers',
-        description: 'Browse company → client compensation / advance transfers and their funds-order legs',
+        description: 'Browse company → client shortfall top-up / advance transfers and their funds-order legs',
         groups: ['INTERNAL_TRANSFER_READ'],
       },
       {
         key: 'treasury.act_client_funding',
-        label: 'Fund a client (compensation / advance)',
+        label: 'Fund a client (shortfall top-up / advance)',
         description: 'Initiate or cancel a company → client transfer from a reconciliation case — CFO signs it off',
         groups: ['INTERNAL_TRANSFER_WRITE'],
       },

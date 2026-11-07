@@ -18,10 +18,12 @@ export const RECON_ADJUSTMENT_SOURCE_TYPE = 'RECON_ADJUSTMENT';
  *  第二笔必须与第一笔（应付对，eventCode = RECON_ADJUSTMENT_POSTED）不同；落账与详情页读面共用这一个字面量。 */
 export const RECON_ADJUSTMENT_CASH_EVENT_CODE = 'RECON_ADJUSTMENT_POSTED_CASH';
 
+// 客户池认损（UNEXPLAINED_CLIENT_LOSS）戊波二 T7a 起不再是调账单成因：已从下面的 ReasonCode / REASON_SPECS 退出，
+// 码本身作「认损补缺」划转单的固定成因保留为 cause-registry.ts 的 CLIENT_SHORTFALL_CAUSE。
+
 export type ReasonCode =
   | 'CUSTOMER_REATTRIBUTION'
   | 'UNEXPLAINED_WRITE_OFF'
-  | 'UNEXPLAINED_CLIENT_LOSS'
   // 单码制（spec §5）：以下 9 码 + OTHER 直接沿用 cause-registry.ts 的 CauseCode 同名码，
   // 不再经旧两层「成因 → 调账 reason」折叠映射（旧 8 码已 Task 13 退役）。
   | 'AMT_MISBOOKED'
@@ -65,12 +67,6 @@ export const REASON_SPECS: Record<ReasonCode, {
   // 平账 A 批（spec §3）：第五族核销——查无果 + 账龄到线 + 小额，公司认下来。
   // 不是成因表里的成因：触发它的是账龄，开单守卫在 adjustment.service.assertWriteOffAllowed。
   UNEXPLAINED_WRITE_OFF:      { book: 'FIRM',   directions: ['REDUCE', 'INCREASE'], customerLabel: null, internalLabel: 'Unexplained write-off', family: 'WRITE_OFF' },
-  // 平账二期（spec §7.1）：客户池查无果认损——托管里真少了钱，先让账跟着外面走（客户余额下降），
-  // 再由公司补款划转补齐；只许 REDUCE（托管里多出来的走补录，不许核销进客户余额）。
-  // 平账三期：事故路（大额未授权转出走事故登记而非「查无果」）也用这个码——「查无果」
-  // 二字对事故路不成立，internalLabel 改中性表述，两条来路都适用。
-  UNEXPLAINED_CLIENT_LOSS:    { book: 'CLIENT', directions: ['REDUCE'],             customerLabel: 'Balance adjustment',     internalLabel: 'Client loss recognition', family: 'WRITE_OFF' },
-
   // ═══ 单码制（spec §5）：cause-registry.ts 的 CauseCode 直落调账 reason，不再经旧的
   // 「成因 → 折叠码」映射（旧 resolveOutlet 那套八码 REASON_CODE 折叠已 Task 13 退役）。
   // customerLabel/internalLabel/family 取值见 task-2-brief.md Step 3；directions 见测试表。

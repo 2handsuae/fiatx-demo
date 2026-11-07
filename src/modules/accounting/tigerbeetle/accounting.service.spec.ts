@@ -399,4 +399,33 @@ describe('AccountingService', () => {
       await expect(service.assertWalletBalance('w-ops', 1, 1n)).rejects.toBeInstanceOf(NotFoundException);
     });
   });
+
+  // 戊波二 T7a：可用额算式只此一份——assertWalletBalance（公司钱包出款闸）与认损补缺单的客户钱包余量复查共用它。
+  describe('getWalletCashAvailable', () => {
+    const tbAccount = (debits_posted: bigint, credits_posted: bigint, credits_pending = 0n, debits_pending = 0n) => ({
+      debits_posted, credits_posted, debits_pending, credits_pending,
+    });
+
+    it('available = debits posted − credits posted − credits pending; debits pending is not spendable', async () => {
+      mockPrisma.wallet.findUnique.mockResolvedValue({ ownerType: 'CUSTOMER', walletNo: 'WA-CUST' });
+      mockRegistryService.resolve.mockResolvedValue({ tbAccountId: 'a' });
+      mockTbService.lookupAccounts.mockResolvedValue([tbAccount(10_000n, 2_500n, 1_500n, 9_999n)]);
+      await expect(service.getWalletCashAvailable('w-cust', 2)).resolves.toBe(6_000n);
+    });
+
+    it('a CUSTOMER wallet reads its code-1 client cash account, never the company one', async () => {
+      mockPrisma.wallet.findUnique.mockResolvedValue({ ownerType: 'CUSTOMER', walletNo: 'WA-CUST' });
+      mockRegistryService.resolve.mockResolvedValue({ tbAccountId: 'a' });
+      mockTbService.lookupAccounts.mockResolvedValue([tbAccount(100n, 0n)]);
+      await service.getWalletCashAvailable('w-cust', 2);
+      expect(mockRegistryService.resolve).toHaveBeenCalledWith({ code: 1, ledger: 2, ownerType: 'WALLET', ownerUuid: 'w-cust' }, undefined);
+    });
+
+    it('the pending withdrawal lock (a pending credit on the client cash account) shrinks it — the exact case that makes code 91 bounce', async () => {
+      mockPrisma.wallet.findUnique.mockResolvedValue({ ownerType: 'CUSTOMER', walletNo: 'WA-CUST' });
+      mockRegistryService.resolve.mockResolvedValue({ tbAccountId: 'a' });
+      mockTbService.lookupAccounts.mockResolvedValue([tbAccount(300_000n, 0n, 250_000n)]);
+      await expect(service.getWalletCashAvailable('w-cust', 1)).resolves.toBe(50_000n);
+    });
+  });
 });

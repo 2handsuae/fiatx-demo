@@ -86,7 +86,8 @@ function customerLabelFor(reasonCode: string | null | undefined): string {
  *  ("Balance correction · Balance correction", the single-code system's customerLabel
  *  for AMT_MISBOOKED/AMT_FEE_NETTED/AMT_ROUNDING/OTHER — Task 12 brief step 3) or a
  *  mismatched pairing ("Balance correction · Balance adjustment", customerLabelFor's
- *  own fallback and UNEXPLAINED_CLIENT_LOSS's explicit customerLabel). Generalized
+ *  own fallback — the client-pool loss recognition code that once carried an explicit
+ *  'Balance adjustment' label left REASON_SPECS in wave 2). Generalized
  *  (Task 13) from a guard that only special-cased the 'Balance adjustment' string —
  *  the single-code migration introduced the second collision and the old guard missed
  *  it (final-review Minor #2 covered one case, not both).
@@ -177,12 +178,10 @@ const ROW_PRESENTATION: Record<string, RowPresentation> = {
     }),
   },
   // Internal transfer credits — the client-side eventCode already encodes the
-  // purpose (compensation vs advance), no DB lookup needed for the title.
-  INTERNAL_TRANSFER_COMPENSATION_IN: {
-    kind: 'TRANSFER',
-    family: 'INTERNAL_TRANSFER_COMPENSATION',
-    present: () => ({ title: 'Credit from FiatX · balance restoration', subtitle: null }),
-  },
+  // purpose, no DB lookup needed for the title. Only the advance reaches the payable
+  // account: since wave 2 the shortfall top-up (recognition 91 + top-up 83) posts
+  // between the client's cash and custody-shortfall accounts and never touches
+  // CLIENT_PAYABLE, so it has no statement row and no whitelist entry here.
   INTERNAL_TRANSFER_ADVANCE_IN: {
     kind: 'TRANSFER',
     family: 'INTERNAL_TRANSFER_ADVANCE',

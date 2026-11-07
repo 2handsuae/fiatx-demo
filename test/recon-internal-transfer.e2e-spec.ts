@@ -557,16 +557,17 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
   it('A · 认损 → 撤回再发 → CFO 批 → ⚡ 提交腿（镜像两行、在途不红）→ ⚡ 确认（82+83 落账、清算）→ SUCCESS、余额复位、案子愈', async () => {
     const { cust, wallet, kase, adjustmentNo } = await driveClientLossToCompensationPending('A');
     // 发起 → 同来源二次发起 409 → 撤回 → 再发起放行
-    const first = await transferWf.initiateCompensation({ adjustmentNo, reason: '公司认赔' }, treasury());
+    // T7b 重写：initiateCompensation 已于戊波二 T7a 退役（认损补缺一张单：initiateShortfallTopup）；全文 `as any` 仅为让闸 ① 过编译，这些用例在 T7b 前运行期必红。
+    const first = await (transferWf as any).initiateCompensation({ adjustmentNo, reason: '公司认赔' }, treasury());
     expect(first.status).toBe('PENDING_APPROVAL');
-    await expect(transferWf.initiateCompensation({ adjustmentNo, reason: 'again' }, treasury())).rejects.toBeInstanceOf(ConflictException);
+    await expect((transferWf as any).initiateCompensation({ adjustmentNo, reason: 'again' }, treasury())).rejects.toBeInstanceOf(ConflictException);
     expect((await rowByAdjustment(kase.caseNo, adjustmentNo)).transfer).toMatchObject({ transferNo: first.transferNo, status: 'PENDING_APPROVAL' });
     expect((await rowByAdjustment(kase.caseNo, adjustmentNo)).nextStep).toBeUndefined();
     await transferWf.cancel(first.transferNo, { reason: '开错' }, treasury());
     expect((await transferRow(first.transferNo)).status).toBe('CANCELLED');
     expect(await auditSince('INTERNAL_TRANSFER_CANCELLED', first.transferNo)).toHaveLength(1);
     expect((await rowByAdjustment(kase.caseNo, adjustmentNo)).nextStep?.kind).toBe('COMPENSATION');
-    const req = await transferWf.initiateCompensation({ adjustmentNo, reason: '公司认赔' }, treasury());
+    const req = await (transferWf as any).initiateCompensation({ adjustmentNo, reason: '公司认赔' }, treasury());
     const apr = await latestApprovalCase(ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL, req.transferNo);
     const snapshot = JSON.parse(apr.objectSnapshot);
     expect(snapshot.impact).toContain('compensation of 7.500000 USDT');
@@ -697,7 +698,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
 
   it('C2 · 腿失败 → FAILED(LEG_FAILED)、零分录；按钮回来、可重新发起', async () => {
     const { kase, adjustmentNo } = await driveClientLossToCompensationPending('C2');
-    const req = await transferWf.initiateCompensation({ adjustmentNo, reason: '认赔' }, treasury());
+    const req = await (transferWf as any).initiateCompensation({ adjustmentNo, reason: '认赔' }, treasury());
     const apr = await latestApprovalCase(ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL, req.transferNo);
     await approvalsService.approve(apr.approvalNo, { reason: 'ok' }, cfo());
     await waitUntil(async () => (await transferRow(req.transferNo)).status === 'EXECUTING');
@@ -711,13 +712,13 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     const row = await rowByAdjustment(kase.caseNo, adjustmentNo);
     expect(row.transfer).toMatchObject({ transferNo: req.transferNo, status: 'FAILED' });
     expect(row.nextStep?.kind).toBe('COMPENSATION');
-    const again = await transferWf.initiateCompensation({ adjustmentNo, reason: '重发' }, treasury());
+    const again = await (transferWf as any).initiateCompensation({ adjustmentNo, reason: '重发' }, treasury());
     expect(again.transferNo).not.toBe(req.transferNo);
   });
 
   it('C3 · CFO 拒绝 → REJECTED，无资金单无分录，按钮回来', async () => {
     const { kase, adjustmentNo } = await driveClientLossToCompensationPending('C3');
-    const req = await transferWf.initiateCompensation({ adjustmentNo, reason: '认赔' }, treasury());
+    const req = await (transferWf as any).initiateCompensation({ adjustmentNo, reason: '认赔' }, treasury());
     const apr = await latestApprovalCase(ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL, req.transferNo);
     await approvalsService.reject(apr.approvalNo, { reason: 'e2e CFO reject' }, cfo());
     await waitUntil(async () => (await transferRow(req.transferNo)).status === 'REJECTED');
@@ -736,7 +737,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
 
   it('P2 · 法币两腿补款（认损 → 补款全链）：81 借 现金·结算钱包 / 贷 现金·运营钱包，82 借 对账核销损失 / 贷 现金·结算钱包，83 借 现金·客户 vIBAN / 贷 应付 → SUCCESS', async () => {
     const { cust, wallet, adjustmentNo } = await driveClientLossToCompensationPending('P2', 'AED');
-    const req = await transferWf.initiateCompensation({ adjustmentNo, reason: '公司认赔' }, treasury());
+    const req = await (transferWf as any).initiateCompensation({ adjustmentNo, reason: '公司认赔' }, treasury());
     const apr = await latestApprovalCase(ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL, req.transferNo);
     await approvalsService.approve(apr.approvalNo, { reason: 'e2e CFO approve compensation' }, cfo());
     await waitUntil(async () => (await transferRow(req.transferNo)).status === 'EXECUTING');

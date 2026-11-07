@@ -86,7 +86,7 @@ export const PERMISSIONS = {
   // 平账二期（2026-09-05）：内部划转单——五个码精确镜像 rbac.catalog.ts route() 的 buildPermissionCode 派生值
   INTERNAL_TRANSFERS_READ: 'api.get.admin_internal_transfers',
   INTERNAL_TRANSFER_DETAIL_READ: 'api.get.admin_internal_transfers_transferno',
-  INTERNAL_TRANSFER_COMPENSATION_WRITE: 'api.post.admin_internal_transfers_compensation',
+  INTERNAL_TRANSFER_SHORTFALL_TOPUP_WRITE: 'api.post.admin_internal_transfers_shortfall_topup',
   INTERNAL_TRANSFER_ADVANCE_WRITE: 'api.post.admin_internal_transfers_advance',
   INTERNAL_TRANSFER_CANCEL: 'api.post.admin_internal_transfers_transferno_cancel',
 

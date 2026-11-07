@@ -17,8 +17,11 @@ describe('resolvePostingLegs —— cash side follows the book, counter side fol
     expect(resolvePostingLegs('CLIENT', 'INCREASE', 'AMT_MISBOOKED')).toEqual({ debitCode: C.CLIENT_CASH, creditCode: C.CLIENT_PAYABLE });
   });
 
-  it('client book · client loss recognition (UNEXPLAINED_CLIENT_LOSS, write-off family) still hits the customer payable, not a firm account', () => {
-    expect(resolvePostingLegs('CLIENT', 'REDUCE', 'UNEXPLAINED_CLIENT_LOSS')).toEqual({ debitCode: C.CLIENT_PAYABLE, creditCode: C.CLIENT_CASH });
+  // 戊波二 T7a：客户池认损改走划转单（认损补缺），客户余额不动——调账单写面不再接受这个成因码，
+  // 它只作认损补缺的固定成因常量（cause-registry.ts CLIENT_SHORTFALL_CAUSE）。
+  it('client-pool loss recognition (UNEXPLAINED_CLIENT_LOSS) is retired from the adjustment write path: not a REASON_SPECS key, assertReasonAllowed rejects it as unknown', () => {
+    expect(Object.keys(REASON_SPECS)).not.toContain('UNEXPLAINED_CLIENT_LOSS');
+    expect(() => assertReasonAllowed('UNEXPLAINED_CLIENT_LOSS' as any, 'CLIENT', 'REDUCE')).toThrow(/Unknown reason code/);
   });
 
   it('firm book · correct / reverse · reduce (AMT_MISBOOKED): debit company equity / credit company cash', () => {
@@ -70,8 +73,9 @@ describe('resolvePostingLegs —— cash side follows the book, counter side fol
         }
       }
     }
-    // 非改记的 12 个码在各自合法账簿 × 方向下共 29 格（WRITE_OFF 2 + CLIENT_LOSS 1 + AMT×3 12 + DUP 4 + PHANTOM 1 + PAYOUT 1 + FIRM_MISBOOKED 2 + INTEREST 1 + CHARGE 1 + OTHER 4）——钉死格数，防止循环空转。
-    expect(cells).toBe(29);
+    // 非改记的 11 个码在各自合法账簿 × 方向下共 28 格（WRITE_OFF 2 + AMT×3 12 + DUP 4 + PHANTOM 1 + PAYOUT 1 + FIRM_MISBOOKED 2 + INTEREST 1 + CHARGE 1 + OTHER 4）——
+    // 戊波二 T7a：客户池认损（CLIENT_LOSS 1 格）退出调账单，29 → 28。钉死格数，防止循环空转。
+    expect(cells).toBe(28);
   });
 });
 
@@ -141,7 +145,7 @@ describe('assertReasonAllowed —— cause × book × direction legal combinatio
     expect(() => assertReasonAllowed('FIRM_MISBOOKED', 'CLIENT', 'REDUCE')).toThrow(BadRequestException);
   });
 
-  it('exactly thirteen reason codes (fourth-family reattribution + wave-2 client pool loss recognition + firm-pool write-off; plus single-code-system Task 2: nine cause-registry codes + OTHER — the eight old folded codes retired in Task 13, the two firm amount codes retired 2026-11-04), no catch-all beyond OTHER', () => {
+  it('exactly twelve reason codes (fourth-family reattribution + firm-pool write-off — the client-pool loss recognition code left in wave 2 T7a; plus single-code-system Task 2: nine cause-registry codes + OTHER — the eight old folded codes retired in Task 13, the two firm amount codes retired 2026-11-04), no catch-all beyond OTHER', () => {
     const codes = Object.keys(REASON_SPECS).sort();
     expect(codes).toEqual([
       'AMT_FEE_NETTED', 'AMT_MISBOOKED', 'AMT_ROUNDING',
@@ -151,7 +155,7 @@ describe('assertReasonAllowed —— cause × book × direction legal combinatio
       'FIRM_MISBOOKED',
       'OTHER',
       'PAYOUT_NOT_EXECUTED', 'PHANTOM_BOOKING',
-      'UNEXPLAINED_CLIENT_LOSS', 'UNEXPLAINED_WRITE_OFF',
+      'UNEXPLAINED_WRITE_OFF',
     ]);
   });
 

@@ -294,22 +294,15 @@ export class ReconciliationQueryService {
         })) as Array<{ id: string; runNo: string }>);
     const runNoById = new Map(runs.map((r) => [r.id, r.runNo]));
 
-    // 平账二期：列表徽标——待补款 / 待垫款 / 进行中，金库一眼找到活
-    const lossAdjustments = caseNos.length
-      ? ((await this.prisma.reconciliationAdjustment.findMany({ where: { caseNo: { in: caseNos }, status: 'POSTED', reasonCode: 'UNEXPLAINED_CLIENT_LOSS' }, select: { caseNo: true, adjustmentNo: true } })) as Array<{ caseNo: string; adjustmentNo: string }>)
-      : [];
+    // 平账二期：列表徽标——待垫款 / 进行中，金库一眼找到活
+    // （戊波二 T7a：「待补款」徽标随补款旧路退役；认损补缺单的进度在案件页行上看，列表不动）
     const bounceDispositions = caseNos.length
       ? ((await this.prisma.reconciliationDisposition.findMany({ where: { caseNo: { in: caseNos }, outlet: 'SUPPLEMENT', deferredTarget: 'SUPPLEMENT_BOUNCE', supplementNo: null }, select: { caseNo: true, explainedExternalLineId: true, walletRef: true } })) as Array<{ caseNo: string; explainedExternalLineId: string | null; walletRef: string }>)
       : [];
     const liveTransfers = caseNos.length
-      ? ((await this.prisma.internalTransfer.findMany({ where: { sourceCaseNo: { in: caseNos }, status: { in: ['PENDING_APPROVAL', 'EXECUTING', 'SUCCESS'] } }, select: { sourceCaseNo: true, purpose: true, status: true, sourceAdjustmentNo: true, sourceExternalLineId: true } })) as Array<{ sourceCaseNo: string; purpose: string; status: string; sourceAdjustmentNo: string | null; sourceExternalLineId: string | null }>)
+      ? ((await this.prisma.internalTransfer.findMany({ where: { sourceCaseNo: { in: caseNos }, status: { in: ['PENDING_APPROVAL', 'EXECUTING', 'SUCCESS'] } }, select: { sourceCaseNo: true, purpose: true, status: true, sourceExternalLineId: true } })) as Array<{ sourceCaseNo: string; purpose: string; status: string; sourceExternalLineId: string | null }>)
       : [];
-    const fundingByCase = new Map<string, { kind: 'COMPENSATION' | 'ADVANCE'; status: 'PENDING' | 'IN_PROGRESS' }>();
-    for (const a of lossAdjustments) {
-      const t = liveTransfers.find((x) => x.sourceAdjustmentNo === a.adjustmentNo);
-      if (t?.status === 'SUCCESS') continue;
-      fundingByCase.set(a.caseNo, { kind: 'COMPENSATION', status: t ? 'IN_PROGRESS' : 'PENDING' });
-    }
+    const fundingByCase = new Map<string, { kind: 'ADVANCE'; status: 'PENDING' | 'IN_PROGRESS' }>();
     for (const b of bounceDispositions) {
       if (!b.explainedExternalLineId || fundingByCase.has(b.caseNo)) continue;
       const t = liveTransfers.find((x) => x.sourceExternalLineId === b.explainedExternalLineId);
@@ -554,18 +547,20 @@ export class ReconciliationQueryService {
     caseCurrency: string,
     flowComparison: FlowComparisonRow[],
   ) {
-    // 平账二期（spec §7.2/§7.3）：补款 / 垫款回挂——读本案的划转单（直查 internal_transfers，
-    // 与 resolveSupplementRef 读业务域表同款先例），按来源锚回贴到行上。
+    // 平账二期（spec §7.2/§7.3）：垫款 / 认损补缺回挂——读本案的划转单（直查 internal_transfers，
+    // 与 resolveSupplementRef 读业务域表同款先例），垫款按来源账单行锚、认损补缺按处置记录上挂的 transferNo 回贴到行上。
+    // 戊波二 T7a：补款（按认损调账单号回挂）退役；recognized = 批准那一步已记短缺（recognizedTbTransferId 有值）。
     const adjustmentByNo = new Map(caseAdjustments.map((a) => [a.adjustmentNo, a]));
     const caseTransfers = (await this.prisma.internalTransfer.findMany({
       where: { sourceCaseNo: kase.caseNo }, orderBy: { createdAt: 'desc' },
-      select: { transferNo: true, purpose: true, status: true, sourceAdjustmentNo: true, sourceExternalLineId: true },
-    })) as Array<{ transferNo: string; purpose: string; status: string; sourceAdjustmentNo: string | null; sourceExternalLineId: string | null }>;
-    const transferByAdjustment = new Map<string, (typeof caseTransfers)[number]>();
-    const transferByLine = new Map<string, (typeof caseTransfers)[number]>();
-    for (const t of caseTransfers) { // 最新在前，只留每个来源最新的一张
-      if (t.sourceAdjustmentNo && !transferByAdjustment.has(t.sourceAdjustmentNo)) transferByAdjustment.set(t.sourceAdjustmentNo, t);
-      if (t.sourceExternalLineId && !transferByLine.has(t.sourceExternalLineId)) transferByLine.set(t.sourceExternalLineId, t);
+      select: { transferNo: true, purpose: true, status: true, sourceExternalLineId: true, recognizedTbTransferId: true },
+    })) as Array<{ transferNo: string; purpose: string; status: string; sourceExternalLineId: string | null; recognizedTbTransferId: string | null }>;
+    const transferRefOf = (t: (typeof caseTransfers)[number]) => ({ transferNo: t.transferNo, purpose: t.purpose, status: t.status, recognized: !!t.recognizedTbTransferId });
+    const transferByNo = new Map<string, ReturnType<typeof transferRefOf>>();
+    const transferByLine = new Map<string, ReturnType<typeof transferRefOf>>();
+    for (const t of caseTransfers) { // 最新在前，垫款只留每条账单行最新的一张
+      transferByNo.set(t.transferNo, transferRefOf(t));
+      if (t.sourceExternalLineId && !transferByLine.has(t.sourceExternalLineId)) transferByLine.set(t.sourceExternalLineId, transferRefOf(t));
     }
     const walletOwner = kase.walletRef && !kase.walletRef.startsWith('XREF:')
       ? await this.prisma.wallet.findUnique({ where: { id: kase.walletRef }, select: { walletNo: true, ownerId: true } })
@@ -593,6 +588,7 @@ export class ReconciliationQueryService {
       outlet: string;
       findingNote: string;
       adjustmentNo: string | null;
+      transferNo: string | null;
       deferredTarget: string | null;
       supplementNo: string | null;
       incidentNo: string | null;
@@ -646,7 +642,7 @@ export class ReconciliationQueryService {
     const caseBook: CauseBook = kase.book === 'FIRM' ? 'FIRM' : 'CLIENT';
 
     return {
-      adjustmentByNo, transferByAdjustment, transferByLine, walletOwner, availableMinor,
+      adjustmentByNo, transferByNo, transferByLine, walletOwner, availableMinor,
       caseIncidents, incidentByNo, dByFlow, dByExt, otherCauseByAdjustmentNo, matchedKeys, demoLineCauses, caseBook,
     };
   }
@@ -664,7 +660,7 @@ export class ReconciliationQueryService {
     ctx: Awaited<ReturnType<ReconciliationQueryService['loadAnnotationContext']>>,
   ): Promise<void> {
     const {
-      adjustmentByNo, transferByAdjustment, transferByLine, walletOwner, availableMinor,
+      adjustmentByNo, transferByNo, transferByLine, walletOwner, availableMinor,
       incidentByNo, dByFlow, dByExt, matchedKeys, demoLineCauses, caseBook,
     } = ctx;
     if (r.matchType === 'MATCHED' || r.matchType === 'IN_TRANSIT') return;
@@ -689,6 +685,7 @@ export class ReconciliationQueryService {
         direction: linkedAdjustment.direction as 'REDUCE' | 'INCREASE',
       } : {}),
       findingNote: d.findingNote, adjustmentNo: d.adjustmentNo ?? null,
+      transferNo: d.transferNo ?? null,
       deferredTarget: d.deferredTarget ?? null,
       supplementNo: d.supplementNo ?? null,
       supplementRef: await this.resolveSupplementRef(d.supplementNo ?? null),
@@ -761,8 +758,9 @@ export class ReconciliationQueryService {
     // 平账 A 批（spec §2.6）+ 二期（spec §7.1）：超期解锁——判据全在服务端。
     // 公司池：小额 → 核销，大额 → 事故（三期）；客户池：多出来的不论大小 → 指路补录
     // （这一判断排在金额判断之前，见下方 if 顺序）；「托管里少了」再看金额——
-    // 小额 → 认损，大额 → 事故。
-    if (kase.status === 'OPEN' && kase.slaBreached && d && d.outlet === 'HOLD_INVESTIGATING' && !d.adjustmentNo) {
+    // 小额 → 认损补缺（戊波二 T7a：不再是调账单认损，kind = SHORTFALL_TOPUP），大额 → 事故。
+    // 「未挂单」= 既没挂调账单也没挂认损补缺单（戊波二：两者都锁行）。
+    if (kase.status === 'OPEN' && kase.slaBreached && d && d.outlet === 'HOLD_INVESTIGATING' && !d.adjustmentNo && !d.transferNo) {
       const wo = resolveWriteOff({
         matchType, book: caseBook,
         deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
@@ -774,54 +772,55 @@ export class ReconciliationQueryService {
       } else if (!isSmallAmount(caseCurrency, BigInt(wo.amountMinor))) {
         // Task 12：带上金额——「升级事故」按钮要用它预填 LARGE_UNEXPLAINED 的金额。
         r.nextStep = { kind: 'INCIDENT_DEFERRED', amount: wo.amountMinor };
+      } else if (wo.kind === 'SHORTFALL_TOPUP') {
+        r.nextStep = { kind: 'SHORTFALL_TOPUP', amount: wo.amountMinor, effectiveDate: kase.businessDate, lossSource: 'AGING', customerNo: kase.ownerNo ?? null, walletNo: walletOwner?.walletNo ?? null };
       } else {
-        r.nextStep = { kind: 'WRITE_OFF', reasonCode: wo.reasonCode, direction: wo.direction, amount: wo.amountMinor, effectiveDate: kase.businessDate };
+        r.nextStep = { kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: wo.direction, amount: wo.amountMinor, effectiveDate: kase.businessDate };
       }
     }
     // 平账三期（Task 12）：定性行挂着事故且事故已定损「公司承损」——认损开单入口对该行
-    // 可用，不受账龄线/小额线约束——这正是 assertIncidentWriteOffAllowed 的三重闸（状态
-    // ASSESSED/RESOLVING + 口径 FIRM_LOSS + 未挂单），前端按钮只是不让人白点，真闸仍在
-    // 后端。复用 WRITE_OFF 这个 nextStep 形状——案件页 openWriteOff/「认损」按钮已经是
-    // 通用实现，不必另开一种 kind。金额锁定为定损额（元→最小单位，惯例同
-    // receipt-lookup.service.ts）。
+    // 可用，不受账龄线/小额线约束——这正是事故路写面守卫（write-off-guards.ts assertIncidentWriteOffAllowed）
+    // 的三重闸（状态 ASSESSED/RESOLVING + 口径 FIRM_LOSS + 未挂单），前端按钮只是不让人白点，真闸仍在后端。
+    // 金额锁定为定损额（元→最小单位，惯例同 receipt-lookup.service.ts）。
     //
     // Task 4（死胡同修复）：判据从 `d.outlet === 'INCIDENT'` 改成只看 `d.incidentNo`——
     // 「大额查不出→挂起·调查中→超期→升级事故」（LARGE_UNEXPLAINED）那条路
     // attachIncident 只写 incidentNo 一列，outlet 原地留在 HOLD_INVESTIGATING（不是
     // UNAUTHORIZED_OUTFLOW 专用的静态出口 INCIDENT）；按 outlet 分流会让这类行永远出不了
-    // WRITE_OFF nextStep，事故定了损也没有入口开认损单。块位置仍在上面的账龄块之后——
-    // 大额行会先被账龄块判成 INCIDENT_DEFERRED，事故一旦定损，这里原地覆盖成 WRITE_OFF；
-    // reasonCode/direction 按簿现算而不是硬编码客户池的码——公司池升级事故同样要解锁核销。
-    if (kase.status === 'OPEN' && d && d.incidentNo && !d.adjustmentNo) {
+    // 认损入口，事故定了损也没有入口。块位置仍在上面的账龄块之后——大额行会先被账龄块判成
+    // INCIDENT_DEFERRED，事故一旦定损，这里原地覆盖；公司池 reasonCode / direction 按簿现算
+    // （公司池升级事故同样要解锁核销）。
+    //
+    // 戊波二 T7a：客户池事故路改产出 SHORTFALL_TOPUP（lossSource = INCIDENT，金额 = 定损额），公司池仍是 WRITE_OFF。
+    if (kase.status === 'OPEN' && d && d.incidentNo && !d.adjustmentNo && !d.transferNo) {
       const incident = incidentByNo.get(d.incidentNo);
       if (incident && (incident.status === 'ASSESSED' || incident.status === 'RESOLVING')
         && incident.assessmentBasis === 'FIRM_LOSS' && incident.assessedAmount != null) {
         const decimals = assetRow?.decimals ?? 0;
         const assessedMinor = new Prisma.Decimal(incident.assessedAmount).mul(new Prisma.Decimal(10).pow(decimals)).toFixed(0);
-        // 评审收（Minor）：公司簿 reasonCode 直接取 resolveWriteOff 已经按 book 算好的
-        // 结果，别再本地重抄一遍同一条公式；客户池只有 REDUCE 一种方向（spec §7.1），
-        // 仍本地判，不必为它多绕一次 resolveWriteOff。
-        const wo = caseBook === 'FIRM' ? resolveWriteOff({
-          matchType, book: caseBook,
-          deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
-          internalDirection: r.internalFlow?.direction, externalDirection: r.externalLine?.direction,
-          internalAmount: r.internalFlow?.amount, externalAmount: r.externalLine?.amount, deltaAmount: r.deltaAmount,
-        }) : null;
-        const reasonCode = caseBook === 'FIRM' ? wo!.reasonCode : 'UNEXPLAINED_CLIENT_LOSS';
-        const direction = caseBook === 'CLIENT' ? 'REDUCE' : wo!.direction;
-        r.nextStep = { kind: 'WRITE_OFF', reasonCode, direction, amount: assessedMinor, effectiveDate: kase.businessDate };
+        if (caseBook === 'CLIENT') {
+          // 客户池只有「托管里少了」一种方向（spec §7.1），成因固定，不必再绕一次 resolveWriteOff。
+          r.nextStep = { kind: 'SHORTFALL_TOPUP', amount: assessedMinor, effectiveDate: kase.businessDate, lossSource: 'INCIDENT', customerNo: kase.ownerNo ?? null, walletNo: walletOwner?.walletNo ?? null };
+        } else {
+          const wo = resolveWriteOff({
+            matchType, book: caseBook,
+            deltaSign: r.deltaAmount != null ? ((r.deltaAmount.startsWith('-') ? -1 : 1) as 1 | -1) : undefined,
+            internalDirection: r.internalFlow?.direction, externalDirection: r.externalLine?.direction,
+            internalAmount: r.internalFlow?.amount, externalAmount: r.externalLine?.amount, deltaAmount: r.deltaAmount,
+          });
+          r.nextStep = { kind: 'WRITE_OFF', reasonCode: 'UNEXPLAINED_WRITE_OFF', direction: wo.direction, amount: assessedMinor, effectiveDate: kase.businessDate };
+        }
       }
     }
-    // 平账二期：补款 / 垫款——案子 RESOLVED 之后也要给（认损让案子愈了，补款是对客户的交代）
+    // 平账二期：垫款 / 认损补缺回挂——案子 RESOLVED 之后也要给（认损补缺愈了案子，单子进度和对客户的交代还要看）。
+    // 戊波二 T7a：补款推导（认损调账单 POSTED → COMPENSATION）整条退役；这里只剩垫款下一步与划转单回链。
     if (d && caseBook === 'CLIENT') {
-      const adj = d.adjustmentNo ? (adjustmentByNo.get(d.adjustmentNo) ?? null) : null;
       const bounce = d.outlet === 'SUPPLEMENT' && d.deferredTarget === 'SUPPLEMENT_BOUNCE' && r.externalLine?.id
         ? { externalLineId: r.externalLine.id, lineAmountMinor: BigInt(r.externalLine.amount), availableMinor: await availableMinor(), supplementNo: d.supplementNo ?? null }
         : null;
-      const transfer = (d.adjustmentNo ? transferByAdjustment.get(d.adjustmentNo) : undefined) ?? (r.externalLine?.id ? transferByLine.get(r.externalLine.id) : undefined) ?? null;
+      const transfer = (d.transferNo ? transferByNo.get(d.transferNo) : undefined) ?? (r.externalLine?.id ? transferByLine.get(r.externalLine.id) : undefined) ?? null;
       const funding = deriveFundingNextStep({
         book: 'CLIENT', customerNo: kase.ownerNo ?? null, walletNo: walletOwner?.walletNo ?? null,
-        adjustment: adj ? { adjustmentNo: adj.adjustmentNo, status: adj.status, reasonCode: adj.reasonCode, amount: adj.amount } : null,
         transfer, bounce,
       });
       if (funding.transfer) r.transfer = funding.transfer;
@@ -860,23 +859,26 @@ export class ReconciliationQueryService {
     // 在途行背后的资金单是不是一条划转腿——同一批查询顺手带上 internalTransfer
     // 关联（transferNo/purpose/status，与既有 r.transfer 字段同形状，CaseFlowTable
     // 两处渲染共用一套结构），非划转腿（充值/提现/swap 腿）该关联恒 null。
-    const transferByFundsOrderNo = new Map<string, { transferNo: string; purpose: string; status: string }>();
+    const transferByFundsOrderNo = new Map<string, { transferNo: string; purpose: string; status: string; recognized: boolean }>();
     if (inTransitFundsOrderNos.length > 0) {
       const fundsOrders = (await this.prisma.fundsOrder.findMany({
         where: { fundsOrderNo: { in: inTransitFundsOrderNos } },
         select: {
           fundsOrderNo: true,
           status: true,
-          internalTransfer: { select: { transferNo: true, purpose: true, status: true } },
+          internalTransfer: { select: { transferNo: true, purpose: true, status: true, recognizedTbTransferId: true } },
         },
       })) as Array<{
         fundsOrderNo: string;
         status: string;
-        internalTransfer: { transferNo: string; purpose: string; status: string } | null;
+        internalTransfer: { transferNo: string; purpose: string; status: string; recognizedTbTransferId: string | null } | null;
       }>;
       for (const fo of fundsOrders) {
         fundsOrderStatusByNo.set(fo.fundsOrderNo, fo.status);
-        if (fo.internalTransfer) transferByFundsOrderNo.set(fo.fundsOrderNo, fo.internalTransfer);
+        if (fo.internalTransfer) {
+          const t = fo.internalTransfer;
+          transferByFundsOrderNo.set(fo.fundsOrderNo, { transferNo: t.transferNo, purpose: t.purpose, status: t.status, recognized: !!t.recognizedTbTransferId });
+        }
       }
     }
 
