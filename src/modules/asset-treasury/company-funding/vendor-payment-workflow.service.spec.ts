@@ -184,7 +184,7 @@ describe('VendorPaymentWorkflowService (Task 5)', () => {
       const r = await wf.initiate(baseInput, treasury);
       expect(r.status).toBe(S.PENDING_APPROVAL);
       expect(r.approvalNo).toBe('APR1');
-      expect(picker.assertEligible).toHaveBeenCalledWith(OPS_WALLET.id, AED.id);
+      expect(picker.assertEligible).toHaveBeenCalledWith(OPS_WALLET.id, AED.id, 'from');
       // 余额闸查的是人选的那只钱包在付款币账本上的现金户，金额 = 最小单位
       expect(accounting.assertWalletBalance).toHaveBeenCalledWith(OPS_WALLET.id, TB_LEDGERS.AED, 1_200_000n);
       expect(prudential.assertPostOutflowCompliant).toHaveBeenCalledTimes(1);
@@ -216,7 +216,7 @@ describe('VendorPaymentWorkflowService (Task 5)', () => {
     it('from = F_FEE: NLA gate IS called (money leaves the firm — 戊波三 裁定 2: both from wallets are counted in NLA), balance gate checks the FEE wallet, row persists the fee wallet, snapshot names it', async () => {
       const { wf, payments, approvals, auditLogs, picker, accounting, prudential } = makeWorkflow();
       const r = await wf.initiate({ ...baseInput, fromWalletId: FEE_WALLET.id }, treasury);
-      expect(picker.assertEligible).toHaveBeenCalledWith(FEE_WALLET.id, AED.id);
+      expect(picker.assertEligible).toHaveBeenCalledWith(FEE_WALLET.id, AED.id, 'from');
       expect(accounting.assertWalletBalance).toHaveBeenCalledTimes(1);
       expect(accounting.assertWalletBalance).toHaveBeenCalledWith(FEE_WALLET.id, TB_LEDGERS.AED, 1_200_000n);
       expect(prudential.assertPostOutflowCompliant).toHaveBeenCalledTimes(1);

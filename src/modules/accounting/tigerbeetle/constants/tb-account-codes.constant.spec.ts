@@ -150,13 +150,13 @@ describe('TB_ACCOUNT_CODES (real-time 1:1 COA)', () => {
     ).toBe('Client Cash · CU2601012635 · Deposit address');
   });
 
-  it('cashAccountName 码 2：Custody Shortfall · 客户号 · 角色（角色字样与同钱包的客户现金户一致）', () => {
+  it('cashAccountName 码 2：Custody Shortfall Receivable · 客户号 · 角色（角色字样与同钱包的客户现金户一致）', () => {
     expect(
       cashAccountName(2, { vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_VIBAN', network: 'AED_ZAND', ownerNo: 'CU2601012635' }),
-    ).toBe('Custody Shortfall · CU2601012635 · vIBAN');
+    ).toBe('Custody Shortfall Receivable · CU2601012635 · vIBAN');
     expect(
       cashAccountName(2, { vaultCode: 'CLIENT_DEPOSIT', walletRole: 'C_DEP', network: 'TRON', ownerNo: 'CU2601012635' }),
-    ).toBe('Custody Shortfall · CU2601012635 · Deposit address');
+    ).toBe('Custody Shortfall Receivable · CU2601012635 · Deposit address');
   });
 
   it('accountDisplayName: 现金户(WALLET)显示注册表户名 description；其余户照一码一名；WALLET 缺 description 回落类名', () => {

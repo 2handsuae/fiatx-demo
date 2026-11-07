@@ -88,7 +88,7 @@ export class VendorPaymentWorkflowService {
     // 先验人选的 from 钱包配不配（运营户 / 手续费户，其余 400），再按它查余额闸，最后 NLA 门——
     // 余额闸=付得起，NLA 门=付完还合规，两闸各管各的（乙波三 T2 spec §3）；插在同一层同一形制
     // （紧邻既有前置检查之后，出生守卫尚未建行）。
-    const fromWallet = await this.firmWallets.assertEligible(dto.fromWalletId, dto.assetId);
+    const fromWallet = await this.firmWallets.assertEligible(dto.fromWalletId, dto.assetId, 'from');
     await this.assertFromBalance(asset, dto.fromWalletId, amountMinor);
     // 门只在钱离开公司时过（戊波三裁定 2）：付款单的两种 from（运营户 / 手续费户）都计入 NLA，付出去就是真离开，恒过门。
     await this.prudential.assertPostOutflowCompliant({

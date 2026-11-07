@@ -353,11 +353,11 @@ describe('House transfer — fee sweep & wallet-to-wallet transfers (戊波二 T
     await assertFirmBookBalanced();
   });
 
-  it('④b under an NLA breach (computeStatus spied: headroom 1 fils) both directions still open — house transfers never ask the gate', async () => {
+  it('④b under an NLA breach (computeStatus spied: NLA exactly at the floor, headroom 0; a 1-fils outflow would be blocked by the gate) both directions still open — house transfers never ask the gate', async () => {
     const real = await prudential.computeStatus();
     const floor = BigInt(real.floorAedMinor);
     const statusSpy = jest.spyOn(prudential, 'computeStatus').mockResolvedValue({
-      ...real, nlaAedMinor: (floor + 1n).toString(), headroomAedMinor: '1', breached: false,
+      ...real, nlaAedMinor: floor.toString(), headroomAedMinor: '0', breached: false,
     });
     const gateAuditBefore = await (prisma as any).auditLogEvent.count({ where: { action: 'PRUDENTIAL_GATE_BLOCKED' } });
     try {
@@ -414,7 +414,7 @@ describe('House transfer — fee sweep & wallet-to-wallet transfers (戊波二 T
     const before = await (prisma as any).houseTransfer.count();
     await expect(initiate(opsWallet, opsWallet, 100n, 'same wallet')).rejects.toThrow(/two different wallets/);
     await expect(initiate(setWallet, opsWallet, 100n, 'from settlement')).rejects.toMatchObject({ response: { code: 'FROM_WALLET_NOT_ELIGIBLE' } });
-    await expect(initiate(opsWallet, setWallet, 100n, 'to settlement')).rejects.toMatchObject({ response: { code: 'FROM_WALLET_NOT_ELIGIBLE' } });
+    await expect(initiate(opsWallet, setWallet, 100n, 'to settlement')).rejects.toMatchObject({ response: { code: 'TO_WALLET_NOT_ELIGIBLE' } });
     await expect(initiate(feeWallet, opsWallet, b0.feeCash + 1n, 'more than the fee wallet holds')).rejects.toMatchObject({ response: { code: 'INSUFFICIENT_FIRM_BALANCE' } });
     expect(await (prisma as any).houseTransfer.count()).toBe(before);
     expect(await snapshot()).toEqual(b0);

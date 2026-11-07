@@ -65,9 +65,9 @@ function makeWorkflow(o: { row?: any; income?: Partial<Record<number, bigint>> }
     resolveExternalRef: jest.fn(() => 'BANKREF1'),
   };
   const firmWallets: any = {
-    assertEligible: jest.fn(async (walletId: string) => {
+    assertEligible: jest.fn(async (walletId: string, _assetId: string, side: 'from' | 'to') => {
       const w = WALLETS[walletId];
-      if (!w || w.vaultCode === 'F_SET') throw new BadRequestException({ code: 'FROM_WALLET_NOT_ELIGIBLE', message: `Wallet ${w?.walletNo ?? '-'} cannot be chosen` });
+      if (!w || w.vaultCode === 'F_SET') throw new BadRequestException({ code: side === 'to' ? 'TO_WALLET_NOT_ELIGIBLE' : 'FROM_WALLET_NOT_ELIGIBLE', message: `Wallet ${w?.walletNo ?? '-'} cannot be chosen` });
       return w;
     }),
   };
@@ -94,11 +94,11 @@ describe('HouseTransferWorkflowService（戊波二 T5）', () => {
     it('from 与 to 都过 FirmWalletPicker（同一个资产）；结算户 F_SET 当 from 或 to 都被拒，不建单', async () => {
       const m = makeWorkflow();
       await m.wf.initiate(input(), treasury);
-      expect(m.firmWallets.assertEligible).toHaveBeenCalledWith(FEE.id, AED.id);
-      expect(m.firmWallets.assertEligible).toHaveBeenCalledWith(OPS.id, AED.id);
-      for (const bad of [input({ fromWalletId: SET.id }), input({ toWalletId: SET.id })]) {
+      expect(m.firmWallets.assertEligible).toHaveBeenCalledWith(FEE.id, AED.id, 'from');
+      expect(m.firmWallets.assertEligible).toHaveBeenCalledWith(OPS.id, AED.id, 'to');
+      for (const [bad, code] of [[input({ fromWalletId: SET.id }), 'FROM_WALLET_NOT_ELIGIBLE'], [input({ toWalletId: SET.id }), 'TO_WALLET_NOT_ELIGIBLE']] as const) {
         const m2 = makeWorkflow();
-        await expect(m2.wf.initiate(bad, treasury)).rejects.toMatchObject({ response: { code: 'FROM_WALLET_NOT_ELIGIBLE' } });
+        await expect(m2.wf.initiate(bad, treasury)).rejects.toMatchObject({ response: { code } });
         expect(m2.houseTransfers.create).not.toHaveBeenCalled();
       }
     });

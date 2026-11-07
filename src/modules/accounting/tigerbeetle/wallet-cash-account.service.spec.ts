@@ -23,7 +23,7 @@ describe('WalletCashAccountService', () => {
     service = new WalletCashAccountService(accounting, registry as any);
   });
 
-  it("opens code 1 + code 2 for CUSTOMER wallet on USDT ledger (same ledger, same ownerUuid), flags 4, names 'Client Cash · CU… · Deposit address' / 'Custody Shortfall · CU… · Deposit address'", async () => {
+  it("opens code 1 + code 2 for CUSTOMER wallet on USDT ledger (same ledger, same ownerUuid), flags 4, names 'Client Cash · CU… · Deposit address' / 'Custody Shortfall Receivable · CU… · Deposit address'", async () => {
     const tx: any = { marker: 'tx' };
     await service.ensureForWallet(
       {
@@ -78,7 +78,7 @@ describe('WalletCashAccountService', () => {
         ownerUuid: WALLET_ID,
         ownerNo: 'WA2611060001',
         assetCurrency: 'USDT',
-        description: 'Custody Shortfall · CU2601012635 · Deposit address',
+        description: 'Custody Shortfall Receivable · CU2601012635 · Deposit address',
         flags: 4,
       }),
       tx,
@@ -99,7 +99,7 @@ describe('WalletCashAccountService', () => {
     expect(tb.createAccounts.mock.calls[0][0].map((a: any) => [a.code, a.ledger])).toEqual([[1, 1], [2, 1]]);
     expect(registry.register.mock.calls.map((c: any[]) => c[0].description)).toEqual([
       'Client Cash · CU2601012635 · vIBAN',
-      'Custody Shortfall · CU2601012635 · vIBAN',
+      'Custody Shortfall Receivable · CU2601012635 · vIBAN',
     ]);
     expect(registry.register.mock.calls[0][0].assetCurrency).toBe('AED');
   });
@@ -167,6 +167,6 @@ describe('WalletCashAccountService', () => {
 
     expect(tb.createAccounts.mock.calls[0][0].map((a: any) => a.code)).toEqual([2]);
     expect(registry.register).toHaveBeenCalledTimes(1);
-    expect(registry.register.mock.calls[0][0]).toMatchObject({ code: 2, description: 'Custody Shortfall · CU2601012635 · Deposit address' });
+    expect(registry.register.mock.calls[0][0]).toMatchObject({ code: 2, description: 'Custody Shortfall Receivable · CU2601012635 · Deposit address' });
   });
 });

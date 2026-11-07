@@ -125,7 +125,7 @@ export class InternalTransferWorkflowService {
 
     const asset = await this.prisma.asset.findUnique({ where: { code: kase.assetCode } });
     if (!asset) throw new NotFoundException(`Asset not found: ${kase.assetCode}`);
-    const fromWallet = await this.firmWallets.assertEligible(dto.fromWalletId, asset.id);
+    const fromWallet = await this.firmWallets.assertEligible(dto.fromWalletId, asset.id, 'from');
     await this.assertFromBalance(asset, fromWallet.id, amountMinor);
     const toWallet = await this.prisma.wallet.findUnique({ where: { id: kase.walletRef }, select: { id: true, ownerId: true, ownerType: true, walletNo: true } });
     if (!toWallet || toWallet.ownerType !== 'CUSTOMER' || !toWallet.ownerId) throw new BadRequestException(`Case ${dto.caseNo}'s wallet is not a customer wallet — nothing to top up`);

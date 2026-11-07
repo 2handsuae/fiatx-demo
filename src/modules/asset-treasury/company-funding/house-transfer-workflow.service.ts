@@ -83,8 +83,8 @@ export class HouseTransferWorkflowService {
     }
 
     // 守卫顺序：两只钱包配不配（运营户 / 手续费户，其余 400）→ from 余额闸（付得起）。
-    const fromWallet = await this.firmWallets.assertEligible(dto.fromWalletId, dto.assetId);
-    const toWallet = await this.firmWallets.assertEligible(dto.toWalletId, dto.assetId);
+    const fromWallet = await this.firmWallets.assertEligible(dto.fromWalletId, dto.assetId, 'from');
+    const toWallet = await this.firmWallets.assertEligible(dto.toWalletId, dto.assetId, 'to');
     const amountMinor = majorToMinor(dto.amount, asset.decimals);
     await this.assertFromBalance(asset, dto.fromWalletId, amountMinor);
 

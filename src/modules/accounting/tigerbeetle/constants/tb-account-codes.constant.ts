@@ -170,7 +170,7 @@ export const walletAccountCodesFor = (walletOwnerType: string): Array<1 | 2 | 50
  * 钱包户户名 = `类名 · 钱包名`(现金类 1 / 50 与客户钱包下的码 2 户名,开户时写入注册表 description)。
  *   平台钱包:`Company Cash · <vault 标签> · <网络>`      例 Company Cash · Company Operations · AED_ZAND
  *   客户钱包:`Client Cash · <客户号> · <vIBAN | Deposit address>`
- *   客户钱包(码 2):`Custody Shortfall · <客户号> · <vIBAN | Deposit address>`  角色字样与同钱包的客户现金户一致
+ *   客户钱包(码 2):`Custody Shortfall Receivable · <客户号> · <vIBAN | Deposit address>`  角色字样与同钱包的客户现金户一致
  */
 export const cashAccountName = (
   code: 1 | 2 | 50,
@@ -181,6 +181,6 @@ export const cashAccountName = (
   }
   const role = wallet.walletRole === 'C_VIBAN' ? 'vIBAN' : 'Deposit address';
   return code === TB_ACCOUNT_CODES.CLIENT_SHORTFALL
-    ? `Custody Shortfall · ${wallet.ownerNo} · ${role}`
+    ? `${TB_ACCOUNT_NAMES[TB_ACCOUNT_CODES.CLIENT_SHORTFALL]} · ${wallet.ownerNo} · ${role}`
     : `${TB_ACCOUNT_NAMES[TB_ACCOUNT_CODES.CLIENT_CASH]} · ${wallet.ownerNo} · ${role}`;
 };

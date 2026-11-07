@@ -25,46 +25,54 @@ describe('FirmWalletPickerService.assertEligible（戊波二 T3）', () => {
   const picker = (prisma: any = makePrisma()) => new FirmWalletPickerService(prisma as any);
 
   it('F_OPS platform wallet on the asset network passes and the wallet row comes back', async () => {
-    const w = await picker().assertEligible('w-ops-tron', 'asset-usdt');
+    const w = await picker().assertEligible('w-ops-tron', 'asset-usdt', 'from');
     expect(w).toMatchObject({ id: 'w-ops-tron', vaultCode: 'F_OPS' });
   });
 
   it('F_FEE platform wallet on the asset network passes', async () => {
-    const w = await picker().assertEligible('w-fee-tron', 'asset-usdt');
+    const w = await picker().assertEligible('w-fee-tron', 'asset-usdt', 'from');
     expect(w).toMatchObject({ id: 'w-fee-tron', vaultCode: 'F_FEE' });
   });
 
   it('F_SET (settlement — money in flight to customers) is rejected with FROM_WALLET_NOT_ELIGIBLE, message names the wallet by walletNo', async () => {
-    const err: any = await picker().assertEligible('w-set-aed', 'asset-aed').catch((e) => e);
+    const err: any = await picker().assertEligible('w-set-aed', 'asset-aed', 'from').catch((e) => e);
     expect(err.getStatus()).toBe(400);
     expect(err.getResponse()).toMatchObject({ code: 'FROM_WALLET_NOT_ELIGIBLE' });
     expect(err.message).toContain('WAL-SET-AED');
     expect(err.message).not.toContain('w-set-aed');
   });
 
+  it("side 'to': an F_SET wallet is rejected with TO_WALLET_NOT_ELIGIBLE, message says 'as the to wallet'", async () => {
+    const err: any = await picker().assertEligible('w-set-aed', 'asset-aed', 'to').catch((e) => e);
+    expect(err.getStatus()).toBe(400);
+    expect(err.getResponse()).toMatchObject({ code: 'TO_WALLET_NOT_ELIGIBLE' });
+    expect(err.message).toContain('as the to wallet');
+    expect(err.message).toContain('WAL-SET-AED');
+  });
+
   it('F_LIQ (LP foyer — funds not yet accepted) is rejected', async () => {
-    await expect(picker().assertEligible('w-liq-tron', 'asset-usdt')).rejects.toMatchObject({ response: { code: 'FROM_WALLET_NOT_ELIGIBLE' } });
+    await expect(picker().assertEligible('w-liq-tron', 'asset-usdt', 'from')).rejects.toMatchObject({ response: { code: 'FROM_WALLET_NOT_ELIGIBLE' } });
   });
 
   it('a customer wallet is rejected', async () => {
-    const err: any = await picker().assertEligible('w-cust-tron', 'asset-usdt').catch((e) => e);
+    const err: any = await picker().assertEligible('w-cust-tron', 'asset-usdt', 'from').catch((e) => e);
     expect(err.getStatus()).toBe(400);
     expect(err.getResponse()).toMatchObject({ code: 'FROM_WALLET_NOT_ELIGIBLE' });
     expect(err.message).toContain('WAL-CU1-TRON');
   });
 
   it('a company wallet on another network than the asset is rejected', async () => {
-    await expect(picker().assertEligible('w-ops-aed', 'asset-usdt')).rejects.toMatchObject({ response: { code: 'FROM_WALLET_NOT_ELIGIBLE' } });
+    await expect(picker().assertEligible('w-ops-aed', 'asset-usdt', 'from')).rejects.toMatchObject({ response: { code: 'FROM_WALLET_NOT_ELIGIBLE' } });
   });
 
   it('a wallet that does not exist is rejected as not eligible', async () => {
-    await expect(picker().assertEligible('w-nope', 'asset-usdt')).rejects.toMatchObject({ response: { code: 'FROM_WALLET_NOT_ELIGIBLE' } });
+    await expect(picker().assertEligible('w-nope', 'asset-usdt', 'from')).rejects.toMatchObject({ response: { code: 'FROM_WALLET_NOT_ELIGIBLE' } });
   });
 
   it('inside a transaction it reads through the tx client, not the global prisma', async () => {
     const prisma = makePrisma();
     const tx = makePrisma();
-    await picker(prisma).assertEligible('w-ops-tron', 'asset-usdt', tx as any);
+    await picker(prisma).assertEligible('w-ops-tron', 'asset-usdt', 'from', tx as any);
     expect(tx.wallet.findUnique).toHaveBeenCalled();
     expect(prisma.wallet.findUnique).not.toHaveBeenCalled();
   });

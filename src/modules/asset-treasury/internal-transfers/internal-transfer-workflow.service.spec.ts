@@ -104,7 +104,7 @@ describe('InternalTransferWorkflowService (Task 7)', () => {
         lossSource: 'AGING', sourceIncidentNo: null, effectiveDate: startOfBusinessDate(BUSINESS_DATE), traceId: 'trace-1',
       }));
       // from 钱包 ∈ {运营户, 手续费户} × 该币种网络(共用守卫),余额闸查的是人选的那只
-      expect(firmWallets.assertEligible).toHaveBeenCalledWith('w-ops', 'a-usdt');
+      expect(firmWallets.assertEligible).toHaveBeenCalledWith('w-ops', 'a-usdt', 'from');
       expect(accounting.assertWalletBalance).toHaveBeenCalledWith('w-ops', TB_LEDGERS.USDT, 7_500_000n);
       // 开单即挂:处置记录落 transferNo(走处置主体自己的方法),不加 DispositionKind、不改 outlet
       expect(dispositions.linkTransfer).toHaveBeenCalledWith('RCD1', 'ITR1');

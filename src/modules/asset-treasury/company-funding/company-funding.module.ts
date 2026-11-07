@@ -34,7 +34,7 @@ import { HouseTransferController } from './house-transfer.controller';
  * 乙波三 T2：付款单 initiate 插 NLA 算术门，横向读 PrudentialModule 导出的
  * PrudentialService（铁律③放行，照 OutsourcingVendorsService 先例）。
  * 戊波二 T5：公司调拨单（HouseTransfer）——公司钱包间挪钱（码 89，手续费户 → 运营户再加扫费结转码 90）。
- * 无新依赖（FundsLayerModule 导出 FirmWalletPickerService、PrudentialModule 导出 PrudentialService，本清单早已含两者）。
+ * 无新依赖（FundsLayerModule 导出 FirmWalletPickerService；PrudentialService 现仅付款单 workflow 用，调拨单不过 NLA 门）。
  */
 @Module({
   imports: [PrismaModule, AuditLogsModule, TigerBeetleModule, FundsOrdersModule, FundsLayerModule, ApprovalsModule, ReconciliationModule, ComplianceOfficeModule, PrudentialModule],
