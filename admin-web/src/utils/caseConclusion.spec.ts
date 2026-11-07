@@ -71,9 +71,12 @@ describe('buildCaseConclusion', () => {
     expect(buildCaseConclusion({ ...base, internalDeltaAmount: null }, fmt)?.text).toContain('short of our books');
   });
 
-  it('戊波二 T10：已结案的对内案前缀 Resolved ·', () => {
+  it('戊波二 T10：已结案的对内案说过去时——「Resolved · Books were 250.00 AED out of balance; corrected by a later entry.」，不再说 does not agree / Needs a correcting entry（正负差额一样）', () => {
     const c = buildCaseConclusion({ ...base, status: 'RESOLVED', deltaAmount: '0', internalDeltaAmount: '25000' }, fmt);
-    expect(c?.text.startsWith('Resolved · External balance matches our cash')).toBe(true);
+    expect(c).toEqual({ text: 'Resolved · Books were 250.00 AED out of balance; corrected by a later entry.', tone: 'neutral' });
+    const neg = buildCaseConclusion({ ...base, status: 'RESOLVED', deltaAmount: '0', internalDeltaAmount: '-25000' }, fmt);
+    expect(neg?.text).toBe('Resolved · Books were 250.00 AED out of balance; corrected by a later entry.');
+    expect(`${c?.text}${neg?.text}`).not.toMatch(/Needs a correcting entry|do not agree/);
   });
 
   it('BREAK + explainedSum 未传（undefined）同样落全额未解释模板', () => {

@@ -42,3 +42,21 @@ export const internalCheckCell = (
   if (isZeroAmount(internalDelta)) return { kind: 'ok' };
   return { kind: 'break', text: signedDelta(internalDelta, fmt) };
 };
+
+/** 案件的两本账此刻还对不上吗（副行的 Δ ≠ 0）。Unexplained 格据此不再亮绿色「✓ explained」——对外差额已解释干净不等于账平。 */
+export const hasInternalBreak = (b: InternalBreakdown | null | undefined): boolean =>
+  !!b && !isZeroAmount(b.delta);
+
+/**
+ * 案件列表 Δ 格的「账内 Δ」：只对开着的案子、且对内差额 ≠ 0 才有值（带符号文本）。
+ * 已结案（自愈）的案子库里存的是破口那一刻的对内差额，账早已更正，不能再显示成红 Δ；公司钱包案 / 老案 null 同样无值。
+ */
+export const listBooksDelta = (
+  c: { status: string; internalDeltaAmount?: string | null },
+  fmt: (v: string) => string,
+): string | null => {
+  if (c.status !== 'OPEN') return null;
+  const d = c.internalDeltaAmount;
+  if (d === null || d === undefined || isZeroAmount(d)) return null;
+  return signedDelta(d, fmt);
+};

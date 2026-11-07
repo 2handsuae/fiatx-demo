@@ -8,7 +8,7 @@ import { Check, AlertTriangle } from 'lucide-react';
 import { DetailCard } from '../compliance/DetailPageComponents';
 import type { ReconCaseDetail } from '../../utils/reconTypes';
 import { formatAmount, isZeroAmount } from '../../utils/reconAmount';
-import { buildInternalCheckLine } from '../../utils/caseInternalCheck';
+import { buildInternalCheckLine, hasInternalBreak } from '../../utils/caseInternalCheck';
 
 export const CaseBalanceTiles = ({
   kase, deltaZero, sign,
@@ -83,42 +83,54 @@ export const CaseBalanceTiles = ({
         </div>
         {/* Unexplained (residual) — the core investigation signal. Red
             highlight when non-zero (still needs digging); muted green
-            check when zero (delta fully explained by in-transit). */}
-        <div
-          className={[
-            'rounded-lg border p-4',
-            kase.explain && isZeroAmount(kase.explain.residual)
-              ? 'border-adm-green/30 bg-adm-green/5'
-              : 'border-adm-red/30 bg-adm-red/5',
-          ].join(' ')}
-        >
-          <div
-            className={[
-              'font-mono text-[9px] uppercase tracking-wider',
-              kase.explain && isZeroAmount(kase.explain.residual) ? 'text-adm-green' : 'text-adm-red',
-            ].join(' ')}
-          >
-            Unexplained
-          </div>
-          <div
-            className={[
-              'mt-1 font-mono text-[18px] font-bold leading-tight',
-              kase.explain && isZeroAmount(kase.explain.residual) ? 'text-adm-t3' : 'text-adm-red',
-            ].join(' ')}
-          >
-            {kase.explain ? formatAmount(kase.explain.residual, kase.decimals) : '—'}
-          </div>
-          <div
-            className={[
-              'mt-1 inline-flex items-center gap-1 font-mono text-[10px]',
-              kase.explain && isZeroAmount(kase.explain.residual) ? 'text-adm-green' : 'text-adm-red',
-            ].join(' ')}
-          >
-            {!kase.explain ? null : isZeroAmount(kase.explain.residual)
-              ? <><Check size={10} /> explained</>
-              : <><AlertTriangle size={10} /> needs investigation</>}
-          </div>
-        </div>
+            check when zero (delta fully explained by in-transit).
+            戊波二 T10：对外差额已解释干净（residual 0）但钱包自己的两本账此刻还对不上（副行 Δ ≠ 0）时，
+            不能亮绿色「✓ explained」——账没平。这时整格退成中性灰、不放勾（不另造新格，副行与 INVARIANT 行说清账内的事）。 */}
+        {(() => {
+          const residualZero = !!kase.explain && isZeroAmount(kase.explain.residual);
+          const booksBroken = hasInternalBreak(kase.explain?.internalBreakdown);
+          const clear = residualZero && !booksBroken;      // 绿：对外全解释 且 账内也平
+          const neutral = residualZero && booksBroken;     // 灰：对外已解释，但账内没平
+          return (
+            <div
+              className={[
+                'rounded-lg border p-4',
+                clear ? 'border-adm-green/30 bg-adm-green/5'
+                  : neutral ? 'border-adm-border bg-adm-bg'
+                  : 'border-adm-red/30 bg-adm-red/5',
+              ].join(' ')}
+            >
+              <div
+                className={[
+                  'font-mono text-[9px] uppercase tracking-wider',
+                  clear ? 'text-adm-green' : neutral ? 'text-adm-t3' : 'text-adm-red',
+                ].join(' ')}
+              >
+                Unexplained
+              </div>
+              <div
+                className={[
+                  'mt-1 font-mono text-[18px] font-bold leading-tight',
+                  residualZero ? 'text-adm-t3' : 'text-adm-red',
+                ].join(' ')}
+              >
+                {kase.explain ? formatAmount(kase.explain.residual, kase.decimals) : '—'}
+              </div>
+              {!neutral && (
+                <div
+                  className={[
+                    'mt-1 inline-flex items-center gap-1 font-mono text-[10px]',
+                    clear ? 'text-adm-green' : 'text-adm-red',
+                  ].join(' ')}
+                >
+                  {!kase.explain ? null : residualZero
+                    ? <><Check size={10} /> explained</>
+                    : <><AlertTriangle size={10} /> needs investigation</>}
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
       {/* 戊波二 T10：Internal 格的副行（只有客户钱包案有）——钱包自己的两本账：现金 + 短缺待补 对 应付 + 暂扣。
           四个数与 Δ 都是后端检查器按案件截止点现算的（和跑批同一份算式），这里只排版；Δ ≠ 0 红。

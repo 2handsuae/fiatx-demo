@@ -52,10 +52,13 @@ export function buildCaseConclusion(
     // 戊波二 T10：对外差额为 0、只有钱包自己的两本账对不上（INVARIANT）——下面「External balance is 0.00 … short of / in excess of
     // our books … full amount unexplained」对这种案子是句空话。正数 = 现金 + 短缺待补 多于 应付 + 暂扣。
     const more = parseFloat(k.internalDeltaAmount as string) > 0 ? 'more' : 'less';
-    base = {
-      text: `External balance matches our cash, but this wallet's own books do not agree — cash + shortfall is ${fmt(absStr(k.internalDeltaAmount as string))} ${k.assetCode} ${more} than payable + held. Needs a correcting entry.`,
-      tone: 'red',
-    };
+    base = k.status === 'RESOLVED'
+      // 已结案（自愈）= 账早已更正归零（副行 Δ 0.00）：说过去时，不再「Needs a correcting entry」。金额取破口那一刻存下的对内差额。
+      ? { text: `Books were ${fmt(absStr(k.internalDeltaAmount as string))} ${k.assetCode} out of balance; corrected by a later entry.`, tone: 'red' }
+      : {
+        text: `External balance matches our cash, but this wallet's own books do not agree — cash + shortfall is ${fmt(absStr(k.internalDeltaAmount as string))} ${k.assetCode} ${more} than payable + held. Needs a correcting entry.`,
+        tone: 'red',
+      };
   } else if (k.bucket === 'BREAK') {
     // 规则2/3（Task 8 重写；Fix round 修正方向口径）：dir 由 deltaAmount 符号定——
     // 负数=外部少于账上=short of，正数=外部多于账上（盈余案）=in excess of；此前

@@ -351,9 +351,9 @@ const LedgerAccountList = () => {
                     <span className="text-adm-t3">—</span>
                   )}
                 </td>
-                {/* Customer Name */}
+                {/* Customer Name —— 戊波二 T10：LP 行（应收 LP 户）同样给名字（端点按 LP 档案联出 ownerName，与 CUSTOMER 行同款） */}
                 <td className="px-3 py-2 text-[11px] text-adm-t2">
-                  {row.ownerType === 'CUSTOMER' && row.ownerName ? (
+                  {(row.ownerType === 'CUSTOMER' || row.ownerType === 'LP') && row.ownerName ? (
                     row.ownerName
                   ) : (
                     <span className="text-adm-t3">—</span>

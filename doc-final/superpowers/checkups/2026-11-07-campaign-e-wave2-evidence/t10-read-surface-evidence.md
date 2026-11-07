@@ -104,3 +104,12 @@
 `bash scripts/stack.sh reset self`（0）→ `up`（0）→ `bash scripts/on-stack.sh self demo:all`（0；`花名册：35/35 符合预期`、`asserts: 5/5 PASS`）。栈停在这个态：案件 0 条。`doc-final/demo/data.md` 未被 `demo:all` 改写（`git status` 无此文件）。
 
 重铺后 `reconciliation_dispositions` 仍有 30 行（本次 e2e 留下的，印证 TOOLING-DEBT 新条）；收尾时手工 `delete from reconciliation_dispositions` 清到 0（仅自栈库），好让下个任务的案件列表不带陈年计数。
+
+## 7. 修复轮 1（`fix(戊波二): 对内不平读面——结案 Hero 过去时、列表显示账内 Δ、LP 户名`，R38）
+
+1. **结案 Hero**：已结案的对内案不再说「does not agree … Needs a correcting entry」，改说 `Resolved · Books were 250.00 AED out of balance; corrected by a later entry.`（`caseConclusion.ts`，+spec）。
+2. **案件列表 Δ 格**：开着的案子对内差额 ≠ 0 时显示红 `books Δ ±x`（外部 Δ 为 0 就替掉「balanced」；两种差额并存则跟在外部 Δ 后）；已结案不显示（库里留的是破口那一刻的值）。纯函数 `listBooksDelta`（`caseInternalCheck.ts`，+spec）；`ReconciliationCasesListPage` 接口补 `internalDeltaAmount`。Disposition 列 `0/1` 不动。
+3. **Unexplained 格**：对外 residual 为 0 但副行 Δ ≠ 0 时退成中性灰、不放绿色「✓ explained」（纯函数 `hasInternalBreak`，+spec）；账平后（含已结案）仍是绿色。
+4. **台账页 Owner=LP**：「Customer Name」列对 LP 行也显示 `ownerName`（`LedgerAccountList.tsx`）。
+
+重拍：`t10-case-invariant-row` / `t10-case-list-invariant-count` / `t10-case-invariant-healed` / `t10-ledger-accounts-owner-lp`（均 Read 过）。

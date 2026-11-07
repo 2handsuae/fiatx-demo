@@ -26,6 +26,7 @@ import Pagination from '../components/common/Pagination';
 // ReconciliationDispositionModal 都已这样引用）。Task 15：COA 人话短语同理复用
 // utils/causeRegistry 已导出的 COA_PHRASE，不重抄一份映射。
 import { formatAmount } from '../utils/reconAmount';
+import { listBooksDelta } from '../utils/caseInternalCheck';
 import { COA_PHRASE, PAUSED_CAUSES } from '../utils/causeRegistry';
 // 门控一致性小补（本任务）：气泡此前只按数据在场显示——补上与详情页行级推荐同一个
 // 模拟开关（业主原话「依然是模拟开关下展示」）。
@@ -41,6 +42,8 @@ interface ReconCase {
   coaCode: string | null;
   ownerNo: string | null;
   deltaAmount: string;
+  // 戊波二 T10：对内差额（签名最小单位字符串，随 ...r 下发）；公司钱包案 / 老案 null。仅对内不平的案子 deltaAmount 恒 0，Δ 格据此改显「books Δ」。
+  internalDeltaAmount?: string | null;
   status: string;
   aging: number;
   slaBreached: boolean;   // 平账 A 批：账龄到线标记
@@ -277,6 +280,8 @@ const ReconciliationCasesListPage = () => {
                 const deltaNum = Number(kase.deltaAmount ?? '0');
                 const hasDelta = Number.isFinite(deltaNum) && deltaNum !== 0;
                 const deltaSign = deltaNum > 0 ? '+' : '';
+                // 戊波二 T10：账内两本账对不上（开着的案子、对内差额 ≠ 0）——外部 Δ 为 0 时这一格不能说「balanced」。
+                const booksDelta = listBooksDelta(kase, (v) => formatAmount(v, kase.decimals));
                 return (
                   <tr
                     key={kase.id}
@@ -338,15 +343,21 @@ const ReconciliationCasesListPage = () => {
                     {/* Δ — bold+signed when non-zero; muted "balanced" when zero */}
                     <td
                       className="truncate px-4 py-2.5 text-right"
-                      title={hasDelta ? `${deltaSign}${formatAmount(kase.deltaAmount, kase.decimals)}` : undefined}
+                      title={hasDelta ? `${deltaSign}${formatAmount(kase.deltaAmount, kase.decimals)}` : booksDelta ? `Books out of balance: ${booksDelta}` : undefined}
                     >
                       {hasDelta ? (
                         <span className="font-mono text-[11px] font-semibold text-adm-amber">
                           {deltaSign}
                           {formatAmount(kase.deltaAmount, kase.decimals)}
                         </span>
-                      ) : (
+                      ) : booksDelta ? null : (
                         <span className="font-mono text-[10px] italic text-adm-t3">balanced</span>
+                      )}
+                      {/* 账内 Δ：外部 Δ 为 0 时单独成这一格的内容；两种差额并存时跟在外部 Δ 后面。 */}
+                      {booksDelta && (
+                        <span className={`font-mono text-[10px] font-semibold text-adm-red${hasDelta ? ' ml-2' : ''}`}>
+                          books Δ {booksDelta}
+                        </span>
                       )}
                     </td>
 

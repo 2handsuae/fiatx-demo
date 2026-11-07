@@ -1,6 +1,6 @@
 // 戊波二 T10：案件页 Internal 格副行 + 跑批页 Internal check 列的纯函数回归。
 // fmt 用与页面 formatAmount 等价的简化实现（最小单位整数字符串 → 千分位两位小数）。
-import { buildInternalCheckLine, internalCheckCell } from './caseInternalCheck';
+import { buildInternalCheckLine, hasInternalBreak, internalCheckCell, listBooksDelta } from './caseInternalCheck';
 
 const fmt = (v: string): string => {
   const neg = v.startsWith('-');
@@ -47,5 +47,32 @@ describe('internalCheckCell', () => {
   it('非零 → break，带符号的差额', () => {
     expect(internalCheckCell('25000', fmt)).toEqual({ kind: 'break', text: '+250.00' });
     expect(internalCheckCell('-25000', fmt)).toEqual({ kind: 'break', text: '-250.00' });
+  });
+});
+
+describe('hasInternalBreak', () => {
+  const b = (delta: string) => ({ cash: '1', shortfall: '0', payable: '1', suspense: '0', delta });
+  it('Δ ≠ 0（正负都算）→ true；Δ = 0 / 无副行（公司钱包案）→ false', () => {
+    expect(hasInternalBreak(b('25000'))).toBe(true);
+    expect(hasInternalBreak(b('-25000'))).toBe(true);
+    expect(hasInternalBreak(b('0'))).toBe(false);
+    expect(hasInternalBreak(b('-0'))).toBe(false);
+    expect(hasInternalBreak(null)).toBe(false);
+    expect(hasInternalBreak(undefined)).toBe(false);
+  });
+});
+
+describe('listBooksDelta（案件列表 Δ 格的账内 Δ）', () => {
+  it('开着的案子对内差额 ≠ 0 → 带符号文本（正 +、负 -）', () => {
+    expect(listBooksDelta({ status: 'OPEN', internalDeltaAmount: '25000' }, fmt)).toBe('+250.00');
+    expect(listBooksDelta({ status: 'OPEN', internalDeltaAmount: '-25000' }, fmt)).toBe('-250.00');
+  });
+  it('0 / null / 缺省（公司钱包案、老案）→ null', () => {
+    expect(listBooksDelta({ status: 'OPEN', internalDeltaAmount: '0' }, fmt)).toBeNull();
+    expect(listBooksDelta({ status: 'OPEN', internalDeltaAmount: null }, fmt)).toBeNull();
+    expect(listBooksDelta({ status: 'OPEN' }, fmt)).toBeNull();
+  });
+  it('已结案（库里留着破口那一刻的值，账早已更正）→ null，不能再亮红 Δ', () => {
+    expect(listBooksDelta({ status: 'RESOLVED', internalDeltaAmount: '25000' }, fmt)).toBeNull();
   });
 });
