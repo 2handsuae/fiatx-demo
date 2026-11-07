@@ -90,12 +90,10 @@ export class VendorPaymentWorkflowService {
     // （紧邻既有前置检查之后，出生守卫尚未建行）。
     const fromWallet = await this.firmWallets.assertEligible(dto.fromWalletId, dto.assetId);
     await this.assertFromBalance(asset, dto.fromWalletId, amountMinor);
-    // NLA 只算运营户（spec §2 不做：公式口径不改）——手续费户出钱运营户不动，不过门（裁定 12）。
-    if (fromWallet.vaultCode === 'F_OPS') {
-      await this.prudential.assertPostOutflowCompliant({
-        currency: asset.currency as 'AED' | 'USDT', amountMinor, orderKind: 'VENDOR_PAYMENT', counterpartyNo: dto.vendorNo, assetNo: asset.assetNo, actor,
-      });
-    }
+    // 门只在钱离开公司时过（戊波三裁定 2）：付款单的两种 from（运营户 / 手续费户）都计入 NLA，付出去就是真离开，恒过门。
+    await this.prudential.assertPostOutflowCompliant({
+      currency: asset.currency as 'AED' | 'USDT', amountMinor, orderKind: 'VENDOR_PAYMENT', counterpartyNo: dto.vendorNo, assetNo: asset.assetNo, actor,
+    });
 
     const row = await this.payments.create({
       vendorNo: dto.vendorNo, payeeAccountRef: dto.payeeAccountRef, assetId: dto.assetId, amount: dto.amount,

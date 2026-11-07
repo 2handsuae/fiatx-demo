@@ -72,9 +72,8 @@ function makeWorkflow(o: { row?: any; income?: Partial<Record<number, bigint>> }
     }),
   };
   const custodianStatement: any = { recordLegMovement: jest.fn(async () => ({ outLineId: 'l1', inLineId: 'l2', cutoffDate: '2026-11-07' })) };
-  const prudential: any = { assertPostOutflowCompliant: jest.fn(async () => undefined) };
-  const wf = new HouseTransferWorkflowService(prisma, houseTransfers, approvals, accounting, auditLogs, fundsOrders, firmWallets, custodianStatement, prudential);
-  return { wf, prisma, houseTransfers, approvals, accounting, auditLogs, fundsOrders, firmWallets, custodianStatement, prudential, row, ledger };
+  const wf = new HouseTransferWorkflowService(prisma, houseTransfers, approvals, accounting, auditLogs, fundsOrders, firmWallets, custodianStatement);
+  return { wf, prisma, houseTransfers, approvals, accounting, auditLogs, fundsOrders, firmWallets, custodianStatement, row, ledger };
 }
 
 const input = (o: Partial<{ fromWalletId: string; toWalletId: string; amount: string }> = {}) => ({
@@ -101,36 +100,22 @@ describe('HouseTransferWorkflowService（戊波二 T5）', () => {
         const m2 = makeWorkflow();
         await expect(m2.wf.initiate(bad, treasury)).rejects.toMatchObject({ response: { code: 'FROM_WALLET_NOT_ELIGIBLE' } });
         expect(m2.houseTransfers.create).not.toHaveBeenCalled();
-        expect(m2.prudential.assertPostOutflowCompliant).not.toHaveBeenCalled();
       }
     });
-    it('from 余额不够 → 拒（共用余额闸，对象 = from 钱包、账本 = 资产币种、金额 = 最小单位），不建单、NLA 门不到', async () => {
+    it('from 余额不够 → 拒（共用余额闸，对象 = from 钱包、账本 = 资产币种、金额 = 最小单位），不建单', async () => {
       const m = makeWorkflow();
       m.accounting.assertWalletBalance.mockRejectedValueOnce(new BadRequestException({ code: 'INSUFFICIENT_FIRM_BALANCE', message: 'Insufficient AED balance' }));
       await expect(m.wf.initiate(input(), treasury)).rejects.toMatchObject({ response: { code: 'INSUFFICIENT_FIRM_BALANCE' } });
       expect(m.accounting.assertWalletBalance).toHaveBeenCalledWith(FEE.id, TB_LEDGERS.AED, 10_000n);
       expect(m.houseTransfers.create).not.toHaveBeenCalled();
-      expect(m.prudential.assertPostOutflowCompliant).not.toHaveBeenCalled();
     });
-    it('from = 运营户 → 过 NLA 门（orderKind HOUSE_TRANSFER、对手方 = to 钱包号、最小单位金额、资产号、操作人）', async () => {
-      const m = makeWorkflow({ row: makeRow({ route: 'refill' }) });
-      await m.wf.initiate(input({ fromWalletId: OPS.id, toWalletId: FEE.id }), treasury);
-      expect(m.prudential.assertPostOutflowCompliant).toHaveBeenCalledTimes(1);
-      expect(m.prudential.assertPostOutflowCompliant).toHaveBeenCalledWith({
-        currency: 'AED', amountMinor: 10_000n, orderKind: 'HOUSE_TRANSFER', counterpartyNo: FEE.walletNo, assetNo: AED.assetNo, actor: treasury,
-      });
-    });
-    it('from = 手续费户 → 不过 NLA 门（运营户不动，裁定 12）', async () => {
-      const m = makeWorkflow();
-      await m.wf.initiate(input(), treasury);
-      expect(m.prudential.assertPostOutflowCompliant).not.toHaveBeenCalled();
-    });
-    it('NLA 门拦下 → 异常原样抛出，不建单、不提审', async () => {
-      const m = makeWorkflow({ row: makeRow({ route: 'refill' }) });
-      m.prudential.assertPostOutflowCompliant.mockRejectedValueOnce(new BadRequestException('Blocked by prudential floor'));
-      await expect(m.wf.initiate(input({ fromWalletId: OPS.id, toWalletId: FEE.id }), treasury)).rejects.toThrow(/Blocked by prudential floor/);
-      expect(m.houseTransfers.create).not.toHaveBeenCalled();
-      expect(m.approvals.createAndSubmit).not.toHaveBeenCalled();
+    it('两个方向都直接开单（钱在公司自己口袋之间挪、NLA 不变，不过 NLA 门——戊波三 裁定 2；服务已不持有审慎门，「不调门」由 e2e 行为断言）：运营→手续费、手续费→运营', async () => {
+      const refill = makeWorkflow({ row: makeRow({ route: 'refill' }) });
+      await refill.wf.initiate(input({ fromWalletId: OPS.id, toWalletId: FEE.id }), treasury);
+      expect(refill.houseTransfers.create).toHaveBeenCalledTimes(1);
+      const sweep = makeWorkflow();
+      await sweep.wf.initiate(input(), treasury);
+      expect(sweep.houseTransfers.create).toHaveBeenCalledTimes(1);
     });
     it('通过：建单落两只钱包与用途、提 CFO 审批（快照零 UUID，带两只钱包号 / 金额 / 影响摘要）、回填审批号、写 REQUESTED', async () => {
       const m = makeWorkflow();

@@ -213,13 +213,14 @@ describe('VendorPaymentWorkflowService (Task 5)', () => {
       ]));
     });
 
-    it('from = F_FEE: NLA gate is NOT called (the operating wallet is untouched — 裁定 12), balance gate checks the FEE wallet, row persists the fee wallet, snapshot names it', async () => {
+    it('from = F_FEE: NLA gate IS called (money leaves the firm — 戊波三 裁定 2: both from wallets are counted in NLA), balance gate checks the FEE wallet, row persists the fee wallet, snapshot names it', async () => {
       const { wf, payments, approvals, auditLogs, picker, accounting, prudential } = makeWorkflow();
       const r = await wf.initiate({ ...baseInput, fromWalletId: FEE_WALLET.id }, treasury);
       expect(picker.assertEligible).toHaveBeenCalledWith(FEE_WALLET.id, AED.id);
       expect(accounting.assertWalletBalance).toHaveBeenCalledTimes(1);
       expect(accounting.assertWalletBalance).toHaveBeenCalledWith(FEE_WALLET.id, TB_LEDGERS.AED, 1_200_000n);
-      expect(prudential.assertPostOutflowCompliant).not.toHaveBeenCalled();
+      expect(prudential.assertPostOutflowCompliant).toHaveBeenCalledTimes(1);
+      expect(prudential.assertPostOutflowCompliant).toHaveBeenCalledWith(expect.objectContaining({ currency: 'AED', amountMinor: 1_200_000n, orderKind: 'VENDOR_PAYMENT' }));
       const created = await payments.findByNo(r.payNo);
       expect(created.fromWalletId).toBe('w-fee-aed');
       const snapshot = approvals.createAndSubmit.mock.calls[0][0];
@@ -326,6 +327,7 @@ describe('VendorPaymentWorkflowService (Task 5)', () => {
       const ctx = makeWorkflow();
       const r = await ctx.wf.initiate({ ...baseInput, fromWalletId: FEE_WALLET.id }, treasury);
       ctx.accounting.assertWalletBalance.mockClear();
+      ctx.prudential.assertPostOutflowCompliant.mockClear();
       ctx.accounting.assertWalletBalance.mockRejectedValueOnce(new Error('Insufficient AED balance in wallet WAL-FEE-AED'));
       await ctx.wf.onDecided(decided('APPROVED', r.payNo) as any);
       expect(ctx.accounting.assertWalletBalance).toHaveBeenCalledWith(FEE_WALLET.id, TB_LEDGERS.AED, 1_200_000n);

@@ -1,7 +1,8 @@
 // 战役乙波三 T1：审慎（NLA）地基行为测试（照 capital-injection-workflow.service.spec.ts 的
 // acct(code, ledger) 编码 mock 先例——resolveCashAccountId 按 ledger 返回不同账户 id，
 // 若实现把 AED/USDT 的 ledger 传错或余额查错账户，断言会对不上，能真的抓到跨 ledger 错误）。
-// 戊波一 T8：NLA 改读 F_OPS 钱包的现金户（借方户，available = 借 − 贷 − 贷挂起），不再读 FIRM_EQUITY 权益户。
+// 戊波一 T8：NLA 读钱包现金户（借方户，available = 借 − 贷 − 贷挂起），不再读 FIRM_EQUITY 权益户。
+// 戊波三 T1：NLA 三算两不算——F_OPS + F_FEE + F_LIQ 三个钱包 × 两币种共六个现金户；F_SET 与码 51 不读；新增 perWallet 明细。
 // 战役乙波三 T2：assertPostOutflowCompliant 单测半（mock computeStatus 控制水位，spec §10.2）。
 import { BadRequestException } from '@nestjs/common';
 import { PrudentialService, PrudentialStatus } from './prudential.service';
@@ -11,8 +12,10 @@ import { TB_LEDGERS } from '../../accounting/tigerbeetle/constants/tb-ledgers.co
 const AED = { id: 'asset-aed', code: 'AED', currency: 'AED', decimals: 2, type: 'FIAT', status: 'ACTIVE' };
 const USDT = { id: 'asset-usdt', code: 'USDT-TRON', currency: 'USDT', decimals: 6, type: 'CRYPTO', status: 'ACTIVE' };
 const SUSPENDED_USDT = { id: 'asset-usdt-susp', code: 'USDT-TRON', currency: 'USDT', decimals: 6, type: 'CRYPTO', status: 'SUSPENDED' };
-/** 每个资产一只 F_OPS 钱包（id 带资产号）——实现若拿错资产的钱包或错钱包取现金户，下面的 mock 会抛。 */
-const opsWalletOf = (assetId: string) => ({ id: `w-ops-${assetId}`, walletNo: `WAL-OPS-${assetId}` });
+type Role = 'F_OPS' | 'F_FEE' | 'F_LIQ' | 'F_SET';
+const ROLE_INDEX: Record<Role, bigint> = { F_OPS: 1n, F_FEE: 2n, F_LIQ: 3n, F_SET: 4n };
+/** 每个（资产, 角色）一只钱包（id 带角色与资产号）——实现若拿错资产/错角色的钱包取现金户，下面的 mock 会对不上。 */
+const walletOf = (assetId: string, role: string) => ({ id: `w-${role}-${assetId}`, walletNo: `WAL-${role}-${assetId}` });
 
 /** 评审 Imp#1：mock 真按 `where` 过滤（币种 + status，如果查询带了 status 的话）——不是
  *  「mock 无视 where 假绿」（本仓判例）。这样若实现日后又偷偷塞回 `status: 'ACTIVE'`，
@@ -34,30 +37,29 @@ function makePrisma(assets: any[] = [AED, USDT]) {
 }
 
 function makeSystemWallets() {
-  return { resolve: jest.fn(async (assetId: string) => opsWalletOf(assetId)) };
+  return { resolve: jest.fn(async (assetId: string, role: string) => walletOf(assetId, role)) };
 }
 
-type Balances = Record<
-  string,
-  { creditsPosted: bigint; debitsPosted: bigint; debitsPending?: bigint; creditsPending?: bigint }
->;
+type Bal = { creditsPosted: bigint; debitsPosted: bigint; debitsPending?: bigint; creditsPending?: bigint };
+/** 按角色 × 币种给余额；没给的 = 0。 */
+type Balances = Partial<Record<Role, Partial<Record<'AED' | 'USDT', Bal>>>>;
 
-/** 账户 id 编码同 capital-injection-workflow.service.spec.ts 的 acct()：按 ledger 区分账户，
- *  lookupBalance 再按账户 id 反查对应币种的余额——两币种账户绝不会串号。
- *  resolveCashAccountId 只认 F_OPS 钱包（`w-ops-` 前缀）：权益户 / 别的钱包都取不到。
- *  resolveTbAccountId 故意抛——NLA 不许再碰 SYSTEM 权益户（读到权益 = 数字不对）。 */
+/** 账户 id = ledger × 1000 + 角色序号：按 ledger 区分币种、按序号区分钱包，lookupBalance 再反查——
+ *  两币种、不同角色的账户绝不会串号。resolveTbAccountId 故意抛——NLA 不许再碰 SYSTEM 权益户。 */
 function makeAccounting(balances: Balances) {
   return {
     resolveTbAccountId: jest.fn(async ({ code }: any) => {
-      throw new Error(`NLA must read the F_OPS cash account, not a SYSTEM account (code ${code})`);
+      throw new Error(`NLA must read wallet cash accounts, not a SYSTEM account (code ${code})`);
     }),
     resolveCashAccountId: jest.fn(async (walletId: string, ledger: number) => {
-      if (!walletId.startsWith('w-ops-')) throw new Error(`unexpected wallet: ${walletId}`);
-      return BigInt(ledger) * 1000n;
+      const role = (['F_OPS', 'F_FEE', 'F_LIQ', 'F_SET'] as Role[]).find((r) => walletId.startsWith(`w-${r}-`));
+      if (!role) throw new Error(`unexpected wallet: ${walletId}`);
+      return BigInt(ledger) * 1000n + ROLE_INDEX[role];
     }),
     lookupBalance: jest.fn(async (tbAccountId: bigint) => {
-      const currency = tbAccountId === BigInt(TB_LEDGERS.AED) * 1000n ? 'AED' : 'USDT';
-      const b = balances[currency] ?? { creditsPosted: 0n, debitsPosted: 0n };
+      const currency = tbAccountId / 1000n === BigInt(TB_LEDGERS.AED) ? 'AED' : 'USDT';
+      const role = (Object.keys(ROLE_INDEX) as Role[]).find((r) => ROLE_INDEX[r] === tbAccountId % 1000n)!;
+      const b = balances[role]?.[currency] ?? { creditsPosted: 0n, debitsPosted: 0n };
       return {
         creditsPosted: b.creditsPosted,
         debitsPosted: b.debitsPosted,
@@ -74,15 +76,17 @@ describe('usdtMinorToAedMinor（乙波三 T1）', () => {
   });
 });
 
-describe('PrudentialService.computeStatus（乙波三 T1）', () => {
-  it('resolves F_OPS wallets for both assets, sums AED + converted USDT, and does NOT flag breach when above the floor', async () => {
+describe('PrudentialService.computeStatus（乙波三 T1 · 戊波三 T1 三算两不算）', () => {
+  it('resolves F_OPS / F_FEE / F_LIQ wallets for both assets (6 resolves, 6 cash accounts), never F_SET; sums all six and does NOT flag breach above the floor', async () => {
     const prisma: any = makePrisma();
     const systemWallets: any = makeSystemWallets();
-    // AED 100,000,000 fils (=1,000,000.00 AED) + USDT 113,600,000,000 µUSDT (→41,719,600 fils)
-    // 合计 141,719,600 fils > 红线 120,000,000 fils → 不破线（现金户是借方户：余额在借方）
+    // F_OPS: AED 100,000,000 fils + USDT 113,600,000,000 µUSDT (→41,719,600 fils)
+    // F_FEE: AED 10,000,000；F_LIQ: AED 5,000,000 + USDT 11,360,000,000 (→4,171,960)
+    // 合计 > 红线 120,000,000 fils → 不破线
     const accounting: any = makeAccounting({
-      AED: { debitsPosted: 100_000_000n, creditsPosted: 0n },
-      USDT: { debitsPosted: 113_600_000_000n, creditsPosted: 0n },
+      F_OPS: { AED: { debitsPosted: 100_000_000n, creditsPosted: 0n }, USDT: { debitsPosted: 113_600_000_000n, creditsPosted: 0n } },
+      F_FEE: { AED: { debitsPosted: 10_000_000n, creditsPosted: 0n } },
+      F_LIQ: { AED: { debitsPosted: 5_000_000n, creditsPosted: 0n }, USDT: { debitsPosted: 11_360_000_000n, creditsPosted: 0n } },
     });
     const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
     const service = new PrudentialService(prisma, systemWallets, accounting, auditLogs);
@@ -91,14 +95,18 @@ describe('PrudentialService.computeStatus（乙波三 T1）', () => {
 
     // 评审 Imp#1：查询只按币种，不按 status——findMany 的 where 里不该出现 status 键。
     expect(prisma.asset.findMany).toHaveBeenCalledWith({ where: { currency: { in: ['AED', 'USDT'] } } });
-    expect(systemWallets.resolve).toHaveBeenCalledWith(AED.id, 'F_OPS');
-    expect(systemWallets.resolve).toHaveBeenCalledWith(USDT.id, 'F_OPS');
-    // 戊波一 T8：取的是 F_OPS 钱包的现金户（按钱包 + 币种账本），不是权益户
-    expect(accounting.resolveCashAccountId).toHaveBeenCalledWith(opsWalletOf(AED.id).id, TB_LEDGERS.AED);
-    expect(accounting.resolveCashAccountId).toHaveBeenCalledWith(opsWalletOf(USDT.id).id, TB_LEDGERS.USDT);
+    expect(systemWallets.resolve).toHaveBeenCalledTimes(6);
+    for (const role of ['F_OPS', 'F_FEE', 'F_LIQ']) {
+      expect(systemWallets.resolve).toHaveBeenCalledWith(AED.id, role);
+      expect(systemWallets.resolve).toHaveBeenCalledWith(USDT.id, role);
+      expect(accounting.resolveCashAccountId).toHaveBeenCalledWith(walletOf(AED.id, role).id, TB_LEDGERS.AED);
+      expect(accounting.resolveCashAccountId).toHaveBeenCalledWith(walletOf(USDT.id, role).id, TB_LEDGERS.USDT);
+    }
+    expect(accounting.resolveCashAccountId).toHaveBeenCalledTimes(6);
+    expect(systemWallets.resolve).not.toHaveBeenCalledWith(expect.anything(), 'F_SET'); // 结算户不读
     expect(accounting.resolveTbAccountId).not.toHaveBeenCalled();
 
-    const expectedNla = 100_000_000n + 41_719_600n;
+    const expectedNla = 100_000_000n + 41_719_600n + 10_000_000n + 5_000_000n + 4_171_960n;
     expect(status.nlaAedMinor).toBe(expectedNla.toString());
     expect(status.floorAedMinor).toBe(NLA_FLOOR_AED_MINOR.toString());
     expect(status.headroomAedMinor).toBe((expectedNla - NLA_FLOOR_AED_MINOR).toString());
@@ -106,20 +114,63 @@ describe('PrudentialService.computeStatus（乙波三 T1）', () => {
     expect(status.monthlyOpexBaseAedMinor).toBe(MONTHLY_OPEX_BASE_AED_MINOR.toString());
     expect(status.coefficient).toBe('1.2');
     expect(status.pegRate).toBe(AED_USD_PEG_RATE); // 裁定 R2：单源直出，不是第二份字面量
-    expect(status.perAsset).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ assetCode: 'AED', currency: 'AED', balanceMinor: '100000000', aedEquivalentMinor: '100000000' }),
-        expect.objectContaining({ assetCode: 'USDT-TRON', currency: 'USDT', balanceMinor: '113600000000', aedEquivalentMinor: '41719600' }),
-      ]),
-    );
+    // perAsset = 该币种三钱包合计
+    expect(status.perAsset).toEqual([
+      { assetCode: 'AED', currency: 'AED', balanceMinor: '115000000', aedEquivalentMinor: '115000000' },
+      { assetCode: 'USDT-TRON', currency: 'USDT', balanceMinor: '124960000000', aedEquivalentMinor: '45891560' },
+    ]);
+  });
+
+  it('perWallet: six rows in order F_OPS → F_FEE → F_LIQ (AED then USDT within each), label from the vault manifest, nlaAedMinor = Σ aedEquivalentMinor', async () => {
+    const prisma: any = makePrisma();
+    const systemWallets: any = makeSystemWallets();
+    const accounting: any = makeAccounting({
+      F_OPS: { AED: { debitsPosted: 100_000_000n, creditsPosted: 0n }, USDT: { debitsPosted: 113_600_000_000n, creditsPosted: 0n } },
+      F_FEE: { AED: { debitsPosted: 10_000_000n, creditsPosted: 0n } },
+      F_LIQ: { AED: { debitsPosted: 5_000_000n, creditsPosted: 0n }, USDT: { debitsPosted: 11_360_000_000n, creditsPosted: 0n } },
+    });
+    const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
+    const service = new PrudentialService(prisma, systemWallets, accounting, auditLogs);
+
+    const status = await service.computeStatus();
+
+    expect(status.perWallet).toEqual([
+      { vaultCode: 'F_OPS', label: 'Company Operations', assetCode: 'AED', currency: 'AED', balanceMinor: '100000000', aedEquivalentMinor: '100000000' },
+      { vaultCode: 'F_OPS', label: 'Company Operations', assetCode: 'USDT-TRON', currency: 'USDT', balanceMinor: '113600000000', aedEquivalentMinor: '41719600' },
+      { vaultCode: 'F_FEE', label: 'Company Fees', assetCode: 'AED', currency: 'AED', balanceMinor: '10000000', aedEquivalentMinor: '10000000' },
+      { vaultCode: 'F_FEE', label: 'Company Fees', assetCode: 'USDT-TRON', currency: 'USDT', balanceMinor: '0', aedEquivalentMinor: '0' },
+      { vaultCode: 'F_LIQ', label: 'Company Liquidity', assetCode: 'AED', currency: 'AED', balanceMinor: '5000000', aedEquivalentMinor: '5000000' },
+      { vaultCode: 'F_LIQ', label: 'Company Liquidity', assetCode: 'USDT-TRON', currency: 'USDT', balanceMinor: '11360000000', aedEquivalentMinor: '4171960' },
+    ]);
+    const sum = status.perWallet.reduce((acc, w) => acc + BigInt(w.aedEquivalentMinor), 0n);
+    expect(status.nlaAedMinor).toBe(sum.toString());
+  });
+
+  it('F_SET large balance is NOT in NLA — settlement wallet is never resolved or read (三算两不算)', async () => {
+    const prisma: any = makePrisma();
+    const systemWallets: any = makeSystemWallets();
+    const accounting: any = makeAccounting({
+      F_OPS: { AED: { debitsPosted: 100_000_000n, creditsPosted: 0n } },
+      F_FEE: { AED: { debitsPosted: 10_000_000n, creditsPosted: 0n } },
+      F_LIQ: { AED: { debitsPosted: 5_000_000n, creditsPosted: 0n } },
+      F_SET: { AED: { debitsPosted: 900_000_000n, creditsPosted: 0n } }, // 大余额——若被读到 NLA 会膨胀
+    });
+    const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
+    const service = new PrudentialService(prisma, systemWallets, accounting, auditLogs);
+
+    const status = await service.computeStatus();
+
+    expect(status.nlaAedMinor).toBe('115000000'); // 100M + 10M + 5M，不含 F_SET 900M
+    expect(systemWallets.resolve).not.toHaveBeenCalledWith(expect.anything(), 'F_SET');
+    const setWalletIds = [AED.id, USDT.id].map((id) => walletOf(id, 'F_SET').id);
+    for (const call of accounting.resolveCashAccountId.mock.calls) expect(setWalletIds).not.toContain(call[0]);
   });
 
   it('keeps a SUSPENDED asset in the NLA — 评审 Imp#1：资产暂停只停交易，公司手上的余额没消失，不按 status 过滤', async () => {
     const prisma: any = makePrisma([AED, SUSPENDED_USDT]);
     const systemWallets: any = makeSystemWallets();
     const accounting: any = makeAccounting({
-      AED: { debitsPosted: 100_000_000n, creditsPosted: 0n },
-      USDT: { debitsPosted: 113_600_000_000n, creditsPosted: 0n },
+      F_OPS: { AED: { debitsPosted: 100_000_000n, creditsPosted: 0n }, USDT: { debitsPosted: 113_600_000_000n, creditsPosted: 0n } },
     });
     const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
     const service = new PrudentialService(prisma, systemWallets, accounting, auditLogs);
@@ -127,8 +178,7 @@ describe('PrudentialService.computeStatus（乙波三 T1）', () => {
     const status = await service.computeStatus();
 
     // mock 是按 where 真过滤的（见 makePrisma 头注释）：这里能拿到 SUSPENDED_USDT，
-    // 恰恰证明 computeStatus 的查询没有带 status 条件——如果实现又偷偷塞回
-    // `status: 'ACTIVE'`，mock 会把它滤掉，下面两条断言就会红。
+    // 恰恰证明 computeStatus 的查询没有带 status 条件。
     expect(systemWallets.resolve).toHaveBeenCalledWith(SUSPENDED_USDT.id, 'F_OPS');
     const expectedNla = 100_000_000n + 41_719_600n;
     expect(status.nlaAedMinor).toBe(expectedNla.toString());
@@ -140,8 +190,7 @@ describe('PrudentialService.computeStatus（乙波三 T1）', () => {
     const systemWallets: any = makeSystemWallets();
     // AED 10,000,000 fils (=100,000.00 AED) + USDT 0 → 远低于红线 120,000,000 fils
     const accounting: any = makeAccounting({
-      AED: { debitsPosted: 10_000_000n, creditsPosted: 0n },
-      USDT: { debitsPosted: 0n, creditsPosted: 0n },
+      F_OPS: { AED: { debitsPosted: 10_000_000n, creditsPosted: 0n } },
     });
     const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
     const service = new PrudentialService(prisma, systemWallets, accounting, auditLogs);
@@ -160,8 +209,7 @@ describe('PrudentialService.computeStatus（乙波三 T1）', () => {
     const systemWallets: any = makeSystemWallets();
     const accounting: any = makeAccounting({
       // available = 200,000,000 − 50,000,000 − 30,000,000 = 120,000,000；debitsPending 40,000,000 是噪声，必须被忽略
-      AED: { debitsPosted: 200_000_000n, creditsPosted: 50_000_000n, creditsPending: 30_000_000n, debitsPending: 40_000_000n },
-      USDT: { debitsPosted: 0n, creditsPosted: 0n },
+      F_OPS: { AED: { debitsPosted: 200_000_000n, creditsPosted: 50_000_000n, creditsPending: 30_000_000n, debitsPending: 40_000_000n } },
     });
     const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
     const service = new PrudentialService(prisma, systemWallets, accounting, auditLogs);
@@ -183,7 +231,7 @@ describe('PrudentialService.assertPostOutflowCompliant（乙波三 T2 · 算术�
     const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
     const service = new PrudentialService({} as any, {} as any, {} as any, auditLogs);
     jest.spyOn(service, 'computeStatus').mockResolvedValue({
-      perAsset: [], nlaAedMinor: nlaAedMinor.toString(), floorAedMinor: floorAedMinor.toString(),
+      perAsset: [], perWallet: [], nlaAedMinor: nlaAedMinor.toString(), floorAedMinor: floorAedMinor.toString(),
       headroomAedMinor: (nlaAedMinor - floorAedMinor).toString(), breached: nlaAedMinor < floorAedMinor,
       monthlyOpexBaseAedMinor: MONTHLY_OPEX_BASE_AED_MINOR.toString(), coefficient: '1.2', pegRate: AED_USD_PEG_RATE,
     });
@@ -292,24 +340,6 @@ describe('PrudentialService.assertPostOutflowCompliant（乙波三 T2 · 算术�
     ]);
   });
 
-  // 戊波二 T3（spec §5.5 / §11）：公司调拨单没有外部对手方——对手方子主体 = 收钱的 to 钱包（WALLET 实体），
-  // counterpartyNo 装 to 钱包的 walletNo；T5 的调拨单从运营户出款时过这道门。
-  it('HOUSE_TRANSFER: blocking-audit envelope has no external counterparty — the to-wallet (walletNo) is the WALLET RELATED subject, then the ASSET; label "house transfer"', async () => {
-    const { service, auditLogs } = makeService(50_000_000n);
-    const err: any = await service
-      .assertPostOutflowCompliant({ currency: 'AED', amountMinor: 1_000_000n, orderKind: 'HOUSE_TRANSFER', counterpartyNo: 'WAL-FEE-AED', assetNo: 'AS-AED-1', actor })
-      .catch((e) => e);
-    expect(err).toBeInstanceOf(BadRequestException);
-    expect(err.message).toContain('this house transfer');
-    const audit = auditLogs.recordByActor.mock.calls[0][0];
-    expect(audit).toMatchObject({ action: 'PRUDENTIAL_GATE_BLOCKED', outcome: 'DENIED', reasonCode: 'NLA_FLOOR', primarySubjectType: 'PRUDENTIAL_STATUS', primarySubjectNo: 'NLA' });
-    expect(audit.subjects).toEqual([
-      expect.objectContaining({ subjectType: 'WALLET', subjectNo: 'WAL-FEE-AED', subjectRole: 'RELATED' }),
-      expect.objectContaining({ subjectType: 'ASSET', subjectNo: 'AS-AED-1', subjectRole: 'RELATED' }),
-    ]);
-    expect(audit.metadata).toMatchObject({ orderKind: 'HOUSE_TRANSFER', counterpartyNo: 'WAL-FEE-AED', currency: 'AED', amountMinor: '1000000' });
-  });
-
   it('metadata carries the three figures + currency/orderKind/counterpartyNo (amountMinor as the minor-unit string)', async () => {
     const { service, auditLogs } = makeService(150_000_000n);
     await service.assertPostOutflowCompliant({ currency: 'AED', amountMinor: 40_000_000n, orderKind: 'VENDOR_PAYMENT', counterpartyNo: 'VEN1', assetNo: 'AS-AED-1', actor }).catch(() => {});
@@ -330,7 +360,7 @@ describe('PrudentialService.performCheck（乙波三 T3 · 巡检）', () => {
     const auditLogs: any = { recordByActor: jest.fn(async () => ({})) };
     const service = new PrudentialService({} as any, {} as any, {} as any, auditLogs);
     const status: PrudentialStatus = {
-      perAsset: [], nlaAedMinor: nlaAedMinor.toString(), floorAedMinor: floorAedMinor.toString(),
+      perAsset: [], perWallet: [], nlaAedMinor: nlaAedMinor.toString(), floorAedMinor: floorAedMinor.toString(),
       headroomAedMinor: (nlaAedMinor - floorAedMinor).toString(), breached: nlaAedMinor < floorAedMinor,
       monthlyOpexBaseAedMinor: MONTHLY_OPEX_BASE_AED_MINOR.toString(), coefficient: '1.2', pegRate: AED_USD_PEG_RATE,
     };

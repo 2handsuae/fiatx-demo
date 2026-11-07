@@ -1135,7 +1135,7 @@ export const ACTION_BUCKET_CATALOG: ActionDomain[] = [
       },
       {
         key: 'treasury.view_dashboard', label: 'View company funds dashboard',
-        description: 'One-screen view of firm liquidity: operating balances vs low-water thresholds, in-transit, settlement and income accounts',
+        description: 'One-screen view of firm liquidity: company wallets, due from LP, income and expenses',
         groups: ['FUNDING_DASHBOARD_VIEW'],
       },
       {

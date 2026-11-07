@@ -7,8 +7,8 @@
 // 扫费同额结转（码 90）：仅 from = F_FEE 且 to = F_OPS——总额 = min(调拨金额, Σ 收入户余额)，按码序 210 → 211 → 212，
 // 规划见 house-transfer-fee-close.ts（纯函数）；理由见总纲附录 A「不变量」与 spec 裁定 5 / 13。
 // 铁律③各管各的：本文件只调 HouseTransferService / AccountingService / FundsOrderService / FirmWalletPickerService /
-// SimulatedCustodianStatementService / PrudentialService 的公开方法，不直写域外表（读 asset 行是横向读，放行）。
-// NLA 算术门只在 from = 运营户时过（运营户不动就不过，spec 裁定 12）。
+// SimulatedCustodianStatementService 的公开方法，不直写域外表（读 asset 行是横向读，放行）。
+// 不过 NLA 算术门：运营户与手续费户都计入 NLA，钱在公司口袋之间挪、NLA 不变（戊波三裁定 2）。
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
@@ -31,7 +31,6 @@ import { FirmWalletPickerService } from '../../funds-layer/domain/firm-wallet-pi
 import { FundsOrderService } from '../../funds-orders/funds-order.service';
 import { FundsOrderAction, FundsOrderStatus } from '../../funds-orders/dto/funds-order.dto';
 import { SimulatedCustodianStatementService } from '../../clearing-settle/reconciliation/simulation/simulated-custodian-statement.service';
-import { PrudentialService } from '../prudential/prudential.service';
 import { HouseTransferService } from './house-transfer.service';
 import { HouseTransferStatus } from './dto/house-transfer.dto';
 import { FEE_INCOME_CLOSE_SEQUENCE, FeeIncomeCloseStep, planFeeIncomeClose } from './house-transfer-fee-close';
@@ -72,7 +71,6 @@ export class HouseTransferWorkflowService {
     private readonly fundsOrders: FundsOrderService,
     private readonly firmWallets: FirmWalletPickerService,
     private readonly custodianStatement: SimulatedCustodianStatementService,
-    private readonly prudential: PrudentialService,
   ) {}
 
   // ── 发起（金库，CFO 单步批）──────────────────────────────────────────
@@ -84,19 +82,11 @@ export class HouseTransferWorkflowService {
       throw new BadRequestException('From and to must be two different wallets — a house transfer moves money between the operating wallet and the fee wallet');
     }
 
-    // 守卫顺序：两只钱包配不配（运营户 / 手续费户，其余 400）→ from 余额闸（付得起）→ NLA 门（付完还合规）。
+    // 守卫顺序：两只钱包配不配（运营户 / 手续费户，其余 400）→ from 余额闸（付得起）。
     const fromWallet = await this.firmWallets.assertEligible(dto.fromWalletId, dto.assetId);
     const toWallet = await this.firmWallets.assertEligible(dto.toWalletId, dto.assetId);
     const amountMinor = majorToMinor(dto.amount, asset.decimals);
     await this.assertFromBalance(asset, dto.fromWalletId, amountMinor);
-    // NLA 只算运营户（spec §2 不做：公式口径不改）——from = 手续费户时运营户不动，不过门（裁定 12）；
-    // 调拨单没有外部对手方，对手方装 to 钱包号（PrudentialService.assertPostOutflowCompliant 入参注释同约定）。
-    if (fromWallet.vaultCode === 'F_OPS') {
-      await this.prudential.assertPostOutflowCompliant({
-        currency: asset.currency as 'AED' | 'USDT', amountMinor, orderKind: 'HOUSE_TRANSFER',
-        counterpartyNo: toWallet.walletNo as string, assetNo: asset.assetNo, actor,
-      });
-    }
 
     const row = await this.houseTransfers.create({
       purpose: dto.purpose, assetId: dto.assetId, amount: dto.amount,

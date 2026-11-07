@@ -25,7 +25,7 @@ export class PrudentialController {
   }
 
   @Get('status')
-  @ApiOperation({ summary: 'Get the current NLA prudential status (per-asset F_OPS balances converted to AED, floor, headroom)' })
+  @ApiOperation({ summary: 'Get the current NLA prudential status (Net Liquid Assets = operations + fees + liquidity wallet balances converted to AED, with per-wallet breakdown, floor, headroom)' })
   @RequirePermissions(buildPermissionCode('GET', '/admin/prudential/status'))
   status() {
     return this.prudential.computeStatus();

@@ -1,4 +1,5 @@
-// 战役乙波三 T1 · 审慎地基：只读 NLA 状态计算——查两资产（AED/USDT）的 F_OPS 运营户（钱包现金户）余额，
+// 战役乙波三 T1 · 审慎地基：只读 NLA 状态计算——查两资产（AED/USDT）× 三个公司钱包（F_OPS 运营 / F_FEE 手续费 /
+// F_LIQ 前厅，戊波三 T1「三算两不算」；F_SET 结算户与码 51 应收 LP 不算）的现金户余额，
 // USDT 经汇率单源折算 AED，汇总对比红线。纯读零写：computeStatus 本身不写审计。
 // 战役乙波三 T2 · 算术门：assertPostOutflowCompliant 是本文件写点之一（拦截当场留痕）。
 // 战役乙波三 T3 · 巡检：performCheck 是本文件另一写点（每日监控任务的手动触发替身）。
@@ -12,15 +13,16 @@ import { AuditLogsService } from '../../audit-logging/audit-logs.service';
 import { AuditActions, AuditEntityTypes } from '../../audit-logging/constants/audit-actions.constant';
 import { AuditCategory, AuditOutcome, AuditSubjectRole } from '../../audit-logging/dto/audit-log.dto';
 import { ApprovalActorContext } from '../../governance/approvals/constants/approval.constants';
+import { VAULTS } from '../../../config/manifests/vaults.manifest';
 import { AED_USD_PEG_RATE, MONTHLY_OPEX_BASE_AED_MINOR, NLA_FLOOR_AED_MINOR, usdtMinorToAedMinor } from './prudential.constants';
 
-export type PrudentialOrderKind = 'VENDOR_PAYMENT' | 'LP_EXCHANGE' | 'HOUSE_TRANSFER';
+export type PrudentialOrderKind = 'VENDOR_PAYMENT' | 'LP_EXCHANGE';
 
 export interface AssertPostOutflowCompliantInput {
   currency: 'AED' | 'USDT';
   amountMinor: bigint;
   orderKind: PrudentialOrderKind;
-  /** 对手方业务键：付款单=外包商号、LP 单=LP 号；调拨单没有外部对手方，装 to 钱包的 walletNo（戊波二 T3）。 */
+  /** 对手方业务键：付款单=外包商号、LP 单=LP 号。 */
   counterpartyNo: string;
   /** 出款资产业务键（付款单=付款资产、LP 单=卖出资产）——拦截审计挂一个 ASSET RELATED
    *  主体，照 withdraw-workflow.service.ts:417 先例（第七幕按资产号能拉出被它拦下的单）。 */
@@ -40,12 +42,11 @@ function fmtAed(minor: bigint | string): string {
 }
 
 /** 对手方业务键在信封里挂哪个实体码——外包商/LP 档案两码本仓已在册（评审交接第 2 条：
- *  开工 grep AuditEntityTypes 实测过，非臆造）。公司调拨单没有外部对手方，挂收钱的 to 钱包（WALLET 实体）。 */
+ *  开工 grep AuditEntityTypes 实测过，非臆造）。 */
 function counterpartySubjectType(orderKind: PrudentialOrderKind): string {
   switch (orderKind) {
     case 'VENDOR_PAYMENT': return AuditEntityTypes.OUTSOURCING_VENDOR;
     case 'LP_EXCHANGE': return AuditEntityTypes.LIQUIDITY_PROVIDER;
-    case 'HOUSE_TRANSFER': return AuditEntityTypes.WALLET;
   }
 }
 
@@ -53,7 +54,6 @@ function orderLabel(orderKind: PrudentialOrderKind): string {
   switch (orderKind) {
     case 'VENDOR_PAYMENT': return 'payment';
     case 'LP_EXCHANGE': return 'LP exchange';
-    case 'HOUSE_TRANSFER': return 'house transfer';
   }
 }
 
@@ -64,8 +64,21 @@ export interface PrudentialAssetStatus {
   aedEquivalentMinor: string;
 }
 
+/** 戊波三 T1：NLA 的明细——一行 = 一只被计入的公司钱包 × 一种币（三钱包 × 两币种共六行）。 */
+export interface PrudentialWalletStatus extends PrudentialAssetStatus {
+  vaultCode: CountedVaultCode;
+  label: string;
+}
+
+/** 三算两不算里「算」的三个钱包，顺序即 perWallet 的行序。 */
+const COUNTED_VAULTS = ['F_OPS', 'F_FEE', 'F_LIQ'] as const;
+type CountedVaultCode = (typeof COUNTED_VAULTS)[number];
+
 export interface PrudentialStatus {
+  /** 该币种三个计入钱包的合计。 */
   perAsset: PrudentialAssetStatus[];
+  /** 六行明细：F_OPS → F_FEE → F_LIQ，每个钱包内先 AED 后 USDT。 */
+  perWallet: PrudentialWalletStatus[];
   nlaAedMinor: string;
   floorAedMinor: string;
   headroomAedMinor: string;
@@ -88,40 +101,57 @@ export class PrudentialService {
 
   /** 查两资产（AED/USDT，不按 status 过滤——评审 Imp#1：暂停只停交易，公司手上的余额
    *  没消失，NLA 必须照算，否则 demo/script.md 站 4 暂停 USDT-TRON 那幕会误报破线并
-   *  连累 T2 的门拦下无关的 AED 付款）→ 逐资产 resolve F_OPS 钱包 → 取该钱包在 currency
-   *  对应 ledger 的现金户（借方户）余额（口径同 vendor-payment.service.ts 余额闸：
-   *  available = debitsPosted − creditsPosted − creditsPending）→ AED 直加、
-   *  USDT 经 usdtMinorToAedMinor 折算 → 汇总 NLA，比红线算余量/缺口。 */
+   *  连累 T2 的门拦下无关的 AED 付款）× 三个公司钱包（F_OPS / F_FEE / F_LIQ）→ 逐个 resolve 钱包 →
+   *  取该钱包在 currency 对应 ledger 的现金户（借方户）余额（口径同 vendor-payment.service.ts 余额闸：
+   *  available = debitsPosted − creditsPosted − creditsPending）→ AED 直加、USDT 经 usdtMinorToAedMinor
+   *  折算 → 汇总 NLA，比红线算余量/缺口。F_SET 结算户与码 51 应收 LP 不读（钱已踏上离开公司的路 / 未到账）。 */
   async computeStatus(): Promise<PrudentialStatus> {
     const assets = await this.prisma.asset.findMany({
       where: { currency: { in: ['AED', 'USDT'] } },
     });
 
-    const perAsset: PrudentialAssetStatus[] = [];
+    const perWallet: PrudentialWalletStatus[] = [];
+    const sums = new Map<string, { asset: (typeof assets)[number]; balance: bigint; aed: bigint }>();
     let nlaAedMinor = 0n;
 
-    for (const asset of assets) {
-      const opsWallet = await this.systemWallets.resolve(asset.id, 'F_OPS');
-      const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
-      // 戊波一 T8：运营户 = F_OPS 钱包的现金户（借方户），不再读权益户 FIRM_EQUITY（对手盘，读它数字不对）。
-      const tbAccountId = await this.accounting.resolveCashAccountId(opsWallet.id, ledger);
-      const bal = await this.accounting.lookupBalance(tbAccountId);
-      // 借方口径：借已过账 − 贷已过账 − 贷挂起（出款挂起是贷方挂起；debitsPending 是待入账，不计）
-      const balanceMinor = bal.debitsPosted - bal.creditsPosted - bal.creditsPending;
-      const aedEquivalentMinor = asset.currency === 'AED' ? balanceMinor : usdtMinorToAedMinor(balanceMinor);
-      nlaAedMinor += aedEquivalentMinor;
-      perAsset.push({
-        assetCode: asset.code,
-        currency: asset.currency,
-        balanceMinor: balanceMinor.toString(),
-        aedEquivalentMinor: aedEquivalentMinor.toString(),
-      });
+    for (const vaultCode of COUNTED_VAULTS) {
+      for (const asset of assets) {
+        const wallet = await this.systemWallets.resolve(asset.id, vaultCode);
+        const ledger = TB_LEDGERS[asset.currency as keyof typeof TB_LEDGERS];
+        // 戊波一 T8：读钱包的现金户（借方户），不再读权益户 FIRM_EQUITY（对手盘，读它数字不对）。
+        const tbAccountId = await this.accounting.resolveCashAccountId(wallet.id, ledger);
+        const bal = await this.accounting.lookupBalance(tbAccountId);
+        // 借方口径：借已过账 − 贷已过账 − 贷挂起（出款挂起是贷方挂起；debitsPending 是待入账，不计）
+        const balanceMinor = bal.debitsPosted - bal.creditsPosted - bal.creditsPending;
+        const aedEquivalentMinor = asset.currency === 'AED' ? balanceMinor : usdtMinorToAedMinor(balanceMinor);
+        nlaAedMinor += aedEquivalentMinor;
+        perWallet.push({
+          vaultCode,
+          label: VAULTS[vaultCode].label,
+          assetCode: asset.code,
+          currency: asset.currency,
+          balanceMinor: balanceMinor.toString(),
+          aedEquivalentMinor: aedEquivalentMinor.toString(),
+        });
+        const acc = sums.get(asset.id) ?? { asset, balance: 0n, aed: 0n };
+        acc.balance += balanceMinor;
+        acc.aed += aedEquivalentMinor;
+        sums.set(asset.id, acc);
+      }
     }
+
+    const perAsset: PrudentialAssetStatus[] = [...sums.values()].map(({ asset, balance, aed }) => ({
+      assetCode: asset.code,
+      currency: asset.currency,
+      balanceMinor: balance.toString(),
+      aedEquivalentMinor: aed.toString(),
+    }));
 
     const headroomAedMinor = nlaAedMinor - NLA_FLOOR_AED_MINOR;
 
     return {
       perAsset,
+      perWallet,
       nlaAedMinor: nlaAedMinor.toString(),
       floorAedMinor: NLA_FLOOR_AED_MINOR.toString(),
       headroomAedMinor: headroomAedMinor.toString(),
@@ -132,12 +162,12 @@ export class PrudentialService {
     };
   }
 
-  /** 算术门（spec §3）：付款单/LP 兑换单/公司调拨单三个提单口发起时用——当前 NLA 减折算后出款额，
+  /** 算术门（spec §3）：付款单/LP 兑换单两个提单口发起时用——当前 NLA 减折算后出款额，
    *  低于红线即拒建单（400）。检查只在发起时算一次（单人顺序假设，批准时不复检，既有
-   *  余额闸的批准时复核照旧独立运行）。内部划转（义务性）与注资（进项）刻意不接门——
-   *  豁免是业务立场非遗漏（spec §3 表）。调用点三处 initiate：VendorPaymentWorkflowService（仅 from = 运营户时）、
-   *  LpExchangeWorkflowService（卖出腿恒从运营户出）、HouseTransferWorkflowService（仅 from = 运营户时，
-   *  戊波二 T5：手续费户出钱运营户不动，不过门）；本方法不知道、也不关心调用方是谁。
+   *  余额闸的批准时复核照旧独立运行）。**门只在钱离开公司时过**（戊波三裁定 2）：内部划转（义务性）、
+   *  注资（进项）、公司调拨单（钱在公司自己口袋之间挪，NLA 不变）刻意不接门——豁免是业务立场非遗漏。
+   *  调用点两处 initiate：VendorPaymentWorkflowService（两种 from 钱包都计入 NLA，恒过）、
+   *  LpExchangeWorkflowService（卖出腿的钱真离开公司）；本方法不知道、也不关心调用方是谁。
    *  拦下也留痕——单未建、无单号，照 WITHDRAW_L1_BLOCKED 形制：先写审计后抛异常。 */
   async assertPostOutflowCompliant(input: AssertPostOutflowCompliantInput): Promise<void> {
     const status = await this.computeStatus();

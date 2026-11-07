@@ -42,7 +42,8 @@ import { VendorPaymentStatus } from '../src/modules/asset-treasury/company-fundi
  * 金额 1.00 AED：手续费户（F_FEE）里的钱来自种子的手续费收入，量很小（百来块），每跑一次本文件就从里面真付走 1 块，
  * 所以取小额；不够就在 beforeAll 当场红并指路重铺，不用捷径把钱硬塞进手续费户。
  * 断言全部取自 TigerBeetle 账户余额的前后差与凭证行，不读自己写的 mock。NLA 门用 jest.spyOn 挂在 app 里那只真实的
- * PrudentialService 上（默认透传，不替换实现）——from = F_FEE 时它一次都不该被调，from = F_OPS 时必须被调。
+ * PrudentialService 上（默认透传，不替换实现）——戊波三起两种 from（F_OPS / F_FEE）都计入 NLA，开单时门都必须被调一次；
+ * 另有一条用 computeStatus 破线 spy 证明 from = F_FEE 时门真能拦（400，不建单）。
  */
 describe('Vendor payment — choose the from wallet (戊波二 T4)', () => {
   jest.setTimeout(120000);
@@ -153,12 +154,13 @@ describe('Vendor payment — choose the from wallet (戊波二 T4)', () => {
     expect(await posted(feeCashId, TB_ACCOUNT_CODES.FIRM_CASH)).toBeGreaterThanOrEqual(AMOUNT_MINOR);
   });
 
-  it('from = F_FEE: opens without the NLA gate, snapshot + view name the fee wallet; CFO approves, the leg pays out — 87 credits the FEE cash account (fee −1.00, 300 +1.00), operating wallet untouched, no fee-income carry-over (no 90), NLA gate never called', async () => {
+  it('from = F_FEE: opens through the NLA gate (called once), snapshot + view name the fee wallet; CFO approves, the leg pays out — 87 credits the FEE cash account (fee −1.00, 300 +1.00), operating wallet untouched, no fee-income carry-over (no 90), NLA gate called exactly once (at initiate), never at approval / posting', async () => {
     const purposeNote = `${marker} from fee`;
     const before = await snapshot();
 
     const opened = await wf.initiate(initiateInput(feeWallet.id, purposeNote), treasury);
-    expect(nlaSpy).not.toHaveBeenCalled(); // 手续费户出钱，运营户不动，不过 NLA 门（裁定 12）
+    expect(nlaSpy).toHaveBeenCalledTimes(1); // 手续费户也计入 NLA，付出去就是离开公司，过门（戊波三裁定 2）
+    expect(nlaSpy).toHaveBeenCalledWith(expect.objectContaining({ currency: 'AED', amountMinor: AMOUNT_MINOR, orderKind: 'VENDOR_PAYMENT', counterpartyNo: vendor.vendorNo, assetNo: aed.assetNo }));
     const created = await payments.findByNo(opened.payNo);
     expect(created.fromWalletId).toBe(feeWallet.id);
     const openedView = await payments.getView(opened.payNo);
@@ -202,7 +204,7 @@ describe('Vendor payment — choose the from wallet (戊波二 T4)', () => {
       debitTbAccountId: bigintToHex(expenseId), creditTbAccountId: bigintToHex(feeCashId),
     });
     expect(BigInt(new Prisma.Decimal(evidence[0].amount).toFixed(0))).toBe(AMOUNT_MINOR); // 凭证金额存最小单位
-    expect(nlaSpy).not.toHaveBeenCalled(); // 全程（含批准、落账）NLA 门一次没调
+    expect(nlaSpy).toHaveBeenCalledTimes(1); // 全程（含批准、落账）只在开单时调了一次
   });
 
   it('from = F_OPS: the NLA gate IS called (once, VENDOR_PAYMENT, this vendor, this amount), the row keeps the operating wallet and the view names it', async () => {
@@ -217,6 +219,28 @@ describe('Vendor payment — choose the from wallet (戊波二 T4)', () => {
     // 收拾自己的夹具：撤回待批单，不在审批中心留一张无人批的单
     await wf.cancel(opened.payNo, { reason: 'e2e cleanup' }, treasury);
     expect((await payments.findByNo(opened.payNo)).status).toBe(VendorPaymentStatus.CANCELLED);
+  });
+
+  it('from = F_FEE under an NLA breach (computeStatus spied: headroom just below the outflow) → 400 blocked by the prudential floor, PRUDENTIAL_GATE_BLOCKED audited, no payment row, no approval', async () => {
+    const purposeNote = `${marker} fee breach`;
+    const real = await prudential.computeStatus();
+    const floor = BigInt(real.floorAedMinor);
+    // 动后 NLA = floor − 1 < floor：headroom 比出款额（1.00 AED = 100 分）恰少 1 分
+    const nla = floor + AMOUNT_MINOR - 1n;
+    const statusSpy = jest.spyOn(prudential, 'computeStatus').mockResolvedValue({
+      ...real, nlaAedMinor: nla.toString(), headroomAedMinor: (nla - floor).toString(), breached: false,
+    });
+    const auditBefore = await (prisma as any).auditLogEvent.count({ where: { action: 'PRUDENTIAL_GATE_BLOCKED' } });
+    try {
+      const err: any = await wf.initiate(initiateInput(feeWallet.id, purposeNote), treasury).catch((e) => e);
+      expect(err.getStatus?.()).toBe(400);
+      expect(err.message).toContain('Blocked by prudential floor');
+    } finally {
+      statusSpy.mockRestore();
+    }
+    expect(nlaSpy).toHaveBeenCalledTimes(1);
+    expect(await (prisma as any).auditLogEvent.count({ where: { action: 'PRUDENTIAL_GATE_BLOCKED' } })).toBe(auditBefore + 1);
+    expect(await paymentRowsWithNote(purposeNote)).toHaveLength(0);
   });
 
   it.each([

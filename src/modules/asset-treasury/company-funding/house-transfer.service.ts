@@ -1,6 +1,6 @@
 // 戊波二 T5 · 公司调拨单主体（HouseTransfer）：建单 / 六态六边迁移表 / 读投影。
-// 余额闸在 AccountingService.assertWalletBalance、from / to 钱包守卫在 FirmWalletPickerService、NLA 门在 PrudentialService
-// （都由 workflow 调，主体服务不碰）。铁律③：本服务只写 house_transfers；资金单腿、账本记账、审批、审计全在 workflow 编排。
+// 余额闸在 AccountingService.assertWalletBalance、from / to 钱包守卫在 FirmWalletPickerService
+// （都由 workflow 调，主体服务不碰；调拨单不过 NLA 门，戊波三裁定 2）。铁律③：本服务只写 house_transfers；资金单腿、账本记账、审批、审计全在 workflow 编排。
 // from / to 钱包存裸列（没有 Prisma 关系），读出来时一次批量取两只钱包挂在行上（fromWallet / toWallet）。
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';

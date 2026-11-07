@@ -214,7 +214,7 @@ describe('House transfer — fee sweep & wallet-to-wallet transfers (戊波二 T
     expect(amount).toBeGreaterThanOrEqual(total);
 
     const opened = await initiate(feeWallet, opsWallet, amount, 'sweep everything');
-    expect(nlaSpy).not.toHaveBeenCalled(); // from = 手续费户，运营户不动，不过 NLA 门
+    expect(nlaSpy).not.toHaveBeenCalled(); // 调拨单不过 NLA 门
     expect(await snapshot()).toEqual(b0); // 开单、批准之前不记账
     const { row, leg } = await approveToLeg(opened);
     expect(await snapshot()).toEqual(b0); // 批准建腿也不记账（先账后状态，落账在腿确认）
@@ -326,14 +326,13 @@ describe('House transfer — fee sweep & wallet-to-wallet transfers (戊波二 T
   });
 
   // ───────────────────────── ④ 运营户 → 手续费户 ─────────────────────────
-  it('④ operating → fee wallet: no fee-income close (only 89), NLA gate IS called at initiate (spy) and writes no audit when it lets the order through', async () => {
+  it('④ operating → fee wallet: no fee-income close (only 89), NLA gate is NOT called (money stays inside the firm — 戊波三 裁定 2) and writes no gate audit', async () => {
     const amount = 1000n;
     const b0 = await snapshot();
     const gateAuditBefore = await (prisma as any).auditLogEvent.count({ where: { action: 'PRUDENTIAL_GATE_BLOCKED' } });
 
     const opened = await initiate(opsWallet, feeWallet, amount, 'move money into the fee wallet');
-    expect(nlaSpy).toHaveBeenCalledTimes(1);
-    expect(nlaSpy).toHaveBeenCalledWith(expect.objectContaining({ currency: 'AED', amountMinor: amount, orderKind: 'HOUSE_TRANSFER', counterpartyNo: feeWallet.walletNo, assetNo: aed.assetNo }));
+    expect(nlaSpy).not.toHaveBeenCalled(); // 运营户与手续费户都计入 NLA，口袋间挪钱 NLA 不变，不过门
     const { leg } = await approveToLeg(opened);
     await pushLeg(leg);
     await waitUntil(async () => (await transfers.findByNo(opened.transferNo)).status === HouseTransferStatus.SUCCESS, 'SUCCESS');
@@ -349,9 +348,30 @@ describe('House transfer — fee sweep & wallet-to-wallet transfers (戊波二 T
     const final = await transfers.findByNo(opened.transferNo);
     expect(final.closeTbTransferIds).toBeNull();
     expect((await transfers.getView(opened.transferNo)).closeTbTransferIds).toEqual([]);
-    expect(nlaSpy).toHaveBeenCalledTimes(1); // 批准 / 落账阶段不再调（门只在发起时过一次）
-    expect(await (prisma as any).auditLogEvent.count({ where: { action: 'PRUDENTIAL_GATE_BLOCKED' } })).toBe(gateAuditBefore); // 放行不写审计
+    expect(nlaSpy).not.toHaveBeenCalled(); // 发起、批准、落账全程都没过 NLA 门
+    expect(await (prisma as any).auditLogEvent.count({ where: { action: 'PRUDENTIAL_GATE_BLOCKED' } })).toBe(gateAuditBefore); // 不过门，不写拦截审计
     await assertFirmBookBalanced();
+  });
+
+  it('④b under an NLA breach (computeStatus spied: headroom 1 fils) both directions still open — house transfers never ask the gate', async () => {
+    const real = await prudential.computeStatus();
+    const floor = BigInt(real.floorAedMinor);
+    const statusSpy = jest.spyOn(prudential, 'computeStatus').mockResolvedValue({
+      ...real, nlaAedMinor: (floor + 1n).toString(), headroomAedMinor: '1', breached: false,
+    });
+    const gateAuditBefore = await (prisma as any).auditLogEvent.count({ where: { action: 'PRUDENTIAL_GATE_BLOCKED' } });
+    try {
+      for (const [from, to] of [[opsWallet, feeWallet], [feeWallet, opsWallet]]) {
+        const opened = await initiate(from, to, 1n, `breach-spy ${from.vaultCode} to ${to.vaultCode}`);
+        expect((await transfers.findByNo(opened.transferNo)).status).toBe(HouseTransferStatus.PENDING_APPROVAL);
+        await wf.cancel(opened.transferNo, { reason: 'e2e cleanup' }, treasury); // 收拾夹具：撤回待批单
+      }
+      expect(statusSpy).not.toHaveBeenCalled(); // 连状态都没去算：服务根本不碰审慎门
+    } finally {
+      statusSpy.mockRestore();
+    }
+    expect(nlaSpy).not.toHaveBeenCalled();
+    expect(await (prisma as any).auditLogEvent.count({ where: { action: 'PRUDENTIAL_GATE_BLOCKED' } })).toBe(gateAuditBefore);
   });
 
   // ───────────────────────── ⑤ 拒绝 / 撤回 ─────────────────────────
