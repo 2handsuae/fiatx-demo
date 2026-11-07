@@ -31,3 +31,20 @@ e2e 基线不重跑，复用波二 `doc-final/superpowers/checkups/2026-11-07-ca
 | `t0-demo-ops-panel-before.png` | Demo Data 面板（admin 超管、Simulation 开、后端 `DEMO_OPS=1` 起；含 Full reset 与「Restore recon scenarios」两块）。截图后未点任何按钮，后端已按常规（无 DEMO_OPS）重启 |
 
 采样备忘：`scripts/demo-shot.js` 默认 `networkidle2` 在账本两页（长轮询）会卡死 / ERR_ABORTED，本次用同一脚本的副本（仅把 `networkidle2` 换成 `domcontentloaded`，放在会话草稿目录、未入库）；账本类页面 treasury 无 `TB_ACCOUNTS_READ`，改用 cfo；筛选须再点一次 Search 才生效。
+
+## 看板格 ↔ 科目页户 对照（T2）
+
+同一时刻（`reset self` + `demo:all` 后），看板 `/admin/company-funds` 与科目页 `/admin/ledger/accounts`（code=50）对照；截图 `t2-dashboard-light.png` / `t2-dashboard-dark.png` / `t2-ledger-code50.png`。
+
+| 钱包 | 币种 | 看板 | 科目页 | 相等 |
+|---|---|---|---|---|
+| Operations | AED | 946,089.35 | 946,089.35 | ✓ |
+| Operations | USDT | 113,999.428189 | 113,999.428189 | ✓ |
+| Fees | AED | 114.00 | 114.00 | ✓ |
+| Fees | USDT | 36.000000 | 36.000000 | ✓ |
+| Liquidity | AED | 0.00 | 0.00 | ✓ |
+| Liquidity | USDT | 0.000000 | 0.000000 | ✓ |
+| Settlement | AED | 0.00 | 0.00 | ✓ |
+| Settlement | USDT | —（F_SET 无 TRON 户） | 无此户（七户里没有） | ✓ |
+
+三个 NLA 小格的 AED 等值合计：946,089.35 + 114.00 + 0.00 = AED 946,203.35；USDT 113,999.428189 + 36 + 0 = 114,035.428189，按 3.6725 折合 + AED 946,203.35 = NLA 大数字 AED 1,364,998.46（两者一致，看板 NLA 大字下的汇总行同值）。本次状态下 Operations 未低于阈值，红字分支未在截图中出现。

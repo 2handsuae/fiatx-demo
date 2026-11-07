@@ -3,13 +3,13 @@
 // GET /admin/tb/account-flows），不建任何新后端聚合端点（spec §5）。可见性由
 // FUNDING_DASHBOARD_VIEW 门控（金库/CFO/高管/内审恰四职务，见 App.tsx 路由 + rbac.catalog.ts）。
 //
-// 五区：① 运营户水位（F_OPS 钱包的现金户，每币种一张水位卡：余额大字 + 横向水位条 + 阈值刻线 +
-// 低于线时红字）② F_LIQ 钱包现金户在途待验收格 ③ F_SET 钱包现金户结算在途格 ④ 三收入格（210/211/212）
-// ⑤ 最近资金动态（流水最近 10 条）。波三接线声明：本波看板只展示，零事件、零推送、
+// 戊波三 T2：原 ①②③ 三格合成一张「Company wallets」表（Operations / Fees / Liquidity / Settlement ×
+// AED / USDT，Operations 行保留低水位红）；NLA 区加三个计入钱包小格；收入格后加「Expenses」格（300/301/302）。
+// 其余：三收入格（210/211/212）、最近资金动态（流水最近 10 条）。波三接线声明：本波看板只展示，零事件、零推送、
 // 零预留挂点（乙总纲假设①、裁定 4）。
 // 戊波二 T10：②′「Due from LP — Pending Delivery」读 ownerType=LP 的应收户（码 51），LP 名 × 币种 × 余额，
 // 余额为 0 的户不列，空时 "No LP delivery outstanding."。
-// 戊波一 T8：①②③ 改读 ownerType=WALLET 的公司现金户（码 50），按 walletRole（F_OPS/F_LIQ/F_SET）
+// 戊波一 T8：钱包表改读 ownerType=WALLET 的公司现金户（码 50），按 walletRole（F_OPS/F_LIQ/F_SET）
 // 分区——权益户 200 只是兑换对手盘，不再当「运营户现金」读；④ 收入格仍读 SYSTEM 户，不变。
 //
 // 战役乙波三 T4：NLA（Net Liquid Assets，regulatory）区，置于五区之上，消费 T1/T3 的
@@ -54,12 +54,19 @@ const TREASURY_CODES = {
   EXPENSE_OTHER: 302, // X.EXPENSE_OTHER
 } as const;
 
-/** 现金户所属公司钱包的角色（后端 walletRole，= vaultCode）：①运营 ②LP 前厅 ③结算。 */
+/** 现金户所属公司钱包的角色（后端 walletRole，= vaultCode）：运营 / 手续费 / LP 前厅 / 结算。 */
 const WALLET_ROLES = {
   OPS: 'F_OPS',
+  FEE: 'F_FEE',
   LIQ: 'F_LIQ',
   SET: 'F_SET',
 } as const;
+
+const EXPENSE_CODES = [
+  TREASURY_CODES.EXPENSE_BANK_CUSTODY,
+  TREASURY_CODES.EXPENSE_RECON_LOSS,
+  TREASURY_CODES.EXPENSE_OTHER,
+];
 
 const INCOME_CODES = [
   TREASURY_CODES.INCOME_SWAP_FEE,
@@ -72,9 +79,7 @@ const COMPANY_CODES: number[] = [
   TREASURY_CODES.FIRM_CASH,
   TREASURY_CODES.FIRM_EQUITY,
   ...INCOME_CODES,
-  TREASURY_CODES.EXPENSE_BANK_CUSTODY,
-  TREASURY_CODES.EXPENSE_RECON_LOSS,
-  TREASURY_CODES.EXPENSE_OTHER,
+  ...EXPENSE_CODES,
 ];
 
 /* ── Interfaces（字段形状照 LedgerAccountList.tsx:33 / AccountFlowList.tsx:17 的读法）── */
@@ -119,8 +124,20 @@ interface PrudentialAssetStatus {
   aedEquivalentMinor: string;
 }
 
+/** 戊波三 T1：NLA 三个计入钱包（F_OPS / F_FEE / F_LIQ）各自的币种行，顺序 F_OPS → F_FEE → F_LIQ，
+ *  每钱包先 AED 后 USDT；label 即小格标题（"Company Operations" 等）。 */
+interface PrudentialWalletStatus {
+  vaultCode: 'F_OPS' | 'F_FEE' | 'F_LIQ';
+  label: string;
+  assetCode: string;
+  currency: string;
+  balanceMinor: string;
+  aedEquivalentMinor: string;
+}
+
 interface PrudentialStatus {
   perAsset: PrudentialAssetStatus[];
+  perWallet: PrudentialWalletStatus[];
   nlaAedMinor: string;
   floorAedMinor: string;
   headroomAedMinor: string;
@@ -168,44 +185,7 @@ const shortfallAedMajor = (headroomAedMinor: string): string =>
 
 /* ── Sub-components ──────────────────────────────────────────────── */
 
-/** 区① 运营户水位卡：余额大字 + 横向水位条 + 阈值刻线 + 低于线时红字。 */
-const OperatingBalanceCard = ({ row, decimals }: { row: AccountRow; decimals: number }) => {
-  const thresholdMajor = COMPANY_FUNDS_THRESHOLDS[row.assetCode];
-  const below = thresholdMajor != null && isBelowThresholdMinor(row.balance, thresholdMajor, decimals);
-  const { fillPct, thresholdPct } = gaugeScale(row.balance, thresholdMajor, decimals);
-
-  return (
-    <div className="rounded border border-adm-border bg-adm-bg p-4">
-      <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">{row.assetCode}</div>
-      <div className={`mt-1 font-mono text-2xl font-bold ${below ? 'text-adm-red' : 'text-adm-t1'}`}>
-        {formatMinorToMajor(row.balance, decimals)}
-      </div>
-      <div className="relative mt-4 h-2 w-full rounded-full bg-adm-border">
-        <div
-          className={`h-2 rounded-full ${below ? 'bg-adm-red' : 'bg-adm-green'}`}
-          style={{ width: `${fillPct}%` }}
-        />
-        {thresholdPct != null && (
-          <div
-            className="absolute -top-1 h-4 w-0.5 bg-adm-amber"
-            style={{ left: `${thresholdPct}%` }}
-            title={`Low-water threshold: ${thresholdMajor!.toLocaleString()} ${row.assetCode}`}
-          />
-        )}
-      </div>
-      {thresholdMajor != null && (
-        <div className="mt-1 font-mono text-[10px] text-adm-t3">
-          Threshold {thresholdMajor.toLocaleString()} {row.assetCode}
-        </div>
-      )}
-      {below && (
-        <div className="mt-2 font-mono text-[11px] font-semibold text-adm-red">Below threshold</div>
-      )}
-    </div>
-  );
-};
-
-/** 区②③④ 简单余额卡：无阈值线，只有余额大字。 */
+/** 简单余额卡：无阈值线，只有余额大字（收入 / 开支格用）。 */
 const SimpleBalanceCard = ({ row, decimals }: { row: AccountRow; decimals: number }) => (
   <div className="rounded border border-adm-border bg-adm-bg p-4">
     <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">{row.assetCode}</div>
@@ -225,6 +205,57 @@ const LpReceivableCard = ({ row, decimals }: { row: AccountRow; decimals: number
       {formatMinorToMajor(row.balance, decimals)} <span className="text-[12px] font-normal text-adm-t3">{row.assetCode}</span>
     </div>
   </div>
+);
+
+/** Company wallets 表一行：钱包名 | AED | USDT | In NLA。cell 为 null 渲染「—」（该钱包没有此币种的户，不是 0）。
+ *  Operations 行的低水位红沿用旧水位卡语义：低于 COMPANY_FUNDS_THRESHOLDS 阈值 → 红字 + title。 */
+const WalletTableRow = ({
+  name,
+  cells,
+  counted,
+  decimalsOf,
+  checkThreshold,
+}: {
+  name: string;
+  cells: Record<'AED' | 'USDT', AccountRow | null>;
+  counted: boolean;
+  decimalsOf: (assetCode: string) => number;
+  checkThreshold?: boolean;
+}) => (
+  <tr className="border-t border-adm-border/60">
+    <td className="px-2 py-2 font-mono text-adm-t2">{name}</td>
+    {(['AED', 'USDT'] as const).map((cur) => {
+      const row = cells[cur];
+      if (!row) {
+        return (
+          <td key={cur} className="px-2 py-2 text-right font-mono text-adm-t3">
+            —
+          </td>
+        );
+      }
+      const decimals = decimalsOf(cur);
+      const thresholdMajor = checkThreshold ? COMPANY_FUNDS_THRESHOLDS[cur] : undefined;
+      const below = thresholdMajor != null && isBelowThresholdMinor(row.balance, thresholdMajor, decimals);
+      return (
+        <td
+          key={cur}
+          className={`px-2 py-2 text-right font-mono tabular-nums ${below ? 'font-semibold text-adm-red' : 'text-adm-t1'}`}
+          title={below ? `Below low-water threshold: ${thresholdMajor!.toLocaleString()} ${cur}` : undefined}
+        >
+          {formatMinorToMajor(row.balance, decimals)}
+        </td>
+      );
+    })}
+    <td className="px-2 py-2">
+      <span
+        className={`rounded border px-1.5 py-0.5 font-mono text-[10px] ${
+          counted ? 'border-adm-green/30 bg-adm-green/10 text-adm-green' : 'border-adm-border text-adm-t3'
+        }`}
+      >
+        {counted ? 'counted' : 'in transit'}
+      </span>
+    </td>
+  </tr>
 );
 
 const EmptyRow = ({ label }: { label: string }) => (
@@ -390,9 +421,24 @@ const CompanyFundsDashboard = () => {
   // 戊波二 T10：应收 LP——只列余额不为 0 的户（交货冲平后整格回到空文案）。
   const dueFromLp = dueFromLpRows(lpReceivables);
 
-  const opsAccounts = cashAccountsByRole(WALLET_ROLES.OPS);
-  const liqAccounts = cashAccountsByRole(WALLET_ROLES.LIQ);
-  const setAccountsRows = cashAccountsByRole(WALLET_ROLES.SET);
+  /** 某钱包角色的现金户按币种取一格；没有该币种的户 → null（渲染「—」）。 */
+  const walletCells = (walletRole: string): Record<'AED' | 'USDT', AccountRow | null> => {
+    const rows = cashAccountsByRole(walletRole);
+    return {
+      AED: rows.find((r) => r.assetCode === 'AED') ?? null,
+      USDT: rows.find((r) => r.assetCode === 'USDT') ?? null,
+    };
+  };
+
+  const expenseRows = EXPENSE_CODES.flatMap((code) => accountsByCode(code));
+
+  // NLA 三小格：按 vaultCode 分组，保持后端给的顺序（F_OPS → F_FEE → F_LIQ）。
+  const nlaWalletTiles = nla
+    ? (['F_OPS', 'F_FEE', 'F_LIQ'] as const).map((vc) => ({
+        vaultCode: vc,
+        rows: nla.perWallet.filter((w) => w.vaultCode === vc),
+      }))
+    : [];
 
   // NLA 合计水位条：分子=nlaAedMinor（AED 2 位小数），红线刻线在 floorAedMinor 位置——
   // 复用既有 gaugeScale 的算术（fillPct/thresholdPct），只是这条线的颜色/语义在渲染处
@@ -406,7 +452,7 @@ const CompanyFundsDashboard = () => {
       {/* ─── Zone 1: Title ─── */}
       <PageTitleBar
         title="Company Funds"
-        subtitle="Firm liquidity at a glance — operating balances, in-transit, settlement and income"
+        subtitle="Firm liquidity at a glance — company wallets, due from LP, income and expenses"
       >
         <button
           onClick={() => {
@@ -513,6 +559,27 @@ const CompanyFundsDashboard = () => {
                       ≈ AED {formatMinorToMajor(nla.nlaAedMinor, 2)} @ {nla.pegRate}
                     </div>
 
+                    <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      {nlaWalletTiles.map((t) => (
+                        <div key={t.vaultCode} className="rounded border border-adm-border bg-adm-bg p-3">
+                          <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-adm-t3">
+                            {t.rows[0]?.label ?? t.vaultCode}
+                          </div>
+                          {t.rows.map((w) => (
+                            <div key={w.assetCode} className="mt-1 flex items-baseline justify-between gap-2 font-mono text-[12px] text-adm-t1">
+                              <span className="text-adm-t3">{w.currency}</span>
+                              <span className="tabular-nums">
+                                {formatMinorToMajor(w.balanceMinor, decimalsOf(w.currency))}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-2 font-mono text-[10px] text-adm-t3">
+                      Not counted: Company Settlement (money already on its way to a client) and amounts due from LP (not yet received). USDT at the pegged rate.
+                    </div>
+
                     {checkResult && (
                       <div
                         className={`mt-4 rounded border px-4 py-2 font-mono text-[11px] ${
@@ -540,30 +607,28 @@ const CompanyFundsDashboard = () => {
               </div>
             </div>
 
-            {/* ── ① Operating balances (F_OPS wallet cash account) ── */}
+            {/* ── Company wallets — 四个公司钱包一格：Operations / Fees / Liquidity / Settlement ── */}
             <DetailCard
-              title="Operating Balances — Firm Operating Funds"
-              description="Below-threshold balances turn red — that's the cue to find an LP or push a client trade."
-              columns={2}
+              title="Company wallets"
+              description="Counted wallets make up Net Liquid Assets; Settlement is money already on its way to a client. Operations turns red below its low-water threshold — the cue to find an LP or push a client trade."
+              columns={1}
             >
-              {opsAccounts.length === 0 ? (
-                <EmptyRow label="No operating funds account provisioned." />
-              ) : (
-                opsAccounts.map((row) => (
-                  <OperatingBalanceCard key={row.tbAccountId} row={row} decimals={decimalsOf(row.assetCode)} />
-                ))
-              )}
-            </DetailCard>
-
-            {/* ── ② F_LIQ wallet cash account — in transit pending acceptance ── */}
-            <DetailCard title="LP Delivery in Transit — Pending Acceptance" columns={3}>
-              {liqAccounts.length === 0 ? (
-                <EmptyRow label="No LP delivery in transit." />
-              ) : (
-                liqAccounts.map((row) => (
-                  <SimpleBalanceCard key={row.tbAccountId} row={row} decimals={decimalsOf(row.assetCode)} />
-                ))
-              )}
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="text-left text-adm-t3">
+                    <th className="px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em]">Wallet</th>
+                    <th className="px-2 py-1 text-right font-mono text-[10px] uppercase tracking-[0.08em]">AED</th>
+                    <th className="px-2 py-1 text-right font-mono text-[10px] uppercase tracking-[0.08em]">USDT</th>
+                    <th className="px-2 py-1 font-mono text-[10px] uppercase tracking-[0.08em]">In NLA</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <WalletTableRow name="Operations" cells={walletCells(WALLET_ROLES.OPS)} counted decimalsOf={decimalsOf} checkThreshold />
+                  <WalletTableRow name="Fees" cells={walletCells(WALLET_ROLES.FEE)} counted decimalsOf={decimalsOf} />
+                  <WalletTableRow name="Liquidity (LP front hall)" cells={walletCells(WALLET_ROLES.LIQ)} counted decimalsOf={decimalsOf} />
+                  <WalletTableRow name="Settlement (fiat only)" cells={walletCells(WALLET_ROLES.SET)} counted={false} decimalsOf={decimalsOf} />
+                </tbody>
+              </table>
             </DetailCard>
 
             {/* ── ②′ Due from LP — 戊波二 T10：LP 兑换卖出腿确认后挂着的应收（码 51），LP 到货（码 85）一步冲平——早于验收 ── */}
@@ -581,23 +646,28 @@ const CompanyFundsDashboard = () => {
               )}
             </DetailCard>
 
-            {/* ── ③ F_SET wallet cash account — settlement in transit ── */}
-            <DetailCard title="Settlement in Transit — Fiat" columns={3}>
-              {setAccountsRows.length === 0 ? (
-                <EmptyRow label="No fiat settlement in transit." />
-              ) : (
-                setAccountsRows.map((row) => (
-                  <SimpleBalanceCard key={row.tbAccountId} row={row} decimals={decimalsOf(row.assetCode)} />
-                ))
-              )}
-            </DetailCard>
-
             {/* ── ④ Income (profit) ── */}
             <DetailCard title="Income (profit)" columns={3}>
               {INCOME_CODES.flatMap((code) => accountsByCode(code)).length === 0 ? (
                 <EmptyRow label="No income posted yet." />
               ) : (
                 INCOME_CODES.flatMap((code) => accountsByCode(code)).map((row) => (
+                  <div key={row.tbAccountId}>
+                    <div className="mb-1 truncate font-mono text-[9px] uppercase tracking-[0.08em] text-adm-t3" title={row.accountName ?? ''}>
+                      {row.accountName ?? '—'}
+                    </div>
+                    <SimpleBalanceCard row={row} decimals={decimalsOf(row.assetCode)} />
+                  </div>
+                ))
+              )}
+            </DetailCard>
+
+            {/* ── Expenses（码 300 / 301 / 302）── */}
+            <DetailCard title="Expenses" columns={3}>
+              {expenseRows.length === 0 ? (
+                <EmptyRow label="No expenses posted yet." />
+              ) : (
+                expenseRows.map((row) => (
                   <div key={row.tbAccountId}>
                     <div className="mb-1 truncate font-mono text-[9px] uppercase tracking-[0.08em] text-adm-t3" title={row.accountName ?? ''}>
                       {row.accountName ?? '—'}
