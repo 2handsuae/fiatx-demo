@@ -54,7 +54,7 @@
 | 编译 | tsc 后端（src / test / scripts / prisma 四目录）｜ tsc 管理台（含 .spec.ts）｜ tsc 客户端 |
 | 重铺 | `stack.sh reset main`（含 TigerBeetle 清理重建，全链实跑） |
 | 演示 | demo:setup ｜ demo:deposit ｜ demo:swap ｜ demo:withdraw ｜ demo:in-transit ｜ demo:all（**花名册 35/35 逐条符合预期 + COA 四恒等式**——演示装备一期改判据，见下方操作约束；29→35 见文末「对手方波二种子断言」） |
-| 对账 | recon:demo:pass ｜ **recon:demo:break 18/18 场景 + 12/12 钱包桶 + `casesOpened` 完整性断言**（2026-09-06 平账三期加 18（Jack USDT-TRON 未授权转出 → 事故登记）后实测：`scenarios 18/18 DETECTED` / `wallets 12/12 bucket OK`（break 9 / softFlag 2 / inTransit 1）/ `casesOpened 12/12`，答案键 `rootCause` 用注册表成因码）｜ verify:demo-data。⚠️ **铺场前不得有在途划转**（待批 / 执行中的内部划转单会让脚本前置闸当场报错——先 ⚡ 推到确认或撤回）。⚠️ **必须走整库重铺验证**：**场景 6（重复入账）真写账本**、`recon:demo:reset` 不回滚账本，轻量重跑会让场景 6 假性 MISSED（显示 17/18）|
+| 对账 | recon:demo:pass ｜ **recon:demo:break 18/18 场景 + 12/12 钱包桶 + `casesOpened` 完整性断言**（2026-09-06 平账三期加 18（Jack USDT-TRON 未授权转出 → 事故登记）后实测：`scenarios 18/18 DETECTED` / `wallets 12/12 bucket OK`（break 9 / softFlag 2 / inTransit 1）/ `casesOpened 12/12`，答案键 `rootCause` 用注册表成因码）｜ verify:demo-data。⚠️ **铺场前不得有在途划转**（待批 / 执行中的内部划转单会让脚本前置闸当场报错——先 ⚡ 推到确认或撤回）。⚠️ **戊波二起另有一道前置闸（R37）：带锚的落账处置之后不得再重摆**——库里已有 POSTED 且带锚的调账单（场景 8 改记等），或记短缺已落账的认损补缺单时，`recon:demo:break` / `pass` / `crisis` 一律拒绝（exit 1，只打一行 `Cannot re-stage the reconciliation scenarios: <单号> is posted and anchored to the current external statement … Use "Reset demo data" …`），改用 `bash scripts/stack.sh reset <main|self>`（云端用面板「Reset all demo data…」）重铺。⚠️ **必须走整库重铺验证**：**场景 6（重复入账）真写账本**、`recon:demo:reset` 不回滚账本，轻量重跑会让场景 6 假性 MISSED（显示 17/18）|
 | 账本 | verify:coa —— 两恒等式 + 负余额断言（49 科目全部 ≥ 0）。收官多轮实测重铺后与 demo:all 后均全绿；历史上个别含 break 注入的运行轮见过公司 AED 负余额（浮存时序）。**2026-09-01 三支合流后在 main 栈两轮独立实测：57 科目全部 ≥ 0，全绿**（此前 08-31 的负余额红已定位为资本注入被跳过的假红，见上方\"已结\"节）。**2026-09-05 起注资那笔已在流水里**（种子写凭证 + 两行流水），运营户对账起点为正 |
 | 审计 | verify:audit 恒绿七项：Q2 按单据查 ｜ Q4 按客户查 ｜ 不变量①②③（PRIMARY 至多一 / INHERIT 必有旅程号 / 退役码零写入）——三查合同七站换装后的固定资产 |
 | 封册 | audit-vocabulary-closure.spec 四条：平面表归籍 / 六册互斥 / 写点闭合退役词零引用 / 码全局唯一禁裸名 |
@@ -252,7 +252,7 @@ test/sla.e2e-spec.ts                         # 私库
 
 **两张 APPROVED 审批单补种（评审 R15 甲案）**：详情页 `approvalNo` 非空即渲染链接，占位号此前点进去是 `Approval not found` 死链——补种 `ApprovalCase`×2 + 各自 `ApprovalStep`（CFO 单步已批），`objectSnapshot` 逐字对齐 `lp-profile-workflow.service.ts#initiateCreate`/`lp-exchange-workflow.service.ts#initiate` 的真实快照形状（零 UUID）。**实测已点开验证**：管理台 `treasury@fiatx.com` 登录，LP Register → Falcon Liquidity FZE 详情页点 `APPROVAL: APR2601015507` → 跳到 `/admin/governance/approvals/APR2601015507`，显示 `STATUS APPROVED`／`ACTION TYPE LP_PROFILE_APPROVAL`／`Step 1 APPROVED CFO`／`DECIDED BY ADM2501010010`，非死链；LP Exchanges → LPX2601016429 详情页点 `APPROVAL: APR2601015999` → 跳到 `/admin/governance/approvals/APR2601015999`，显示 `STATUS APPROVED`／`ACTION TYPE LP_EXCHANGE_APPROVAL`／`IMPACT` 一句话叙事／`Step 1 APPROVED CFO`，非死链。
 
-**实测口径（重铺闸全序，2026-09-29 评审修复轮）**：`bash scripts/stack.sh reset self` → 全绿（`verify:demo-data ALL PASS`，打印 `Seeded 2 LP profile rows ... + 1 APPROVED profile-registration approval case` / `Seeded 1 LP exchange (LPX2601016429, SUCCESS) + 1 APPROVED exchange approval case + 3 funds orders` / `LP exchange evidence: 3 evidence row(s) + 6 flow row(s)`）→ 直查库 `approval_cases`/`approval_steps` 两表行数与上表逐字相符 → `bash scripts/stack.sh up self` → `bash scripts/on-stack.sh self demo:all` → 花名册 29/29 + COA 4/4 恒等式全过（`COA FIRM(AED)`/`COA FIRM(USDT)` 恒等式公式已带 `FIRM_LIQ` 项，`data.md` 生成区随之改写为新数值，非代码红）→ `bash scripts/on-stack.sh self recon:demo:pass` → `status=PASS casesOpened=0`，F_LIQ(USDT) `bucket=MATCHED matchedCount=2` → `bash scripts/on-stack.sh self recon:demo:break` → `scenarios 18/18` `wallets 12/12` `casesOpened 12/12` → `bash scripts/on-stack.sh self verify:coa` → `ALL INVARIANTS PASS`（两恒等式 + 负余额检查 67 个科目全部 ≥ 0，`recon:demo:break` 场景 6 会真写账本使 `ledger 1 CLIENT` 数值较 demo:all 后变化，恒等式仍两边相等、非红）→ `npx tsc --noEmit -p tsconfig.json` + `admin-web`/`client-web` 两侧 `tsc -b --noEmit` 全绿 → `npx jest scripts/seed-audit-helper.spec.ts src/modules/asset-treasury/lp-desk src/modules/funds-orders`：9 套件/187 例全绿 → 管理台实点两个 approvalNo 链接均非死链（见上一条）。⚠️ **demo:all 前必须先 `stack.sh up self`**——`demo:all` 的 `runFrankPreStage`/`makerCheckerApprove` 走真实 HTTP 登录（`demo-mlro.ts#loginAs`），栈未起会在此处 `FATAL TypeError: fetch failed / ECONNREFUSED`；若已误跑过一次半截的 `demo:all`（Frank 已被制裁广播连坐冻结），必须先 `stack.sh reset self` 重铺出全新库才能重跑，不能在同一库上接着 `up` 后再跑（同上方"`demo:all` 必须在全新库上跑"约束）。
+**实测口径（重铺闸全序，2026-09-29 评审修复轮）**：`bash scripts/stack.sh reset self` → 全绿（`verify:demo-data ALL PASS`，打印 `Seeded 2 LP profile rows ... + 1 APPROVED profile-registration approval case` / `Seeded 1 LP exchange (LPX2601016429, SUCCESS) + 1 APPROVED exchange approval case + 3 funds orders` / `LP exchange evidence: 3 evidence row(s) + 6 flow row(s)`（戊波二起打印为 4 + 8））→ 直查库 `approval_cases`/`approval_steps` 两表行数与上表逐字相符 → `bash scripts/stack.sh up self` → `bash scripts/on-stack.sh self demo:all` → 花名册 29/29 + COA 4/4 恒等式全过（`COA FIRM(AED)`/`COA FIRM(USDT)` 恒等式公式已带 `FIRM_LIQ` 项，`data.md` 生成区随之改写为新数值，非代码红）→ `bash scripts/on-stack.sh self recon:demo:pass` → `status=PASS casesOpened=0`，F_LIQ(USDT) `bucket=MATCHED matchedCount=2` → `bash scripts/on-stack.sh self recon:demo:break` → `scenarios 18/18` `wallets 12/12` `casesOpened 12/12` → `bash scripts/on-stack.sh self verify:coa` → `ALL INVARIANTS PASS`（两恒等式 + 负余额检查 67 个科目全部 ≥ 0，`recon:demo:break` 场景 6 会真写账本使 `ledger 1 CLIENT` 数值较 demo:all 后变化，恒等式仍两边相等、非红）→ `npx tsc --noEmit -p tsconfig.json` + `admin-web`/`client-web` 两侧 `tsc -b --noEmit` 全绿 → `npx jest scripts/seed-audit-helper.spec.ts src/modules/asset-treasury/lp-desk src/modules/funds-orders`：9 套件/187 例全绿 → 管理台实点两个 approvalNo 链接均非死链（见上一条）。⚠️ **demo:all 前必须先 `stack.sh up self`**——`demo:all` 的 `runFrankPreStage`/`makerCheckerApprove` 走真实 HTTP 登录（`demo-mlro.ts#loginAs`），栈未起会在此处 `FATAL TypeError: fetch failed / ECONNREFUSED`；若已误跑过一次半截的 `demo:all`（Frank 已被制裁广播连坐冻结），必须先 `stack.sh reset self` 重铺出全新库才能重跑，不能在同一库上接着 `up` 后再跑（同上方"`demo:all` 必须在全新库上跑"约束）。
 
 ## 战役乙波二公司资金种子断言 + F_OPS(AED) 新判据（reset 判据，2026-09-29 Task 9 起）
 
@@ -429,7 +429,7 @@ sqlite3 "$DB" "select action,actorType,actorNo,count(*) from audit_log_events wh
 
 | 闸 | 命令 | 判据 |
 |---|---|---|
-| 审计词表 | `npm run audit:vocab`（exit 0） | 现役合计 **360** 码（波前 352，+11 −3）；TREASURY 域 45；LP 码 16 → **24**（档案族 8 → 6、新地址族 9、兑换族 8 → 9）；退役名册 117 → **120**（`LP_PROFILE_CHANGE_PROPOSED / APPLIED / REJECTED` 入 `DEPRECATED_AUDIT_ACTIONS`）。注意该命令会改写 `doc-final/lark/2026-09-16-audit-actions-catalog-full.md`（只动版头「基线 main `<哈希>`」一处），本任务实跑后已还原、不入库 |
+| 审计词表 | `npm run audit:vocab`（exit 0） | 现役合计 **386** 码（19 册；**戊波二订正**——本节原写 360〔波前 352，+11 −3〕在戊波二波前就已过时，实测 378 / 18 册，戊波二 +1〔`INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED`〕+7〔公司调拨单新名册〕= 386，取数命令见 `superpowers/checkups/2026-11-07-campaign-e-wave2-evidence/counts-before.md` C4；`npm run audit:vocab` 自甲波六起因「有码没说明」exit 1，不再是 exit 0，见 `TOOLING-DEBT.md`）；TREASURY 域 45；LP 码 16 → **24**（档案族 8 → 6、新地址族 9、兑换族 8 → 9）；退役名册 117 → **120**（`LP_PROFILE_CHANGE_PROPOSED / APPLIED / REJECTED` 入 `DEPRECATED_AUDIT_ACTIONS`）。注意该命令会改写 `doc-final/lark/2026-09-16-audit-actions-catalog-full.md`（只动版头「基线 main `<哈希>`」一处），本任务实跑后已还原、不入库 |
 | 权限矩阵 | `bash scripts/on-stack.sh self verify:rbac`（`API base: http://localhost:3120`，exit 1） | **173 ✓ / 1 ✗**；唯一红 = `S7 catalog 字典真实性`四行 sumsub demo 死行，**既有债**（`TOOLING-DEBT.md` 该行：路由装饰器在共用基类上、S7 正则只扫文件自身），非本轮引入，**不得称全绿**。本轮相关判据全绿：S4 `52` 条策略点名真实职务｜S5 `51` 条 maker-checker 策略无未登记自批死锁｜S8 `52` = 51 受保护 + 1 豁免｜S9 `42` 条带回链策略裁决人都看得见要批的对象（含 `LP_ADDRESS_APPROVAL → LP_READ`）｜S13a LP 两组四处齐（`LP_READ`: route 6 / bucket 1 / 职务 4；`LP_WRITE`: route 13 / bucket 1 / 职务 1）｜S13b `LP_WRITE` 金库独持｜S13c `LP_READ` 恰为 {金库, CFO, 内审, **合规官**}（合规官是本轮 T4 评审裁定新加：⚡筛查覆写的持有者得能打开 LP 页面，只读）｜S13d 域 15 / 桶 83 / 组 92（**以上为 2026-10-24 当时口径**；甲波六 Task 10 起 S13c 加高管成五职务、S13d 为域 15 / 桶 87 / 组 96、`verify:rbac` 为 186 ✓ / 1 ✗，现行数字见末节） |
 | 单测 | `npx jest src/modules/asset-treasury/lp-desk`（exit 0） | **9 suites / 241 tests** 全绿（含：地址迁移表穷举 6×6 = 36 组合恰 6 合法；开单四道守卫与批准时复查；⚡到货 RED 来源「照常 DELIVERED 且可被 `accept` 验收」两条行为用例；改结算端点不复存在的路由元数据断言） |
 
@@ -481,7 +481,7 @@ sqlite3 "$DB" "select actionType,status,count(*) from approval_cases where actio
 | 单测 | `npx jest --silent`（全量，默认并行） | exit 1，**唯一红** = `regulatory-filing-sweep.service.spec.ts`（`TOOLING-DEBT.md`「默认并行 worker 下偶发假红」条：`Expected 1 / Received 5`），`271 passed, 1 failed of 272`；该 spec 单跑 exit 0（8/8）；全量 `--runInBand` exit 0：**272 套件全绿，4449 例通过 + 2 skipped + 5 todo** |
 | 重铺 | `bash scripts/stack.sh reset self`（先 `down` 并 `rm -f` 栈库） | exit 0，链内 `verify:demo-data ALL PASS`，`✔ Capital injection: 2 transfer(s) created`；日志认 `Seeded 4 outsourcing vendor rows (...)`、`Seeded 3 LP profile rows (...)`、`Seeded partner due-diligence trail for 7 partners: 7 assessments, 12 GREEN screening records, 30 placeholder PDFs (...), 8 approval cases, 2 VARA notification filings.` |
 | 演示 | `bash scripts/stack.sh up` → `bash scripts/on-stack.sh self demo:all` | exit 0，`花名册：35/35 符合预期`、`asserts: 5/5 PASS`、`data.md` 生成区零 diff（`git status` 无改动） |
-| 权限矩阵 | `bash scripts/on-stack.sh self verify:rbac` | exit 1，**`186 ✓ / 1 ✗`**，唯一红 = `S7 catalog 字典真实性`四行 sumsub demo 死行（`TOOLING-DEBT.md` 既有债，**不得称全绿**）。现行数字：S4 `55` 条策略点名真实职务｜S5 `54` 条 maker-checker 策略无未登记自批死锁｜S5c 50 组确认不相交｜S8 `55` = 54 受保护 + 1 豁免｜S9 `45` 条带回链策略裁决人都看得见要批的对象（含 `VENDOR_APPROVAL` / `VENDOR_MATERIAL_APPROVAL → VENDOR_READ`、`LP_PROFILE_HIGH_RISK_APPROVAL → LP_READ`）｜S11a 合规办公室**八**组四处齐｜S11b 六个写组持有者表恰等（`OBLIGATION_WRITE` / `VENDOR_REGISTER_WRITE` / `RI_REGISTER_WRITE` / `DUE_DILIGENCE_WRITE` = 合规官，`VENDOR_APPLY` = 运营，`INFOSEC_ASSESSMENT_WRITE` = CISO）｜S11c `COMPLIANCE_OFFICE_VIEW` 仍五职务｜S11d `VENDOR_READ` 恰七职务（合规官 / CISO / CFO / 高管 / 内审 / 金库 / 运营）｜S13c `LP_READ` 五职务（加高管）｜S13d 域 **15** / 桶 **87** / 组 **96**（波前 83 / 92，差额 = 四个新组 + 四个新桶，全在 `compliance-office` 域）｜S14d 服务商名册 4 条 GET 的 groups 恰为 `[VENDOR_READ]`；另加 12 条「服务商尽调门」行为探针（持有者放行、非持有者 403，双向对照）全绿。**顺序铁律不变**：`verify:rbac` 写数据（角色往返审批单等），跑完必须重铺再 `demo:all` |
+| 权限矩阵 | `bash scripts/on-stack.sh self verify:rbac` | exit 1，**`186 ✓ / 1 ✗`**，唯一红 = `S7 catalog 字典真实性`四行 sumsub demo 死行（`TOOLING-DEBT.md` 既有债，**不得称全绿**）。现行数字（**戊波二 2026-11-07 重测订正**：S4 56 / S5 55 / S5c 51 / S8 56 = 55 + 1 / S9 46 / S13d 桶 89，其余不变；总数仍 `186 ✓ / 1 ✗`）：S4 `56` 条策略点名真实职务｜S5 `55` 条 maker-checker 策略无未登记自批死锁｜S5c 51 组确认不相交｜S8 `56` = 55 受保护 + 1 豁免｜S9 `46` 条带回链策略裁决人都看得见要批的对象（含 `VENDOR_APPROVAL` / `VENDOR_MATERIAL_APPROVAL → VENDOR_READ`、`LP_PROFILE_HIGH_RISK_APPROVAL → LP_READ`）｜S11a 合规办公室**八**组四处齐｜S11b 六个写组持有者表恰等（`OBLIGATION_WRITE` / `VENDOR_REGISTER_WRITE` / `RI_REGISTER_WRITE` / `DUE_DILIGENCE_WRITE` = 合规官，`VENDOR_APPLY` = 运营，`INFOSEC_ASSESSMENT_WRITE` = CISO）｜S11c `COMPLIANCE_OFFICE_VIEW` 仍五职务｜S11d `VENDOR_READ` 恰七职务（合规官 / CISO / CFO / 高管 / 内审 / 金库 / 运营）｜S13c `LP_READ` 五职务（加高管）｜S13d 域 **15** / 桶 **89** / 组 **96**（波前 83 / 92，差额 = 四个新组 + 四个新桶，全在 `compliance-office` 域；戊波二再 +2 桶 `treasury.view_house_transfers` / `act_house_transfers`，复用既有组，故组数不变）｜S14d 服务商名册 4 条 GET 的 groups 恰为 `[VENDOR_READ]`；另加 12 条「服务商尽调门」行为探针（持有者放行、非持有者 403，双向对照）全绿。**顺序铁律不变**：`verify:rbac` 写数据（角色往返审批单等），跑完必须重铺再 `demo:all` |
 | 全量 e2e | `bash scripts/on-stack.sh self test:e2e` | exit 1，`9 failed, 17 passed, 26 suites`／`20 failed, 150 passed, 170 tests`；与 main 基线 `9bc4bcc8` 逐例相同，**本波零新增**，分类见上方 e2e 节 2026-10-29 更新与 `TOOLING-DEBT.md`。**不得称绿** |
 | 私库铺库 | 六个要跑 `db:biz:init` 的 e2e 私库逐个按头注释铺 | `prisma migrate deploy` / `db:base:sync` exit 0，`db:biz:init` **exit 1**（`seedStatementHistoryLegs` 撞栈库已写的账本，`TOOLING-DEBT.md` 末条；基线同），库是半成品但套件可跑 |
 
@@ -531,9 +531,9 @@ sqlite3 "$DB" "select actionType,status,count(*) from approval_cases where actio
 
 | 时点 | 判据 |
 |---|---|
-| reset + `up` 后、`demo:all` 前 | exit 0：`ledger 1 CLIENT 恒等 4495000` / `ledger 1 FIRM 恒等 95000000` / `ledger 2 CLIENT 恒等 2709049000` / `ledger 2 FIRM 恒等 113600000000` / `负余额检查 通过 (75 个科目全部 ≥ 0)` / `ALL INVARIANTS PASS` |
-| `demo:all` 后 | exit 0：`34107565` / `94870335` / `8201620811` / `114035428189` / `87 个科目全部 ≥ 0`（比 reset 后多 12 个 = 6 位 demo 客户 × 2 个钱包现金户） |
-| 其后 `recon:demo:break` | exit 0：`ledger 1 CLIENT 34307565`（= `demo:all` 后 + 场景 6 真写账本的 200000），FIRM 两数不变，87 科目 ≥ 0 |
+| reset + `up` 后、`demo:all` 前 | exit 0：`ledger 1 CLIENT 恒等 4495000` / `ledger 1 FIRM 恒等 95000000` / `ledger 2 CLIENT 恒等 2709049000` / `ledger 2 FIRM 恒等 113600000000` / `负余额检查 通过 (75 个科目全部 ≥ 0)` / `ALL INVARIANTS PASS`（**戊波二订正：81 个**，+6 = Henry 两个钱包各多一户「托管短缺待补」码 2 + Falcon / Dune 各两户「应收 LP」码 51）|
+| `demo:all` 后 | exit 0：`34107565` / `94870335` / `8201620811` / `114035428189` / `87 个科目全部 ≥ 0`（比 reset 后多 12 个 = 6 位 demo 客户 × 2 个钱包现金户；**戊波二订正：105 个**，比 reset 后〔81〕多 24 个 = 12 个 demo 客户钱包 × 〔现金户 + 托管短缺待补户〕） |
+| 其后 `recon:demo:break` | exit 0：`ledger 1 CLIENT 34307565`（= `demo:all` 后 + 场景 6 真写账本的 200000），FIRM 两数不变，87 科目 ≥ 0（戊波二订正：105）|
 
 **对账**（`demo:all` 后）：`recon:demo:pass` exit 0，`status=PASS walletsChecked=21 casesOpened=0`，五条断言全 OK——**21 = 7 个公司钱包 + 14 个客户钱包**（原 19 = 7 + 12；Henry 两个钱包入检，业主裁定 7）；公司钱包行 `coa=A.FIRM_CASH`，F_OPS(AED) `internal=94608935 lines=6`，F_LIQ(USDT) `internal=0 lines=2`（与前文判据同数，改读现金户后不变）。`recon:demo:break` exit 0：`scenarios 18/18 DETECTED`、`wallets 12/12 bucket OK`、`casesOpened 12/12`。
 
@@ -542,7 +542,7 @@ sqlite3 "$DB" "select actionType,status,count(*) from approval_cases where actio
 | 前文写的 | 现值 |
 |---|---|
 | `walletsChecked=19`（乙波一 / 乙波二 / 对手方波二 / 丙波四 / LP 两步准入各节） | **21** |
-| `verify:coa` `67 个科目全部 ≥ 0`（前文各节，reset 后与 `demo:all` 后同数） | **75**（reset 后）/ **87**（`demo:all` 后） |
+| `verify:coa` `67 个科目全部 ≥ 0`（前文各节，reset 后与 `demo:all` 后同数） | **75**（reset 后）/ **87**（`demo:all` 后）；戊波二起 **81** / **105** |
 | `ledger 1 FIRM 恒等 94750000`（reset 后） | **95000000**（= 现金 94750000 + 开支户 250000） |
 | `COA FIRM(AED) 94620335`（`demo:all` 后） | **94870335**（同样 +250000 开支户）；`COA FIRM(USDT)` 以对手方波二的 114035428189 为准，两数的客户侧（34107565 / 8201620811）不变 |
 | 公式带 `FIRM_LIQ` / `FIRM_SET` 项 | 两项已随码删除，公式见上 |
@@ -552,3 +552,29 @@ sqlite3 "$DB" "select actionType,status,count(*) from approval_cases where actio
 **失效验证**（判据不是自证绿）：① 临时把 `FIRM_EQUITY` 从 `verify:coa` 公司本右边求和里拿掉 → exit 1，`✗ ledger 1 FIRM: Σ(50)+Σ(300..302)=94870335 Σ(200)+Σ(210..212)=11400` 与 USDT 同款一行，还原后 exit 0；② 把读面 `accountDisplayName` 退化回「只看科目码」→ 账本读面四个用例（注册表列表 / 账户详情 / 流水行 / 码表 spec）全红，还原后全绿。**未做**：201 / 203 项从恒等式里删除（这两项余额恒为 0、删除不改变任何一边的值），没有对应的失效验证；`verify:coa` 对「手工往客户现金户记无对手借方应变红」的变异归 T3。
 
 **读面显示**：账本「Ledger Accounts」页现金户（Owner = WALLET）的账户名显示注册表户名——公司现金户 7 个（`Company Cash · Company Operations · AED_ZAND` 等）、客户现金户按 `Client Cash · <客户号> · vIBAN / Deposit address`，不再是 7 个看不出区别的「Company Cash – AED/USDT」；前端不自造名字，只显示后端下发的 `accountName`。物证：`doc-final/superpowers/checkups/2026-11-06-campaign-e-wave1-evidence/t12-ledger-accounts.png`。
+
+## 战役戊波二判据（reset 判据，2026-11-07 Task 11 起）
+
+本节是「新账本才有的能力」落地后（认损补缺一张单 / 公司调拨单 / 付款单 from 可选 / 应收 LP / 对内差额与匹配器第 0 轮锚配对）的 reset / 收尾判据，**与前文冲突处以本节为准**（前文各节的旧数字是当时的实测，保持原样，仅点名行已就地订正并标「戊波二订正」）。数字均为 2026-11-07 在 self 栈实测（代码头 `3889b99a`，命令前置 `export PATH="$HOME/.nvm/versions/node/v20.20.2/bin:$PATH"`）。
+
+**计数终态**（命令 = `superpowers/checkups/2026-11-07-campaign-e-wave2-evidence/counts-before.md` C1–C5 原样重跑，全部 exit 0）：
+
+| 项 | 戊波二前 | 现值 |
+|---|---|---|
+| 审批策略 `DEFAULT_APPROVAL_POLICIES` | 55 | **56**（+ `HOUSE_TRANSFER_APPROVAL`） |
+| `MAKER_GROUP_BY_POLICY` / 豁免 | 54 / 1 | **55 / 1**（并集 = 策略全集 56，双向差集空） |
+| S9 表 = 管理台回链路由表 | 45 | **46**（键集双向差集空） |
+| 审计现役码（`audit-vocabulary-closure.spec.ts` 的 `REGISTRIES`） | 378（18 册） | **386（19 册）**（V7 名册 7 → 8；新名册 `CAMPAIGN_E_HOUSE_TRANSFER_AUDIT_ACTIONS` 7 码） |
+| TB 科目码 | 11 | **13**（+2 `CLIENT_SHORTFALL`、+51 `LP_RECEIVABLE`） |
+| TB 转账码 | 37 个，最大 87 | **41 个，最大 91**（+88 `LP_EXCHANGE_RECEIVABLE` / 89 `HOUSE_TRANSFER` / 90 `FEE_INCOME_CLOSE` / 91 `CLIENT_SHORTFALL_RECOGNIZED`） |
+| 业务号前缀 `HTR` | 未占 | `rg -c "generateReferenceNo\('HTR'" src` 恰 1 处（`house-transfer.service.ts`） |
+| 账本科目（户）数 `verify:coa` | reset 后 75 / `demo:all` 后 87 | reset 后 **81** / `demo:all` 后 **105**（+14 客户钱包码 2 户 + 4 个 LP 码 51 户） |
+| `verify:rbac` | `186 ✓ / 1 ✗` | **`186 ✓ / 1 ✗`**（exit 1，唯一红仍是 S7 四条 sumsub demo 死行，**不得称全绿**）；S4 56 / S5 55 / S5c 51 / S8 56 = 55 + 1 / S9 46 / S13d 域 15·桶 89·组 96 |
+
+**重铺与演示**（`bash scripts/stack.sh reset self` → `up` → `bash scripts/on-stack.sh self demo:all`）：reset 全绿（`verify:demo-data ALL PASS`，打印 `LP exchange evidence: 4 evidence row(s) + 8 flow row(s)`——LP 历史兑换单由三腿改四腿，84 → 88 → 85 → 86，期末应收 LP 户 51 余额 0）；`demo:all` exit 0，`花名册：35/35 符合预期`、`asserts: 5/5 PASS`、`data.md` 生成区零 diff（`git status` 无改动）。
+
+**对账与账本**（`demo:all` 后）：`recon:demo:pass` exit 0，`status=PASS walletsChecked=21 casesOpened=0`（对内差额 14 个客户钱包全 0）；`recon:demo:break` exit 0，`scenarios 18/18 DETECTED`、`wallets 12/12 bucket OK`、`casesOpened 12/12`、`identities OK`（答案键未动）；`verify:coa` exit 0：`34107565` / `94870335` / `8201620811` / `114035428189` / `105 个科目全部 ≥ 0`。公司本恒等式与天平口径见 `modules/accounting-coa.md` §2：客户本 Σ(1) + Σ(2) = Σ(100) + Σ(101)，公司本 Σ(50) + Σ(51) + Σ(300..302) = Σ(200) + Σ(210..212)。
+
+**前置闸 R37**：见上文第 57 行同款注——带锚的落账处置（POSTED 的改记 / 调账单、记短缺已落账的认损补缺单）之后，`recon:demo:break` / `pass` / `crisis` 一律 exit 1 拒绝重摆（实测：场景 16 走完后 `recon:demo:break` exit 1，末行 `Cannot re-stage the reconciliation scenarios: ITR… is posted and anchored to the current external statement … Use "Reset demo data" (full reseed, about 1 minute) instead.`）；演 8 / 16 / 18 之后要重来须 `stack.sh reset` 全量重铺。
+
+**走查物证**（本任务 T11，均 self 栈真实渲染、逐张 Read 过）：场景 16 / 31 / 41 各一组 `t11-scene-{16,31,41}-*.png`，另有场景 8（`t11-scene-08-*`，批准后重对账前后的读面）与场景 26（`t11-scene-26-*`，看板「Due from LP」两帧）各几张，全部在 `superpowers/checkups/2026-11-07-campaign-e-wave2-evidence/`，逐项说明见该目录 `t11-docs-and-walks-evidence.md`。

@@ -183,7 +183,7 @@ Last Updated: 2026-10-08（报送台整备波文档收口：销 6 行（整行�
 
 - [x] ~~**`rowAdjustmentPrefill().direction` 提现类 AMOUNT_MISMATCH 缺翻符号**：`ReconciliationCasesDetailPage.tsx:327` 的 AMOUNT_MISMATCH 分支按「符号即答案」的固定惯例推方向（`deltaAmount` 为负→REDUCE、为正→INCREASE），这条惯例只按存款语义推导，没有为提现类流水的方向语义翻符号；现状下当前种子数据未产出该组合（非结构性排除——`ADJUSTABLE_SOURCES` 收提现来源、差异行生成也不挑方向，真实数据可能凑出），先记一行留档，防止日后这个组合被激活时悄悄预填错方向~~ —— **已修**（2026-09-21 第六幕波四）：波四收编修复：方向公式收回后端 cause-registry，出账翻符号用例入 cause-registry.spec（`cause-registry.spec.ts:178` "AMOUNT_MISMATCH 出账翻符号：内部 OUT、原始差 +10 → REDUCE（BACKLOG:176 组合首次入网）"）；前端 `rowAdjustmentPrefill`/`deriveKindDirection` 两处本地推导随之退役，改读后端下发的 `row.adjustmentPrefill.direction` ｜来源: 2026-09-08 平账处置改版终审
 
-- [ ] **手续费归集不做，等报表层**（2026-09-05 平账二期 F1'）：账上等于收入结转进运营户，可做；但收入户兼作钱包位置，归集后余额清零，没有报表层时观众读不出本期收入 ｜来源: 平账二期 spec §0
+- [x] ~~**手续费归集不做，等报表层**（2026-09-05 平账二期 F1'）：账上等于收入结转进运营户，可做；但收入户兼作钱包位置，归集后余额清零，没有报表层时观众读不出本期收入~~ ｜来源: 平账二期 spec §0 ｜ **2026-11-07 战役戊波二销账**：做了「公司调拨单」（用途 `FEE_SWEEP`，手续费户 → 运营户，同一步把被扫走的那部分手续费收入同额结转进公司权益，场景 41）；业主 2026-11-07 的裁定把旧「不做」翻案（`decisions.md` 收官时随总纲 §6 第 3 条一并落）。代价（收入户余额 = 未扫的费，本期收入看流水）已在场景 41 讲明，本期收入的报表视图仍归本文件既有「财务四张报表视图」
 
 - [x] **内部划转单路由前缀 `treasury/` 与 Custody 组其它页 `custody/` 不一致**（2026-09-05）：侧栏同组、路径两个前缀，纯 IA 债；改动要连动案件页 / 审批回链 / 资金单回链四处写死的链接，单独一次收 ｜来源: 平账二期 Task 13 评审、终审裁定 BACKLOG ｜ **2026-09-21 波五 T9 销账**：取甲案（统一 `custody/`）——App.tsx 2 路由定义 + 11 字面 = 13 处一次收齐，`grep "treasury/"` 路由义命中归零；RBAC 零改动（权限码挂后端路由，前端路径非权限载体）
 
@@ -346,6 +346,8 @@ Last Updated: 2026-10-08（报送台整备波文档收口：销 6 行（整行�
 - [ ] **重大服务商的上线告知单被撤销（CANCELLED）后，服务商永远停在 `PENDING_NOTIFICATION`，没有任何出路**：报备门只认「告知单被标已提交」这一个事件（`regulatory-filing.submitted`）把服务商推进 `ACTIVE`；而告知单是自动开出的 `DRAFT`，合规官在报送台对这张草稿单点「作废」（`DRAFT → CANCELLED`，GENERAL 族既有边）就是**正常单人顺序操作**——撤销后没有对应事件、服务商也没有「回退 / 重开告知单」的边，卡在待报备，付款单下拉里永远置灰，演示者既讲不圆（"告知单撤了然后呢"）也救不回（只能重铺）。设计稿 §1「不做」明列「告知单被撤销 / 驳回时服务商状态回退」，本波未建；补齐 = 撤销告知单发外发事件 + 服务商侧一条出路（回退 / 重开告知单，要新边） ｜来源: 2026-10-29 甲波六终审（R17：原记 PRODUCTION-NOTES，改判业务缺口） ｜落点: `outsourcing-vendor-workflow.service.ts#onFilingSubmitted`、`regulatory-filing.constants.ts`（GENERAL 族 cancel 边无外发事件）
 
 ## M. 战役乙 · LP 兑换台（第九幕「公司的钱」，V7 财资）
+
+- [ ] **NLA 仍只算运营户（F_OPS）；手续费户与应收 LP 是否计入，波三或后续裁**：`prudential.service.ts` 的 NLA 只读运营户现金（AED + USDT 折 AED），戊波二新增的「应收 LP」（码 51，LP 欠我们的货）与已有的手续费户现金都**不计入**——保守口径，未验收落定的钱不算流动；调拨单 / 付款单 from = 运营户时才过 NLA 门，from = 手续费户不过（运营户不动）。要不要把手续费户或应收 LP 计入、怎么计，是口径变更，需业主拍板 ｜来源: 戊波二 spec §2「不做」，2026-11-07
 
 - [ ] **`LedgerAccountList.tsx` 的 decimals 查找键与显示键不一致，code≠currency 的资产小数位显示错（USDT-TRON 类被放大约 10⁴ 倍）**：`decimalsMap` 用 `asset.currency`（如 `USDT`）建键，表格行按 `asset.code`（如 `USDT-TRON`）去查，键不对时静默回退 2 位小数——凡 `code≠currency` 的资产（本仓目前即 USDT-TRON）在这张账本科目视图里全部显示错，6 位小数的余额被放大成 2 位小数的读法，波前既有（内部划转单等既有流程同样受影响），LP 兑换台走查现场也能看到（前厅/运营户 USDT 余额行数字异常大）。业主芯片已挂 `task_475851be`。
   **更深根因（2026-09-29 战役乙波二 T8 走查坐实，见 T8 报告）**：注册表写入路径全部一致用 `asset.code` 建键——`prisma/seed.business.ts:159` `ensureTbAccountRegistry({ assetCode: asset.code, ... })`，`customer-ledger-provisioning.service.ts:44`、`demo-lib.ts:320-322` 同款；但服务层接口 `TbAccountRegistryService.RegisterParams.assetCurrency` 字段命名暗示"存的是币种"，`tb-account-registry.service.ts:58` 原样把调用方传入的 `asset.code` 落到 DB 列 `assetCode`。下游 `LedgerAccountList.tsx` 的 decimals 查找表天真按参数名字面意思、以为该列存的是 currency，用 `asset.currency` 建 decimalsMap 键，两者不一致时静默回退 2 位——命名误导→键选错，不是随手拼错键。T8 新页 `CompanyFundsDashboard`（`admin-web/src/pages/companyFundsFormat.ts`）已用 `currencyOf()` 把两种键形态统一收敛成 currency 一种自保，波二新页不受影响；`LedgerAccountList.tsx` 仍受影响，走查现场看板与老账本页两处数字不一致可当场对照给观众看（见 `demo/script.md` 场景 30） ｜来源: 2026-09-29 战役乙波一 T8 走查发现；根因深挖 2026-09-29 战役乙波二 T8

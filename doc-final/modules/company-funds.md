@@ -1,7 +1,7 @@
 # 公司资金（注资 · 供应商付款 · 全景看板）
 
-> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-09-30（战役乙波三：审慎红线与巡检 + 穿底主线收口，随第九幕定稿）
-> 演示幕次：第九幕「公司的钱」场景 28-32 ｜ 验收：`demo/script.md` 场景 28-32 + 本篇 §4
+> 对应 PRD：待写 ｜ 技术节点 Last Verified：2026-11-07（战役戊波二：新增公司调拨单、付款单 from 钱包可选、看板「Due from LP」格、余额闸共用——本篇整篇重写留波三，这次只改事实句）；此前 2026-09-30（战役乙波三：审慎红线与巡检 + 穿底主线收口，随第九幕定稿）
+> 演示幕次：第九幕「公司的钱」场景 28-32、41（扫费） ｜ 验收：`demo/script.md` 场景 28-32 / 41 + 本篇 §4
 
 ## 0. 一句话定位
 
@@ -13,7 +13,7 @@
 
 **供应商付款单是公司花钱的另一面。** HexTrust 的托管月费是演示代表——公司→外部单腿出，同样金库开单、CFO 批。收款方**只能从外包服务商册（甲波四立的那本册，甲波六起改为 Compliance Office 下的 Service Providers 准入流程）下拉选**，不接受自由填地址；选不到在册且 `ACTIVE` 的供应商，单据开不出来（下拉里列出全部非终止的服务商，非 `ACTIVE` 的置灰并标状态，如待报备的重大服务商——演示见场景 39）。这条边把"两个战役的活真的接上了"这句话坐实：付款单不是凭空造一个收款方，是真的去读甲波四那本册。批准之后钱不会立刻走，要等金库把出款资金单推完（`⚡ Submit → ⚡ Settle`），付款单才转 `SUCCESS`、落账码 87。
 
-**看板是给管理层看家底的一屏。** 运营户各币种水位（带见底阈值线——水位跌破这条线，就是"该去找 LP 补货"的信号，串到 `lp-desk.md` 的动机）、LP 在途待验收（读 `FIRM_LIQ` 科目）、结算在途（读 `FIRM_SET` 科目）、三收入格（210/211/212，即"利润体现"——客户每兑一笔、每提一笔、每享受一次其他服务，这三格就实时涨一点）、最近资金动态（最近 10 条账本流水，人话事件标签）。**看板不是另建一套真相，是把既有账本端点（`GET /admin/tb/accounts`、`GET /admin/tb/account-flows`）换了个一屏能看完的排版**——零新增后端聚合逻辑，数字与账本三列表（科目/凭证/流水）同源同值。
+**看板是给管理层看家底的一屏。** 运营户各币种水位（带见底阈值线——水位跌破这条线，就是"该去找 LP 补货"的信号，串到 `lp-desk.md` 的动机）、LP 在途待验收（读 `FIRM_LIQ` 科目）、结算在途（读 `FIRM_SET` 科目）、**应收 LP 一格「Due from LP — Pending Delivery」**（2026-11-07 戊波二新增：读应收 LP 户码 51——LP 兑换单卖出腿确认时挂账、LP 到货时冲平，每行 LP 名 × 币种 × 余额，空时「No LP delivery outstanding.」）、三收入格（210/211/212，即"利润体现"——客户每兑一笔、每提一笔、每享受一次其他服务，这三格就实时涨一点）、最近资金动态（最近 10 条账本流水，人话事件标签）。**看板不是另建一套真相，是把既有账本端点（`GET /admin/tb/accounts`、`GET /admin/tb/account-flows`）换了个一屏能看完的排版**——零新增后端聚合逻辑，数字与账本三列表（科目/凭证/流水）同源同值。
 
 **审慎管理目的字段是 8 年安全港记录的地基。** 注资单、付款单都必填这个字段——不是装饰性文本框，是 VARA 场景下的合规叙事起点，B2（波三）只做叙事收口，不需要返工建表。
 
@@ -34,12 +34,24 @@ RECEIVED ──confirm(金库,确认入账)──▶ SUCCESS（落账码 70，�
 
 ```
 PENDING_APPROVAL ──approve+余额闸过──▶ EXECUTING（建出款资金单）
-PENDING_APPROVAL ──approve+运营户余额不足──▶ FAILED（不建资金单，照 LP/划转单先例）
+PENDING_APPROVAL ──approve+所选钱包余额不足──▶ FAILED（不建资金单，照 LP/划转单先例）
 PENDING_APPROVAL ──reject/timeout──▶ REJECTED ｜ ──cancel(金库,待批时)──▶ CANCELLED
 EXECUTING ──⚡推出款确认(回单先于落账)──▶ SUCCESS（落账码 87） ｜ ──腿失败──▶ FAILED
 ```
 
-单腿出（`DR FIRM_OPS / CR FIRM_ASSET`），照 LP 兑换单卖出腿同形；回单一律先于落账（波一 T5 订正纪律的延续）。开单守卫=外包商 `status='ACTIVE'`。
+单腿出：87 借开支（`EXPENSE_BANK_CUSTODY`）/ 贷**所选公司钱包**的现金户。**出钱钱包由金库在单上选**（2026-11-07 戊波二起：运营户或手续费户，默认运营户；`vendor_payments.fromWalletId`、表单「Pay From」下拉带余额，`FirmWalletPickerService.assertEligible` 校验——PLATFORM 钱包、网络同币种、`vaultCode ∈ {F_OPS, F_FEE}`，结算户 / LP 前厅不可选）；**NLA 红线门只在 from = 运营户时调**，从手续费户付款运营户不动；余额闸 = 共用的 `AccountingService.assertWalletBalance`（读所选钱包现金户 posted − pending 贷方，开单与批准各查一次，不够 `INSUFFICIENT_FIRM_BALANCE`）；从手续费户付款**不做收入结转**（钱没进运营户）；审批快照与详情页都带 `fromWalletNo`。回单一律先于落账（波一 T5 订正纪律的延续）。开单守卫=外包商 `status='ACTIVE'`。
+
+### 2.3 公司调拨单（HouseTransfer）—— 六态六边（战役戊波二，2026-11-07）
+
+```
+PENDING_APPROVAL ──approve+出钱钱包余额复查过──▶ EXECUTING（建一条腿：from → to，资金单父键 houseTransferId）
+PENDING_APPROVAL ──approve+余额不足──▶ FAILED ｜ ──reject/timeout──▶ REJECTED ｜ ──cancel(金库,待批时)──▶ CANCELLED
+EXECUTING ──⚡推腿确认：落 89（挪钱）+（仅手续费户 → 运营户）90（扫费结转）──▶ SUCCESS ｜ ──腿失败──▶ FAILED
+```
+
+公司的钱只有五种走法——外 → 公司（注资单）、公司 → 外（付款单）、公司 ⇄ LP（兑换单）、公司 → 客户（划转单）、**公司 → 公司（调拨单）**，不会有第六张。状态机照划转单抄：六态六边，显式迁移表 `house-transfer-transitions.constant.ts`；批 = `HOUSE_TRANSFER_APPROVAL`（金库提 / CFO 单步 / 48h / 可撤）。**用途是单上的一个标签**（字符串列，今天只有 `FEE_SWEEP`「扫费」，以后加用途 = 下拉加一个值）。**from / to 只能是运营户（F_OPS）与手续费户（F_FEE）**，同网络、不同钱包、都是 PLATFORM 钱包（结算户里的钱正在往客户走、LP 前厅里的钱是 LP 刚交来还没验收，这两个口袋不许挪作他用；校验同付款单的 `FirmWalletPickerService`）；建单时余额闸 = 共用 `assertWalletBalance`，**from = 运营户时过 NLA 红线门**（`orderKind: 'HOUSE_TRANSFER'`），from = 手续费户不过；表单选了 from 后金额默认填 from 全额、可改小。腿由金库在资金单页 ⚡ 推（照付款单腿，不是划转腿；资金单页没有 Sync / Manual Confirm），模拟托管方在腿提交时写两侧外部行。
+
+**扫费结转（仅「手续费户 → 运营户」这条路）**：钱进了运营户，运营户的钱就比公司权益多，不结转的话卖光运营户会把公司权益减成负数、账本拒记。所以腿确认时除 89（借 to 现金 / 贷 from 现金）外，再按**码序 210 → 211 → 212**、每个收入户至多一笔，借收入户 / 贷 200 公司权益（码 90，eventCode `FEE_INCOME_CLOSE_SWAP / _WITHDRAW / _OTHER`，转账号按 eventCode 哈希，故三笔各自 eventCode），**总额 = min(调拨金额, 三收入户余额合计)**——整扫则收入户归零，少扫则按码序只扣到够，超出收入的那部分钱本就是公司权益背书的，不再结转；运营户 → 手续费户、手续费户直接付供应商都不结转。代价：扫完收入户余额只剩「还没扫的费」，本期收入要看流水（BACKLOG 既有「财务四张报表视图」）。89 与 90 是顺序落账的两笔转账、不是一个原子批：90 被拒则单停 EXECUTING（页面「Stuck — posting failed」），无修复路径（`PRODUCTION-NOTES.md`）。
 
 ## 3. 决策点与角色
 
@@ -49,13 +61,14 @@ EXECUTING ──⚡推出款确认(回单先于落账)──▶ SUCCESS（落账
 | ⚡ 模拟出资方打款 | 金库（详情页） | — | `AWAITING_FUNDS → RECEIVED`，写模拟托管回单 |
 | 确认入账 | 金库（`RECEIVED` 态详情页） | — | Expected/Received 并排，纯核数；确认即触发落账，不是第二道审批 |
 | 撤回 | 金库（待批时） | — | 执行中不许撤 |
-| 开付款单 | 金库（Vendor Payments 页，守卫=收款供应商 `ACTIVE`） | CFO 单步 | 下拉选供应商 + 收款账户坐标 + 事由 + 审慎目的 |
+| 开付款单 | 金库（Vendor Payments 页，守卫=收款供应商 `ACTIVE`） | CFO 单步 | 下拉选供应商 + 收款账户坐标 + 币种 + **Pay From**（运营户 / 手续费户，默认运营户）+ 事由 + 审慎目的 |
+| 开调拨单 | 金库（House Transfers 页） | CFO 单步 | 用途（今天只有「Fee sweep」）+ 币种 + from / to（只运营户与手续费户）+ 金额（默认 from 全额）+ 理由；撤回 = 金库待批时 |
 | ⚡ 推出款 | 金库（资金单页，模拟门控） | — | 法币两步 `Submit → Settle` |
 | 看看板 | 金库 / CFO / 高管 / 内审（四职务） | — | 一屏家底；金库视角另有巡检按钮（见 §7），对 CFO/高管/内审纯只读 |
 
 ## 4. 演示脚本
 
-场景 28（注资全弧：开单→CFO 批→⚡模拟打款→确认入账→看板 F_OPS 涨）、场景 29（付款全弧：选 HexTrust→CFO 批→⚡推出款→看板 F_OPS 降）、场景 30（看板五区巡览 + 账本三列表同源同值对照 + 现场客户兑换看三收入格实时涨）、场景 31（⚡穿底：托管失窃→定性→定损→认损调账→补款划转→客户池复原，收尾双线齐红）、场景 32（审慎红线：巡检抓红→门拒付款单三个数→CFO 登记审慎事故→定损→报送 VARA→注资复原→巡检转绿→两事故结案→两报送单提交）——步骤在 `demo/script.md` 第九幕「公司的钱」，均已在 self 栈全程实走并留证。
+场景 28（注资全弧：开单→CFO 批→⚡模拟打款→确认入账→看板 F_OPS 涨）、场景 29（付款全弧：选 HexTrust→CFO 批→⚡推出款→看板 F_OPS 降）、场景 30（看板五区巡览 + 账本三列表同源同值对照 + 现场客户兑换看三收入格实时涨）、场景 31（⚡穿底：托管失窃→定性→定损→先拒掉该钱包的在途大额提现→认损补缺〔一张单〕→客户池复原，收尾双线齐红）、场景 32（审慎红线：巡检抓红→门拒付款单三个数→CFO 登记审慎事故→定损→报送 VARA→注资复原→巡检转绿→两事故结案→两报送单提交）、场景 41（扫费：手续费户 → 运营户一张调拨单，89 + 90，收入户归零）——步骤在 `demo/script.md` 第九幕「公司的钱」，均已在 self 栈全程实走并留证。
 
 ## 5. 关键技术节点
 
@@ -73,6 +86,8 @@ EXECUTING ──⚡推出款确认(回单先于落账)──▶ SUCCESS（落账
 - 权限：`treasury.prudential_check`（`PRUDENTIAL_CHECK_WRITE`，唯金库，Treasury 域 14→15 桶）；`GET /admin/prudential/status` 挂既有桶 `treasury.view_dashboard`，零权限扩张
 - 端点：`GET /admin/prudential/status`（只读，看板取数）、`POST /admin/prudential/check`（巡检，写审计+返回 status）
 - **兑换腿修复（丙案）**：`rbac.catalog.ts:435` 该路由 `groups` 从 `['TRADING_SWAP_WRITE']` 改挂 `['FUNDS_ORDER_ACT']`——「推资金单腿归金库」2026-09-10 定案的顺延，端点挂错组才是病根；面板可见性（`FUNDS_ORDER_PUSH_WRITE`）与端点权限自此同源，`BACKLOG.md` §E 该条销账
+- **公司调拨单（戊波二）** 主体 `company-funding/house-transfer.service.ts`（六态迁移表 / 建单 / 零 UUID 投影）｜ 工作流 `house-transfer-workflow.service.ts`（发起 / 撤回 / 批准回流 / 腿确认落 89 + 90 / 失败原因码 `INSUFFICIENT_FIRM_BALANCE | LEG_FAILED | POSTING_FAILED`）｜ 结转纯函数 `house-transfer-fee-close.ts` ｜ 审批 `HOUSE_TRANSFER_APPROVAL`（白名单四处同加）｜ 转账码 89 `HOUSE_TRANSFER` / 90 `FEE_INCOME_CLOSE` ｜ 业务号前缀 `HTR` ｜ 资金单父键 `houseTransferId` ｜ 审计七码新名册 `CAMPAIGN_E_HOUSE_TRANSFER_AUDIT_ACTIONS`（`HOUSE_TRANSFER_REQUESTED / CANCELLED / REJECTED / EXECUTION_STARTED / LEG_POSTED / SETTLED / FAILED`，域 TREASURY）｜ 权限复用 `FUNDING_READ / FUNDING_WRITE`，动作桶 `treasury.view_house_transfers` / `treasury.act_house_transfers` ｜ 端点 `admin/house-transfers`（list / create / detail / cancel）｜ 表 `house_transfers` ｜ admin-web `HouseTransferList`（含建单弹层）/ `HouseTransferDetail`（Treasury 导航组）
+- **共用件（戊波二）**：`FirmWalletPickerService.assertEligible`（funds-layer）由付款单 / 调拨单 / 认损补缺单三处同调；`AccountingService.assertWalletBalance(walletId, ledger, amountMinor)` 取代划转单 / 付款单 / LP 兑换单各自的运营户余额闸（LP 兑换单固定 from = F_OPS，解出钱包后同调该闸）；看板「Due from LP」格读 `GET /admin/tb/accounts?ownerType=LP&code=51&take=100`（端点对 LP 户补 `ownerName`，仍无新端点）
 
 ## 6. 演示缺口（BACKLOG 有账）
 
