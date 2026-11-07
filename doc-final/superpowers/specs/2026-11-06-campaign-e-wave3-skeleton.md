@@ -68,3 +68,48 @@
 - 文档清册逐篇核对（总纲 §6 第 2 条），一篇不漏；`modules/accounting-coa.md` 整篇重写。
 - 前端改动必截图；看板数字与科目页同源同值。
 - 收官 `cloud:deploy`。
+
+## 收尾记录（2026-11-08 执行会话填写）
+
+### 实际交付（`git log --oneline 365da391..HEAD`）
+
+- T0 对照组与基线复用：`0effbdd0`（NLA 状态、计数、四张改前截图）；spec + plan：`dc94f70c`
+- T1 NLA 三算两不算 + 门只在钱离开公司时过：`8f5fa0ad`
+- T2 看板四钱包一格 + NLA 三小格 + 开支格：`72a657f8`
+- T3 云端面板只留重铺、`/demo-ops/recon-break` 退役、`recon-demo` 死段删除：`e946e7de`
+- T4 审计词表归 agent 维护（搬至 `reference/`，补 29 码，`audit:vocab` 绿）：`1b099b77`
+- T5 删两个重复动作桶（S13d 89 → 87）：`c85e8300`
+- T6 e2e 夹具按迪拜业务日、场景 9 钉住截止过滤：`3466c330`、`c3e4f5ca`（证据前置条件如实改写）
+- T7 to 钱包 `TO_WALLET_NOT_ELIGIBLE`、码 2 户名对齐：`a239ab18`
+- T8 案件侧栏 Books Δ、科目页与流水页小数位：`8b530aaa`、`a437c45a`（BACKLOG 小数位条销账）
+- T9 文档清册 1–6（交付合同、decisions 11 条、科目篇、coa-v3 + 记账总表、模块分录句、成因手册）：`f3cab756`
+- T10 剧本 / 基线 / data / CLAUDE.md / 三桶债务 + 走查：`1cfefd65`、`00a89e2f`（修复轮）
+- T11a 收尾闸、全量 e2e、计数终态取数：`76601146`
+- T11b 证据 README、CHANGELOG、本节、小修：本提交
+
+证据索引与闸表、计数前后、清册 ✓ 表见 `checkups/2026-11-07-campaign-e-wave3-evidence/README.md`。
+
+### 偏差
+
+- T0 e2e 基线复用波二 B 集，尽管 `scripts/recon-demo.ts` 自 `8b40965d` 起有差异（注释 + 一条拒绝文案字符串；e2e 不执行该脚本）。
+- 全量词表 `lark/…-catalog-full.md` 重新生成时少了 3 个退役码（spec 写的是只增不减；这 3 个在 `DEPRECATED_AUDIT_ACTIONS` 里，不属现役）。
+- 场景 9 的尾部改写为第 0 轮锚配对语义（spec 以为它的红只是时区问题；同波二 R36 先例）。
+- 七幕走查：第一至五幕、第七幕各用 `demo:all` 状态下的一张关键截图佐证，未逐步重走；场景 16 / 18 / 29 / 31 / 32 / 37 / 41 经管理台同一批 HTTP 端点驱动并截图，不是点按钮（场景 29 的发起弹层除外）。
+- plan 的 Task 11 拆成 11a（取数）/ 11b（文档）两步。
+- R37 拒绝现场证据沿用 T10 的，T11a 未重走场景 16。
+- 删桶只需重启后端（spec §13 写的是 `db:base:sync`；§0.1 第 16 行订正为只重启）。
+- Task 5 顺带把 `overview.md` Treasury 的「17 桶」订正为 15。
+- `reference/coa-v3.md` §2 记账总表以代码为准，与总纲附录 B 有 9 处不同（清单见 Task 9 报告；主要是以实际落地的转账码、借贷科目与 eventCode 为准）。
+- `recon-cause-handbook` §5「改记」一句改为四腿实际（原写「客户资产这条腿完全不动」，与 v3 实现相反）。
+- 流水页小数位：行里本就带 `USDT` 币种，原先显示已对；本次改动是防御性对齐（与科目页同一查法）。
+- BACKLOG「改」条数 2 而非 spec 的 1：多出的是 1440px 条在 T10 评审要求下改记为推迟；TOOLING-DEBT 另有两处超 spec 字面（`:207` 加注、`:218` 新开 e2e 同次调用耦合条）。
+- Task 1 的两条评审小项并入 Task 7 处理。
+- 全量 e2e 多出 `vendor-onboarding ①`（已知偶发，单跑绿）：新基线按 20 还是「20 + 已知偶发」，待主会话裁定（`e2e-after-00a89e2f.md` 为 DRAFT）。
+- 自动安全评审提出「已结案案件的 Books Δ 显示破口那一轮的值」：按 spec 保留（§0.1 第 18 行、Review Focus 4），报业主知悉。
+
+### 归档待办
+
+- 合并后由主会话归档：总纲 + 本骨架 + 波三 spec / plan → `archive/superpowers/{specs,plans}/`；归档后跑 `grep -rn "campaign-e" doc-final --exclude-dir=archive`，应只剩 CHANGELOG / decisions / 证据目录里的历史引用。
+- `cloud:deploy`：连欠波一至波三，`npm run cloud:deploy`，业主触发（本波不跑）。
+- 合并后主会话按 `CLAUDE.md §10`：重启后端 + `npm run db:base:sync`（删桶本身只需重启；词表 / 权限字典同步仍照 §10 做）+ `bash scripts/stack.sh reset main`。
+- 业主维护项（spec §2：agent 不碰 `reference/roadmap.md`）：V7 行，以及 `:431` / `:442` / `:452` 的旧充值路径表述，待业主更新。

@@ -104,8 +104,8 @@ const AccountFlowList = () => {
   const navigate = useNavigate();
 
   /* Flow rows store the currency (e.g. USDT), not the network-qualified
-     asset code — offer the deduped currency list as filter options and keep
-     the per-currency decimals for 分→元 formatting of the balance/amount cols. */
+     asset code — offer the deduped currency list as filter options and build
+     the asset lookup used for 分→元 formatting of the balance/amount cols. */
   const fetchCurrencyOptions = async () => {
     try {
       const res = await adminFetch(`${import.meta.env.VITE_API_URL}/assets?take=100`);
