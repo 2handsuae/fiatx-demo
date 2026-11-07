@@ -84,7 +84,7 @@
 - T8 案件侧栏 Books Δ、科目页与流水页小数位：`8b530aaa`、`a437c45a`（BACKLOG 小数位条销账）
 - T9 文档清册 1–6（交付合同、decisions 11 条、科目篇、coa-v3 + 记账总表、模块分录句、成因手册）：`f3cab756`
 - T10 剧本 / 基线 / data / CLAUDE.md / 三桶债务 + 走查：`1cfefd65`、`00a89e2f`（修复轮）
-- T11a 收尾闸、全量 e2e、计数终态取数：`76601146`
+- T11a 收尾闸、全量 e2e、计数终态取数：`76601146`、`618e6c13`（第二轮全量与新基线 20 名）
 - T11b 证据 README、CHANGELOG、本节、小修：本提交
 
 证据索引与闸表、计数前后、清册 ✓ 表见 `checkups/2026-11-07-campaign-e-wave3-evidence/README.md`。
@@ -104,7 +104,7 @@
 - 流水页小数位：行里本就带 `USDT` 币种，原先显示已对；本次改动是防御性对齐（与科目页同一查法）。
 - BACKLOG「改」条数 2 而非 spec 的 1：多出的是 1440px 条在 T10 评审要求下改记为推迟；TOOLING-DEBT 另有两处超 spec 字面（`:207` 加注、`:218` 新开 e2e 同次调用耦合条）。
 - Task 1 的两条评审小项并入 Task 7 处理。
-- 全量 e2e 多出 `vendor-onboarding ①`（已知偶发，单跑绿）：新基线按 20 还是「20 + 已知偶发」，待主会话裁定（`e2e-after-00a89e2f.md` 为 DRAFT）。
+- 全量 e2e 两轮（Run 1 / Run 2，均在迪拜窗口内）都多出 `vendor-onboarding ①`（单跑绿）：主会话裁定记偶发，新基线 20 名（`618e6c13`，见 `e2e-after-00a89e2f.md`）；已登记 TOOLING-DEBT。
 - 自动安全评审提出「已结案案件的 Books Δ 显示破口那一轮的值」：按 spec 保留（§0.1 第 18 行、Review Focus 4），报业主知悉。
 
 ### 归档待办
