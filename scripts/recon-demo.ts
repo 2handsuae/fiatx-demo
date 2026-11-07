@@ -252,6 +252,11 @@ function sourceFor(assetCode: string): 'HEXTRUST' | 'ZAND' {
 // block's comment for why a full db reset is required after it has run.)
 const DEMO_IN_TRANSIT_REF_PREFIX = 'DEMO-IT-';
 
+/** 铺场前置闸的拒绝：只打印消息、不打堆栈（main 的 catch 认这个类）。
+ *  云端「重摆对账场景」把子进程输出的末尾几行原样显示给同事（demo-ops.service.ts 取 stdout+stderr 尾 40 行，面板只露最后 8 行）——
+ *  堆栈会把那句人话挤出去，所以拒绝要单独成一行输出。 */
+class StagingRefused extends Error {}
+
 /** 平账二期前置闸：铺场时不得有在途划转——pass / break 都先清空外部账单再从流水重铸，
  *  在途划转的镜像行会被清掉、而它的流水还没落，⚡ 确认后就成「我有外无」假破口。撞到当场报错。 */
 async function assertNoOpenInternalTransfers(prisma: PrismaService): Promise<void> {
@@ -259,9 +264,32 @@ async function assertNoOpenInternalTransfers(prisma: PrismaService): Promise<voi
     where: { status: { in: ['PENDING_APPROVAL', 'EXECUTING'] } }, select: { transferNo: true, status: true },
   })) as Array<{ transferNo: string; status: string }>;
   if (open.length === 0) return;
-  throw new Error(
+  throw new StagingRefused(
     `铺场前不得有在途内部划转单（${open.map((o) => `${o.transferNo}:${o.status}`).join(', ')}）——`
     + '先把它们结清（⚡ 推腿到 CONFIRMED）或撤回 / 拒绝，再铺场',
+  );
+}
+
+/** 戊波二 T9b 前置闸（R37）：已落账且带锚的调账单 / 已记短缺的认损补缺单还在时，不得重铺外部账单。
+ *  这些单据的锚指着当时那张对账单上的内部流水和外部行；重铺把外部账单整张删掉、再从流水重铸，重铸出来的对账单会把
+ *  锚住的那条原内部流水又照抄一行，而匹配器第 0 轮仍按锚把它跟调账 / 记短缺流水配成一组——场景 16 变成「Δ 还在、表里全是 MATCHED」，
+ *  场景 8 多出假差异行。不让匹配器去容忍陈旧的锚，前置拒绝并指路整库重铺（云端「Reset demo data」）。
+ *  适用所有会清空 / 重铸外部账单的模式（pass / break / crisis / reset）。 */
+async function assertNoAnchoredExplanations(prisma: PrismaService): Promise<void> {
+  const adjustments = (await (prisma as any).reconciliationAdjustment.findMany({
+    where: { status: 'POSTED', OR: [{ explainedFlowId: { not: null } }, { explainedExternalLineId: { not: null } }] },
+    select: { adjustmentNo: true }, orderBy: { createdAt: 'asc' },
+  })) as Array<{ adjustmentNo: string }>;
+  const transfers = (await (prisma as any).internalTransfer.findMany({
+    where: { purpose: 'SHORTFALL_TOPUP', recognizedTbTransferId: { not: null } },
+    select: { transferNo: true }, orderBy: { createdAt: 'asc' },
+  })) as Array<{ transferNo: string }>;
+  const nos = [...adjustments.map((a) => a.adjustmentNo), ...transfers.map((t) => t.transferNo)];
+  if (nos.length === 0) return;
+  const shown = nos.slice(0, 5).join(', ') + (nos.length > 5 ? ` and ${nos.length - 5} more` : '');
+  throw new StagingRefused(
+    `Cannot re-stage the reconciliation scenarios: ${shown} ${nos.length === 1 ? 'is' : 'are'} posted and anchored to the current external statement, `
+    + 'and re-staging regenerates that statement. Use "Reset demo data" (full reseed, about 1 minute) instead.',
   );
 }
 
@@ -1943,6 +1971,9 @@ async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error', 'warn'] });
   const prisma = app.get(PrismaService);
 
+  // R37：reset 也会清空外部账单（并留下指着已删外部行的锚），所以这道闸放在 reset 分支之前，四个模式都过。
+  await assertNoAnchoredExplanations(prisma);
+
   if (mode === 'reset') {
     const r = await clearWalletDemo(prisma);
     console.log(`reset done: runs=${r.runs} cases=${r.cases} line_items=${r.lineItems} balances=${r.balances} lines=${r.lines} fundsOrders=${r.fundsOrders}`);
@@ -2114,6 +2145,7 @@ async function main() {
 }
 
 main().catch((e) => {
-  console.error(e);
+  // 前置闸拒绝只打一行人话（云端面板只露输出末尾几行）；其余异常仍打完整堆栈。
+  console.error(e instanceof StagingRefused ? e.message : e);
   process.exit(1);
 });

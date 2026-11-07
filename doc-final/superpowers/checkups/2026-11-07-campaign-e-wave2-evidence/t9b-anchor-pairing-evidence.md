@@ -65,3 +65,19 @@ spec §4.5 与 brief 都写「改记四腿：Jack 钱包 {幽灵 IN, 改记 OUT}
 断言对齐（`test/recon-reattribution.e2e-spec.ts` 场景 A，愈合断言一字未动）：`:731 orphanInternal 1 → 0`、`:732 orphanExternal 1 → 0`（并加 `matchedCount` 两边各 1）；`:752` 行由 `find(ORPHAN_INTERNAL)` 改按内部行 id 找，断言 `MATCHED`、`externalLine` 为 null（钱包内对冲）、`explainedByAdjustmentNo = ADJ 号`、整表无异常行；`:757-760` 原 `fromRow.disposition.{causeCode,outlet,adjustmentNo}` 三行改为直接查处置记录（`causeCode MISATTRIBUTED_FROM / outlet ADJUST_REATTRIBUTE / adjustmentNo = ADJ 号`），因为 MATCHED 行读面不贴处置注解、案子已愈合所以没有持久的 MATCHED 证据行（run 只在案子仍破口时才写行）；`:763` 行由 `find(ORPHAN_EXTERNAL)` 改按对账单行 id 找，断言 `MATCHED` + `explainedByAdjustmentNo = ADJ 号`、整表无异常行。
 
 复跑：`bash scripts/on-stack.sh self test:e2e --runInBand --verbose test/recon-reattribution.e2e-spec.ts test/recon-adjustment-money-arcs.e2e-spec.ts` 退出 1（仅因 money-arcs 9）：`Tests: 1 failed, 12 passed, 13 total`；reattribution A、B 全绿；money-arcs 失败名 = `9. 平账闭环（真实形状）…`，在基线 §2.1。①②③ `tsc` 各 exit 0、0 字节。
+
+## 5. 修复轮 1（R37）：重摆对账场景前置闸
+
+**问题**（opus 终审）：跑完带锚处置（场景 16 的认损补缺 / 场景 8 的改记）后再点「重摆对账场景」——外部账单整张删掉重铸，锚还指着原内部流水和已删的外部行，第 0 轮仍按锚配对 → 场景 16 变「Δ −7.5 但全是 MATCHED、无可处置行」，break 17/18；场景 8 多出假差异行。
+
+**修法**：`scripts/recon-demo.ts` 加前置闸 `assertNoAnchoredExplanations`（照 `assertNoOpenInternalTransfers` 的先例，不让匹配器容忍陈旧锚）：库里有任何 POSTED 且带锚的调账单、或 `recognizedTbTransferId` 已落的认损补缺单时，pass / break / crisis / reset **四个模式**一律拒绝，英文一行、只列业务号（最多 5 个，其余 `and N more`），指路「Reset demo data」。reset 也在内：它同样清空外部账单并留下指着已删外部行的锚。拒绝抛 `StagingRefused`，`main().catch` 只打这一行（不打堆栈）——云端「重摆对账场景」子进程的 stdout+stderr 末尾 40 行经 `demo-ops.service.ts` 进面板、面板只露最后 8 行，堆栈会把这句话挤出去；在途划转的先例闸也改抛 `StagingRefused`，两道闸同一种呈现。`demo-ops.service.ts` 未改（已把 stderr 入 tail、非零退出记 `fail`）。先例闸没有单测（脚本 import 即跑 main，无可导入点），故未补单测，以真栈行为验证代替。
+
+**行为验证**（self 栈，时钟 UTC 03:2x，窗口外）：
+1. `reset self` → `up` → `demo:all`（35/35、5/5）→ `recon:demo:break`：exit 0，`18/18 DETECTED`、`wallets 12/12`、`casesOpened 12/12`、`identities OK`（闸在干净数据上不触发）。
+2. 经 HTTP 造场景 16 终态（脚本在会话 scratchpad，未入库）：场景 16 的案 `REC20261107-003`（CU2601019430，Δ −7500000）→ `POST …/dispositions`（HOLD_INVESTIGATING）→ `POST …/simulate-aging-timeout`，等一分钟扫描后 `nextStep.kind = SHORTFALL_TOPUP` → `POST /admin/internal-transfers/shortfall-topup`（from F_OPS TRON，锚 = 该行内部流水 + 对账单行）→ CFO 经审批中心批准 → 码 91 已记（`recognizedAt` 有值）→ 单 `ITR261107851503` EXECUTING。
+3. 此时（EXECUTING）`recon:demo:break` exit 1、`recon:demo:pass` exit 1，末行：`Cannot re-stage the reconciliation scenarios: ITR261107851503 is posted and anchored to the current external statement, and re-staging regenerates that statement. Use "Reset demo data" (full reseed, about 1 minute) instead.`（新闸先于在途划转闸，所以此时看到的是新闸的话。）
+4. 再把腿推到 SUCCESS（`FDO261107715330` SUBMIT → OBSERVE_CONFIRMING → CONFIRM，在途划转先例闸不再触发，只剩新闸）：`recon:demo:break` / `pass` / `reset` / `crisis` 四个模式 **全部 exit 1**，末行同上。
+5. 变异：临时去掉闸调用，同一状态下 `recon:demo:break` exit 1，`scenarios: 17/18 DETECTED`，`#16 UNEXPLAINED … MISSED`——正是终审描述的回归。还原后 `diff -q` 一致。
+6. 收尾：`reset self` → `up` → `demo:all`（35/35、5/5）→ `recon:demo:pass`（exit 0，`PASS walletsChecked=21 casesOpened=0`）→ `recon:demo:break`（exit 0，18/18、12/12、12/12、identities OK）→ `verify:coa`（exit 0，`ALL INVARIANTS PASS`）。栈留在这个态。
+7. ①②③ `tsc` 各 exit 0、0 字节。
+
