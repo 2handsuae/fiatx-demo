@@ -22,6 +22,7 @@ import { PrismaService } from '../src/core/prisma/prisma.service';
 import { AdjustmentService } from '../src/modules/clearing-settle/reconciliation/disposition/adjustment.service';
 import { DispositionService } from '../src/modules/clearing-settle/reconciliation/disposition/disposition.service';
 import { ReconciliationCaseService } from '../src/modules/clearing-settle/reconciliation/domain/reconciliation-case.service';
+import { InternalTransferWorkflowService } from '../src/modules/asset-treasury/internal-transfers/internal-transfer-workflow.service';
 import { CaseAgingSweepService } from '../src/modules/clearing-settle/reconciliation/sweep/case-aging-sweep.service';
 import { AdjustmentStatus } from '../src/modules/clearing-settle/reconciliation/constants/adjustment-transitions.constant';
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
@@ -67,6 +68,7 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
   let accounting: AccountingService;
   let tbEvidence: TbEvidenceService;
   let approvalsService: ApprovalsService;
+  let transferWf: InternalTransferWorkflowService;
 
   let aedAssetId: string;
   let aedCode: string; // 'AED' — equals asset.currency for fiat, unlike crypto
@@ -76,7 +78,6 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
   // via effectiveCutoffFilter's `effectiveDate < businessDate(cutoff)` branch —
   // no dependency on exact test-execution timing.
   let CUTOFF: Date;
-  let TODAY: string;
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -97,9 +98,9 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     accounting = app.get(AccountingService);
     tbEvidence = app.get(TbEvidenceService);
     approvalsService = app.get(ApprovalsService);
+    transferWf = app.get(InternalTransferWorkflowService);
 
     CUTOFF = new Date(Date.now() + 3 * 24 * 3600 * 1000);
-    TODAY = new Date().toISOString().slice(0, 10);
 
     const aed = await (prisma as any).asset.findFirst({ where: { currency: 'AED' } });
     if (!aed || !aed.tbLedgerId) {
@@ -387,37 +388,6 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     return b.debitsPosted - b.creditsPosted;
   }
 
-  /** Fixture ReconciliationRun row — only for scenarios that need a valid
-   *  openedByRunId FK without running the real engine. */
-  async function createFixtureRun(): Promise<string> {
-    const row = await (prisma as any).reconciliationRun.create({
-      data: {
-        runNo: `RUN-E2E-ADJ-FIXTURE-${randomUUID()}`,
-        businessDate: TODAY,
-        layer: 'WALLET',
-        triggerType: 'MANUAL',
-      },
-      select: { id: true },
-    });
-    return row.id;
-  }
-
-  async function createFixtureCase(opts: {
-    walletRef: string; book: 'CLIENT' | 'FIRM'; ownerNo: string | null;
-  }): Promise<{ id: string; caseNo: string }> {
-    const runId = await createFixtureRun();
-    const caseNo = `REC-E2E-ADJ-FIXTURE-${randomUUID()}`;
-    const row = await (prisma as any).reconciliationCase.create({
-      data: {
-        caseNo, businessDate: TODAY, assetId: aedAssetId, assetCode: aedCode, layer: 'WALLET',
-        book: opts.book, status: 'OPEN', openedByRunId: runId, walletRef: opts.walletRef, ownerNo: opts.ownerNo,
-        deltaAmount: '1000', actualExternal: '1000',
-      },
-      select: { id: true, caseNo: true },
-    });
-    return row;
-  }
-
   // ── scenarios ────────────────────────────────────────────────────────────
 
   it('主链路：查无果 → 拨钟 → 扫描超期（留痕）→ 金库开核销单 → CFO 批 → 落账（借对账核销损失/贷公司现金·案子钱包 7）→ 重对账 RESOLVED', async () => {
@@ -520,24 +490,53 @@ describe('Recon case aging → write-off e2e (平账 A 批, Task 12)', () => {
     expect(healed.resolutionReason).toBe('AUTO_HEALED');
   });
 
-  it('反例③（二期改口）：客户池超期 + 调查中——拿公司池码 400；拿客户池认损码 REDUCE 放行建单', async () => {
+  it('反例③（戊波二改口）：客户池超期 + 调查中——拿公司池核销码 400 指路「认损补缺」；认损补缺建单放行（金额 / 成因 / 生效日由服务端定），撤回即解锁', async () => {
+    // 真造一个客户池破口（戊波二前这里是个假案子 + 假流水 id 的调账单反例；认损补缺要在案件页同一份差异行上取金额，所以必须是真行）：
+    // 铺底 5000（真实充值两跳形状）、托管回单只到 4993 → 同参考号 AMOUNT_MISMATCH，差额 7 分，落在小额线内。
     const customer = await makeCustomer('EX3');
+    await ensureCustomerAedTbAccounts(customer.id, customer.customerNo);
     const wallet = await createCustomerWallet({ ownerId: customer.id, ownerNo: customer.customerNo, network: 'AED_ZAND', walletRole: 'C_VIBAN', iban: `AE-E2E-${randomUUID().slice(0, 8)}` });
-    const kase = await createFixtureCase({ walletRef: wallet.id, book: 'CLIENT', ownerNo: customer.customerNo });
-    await (prisma as any).reconciliationCase.update({ where: { id: kase.id }, data: { slaBreached: true, slaDeadline: new Date(Date.now() - 1000) } });
-    const flowId = `flow-fixture-${randomUUID()}`;
-    await (prisma as any).reconciliationDisposition.create({
-      data: {
-        dispositionNo: generateReferenceNo('RCD'), caseNo: kase.caseNo, walletRef: wallet.id, businessDate: TODAY,
-        explainedFlowId: flowId, matchType: 'ORPHAN_INTERNAL', book: 'CLIENT', causeCode: 'UNEXPLAINED', outlet: 'HOLD_INVESTIGATING',
-        findingNote: 'e2e fixture', createdByUserId: 'E2E',
-      },
-    });
+    const REF = `E2E-EX3-${randomUUID().slice(0, 8)}`;
+    await fundCustomerWallet({ walletId: wallet.id, ownerId: customer.id, assetId: aedAssetId, ledger: 1, currency: aedCode, amount: 5000n, tag: 'EX3', externalRef: REF } as any);
+    await createExternalLine({ walletId: wallet.id, currency: aedCode, book: 'CLIENT', direction: 'IN', amount: 4993n, externalRef: REF });
+    await upsertExternalBalance({ walletId: wallet.id, currency: aedCode, book: 'CLIENT', closingBalance: 4993n });
+    expect((await walletRecon.run({ cutoff: CUTOFF })).status).toBe('BREAK');
+    const kase = await openCaseFor(wallet.id);
+    expect(kase.book).toBe('CUSTOMER');
+    const row0 = (await reconQuery.getCase(kase.caseNo)).flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!;
+    const ops = makeActor('E2E_OPS_EX3', 'OPS_OFFICER');
+    const disp = await dispositions.record({
+      caseNo: kase.caseNo,
+      matchType: 'AMOUNT_MISMATCH', explainedFlowId: row0.internalFlow!.id, explainedExternalLineId: row0.externalLine!.id,
+      causeCode: 'UNEXPLAINED', disposition: 'HOLD_INVESTIGATING', findingNote: 'e2e：客户池托管少 7 分，查无可查',
+      deltaSign: -1, internalDirection: 'IN', internalSourceType: 'DEPOSIT',
+    } as any, ops);
+    expect(disp.outlet).toBe('HOLD_INVESTIGATING');
+    await caseService.simulateTimeout(kase.caseNo, ops);
+    expect(await agingSweep.checkAgingBreaches(new Date())).toBeGreaterThanOrEqual(1);
+    expect((await reconQuery.getCase(kase.caseNo)).flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep)
+      .toMatchObject({ kind: 'SHORTFALL_TOPUP', amount: '7', lossSource: 'AGING', customerNo: customer.customerNo });
+
     const treasury = makeActor('E2E_TREASURY_C', 'TREASURY_OFFICER');
-    const base = { caseNo: kase.caseNo, direction: 'REDUCE', amount: '7', effectiveDate: TODAY, explainedFlowId: flowId, reasonInternal: 'x' };
-    await expect(adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury)).rejects.toThrow(/Client pool loss recognition/);
-    const { adjustmentNo } = await adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_CLIENT_LOSS' } as any, treasury);
-    expect((await adjustmentRow(adjustmentNo)).book).toBe('CLIENT');
+    const base = { caseNo: kase.caseNo, direction: 'REDUCE', amount: '7', effectiveDate: kase.businessDate, explainedFlowId: row0.internalFlow!.id, explainedExternalLineId: row0.externalLine!.id, reasonInternal: 'x', dispositionNo: disp.dispositionNo };
+    // 公司池核销码拿到客户池 → 400，话术指路认损补缺（不再有客户池认损调账单）
+    await expect(adjustments.createDraft({ ...base, reasonCode: 'UNEXPLAINED_WRITE_OFF' } as any, treasury)).rejects.toThrow(/Recognize loss & top up/);
+    expect((await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: disp.dispositionNo } })).adjustmentNo).toBeNull();
+
+    // 认损补缺放行：出钱钱包 = 新建的运营户（夹具铺 50.00），建单即挂
+    const from = await createFirmWallet({ vaultCode: 'F_OPS', network: 'AED_ZAND' });
+    await fundFirmWallet({ walletId: from.id, ledger: 1, currency: aedCode, amount: 5000n, tag: 'EX3' });
+    const req = await transferWf.initiateShortfallTopup({ caseNo: kase.caseNo, flowId: row0.internalFlow!.id, externalLineId: row0.externalLine!.id, fromWalletId: from.id, reason: 'e2e 认损补缺' }, treasury);
+    expect(req.status).toBe('PENDING_APPROVAL');
+    const itr = await (prisma as any).internalTransfer.findUnique({ where: { transferNo: req.transferNo } });
+    expect(itr).toMatchObject({ purpose: 'SHORTFALL_TOPUP', lossSource: 'AGING', fromWalletId: from.id, toWalletId: wallet.id });
+    expect(itr.amount.toString()).toBe('0.07'); // 金额 = 差异行的差额（7 分），不是客户端传的
+    expect((await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: disp.dispositionNo } })).transferNo).toBe(req.transferNo);
+    expect((await reconQuery.getCase(kase.caseNo)).flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep).toBeUndefined(); // 挂了单，按钮收起
+    // 撤回 → 行解锁、按钮回来
+    await transferWf.cancel(req.transferNo, { reason: 'e2e 撤回' }, treasury);
+    expect((await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: disp.dispositionNo } })).transferNo).toBeNull();
+    expect((await reconQuery.getCase(kase.caseNo)).flowComparison.find((r: any) => r.matchType === 'AMOUNT_MISMATCH')!.nextStep?.kind).toBe('SHORTFALL_TOPUP');
   });
 
   it('跨日切：跑批截止点后 6 小时的外部行，案件页仍显示那条「我有外无」（spec §6.1）', async () => {

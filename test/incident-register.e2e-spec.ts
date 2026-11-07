@@ -20,7 +20,6 @@ import { Prisma } from '@prisma/client';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { DispositionService } from '../src/modules/clearing-settle/reconciliation/disposition/disposition.service';
-import { AdjustmentService } from '../src/modules/clearing-settle/reconciliation/disposition/adjustment.service';
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
@@ -58,7 +57,7 @@ import { RegulatoryFilingWorkflowService } from '../src/modules/governance/regul
  *
  * 十段断言对应 task-13-brief.md 的清单：① ~ ⑥ 共用同一条「未授权转出」主链
  * （一个客户、一个案件、一个事故单，状态机严格按登记→调查→（非法结案 400）→
- * 定损→认损补款→结案顺序往前走，故这 6 条 it 共享外层变量、必须按文件顺序跑
+ * 定损→认损补缺→结案顺序往前走，故这 6 条 it 共享外层变量、必须按文件顺序跑
  * ——jest 在同一个 describe 内默认按声明顺序串行执行，不并发），⑦~⑨各自独立
  * 建自己的事故/客户，⑩ 是零账务footprint的独立证明。
  *
@@ -73,7 +72,7 @@ import { RegulatoryFilingWorkflowService } from '../src/modules/governance/regul
 describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => {
   jest.setTimeout(120000);
   let app: INestApplication; let prisma: PrismaService;
-  let dispositions: DispositionService; let adjustments: AdjustmentService;
+  let dispositions: DispositionService;
   let walletRecon: WalletReconRunService; let approvalsService: ApprovalsService;
   let transferWf: InternalTransferWorkflowService; let fundsOrders: FundsOrderService;
   let tbEvidence: TbEvidenceService; let accounting: AccountingService;
@@ -118,7 +117,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     app.get(EventEmitter2).setMaxListeners(0);
     await app.init();
     prisma = app.get(PrismaService);
-    dispositions = app.get(DispositionService); adjustments = app.get(AdjustmentService);
+    dispositions = app.get(DispositionService);
     walletRecon = app.get(WalletReconRunService); approvalsService = app.get(ApprovalsService);
     transferWf = app.get(InternalTransferWorkflowService); fundsOrders = app.get(FundsOrderService);
     tbEvidence = app.get(TbEvidenceService); accounting = app.get(AccountingService);
@@ -380,7 +379,6 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   }
   const openCaseFor = (walletId: string) => (prisma as any).reconciliationCase.findFirst({ where: { walletRef: walletId, status: 'OPEN' } });
   const caseRow = (id: string) => (prisma as any).reconciliationCase.findUnique({ where: { id } });
-  const adjRow = (adjustmentNo: string) => (prisma as any).reconciliationAdjustment.findUnique({ where: { adjustmentNo } });
   const transferRow = (transferNo: string) => (prisma as any).internalTransfer.findUnique({ where: { transferNo } });
   const latestApprovalCase = (actionType: string, entityRef: string) => (prisma as any).approvalCase.findFirst({ where: { actionType, entityRef }, orderBy: { createdAt: 'desc' } });
   const platformWallet = (vault: 'F_OPS' | 'F_SET', network: string) => (prisma as any).wallet.findFirst({ where: { vaultCode: vault, network, ownerType: 'PLATFORM', status: 'ACTIVE' } });
@@ -397,8 +395,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   let mainDispositionNo: string;
   let mainIncidentNo: string;
   let mainAssessedAmountMajor: string;
-  let mainAdjustmentNo: string;
-  let mainCompensationTransferNo: string;
+  let mainTopupTransferNo: string;
 
   const FUND_AMOUNT_MINOR = 2_000_000_000n; // 主链初始 USDT 内部余额
   const LOSS_MINOR = 25_000_000n;           // 未授权转出走丢的金额
@@ -533,63 +530,83 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     expect(view.filings.every((f: any) => f.submittedAt !== null)).toBe(true);
   });
 
-  it('5 · 认损调账（金库开、金额=定损额、CFO 批、落账）→ 补款（adjustmentNo 通道、CFO 批、⚡ 推腿到 SUCCESS）→ 重对账案愈 → 挂载两单到事故', async () => {
-    // ① 认损调账：锚在事故定性行上，金额锁定为定损额（最小单位）。
-    const adjDto = {
-      caseNo: mainCaseNo, reasonCode: 'UNEXPLAINED_CLIENT_LOSS', direction: 'REDUCE',
-      amount: LOSS_MINOR.toString(), effectiveDate: (await caseRow(mainCaseId)).businessDate,
-      explainedExternalLineId: (await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: mainDispositionNo } })).explainedExternalLineId,
-      reasonInternal: 'e2e 未授权转出事故认损：公司承损',
-      dispositionNo: mainDispositionNo,
-    };
-    const { adjustmentNo } = await adjustments.createDraft(adjDto as any, treasury());
-    mainAdjustmentNo = adjustmentNo;
-    await adjustments.submit(mainAdjustmentNo, treasury());
-    const apr = await latestApprovalCase(ApprovalActionTypes.RECON_ADJUSTMENT_POST, mainAdjustmentNo);
-    expect(JSON.parse(apr.objectSnapshot).impact).toContain(mainIncidentNo);
-    await approvalsService.approve(apr.approvalNo, { reason: 'e2e CFO approve incident loss' }, cfo());
-    await waitUntil(async () => (await adjRow(mainAdjustmentNo)).status === 'POSTED');
-
-    const ev = await tbEvidence.findBySource('RECON_ADJUSTMENT', mainAdjustmentNo);
-    expect(ev[0].debitCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_PAYABLE]);
-    expect(ev[0].creditCode).toBe(TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]);
-    // 戊波一:客户池认损 = 借 这位客户的应付户 / 贷 案子钱包自己的现金户（客户余额与钱包现金同时掉定损额）
-    expect(ev[0].debitTbAccountId).toBe(bigintToHex(await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_PAYABLE, ledger: TB_LEDGERS.USDT, ownerType: 'CUSTOMER', ownerUuid: mainCustomer.id })));
-    expect(ev[0].creditTbAccountId).toBe(bigintToHex(await accounting.resolveCashAccountId(mainWallet.id, TB_LEDGERS.USDT)));
-    expect((await accounting.getCustomerAvailableBalance(mainCustomer.id, 'USDT')).available).toBe(FUND_AMOUNT_MINOR - LOSS_MINOR);
-    const mainCash = await accounting.lookupBalance(await accounting.resolveCashAccountId(mainWallet.id, TB_LEDGERS.USDT));
-    expect(mainCash.debitsPosted - mainCash.creditsPosted).toBe(FUND_AMOUNT_MINOR - LOSS_MINOR); // 钱包现金户 = 铺底 − 定损额 = 外部真值
-
-    // 内部已经等于外部：重对账，案子愈。
-    await runNow();
-    expect((await caseRow(mainCaseId)).status).toBe('RESOLVED');
-
-    // ② 补款：公司认赔，走 initiateCompensation → CFO 批 → ⚡ 提交腿 → ⚡ 确认 → SUCCESS。
-    // T7b 重写：initiateCompensation 已于戊波二 T7a 退役（认损补缺一张单：initiateShortfallTopup）；全文 `as any` 仅为让闸 ① 过编译，这些用例在 T7b 前运行期必红。
-    const req = await (transferWf as any).initiateCompensation({ adjustmentNo: mainAdjustmentNo, reason: '公司认赔未授权转出' }, treasury());
-    mainCompensationTransferNo = req.transferNo;
-    await approvalsService.approve(req.approvalNo, { reason: 'e2e CFO approve compensation' }, cfo());
-    await waitUntil(async () => (await transferRow(mainCompensationTransferNo)).status === 'EXECUTING');
-    const itr = await transferRow(mainCompensationTransferNo);
+  it('5 · 事故路认损补缺（金库开单、金额锁定 = 定损额、CFO 批 = 记短缺、⚡ 推腿到 SUCCESS）→ 挂载划转单到事故（一张单就够善后）', async () => {
+    const ledger = TB_LEDGERS.USDT;
     const opsW = await platformWallet('F_OPS', usdtNetwork);
+    const disposition = await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: mainDispositionNo } });
+    const kase = await caseRow(mainCaseId);
+    const shortfallAccountId = await accounting.resolveTbAccountId({ code: TB_ACCOUNT_CODES.CLIENT_SHORTFALL, ledger, ownerType: 'WALLET', ownerUuid: mainWallet.id });
+    const shortfallPosted = async () => { const b = await accounting.lookupBalance(shortfallAccountId); return b.debitsPosted - b.creditsPosted; };
+    const cashPosted = async () => { const b = await accounting.lookupBalance(await accounting.resolveCashAccountId(mainWallet.id, ledger)); return b.debitsPosted - b.creditsPosted; };
+    expect(await cashPosted()).toBe(FUND_AMOUNT_MINOR); // 托管里少了 25，账上现金还是铺底原额（外部真值 1975）
+    expect(await shortfallPosted()).toBe(0n);
+
+    // ① 开单：锚在事故定性行上；金额由服务端锁定为定损额（客户端哪怕塞了 amount 也无效）、成因固定、生效日 = 案件业务日；开单即挂锁
+    const req = await transferWf.initiateShortfallTopup({
+      caseNo: mainCaseNo, externalLineId: disposition.explainedExternalLineId, fromWalletId: opsW.id, reason: '公司承损未授权转出，补进客户钱包', amount: '1',
+    } as any, treasury());
+    mainTopupTransferNo = req.transferNo;
+    expect(req.status).toBe('PENDING_APPROVAL');
+    const itr0 = await transferRow(mainTopupTransferNo);
+    expect(itr0).toMatchObject({ purpose: 'SHORTFALL_TOPUP', lossSource: 'INCIDENT', sourceIncidentNo: mainIncidentNo });
+    expect(new Prisma.Decimal(itr0.amount).toFixed(usdtDecimals)).toBe(mainAssessedAmountMajor); // 25.000000 = 定损额
+    expect((await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: mainDispositionNo } })).transferNo).toBe(mainTopupTransferNo);
+    const apr = await latestApprovalCase(ApprovalActionTypes.INTERNAL_TRANSFER_APPROVAL, mainTopupTransferNo);
+    const snapshot = JSON.parse(apr.objectSnapshot);
+    expect(snapshot.impact).toContain(`Recognize custody shortfall of ${mainAssessedAmountMajor} USDT`);
+    expect(snapshot.impact).toContain('customer balance unchanged');
+    expect(snapshot).toMatchObject({ lossSource: 'INCIDENT', sourceIncidentNo: mainIncidentNo, effectiveDate: kase.businessDate });
+
+    // ② CFO 批 = 记短缺（码 91：借 码 2 / 贷 码 1，同一只客户钱包，生效日 = 案件业务日）；客户余额从头到尾不动
+    await approvalsService.approve(apr.approvalNo, { reason: 'e2e CFO approve incident shortfall top-up' }, cfo());
+    await waitUntil(async () => (await transferRow(mainTopupTransferNo)).status === 'EXECUTING');
+    const itr = await transferRow(mainTopupTransferNo);
+    const tev1 = await tbEvidence.findBySource('INTERNAL_TRANSFER', mainTopupTransferNo);
+    expect(tev1.map((e: any) => e.eventCode)).toEqual(['INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED']);
+    expect([tev1[0].debitCode, tev1[0].creditCode]).toEqual([TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_SHORTFALL], TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH]]);
+    expect(tev1[0].debitTbAccountId).toBe(bigintToHex(shortfallAccountId));
+    expect(tev1[0].creditTbAccountId).toBe(bigintToHex(await accounting.resolveCashAccountId(mainWallet.id, ledger)));
+    expect(String(tev1[0].amount)).toBe(LOSS_MINOR.toString());
+    expect(tev1[0].effectiveDate).toBe(kase.businessDate);
+    expect(itr.recognizedTbTransferId).toBe(tev1[0].tbTransferId);
+    expect(toBusinessDate(itr.effectiveDate)).toBe(kase.businessDate);
+    // 审计：开单那条带来路（事故号 + 事故路），记短缺那条单独一条（带回执、固定成因、来路）
+    const auditOf = (action: string) => (prisma as any).auditLogEvent.findMany({ where: { action, primarySubjectNo: mainTopupTransferNo } });
+    const reqAudit = await auditOf('INTERNAL_TRANSFER_REQUESTED');
+    expect(reqAudit).toHaveLength(1);
+    expect(JSON.parse(reqAudit[0].metadata)).toMatchObject({ lossSource: 'INCIDENT', sourceIncidentNo: mainIncidentNo });
+    const recAudit = await auditOf('INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED');
+    expect(recAudit).toHaveLength(1);
+    expect(recAudit[0].approvalNo).toBe(apr.approvalNo);
+    expect(JSON.parse(recAudit[0].metadata)).toMatchObject({ lossSource: 'INCIDENT', tbTransferId: itr.recognizedTbTransferId });
+    expect((await accounting.getCustomerAvailableBalance(mainCustomer.id, 'USDT')).available).toBe(FUND_AMOUNT_MINOR);
+    expect(await shortfallPosted()).toBe(LOSS_MINOR);
+    expect(await cashPosted()).toBe(FUND_AMOUNT_MINOR - LOSS_MINOR); // 钱包现金户 = 铺底 − 定损额 = 外部真值
+
+    // ③ ⚡ 推腿：运营户 → 客户钱包；确认后 82 + 83（83 贷码 2）→ SUCCESS，短缺归零、现金户复位
     const [leg1] = await fundsOrders.findByParent({ internalTransferId: itr.id }, { legSeq: 1 });
     expect([leg1.fromWalletId, leg1.toWalletId]).toEqual([opsW.id, mainWallet.id]);
     await fundsOrders.advance(leg1.id, FundsOrderAction.SUBMIT, 'E2E');
     await waitForSimLines(leg1.fundsOrderNo, [opsW.id, mainWallet.id]);
     await fundsOrders.advance(leg1.id, FundsOrderAction.OBSERVE_CONFIRMING, 'E2E');
     await fundsOrders.advance(leg1.id, FundsOrderAction.CONFIRM, 'E2E');
-    await waitUntil(async () => (await transferRow(mainCompensationTransferNo)).status === 'SUCCESS');
+    await waitUntil(async () => (await transferRow(mainTopupTransferNo)).status === 'SUCCESS');
+    const tev = await tbEvidence.findBySource('INTERNAL_TRANSFER', mainTopupTransferNo);
+    expect(tev.map((e: any) => e.eventCode).sort()).toEqual(['INTERNAL_TRANSFER_FIRM_OUT', 'INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED', 'INTERNAL_TRANSFER_SHORTFALL_TOPUP_IN']);
+    const topupIn = tev.find((e: any) => e.eventCode === 'INTERNAL_TRANSFER_SHORTFALL_TOPUP_IN');
+    expect([topupIn.debitCode, topupIn.creditCode]).toEqual([TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_CASH], TB_CODE_TO_COA[TB_ACCOUNT_CODES.CLIENT_SHORTFALL]]);
+    expect(topupIn.creditTbAccountId).toBe(bigintToHex(shortfallAccountId));
+    expect(await shortfallPosted()).toBe(0n);
+    expect(await cashPosted()).toBe(FUND_AMOUNT_MINOR);
     expect((await accounting.getCustomerAvailableBalance(mainCustomer.id, 'USDT')).available).toBe(FUND_AMOUNT_MINOR);
+    // T9：此处加「按案件业务日重对账 → 案愈（原差异行 MATCHED、resolution = 本单号）」——匹配器改动归 T9，T7b 不断言案子愈合。
 
-    // ③ 挂载两单到事故：ADJUSTMENT 先挂（ASSESSED → RESOLVING 自动迁移），TRANSFER 后挂（原地 RESOLVING）。
+    // ④ 挂载划转单到事故：一张 TRANSFER 就够善后，ASSESSED → RESOLVING 随首次挂载自动迁移（不再有「先挂调账单」）
     expect((await incidents.findByNo(mainIncidentNo)).status).toBe('ASSESSED');
-    await incidents.linkRemediation(mainIncidentNo, { kind: IncidentRemediationKinds.ADJUSTMENT, referenceNo: mainAdjustmentNo } as any, treasury());
+    await incidents.linkRemediation(mainIncidentNo, { kind: IncidentRemediationKinds.TRANSFER, referenceNo: mainTopupTransferNo } as any, treasury());
     expect((await incidents.findByNo(mainIncidentNo)).status).toBe('RESOLVING');
-    await incidents.linkRemediation(mainIncidentNo, { kind: IncidentRemediationKinds.TRANSFER, referenceNo: mainCompensationTransferNo } as any, treasury());
-    expect((await incidents.findByNo(mainIncidentNo)).status).toBe('RESOLVING');
-
     const view = await incidents.getView(mainIncidentNo);
-    expect(view.remediations.map((r: any) => r.referenceNo).sort()).toEqual([mainAdjustmentNo, mainCompensationTransferNo].sort());
+    expect(view.remediations.map((r: any) => r.referenceNo)).toEqual([mainTopupTransferNo]);
   });
 
   it('6 · 提结案 → 审批类型 INCIDENT_CLOSE_SECURITY；MLRO 未批时 CFO 批不动；MLRO 批 → CFO 批 → 事故 CLOSED', async () => {
@@ -694,10 +711,10 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     const advance = await transferWf.initiateAdvance({ caseNo: kase.caseNo, externalLineId: line.id, reason: '先垫后扣' }, treasury());
     expect((await transferRow(advance.transferNo)).purpose).toBe('CLIENT_ADVANCE');
 
-    // 负例：锚一张真实存在、但 purpose 不是垫款单的划转单（步骤⑤的补款单）→ 拒绝。
+    // 负例：锚一张真实存在、但 purpose 不是垫款单的划转单（步骤⑤的认损补缺单）→ 拒绝。
     await expect(incidents.register({
       type: IncidentTypes.CLIENT_SHORTFALL, title: '客户欠款登记（负例）', description: '锚定一张非垫款单，验证拒绝',
-      customerNo: cust.customerNo, amount: '900', sourceAdvanceTransferNo: mainCompensationTransferNo,
+      customerNo: cust.customerNo, amount: '900', sourceAdvanceTransferNo: mainTopupTransferNo,
     } as any, treasury())).rejects.toThrow(/not an advance transfer/);
 
     // 正例：锚定真实垫款单，登记成功。
