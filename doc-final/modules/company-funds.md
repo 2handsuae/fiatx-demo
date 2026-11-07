@@ -13,7 +13,7 @@
 
 **供应商付款单是公司花钱的另一面。** HexTrust 的托管月费是演示代表——公司→外部单腿出，同样金库开单、CFO 批。收款方**只能从外包服务商册（甲波四立的那本册，甲波六起改为 Compliance Office 下的 Service Providers 准入流程）下拉选**，不接受自由填地址；选不到在册且 `ACTIVE` 的供应商，单据开不出来（下拉里列出全部非终止的服务商，非 `ACTIVE` 的置灰并标状态，如待报备的重大服务商——演示见场景 39）。这条边把"两个战役的活真的接上了"这句话坐实：付款单不是凭空造一个收款方，是真的去读甲波四那本册。批准之后钱不会立刻走，要等金库把出款资金单推完（`⚡ Submit → ⚡ Settle`），付款单才转 `SUCCESS`、落账码 87。
 
-**看板是给管理层看家底的一屏。** NLA 区在最上：净流动资产大数字 + 红线水位条 + 「Run prudential check」巡检按钮，大数字下有**三个小格**——算进 NLA 的三个钱包（Company Operations / Company Fees / Company Liquidity）各自多少，脚注写明不算的两项（结算钱包、应收 LP）。往下是「**Company wallets**」一格：四个公司钱包并成四行（Operations / Fees / Liquidity (LP front hall) / Settlement〔仅法币，USDT 格渲染「—」〕）× AED / USDT，每行标 **counted**（算进 NLA）或 **in transit**（在途，不算）；运营行带见底阈值线——水位跌破这条线，就是"该去找 LP 补货"的信号，串到 `lp-desk.md` 的动机。再往下：**应收 LP 一格「Due from LP — Pending Delivery」**（读应收 LP 户码 51——LP 兑换单卖出腿确认时挂账、LP 到货时冲平，每行 LP 名 × 币种 × 余额，空时「No LP delivery outstanding.」）、三收入格（210/211/212，即"利润体现"——客户每兑一笔、每提一笔、每享受一次其他服务，这三格就实时涨一点）、**开支格「Expenses」**（300 银行与托管费用 / 301 对账核销损失 / 302 其他开支，按币种）、最近资金动态（最近 10 条账本流水，人话事件标签）。**看板不是另建一套真相，是把既有账本端点（`GET /admin/tb/accounts`、`GET /admin/tb/account-flows`）换了个一屏能看完的排版**——零新增后端聚合逻辑，数字与账本三列表（科目/凭证/流水）同源同值。
+**看板是给管理层看家底的一屏。** NLA 区在最上：净流动资产大数字 + 红线水位条 + 「Run prudential check」巡检按钮，大数字下有**三个小格**——算进 NLA 的三个钱包（Company Operations / Company Fees / Company Liquidity）各自多少，脚注写明不算的两项（结算钱包、应收 LP）。往下是「**Company wallets**」一格：四个公司钱包并成四行（Operations / Fees / Liquidity (LP front hall) / Settlement〔仅法币，USDT 格渲染「—」〕）× AED / USDT，每行标 **counted**（算进 NLA）或 **in transit**（在途，不算）；运营行的数字跌破见底阈值就变红，鼠标悬停显示阈值——这就是"该去找 LP 补货"的信号，串到 `lp-desk.md` 的动机（进度/水位条只在最上的 NLA 区有，钱包表里没有）。再往下：**应收 LP 一格「Due from LP — Pending Delivery」**（读应收 LP 户码 51——LP 兑换单卖出腿确认时挂账、LP 到货时冲平，每行 LP 名 × 币种 × 余额，空时「No LP delivery outstanding.」）、三收入格（210/211/212，即"利润体现"——客户每兑一笔、每提一笔、每享受一次其他服务，这三格就实时涨一点）、**开支格「Expenses」**（300 银行与托管费用 / 301 对账核销损失 / 302 其他开支，按币种）、最近资金动态（最近 10 条账本流水，人话事件标签）。**看板不是另建一套真相，是把既有账本端点（`GET /admin/tb/accounts`、`GET /admin/tb/account-flows`）换了个一屏能看完的排版**——零新增后端聚合逻辑，数字与账本三列表（科目/凭证/流水）同源同值。
 
 **审慎管理目的字段是 8 年安全港记录的地基。** 注资单、付款单都必填这个字段——不是装饰性文本框，是 VARA 场景下的合规叙事起点，B2（波三）只做叙事收口，不需要返工建表。
 
@@ -91,7 +91,7 @@ EXECUTING ──⚡推腿确认：落 89（挪钱）+（仅手续费户 → 运�
 
 ## 6. 演示缺口（BACKLOG 有账）
 
-- 账本科目页（`LedgerAccountList.tsx`）`code≠currency` 资产（USDT-TRON 类）小数位显示错，根因是服务层接口命名误导（`assetCurrency` 参数实际收的是 `asset.code`）——本波新页 `CompanyFundsDashboard` 已自保不复发，旧页仍受影响，走查现场两页数字不一致可当场对照，登 `BACKLOG.md` §M
+- 账本科目页（`LedgerAccountList.tsx`）`code≠currency` 资产（USDT-TRON 类）小数位显示错，根因是服务层接口命名误导（`assetCurrency` 参数实际收的是 `asset.code`）——该显示 bug 已在戊波三 T8 修复（assetCode → currency → 小数位），两页数字一致；只剩注册表键命名误导这一根因，作为低优先级条目留在 `BACKLOG.md`
 - ~~兑换单资金单腿在管理台没有任何非超管角色能完整推完~~——**已修（战役乙波三丙案，见 §5）**，`BACKLOG.md` §E 该条已销账
 
 ## 7. 审慎红线与巡检（战役乙波三，2026-09-30；2026-11-07 戊波三改口径与门规则）
