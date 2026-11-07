@@ -1,0 +1,23 @@
+{
+  "perAsset": [
+    {
+      "assetCode": "AED",
+      "currency": "AED",
+      "balanceMinor": "94608935",
+      "aedEquivalentMinor": "94608935"
+    },
+    {
+      "assetCode": "USDT-TRON",
+      "currency": "USDT",
+      "balanceMinor": "113999428189",
+      "aedEquivalentMinor": "41866290"
+    }
+  ],
+  "nlaAedMinor": "136475225",
+  "floorAedMinor": "120000000",
+  "headroomAedMinor": "16475225",
+  "breached": false,
+  "monthlyOpexBaseAedMinor": "100000000",
+  "coefficient": "1.2",
+  "pegRate": "3.6725"
+}
