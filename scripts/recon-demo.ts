@@ -273,7 +273,7 @@ async function assertNoOpenInternalTransfers(prisma: PrismaService): Promise<voi
 /** 戊波二 T9b 前置闸（R37）：已落账且带锚的调账单 / 已记短缺的认损补缺单还在时，不得重铺外部账单。
  *  这些单据的锚指着当时那张对账单上的内部流水和外部行；重铺把外部账单整张删掉、再从流水重铸，重铸出来的对账单会把
  *  锚住的那条原内部流水又照抄一行，而匹配器第 0 轮仍按锚把它跟调账 / 记短缺流水配成一组——场景 16 变成「Δ 还在、表里全是 MATCHED」，
- *  场景 8 多出假差异行。不让匹配器去容忍陈旧的锚，前置拒绝并指路整库重铺（云端「Reset demo data」）。
+ *  场景 8 多出假差异行。不让匹配器去容忍陈旧的锚，前置拒绝并指路整库重铺（云端面板按钮「Reset all demo data…」）。
  *  适用所有会清空 / 重铸外部账单的模式（pass / break / crisis / reset）。 */
 async function assertNoAnchoredExplanations(prisma: PrismaService): Promise<void> {
   const adjustments = (await (prisma as any).reconciliationAdjustment.findMany({
@@ -289,7 +289,7 @@ async function assertNoAnchoredExplanations(prisma: PrismaService): Promise<void
   const shown = nos.slice(0, 5).join(', ') + (nos.length > 5 ? ` and ${nos.length - 5} more` : '');
   throw new StagingRefused(
     `Cannot re-stage the reconciliation scenarios: ${shown} ${nos.length === 1 ? 'is' : 'are'} posted and anchored to the current external statement, `
-    + 'and re-staging regenerates that statement. Use "Reset demo data" (full reseed, about 1 minute) instead.',
+    + 'and re-staging regenerates that statement. Use "Reset all demo data…" (full reseed, about 1 minute) instead.',
   );
 }
 
@@ -492,6 +492,8 @@ async function planWallets(
           tbAccountId: cash.tbAccountId,
           transferType: 'POSTED',
           sourceType: { not: RECON_ADJUSTMENT_SOURCE_TYPE },
+          // 排除码 91（认损记短缺）。注意：assertNoAnchoredExplanations（R37 前置闸）在四种模式入口先跑，库里有已记短缺的认损补缺单时整个铺场已被拒，
+          // 这一行当前执行不到；是否保留留给波三定（见 wave3 skeleton 承接波二→悬挂项）。
           eventCode: { not: SHORTFALL_RECOGNIZED_EVENT_CODE },
           createdAt: { lte: cutoff },
         },

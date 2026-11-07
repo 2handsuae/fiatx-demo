@@ -215,6 +215,10 @@ Last Updated: 2026-10-08（报送台整备波文档收口：销 6 行（整行�
 
 - [x] ~~**场景 9 正向分支（自愈）本波未实走，只走了负向分支**：场景 9 完整剧本是 UTC 14:00 / 迪拜 18:00 前铺场 → Hold·Next period → Re-reconcile → 外部行被迪拜日终收回、案子自愈；本波（波五）铺场时刻只覆盖了负向分支的实测截图，正向分支因铺场时刻错过迪拜日终窗口未能实走。合并后在 main 栈任一上午（迪拜日终窗口内）补走一次场景 9 正向分支并截图归档 evidence ｜来源: 波五终审 Important #2~~ —— **已补走**（2026-09-22 主栈合并后复位）：UTC 03:44 铺场（未过 14:00 门槛）→ REC20260922-007（Grace USDT）Hold·Next period（Cross-period timing）→ Re-reconcile（RUN20260922-2，cutoffAt 实测=业务日日终 2026-09-22T19:59:59.999Z）→ 案子唯一地从 OPEN 转 RESOLVED（matchedCount 7→8、softFlagCount 2→1，reconciliation_cases 全表核对仅此一条转出 OPEN）；证据 `doc-final/superpowers/checkups/2026-09-21-act6-wave5-evidence/after/scenario9-positive-{1-hold,2-resolved}.png` + `scenario9-positive-timestamps.txt`
 
+- [ ] **已结案（Resolved）的案件页自相矛盾：五个余额格取破口那一刻的快照，差异行和副行按结案那一轮重建**：场景 16 走完认损补缺并 Re-reconcile 后，案件页上 `CaseBalanceTiles` 的五格仍显示破口当时的红色 "Unexplained −7.5 needs investigation"，而下方差异行 / 副行已是 Explained、Resolved（证据截图 `superpowers/checkups/2026-11-07-campaign-e-wave2-evidence/t11-scene-16-12-healed.png`）。格子算法波前就这样，戊波二把重对账后的行改成过去时，反差被放大。修法方向：已结案案件的格子也按结案那一轮重算，或在格子上标「as of 开案」｜复现: 重铺后走场景 16 全程（Hold → 认损补缺 → CFO 批 → 执行 → Re-reconcile），打开该案详情页 ｜来源: 戊波二终审 M5（2026-11-07）
+
+- [ ] **被锚定的调账单少付（落账金额低于差额）后，差异行仍读绿色「Explained · ADJ…」**：调账单锚到某条差异行、落账后匹配器第 0 轮按锚配对判 AMOUNT_MISMATCH，但行上的 chip 只看单据状态——`POSTED` 一律打「Explained」（`admin-web/src/utils/adjustmentChip.ts:20`），不看金额够不够。只有操作员把预填金额改小才到；预填原值（pass 0）则行保持 AMOUNT_MISMATCH，不受影响 ｜复现: 在带锚的调账弹窗里把预填金额改小 → CFO 批 → 落账，看案件页该差异行的状态标签 ｜来源: 戊波二终审（2026-11-07），波三骨架悬挂项「读面小尾巴」同条
+
 ## H. 第七幕 · 事后说得清（审计追溯）
 
 > 讲「这笔事谁批的、依据什么、钱去哪了」这一幕的缺口。三域词表已换装，剩子表覆盖面与资金单审计栏。
