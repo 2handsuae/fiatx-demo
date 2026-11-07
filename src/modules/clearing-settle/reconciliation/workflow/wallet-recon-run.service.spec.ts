@@ -118,7 +118,7 @@ function makeDeps(overrides: any = {}) {
   };
   // ④ 解释索引：默认空——这些用例里没有调账单，所有差异都算异常（改动前的口径）。
   const explainedDifferences = {
-    indexForWallet: jest.fn().mockResolvedValue({ byFlowId: new Map(), byExternalLineId: new Map() }),
+    indexForWallet: jest.fn().mockResolvedValue([]),
   };
 
   Object.assign(prisma, overrides.prisma ?? {});
@@ -1148,5 +1148,97 @@ describe('戊波二 T9a：对内差额', () => {
     expect(r.casesAutoHealed).toBe(1);
     const upd = healed.deps.prisma.reconciliationCase.update.mock.calls.map(([a]: any[]) => a);
     expect(upd).toEqual([expect.objectContaining({ where: { id: 'case-old' }, data: expect.objectContaining({ status: 'RESOLVED', resolutionReason: 'AUTO_HEALED' }) })]);
+  });
+});
+
+// 戊波二 T9b（spec §4.5 第 0 轮）：已落账的调账单 / 认损补缺单不再靠「解释索引摘异常数」，
+// 而是匹配器按锚把它们配成 MATCHED；run 只做三件事——把锚清单交给匹配器、异常数直接数三个桶、
+// 第 0 轮配出的 MATCHED 行带 resolution 落成案子上的证据行。
+describe('戊波二 T9b：第 0 轮锚配对接线', () => {
+  const cutoff = new Date('2026-09-01T10:00:00Z');
+
+  function setup(check: { delta: bigint; internalDelta?: bigint | null }, matcher: any, anchors: any[] = []) {
+    const deps = makeDeps();
+    deps.prisma.reconciliationRun.create.mockResolvedValue({ id: 'run-t9b', runNo: 'RUN20260901-2', traceId: 't' });
+    deps.prisma.externalBalance.findMany.mockResolvedValue([
+      { walletRef: 'w-1', closingBalance: new Prisma.Decimal(1000), book: 'CLIENT', currency: 'AED', accountRef: 'acc-1' },
+    ]);
+    deps.prisma.asset.findFirst.mockResolvedValue({ id: 'asset-aed' });
+    deps.balanceChecker.checkBalance.mockResolvedValue({
+      pass: check.delta === 0n, walletRef: 'w-1', walletKind: 'CUSTOMER', coaCode: 'A.CLIENT_CASH', ownerNo: 'CU1',
+      cashTbAccountId: 'tb-cash', internal: { total: 1000n - check.delta }, external: 1000n,
+      delta: check.delta, internalDelta: check.internalDelta ?? 0n,
+    });
+    deps.flowMatcher.matchFlows.mockResolvedValue(matcher);
+    deps.explainedDifferences.indexForWallet.mockResolvedValue(anchors);
+    const svc = buildSvc(deps);
+    (svc as any).computeInternalIdentity = jest.fn().mockResolvedValue({ balanced: true, breaks: [] });
+    (svc as any).fetchExternalLinesForWallet = jest.fn().mockResolvedValue([]);
+    return { deps, svc };
+  }
+  const empty = { matched: [], orphanInternal: [], orphanExternal: [], mismatch: [], inTransit: [] };
+  const items = (deps: any) => deps.prisma.reconciliationLineItem.create.mock.calls.map(([a]: any[]) => a.data);
+
+  it('锚清单按（钱包, 现金户号）取，原样交给匹配器', async () => {
+    const anchors = [{ flowId: 'f-adj', anchorFlowId: 'f-orig', byNo: 'ADJ1' }];
+    const { deps, svc } = setup({ delta: 0n }, empty, anchors);
+    await svc.run({ cutoff });
+    expect(deps.explainedDifferences.indexForWallet).toHaveBeenCalledWith('w-1', 'tb-cash');
+    expect(deps.flowMatcher.matchFlows).toHaveBeenCalledWith(expect.objectContaining({ explainedAnchors: anchors }));
+  });
+
+  it('第 0 轮把差异配平（matched 里带 resolution）且余额平 → 异常数 0 → MATCHED、不开案；不再有按索引摘异常的第二套口径', async () => {
+    const { deps, svc } = setup({ delta: 0n }, {
+      ...empty,
+      matched: [{ internalFlowId: 'f-orig', externalLineId: null, via: 'anchor', resolution: 'ADJ1', groupFlowIds: ['f-orig', 'f-adj'] }],
+    });
+    const r = await svc.run({ cutoff });
+    expect(r.status).toBe('PASS');
+    expect(deps.prisma.reconciliationCase.create).not.toHaveBeenCalled();
+    expect(deps.prisma.reconciliationRunWallet.createMany.mock.calls[0][0].data[0].bucket).toBe('MATCHED');
+  });
+
+  it('没配平的异常照数：锚清单里有单、但匹配器仍报 mismatch（单金额不够）→ 异常数 1 → 案子照开（COMPENSATING）', async () => {
+    const { deps, svc } = setup({ delta: 0n }, {
+      ...empty,
+      mismatch: [{ internalFlowId: 'f-orig', externalLineId: 'e-1', internalAmount: '2950', externalAmount: '2925', ref: '0xr' }],
+    }, [{ flowId: 'f-adj', anchorFlowId: 'f-orig', anchorExternalLineId: 'e-1', byNo: 'ADJ3' }]);
+    const r = await svc.run({ cutoff });
+    expect(r.status).toBe('BREAK');
+    expect(deps.prisma.reconciliationCase.create.mock.calls[0][0].data.bucket).toBe('COMPENSATING');
+  });
+
+  it('案子因别的原因开着时，第 0 轮配出的 MATCHED 行落成证据行：matchStatus MATCHED、resolution = 单号、带两端 id；第 1/2 轮配对（无 resolution）不落行', async () => {
+    const { deps, svc } = setup({ delta: 500n }, {
+      ...empty,
+      orphanExternal: [{ externalLineId: 'ext-9', amount: '500', direction: 'IN', externalRef: '0xnew' }],
+      matched: [
+        { internalFlowId: 'f-orig', externalLineId: 'e-1', via: 'anchor', resolution: 'ITR1', groupFlowIds: ['f-orig', 'f-91'] },
+        { internalFlowId: 'f-83', externalLineId: 'e-83', via: 'ref' },
+      ],
+    });
+    await svc.run({ cutoff });
+    const rows = items(deps);
+    expect(rows.map((d: any) => [d.lineNo, d.matchStatus])).toEqual([[1, 'ORPHAN_EXTERNAL'], [2, 'MATCHED']]);
+    const matchedRow = rows[1];
+    expect(matchedRow.resolution).toBe('ITR1');
+    expect(matchedRow.internalSourceId).toBe('f-orig');
+    expect(matchedRow.externalTxId).toBe('e-1');
+    expect(matchedRow.walletRef).toBe('w-1');
+    // 异常行不再写 EXPLAINED 状态 / 解释单号（解释 = 配成 MATCHED，不是给异常行贴标签）
+    expect(rows[0]).not.toHaveProperty('resolution');
+    expect(JSON.stringify(rows)).not.toContain('EXPLAINED');
+  });
+
+  it('组内消化的行（没有外部行）：externalTxId 为 null，仍带 resolution', async () => {
+    const { deps, svc } = setup({ delta: 500n }, {
+      ...empty,
+      orphanExternal: [{ externalLineId: 'ext-9', amount: '500', direction: 'IN', externalRef: '0xnew' }],
+      matched: [{ internalFlowId: 'f-dup', externalLineId: null, via: 'anchor', resolution: 'ADJ4', groupFlowIds: ['f-dup', 'f-rev'] }],
+    });
+    await svc.run({ cutoff });
+    const row = items(deps).find((d: any) => d.matchStatus === 'MATCHED');
+    expect(row.externalTxId).toBeNull();
+    expect(row.resolution).toBe('ADJ4');
   });
 });

@@ -46,6 +46,7 @@ import { AdjustmentService } from '../src/modules/clearing-settle/reconciliation
 import { ReconciliationCaseService } from '../src/modules/clearing-settle/reconciliation/domain/reconciliation-case.service';
 import { CaseAgingSweepService } from '../src/modules/clearing-settle/reconciliation/sweep/case-aging-sweep.service';
 import { ReconciliationQueryService } from '../src/modules/clearing-settle/reconciliation/domain/reconciliation-query.service';
+import { FlowComparisonBuilder } from '../src/modules/clearing-settle/reconciliation/domain/flow-comparison.builder';
 import { InternalTransferWorkflowService } from '../src/modules/asset-treasury/internal-transfers/internal-transfer-workflow.service';
 import { CLIENT_SHORTFALL_CAUSE } from '../src/modules/clearing-settle/reconciliation/disposition/cause-registry';
 import { FundsOrderAction } from '../src/modules/funds-orders/dto/funds-order.dto';
@@ -55,7 +56,8 @@ import { bigintToHex } from '../src/modules/accounting/tigerbeetle/utils/tb-id.u
 /**
  * 平账二期（spec §14）e2e，戊波二 T7b 改写：认损补缺一张单（账龄路：加密币一腿 / 法币两腿经结算户，出钱钱包人选）｜ 垫款 → 认领（法币两腿经结算户）｜
  * 拒绝 / 撤回 / 腿失败 / 挂起锁定路径。认损补缺 = 开单即挂锁 → CFO 批 = 记短缺（码 91，应付不动）→ 腿 → 82 + 83（83 贷码 2 短缺户）；
- * 旧的「认损调账单 + 补款划转单」两张单已退役。案子愈合（匹配器第 0 轮）归 T9，本文件只断言到账与余额，留了 `// T9:` 注记。
+ * 旧的「认损调账单 + 补款划转单」两张单已退役。案子愈合靠匹配器第 0 轮锚配对（戊波二 T9b）：A 在批准（91 落账）后按案件业务日重对账 → 案愈、
+ * 原差异行 MATCHED 且 resolution = 本单号；腿到账后那条 83 流水按参考号（Pass 1）配上模拟托管方回单。
  * 真 AppModule 零 mock；每条主链一个独立客户（承接记录点名）；与另外四份 recon e2e 串行。
  *
  * ⚠ 截止时刻用「现在」而不是 +3 天：模拟托管方回单把镜像行与当日余额都记在**当天**（toBusinessDate(now)），
@@ -68,7 +70,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
   jest.setTimeout(120000);
   let app: INestApplication; let prisma: PrismaService;
   let dispositions: DispositionService; let adjustments: AdjustmentService; let caseService: ReconciliationCaseService; let agingSweep: CaseAgingSweepService;
-  let reconQuery: ReconciliationQueryService; let walletRecon: WalletReconRunService; let approvalsService: ApprovalsService;
+  let reconQuery: ReconciliationQueryService; let flowBuilder: FlowComparisonBuilder; let walletRecon: WalletReconRunService; let approvalsService: ApprovalsService;
   let transferWf: InternalTransferWorkflowService; let fundsOrders: FundsOrderService; let tbEvidence: TbEvidenceService; let accounting: AccountingService;
   let signals: InboundTransferSignalsService; let depositWf: DepositWorkflowService; let deposits: DepositTransactionsService;
   let withdrawWf: WithdrawWorkflowService; let withdraws: WithdrawTransactionsService; let withdrawQuoteService: WithdrawQuoteService;
@@ -88,7 +90,7 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     prisma = app.get(PrismaService);
     dispositions = app.get(DispositionService); adjustments = app.get(AdjustmentService);
     caseService = app.get(ReconciliationCaseService); agingSweep = app.get(CaseAgingSweepService);
-    reconQuery = app.get(ReconciliationQueryService); walletRecon = app.get(WalletReconRunService); approvalsService = app.get(ApprovalsService);
+    reconQuery = app.get(ReconciliationQueryService); flowBuilder = app.get(FlowComparisonBuilder); walletRecon = app.get(WalletReconRunService); approvalsService = app.get(ApprovalsService);
     transferWf = app.get(InternalTransferWorkflowService); fundsOrders = app.get(FundsOrderService);
     tbEvidence = app.get(TbEvidenceService); accounting = app.get(AccountingService);
     signals = app.get(InboundTransferSignalsService); depositWf = app.get(DepositWorkflowService); deposits = app.get(DepositTransactionsService);
@@ -667,8 +669,24 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     expect(recAudit[0]).toMatchObject({ actionDomain: 'TREASURY', approvalNo: apr.approvalNo, amount: '7.500000', correlationId: itr.traceId });
     expect(new Date(recAudit[0].effectiveDate).toISOString().slice(0, 10)).toBe(kase.businessDate);
     expect(JSON.parse(recAudit[0].metadata)).toMatchObject({ tbTransferId: itr.recognizedTbTransferId, causeCode: CLIENT_SHORTFALL_CAUSE, lossSource: 'AGING' });
-    // T9：此处加「按案件业务日重对账 → 案愈：原差异行 MATCHED、resolution = 本单号（ITR…）」——匹配器改动（第 0 轮读 recognizedTbTransferId）在 T9 落，
-    //     T7b 不断言案子愈合；案子在整段弧里保持 OPEN，下面的「在途桶」断言（原 A 在这里跑一轮对账看 IN_TRANSIT 案）也随之移到 T9 的对账断言里。
+    // 匹配器第 0 轮（戊波二 T9b）：按案件业务日重对账。记短缺（91，生效日 = 案件业务日）是现金户上的一条 OUT，与原差异行的两个锚配成一组——
+    //   {原内部行 IN 3000, 91 OUT 7.5} 的签名和 2992.5 = 对账单那条 IN 2992.5 → 一条 MATCHED，resolution = 本单号；
+    //   现金户 2992.5 = 外部收盘，对内差额 0（现金 + 短缺 = 应付）→ 钱包 MATCHED、案子自愈。
+    const healCutoff = new Date();
+    const healRun = await walletRecon.run({ cutoff: healCutoff });
+    const healSnap = await (prisma as any).reconciliationRunWallet.findFirst({ where: { runId: healRun.runId, walletRef: wallet.id } });
+    expect(healSnap).toMatchObject({ bucket: 'MATCHED', matchedCount: 1, orphanInternal: 0, orphanExternal: 0, mismatchCount: 0 });
+    expect(String(healSnap.deltaAmount)).toBe('0');
+    expect(String(healSnap.internalDeltaAmount)).toBe('0');
+    expect(await caseRow(kase.id)).toMatchObject({ status: 'RESOLVED', resolutionReason: 'AUTO_HEALED', closedByRunId: healRun.runId });
+    expect(await openCaseFor(wallet.id)).toBeNull();
+    // 读面：同一个截止点重建逐行对照——原差异行（对账单那条）现在是 MATCHED，挂着本单号；整张表没有任何异常行
+    const healedRows = (await flowBuilder.build({ walletRef: wallet.id, cutoff: healCutoff, businessDate: kase.businessDate, assetCode: kase.assetCode })).rows;
+    const origRow = healedRows.find((r: any) => r.externalLine?.id === row0.externalLine.id)!;
+    expect(origRow.matchType).toBe('MATCHED');
+    expect(origRow.explainedByAdjustmentNo).toBe(req.transferNo);
+    expect(origRow.internalFlow!.id).toBe(row0.internalFlow.id);
+    expect(healedRows.filter((r: any) => r.matchType !== 'MATCHED')).toEqual([]);
 
     // 腿 1 = 运营户 TRON → 客户地址
     const booksBefore = await snapshotBooks(ledger, [opsW.id, wallet.id]); // 91 已落、腿未落
@@ -711,6 +729,18 @@ describe('Recon internal transfer e2e (平账二期, Task 9)', () => {
     expect(doneRow.nextStep).toBeUndefined();
     const run = await runNow();
     expect(run.status).not.toBe('INTERNAL_BREAK'); // 预门 = 两条恒等式（与 verify:coa 同式）：记短缺 + 补缺整段弧后依旧成立
+    // 腿到账后：83（IN 7.5，参考号 = 腿 txHash）按参考号（Pass 1）配上模拟托管方回单那一行；
+    // 第 0 轮那一组照旧是 MATCHED（原行 + 91 ↔ 对账单）；钱包整体平、没有异常、没有案子（⚡ 提交腿已把外部收盘一并抬高 7.5）
+    const finalSnap = await (prisma as any).reconciliationRunWallet.findFirst({ where: { runId: run.runId, walletRef: wallet.id } });
+    expect(finalSnap).toMatchObject({ bucket: 'MATCHED', matchedCount: 2, orphanInternal: 0, orphanExternal: 0, mismatchCount: 0 });
+    expect(String(finalSnap.deltaAmount)).toBe('0');
+    expect(await openCaseFor(wallet.id)).toBeNull();
+    const finalRows = (await flowBuilder.build({ walletRef: wallet.id, cutoff: new Date(), businessDate: TODAY, assetCode: kase.assetCode })).rows;
+    const legRow = finalRows.find((r: any) => r.externalLine?.id === simIn.id)!;
+    expect(legRow.matchType).toBe('MATCHED');
+    expect(legRow.internalFlow!.eventCode).toBe('INTERNAL_TRANSFER_SHORTFALL_TOPUP_IN');
+    expect(legRow.internalFlow!.externalRef).toBe(stamped.txHash);
+    expect(legRow.explainedByAdjustmentNo).toBeUndefined(); // Pass 1 配的，不是第 0 轮的解释
     for (const action of ['INTERNAL_TRANSFER_REQUESTED', 'INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED', 'INTERNAL_TRANSFER_EXECUTION_STARTED', 'INTERNAL_TRANSFER_LEG_POSTED', 'INTERNAL_TRANSFER_SETTLED']) {
       expect(await auditSince(action, req.transferNo)).toHaveLength(1);
     }

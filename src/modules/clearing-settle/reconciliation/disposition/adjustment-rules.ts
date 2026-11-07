@@ -11,7 +11,7 @@ export type Book = 'CLIENT' | 'FIRM';
 export type Direction = 'REDUCE' | 'INCREASE';
 
 /** 调账凭证 evidence.sourceType 的唯一字面。落账（adjustment.service）与对账引擎（匹配器 / 案件流水对照
- *  排除调账行）共用这一个常量，两侧不许各写各的字面量。 */
+ *  判「调账流水」）共用这一个常量，两侧不许各写各的字面量。 */
 export const RECON_ADJUSTMENT_SOURCE_TYPE = 'RECON_ADJUSTMENT';
 
 /** 改记凭证第二笔（现金对）的 evidence.eventCode。TB 转账号由 (sourceType, sourceNo, eventCode) 决定，

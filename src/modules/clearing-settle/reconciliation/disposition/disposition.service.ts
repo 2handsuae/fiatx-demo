@@ -70,9 +70,9 @@ export class DispositionService {
     // 对账把它重分类成 AMOUNT_MISMATCH 后两个锚就都有了；按 AND 联合匹配，
     // 新请求带的非空值永远碰不上库里那个 null，findFirst 查不中会把它误判成
     // "新差异"另开一条定性记录——下面 adjustmentNo 非空即拒的挂单锁就被这条
-    // 漏网悄悄绕过了。同目录 explained-difference.service.ts 的 explainedBy()
-    // 处理的正是"同一证据跨轮次类型漂移"这同一个问题，用的就是按字段独立 OR、
-    // 任一锚命中即算——这里照它的范式。
+    // 漏网悄悄绕过了。匹配器第 0 轮（engine/v2/wallet-flow-matcher.service.ts，
+    // 戊波二 T9b 取代了原先的 explainedBy() 解释索引）面对的是"同一证据跨轮次
+    // 类型漂移"这同一个问题，用的是按单个锚 id 独立命中——这里同一个范式。
     const anchorConditions = [
       dto.explainedFlowId ? { explainedFlowId: dto.explainedFlowId } : null,
       dto.explainedExternalLineId ? { explainedExternalLineId: dto.explainedExternalLineId } : null,

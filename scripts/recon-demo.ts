@@ -29,7 +29,7 @@
 //                    ⑬ 漏监听充值   补单·充值补录（B 批开门，链上）
 //                    ⑭ 入金被退汇   补单·退汇认领（B 批开门，法币，叠 Kate AED）
 //                    ⑮ 出金被退回   补单·退回认领（B 批开门，法币，叠 Grace AED）
-//                    ⑯ 客户池小额查不出 认损 + 补款划转（二期开门，加密币一腿，Alice USDT）
+//                    ⑯ 客户池小额查不出 认损补缺一张单（二期开门、戊波二改版，加密币一腿，Alice USDT）
 //                    ⑰ 入金退汇·余额不足 垫款划转 + 退汇认领（二期开门，法币两腿，叠 Grace AED）
 //                    ⑱ 未授权转出       事故登记（三期开门，加密币一腿，Jack USDT-TRON）
 //                  公理：外部资料是权威——不平只能是三种性质之一：我方账错了 /
@@ -112,6 +112,9 @@ import { resolveDemoCustomers } from './demo-lib';
 // T11 同词原则：种子答案键的成因码直接取注册表类型，编译期与 T1 的
 // CAUSE_REGISTRY 同源——种子改错码、加错码、漏改码都会在这里炸编译。
 import type { CauseCode } from '../src/modules/clearing-settle/reconciliation/disposition/cause-registry';
+
+/** 认损补缺单记短缺（码 91）那条流水的 eventCode——internal-transfer-workflow.service.ts recognizeShortfall 写入。 */
+const SHORTFALL_RECOGNIZED_EVENT_CODE = 'INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED';
 
 type Mode = 'pass' | 'break' | 'reset' | 'crisis';
 
@@ -415,11 +418,13 @@ async function planWallets(
   //   statement_lines    ← every POSTED account_flow row on the wallet's own cash account
   //                        (CUSTOMER → code 1 客户现金 / FIRM → code 50 公司现金,
   //                         one account per wallet),
-  //                        EXCLUDING 调账行 (sourceType = RECON_ADJUSTMENT).
+  //                        EXCLUDING 调账行 (sourceType = RECON_ADJUSTMENT) 与认损补缺的记短缺行
+  //                        (eventCode = INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED，码 91).
   //
   // 戊波一 T11：账本按"钱所在的位置"重立，钱包的现金户就是托管方真正看得见的那一条账——
-  // 外部对账单从这个户的流水原样重铸。调账行只进余额、不进对账单（外部系统没有这笔），
-  // 与匹配器的纳入条件逐字同口径（wallet-flow-matcher.service.ts）。
+  // 外部对账单从这个户的流水原样重铸。调账行与记短缺行只进余额、不进对账单（托管方没有这两笔：
+  // 调账是我方账上的更正，记短缺是我方承认托管少了钱）——这是模拟托管方「按现金户行生成对账单行」的**取数**
+  // （总纲假设②，戊波二 spec 裁定 22），**不是**匹配过滤：匹配器不再按 sourceType 排除，而是第 0 轮按锚配对（裁定 8）。
   //
   // Direction semantic: account_flows.direction 是"钱进这个户 = IN"（投影按行所在账户类别翻，
   // 现金户是借方户，借方行 = IN）——
@@ -459,6 +464,7 @@ async function planWallets(
           tbAccountId: cash.tbAccountId,
           transferType: 'POSTED',
           sourceType: { not: RECON_ADJUSTMENT_SOURCE_TYPE },
+          eventCode: { not: SHORTFALL_RECOGNIZED_EVENT_CODE },
           createdAt: { lte: cutoff },
         },
         select: {
@@ -1666,8 +1672,8 @@ async function injectScenarios(
   }
 
   // ── 场景 ⑯ — 客户池小额查不出 (BREAK / AMOUNT_MISMATCH / 客户账簿 / 加密币) ─────────
-  // 二期：托管里真少了 7.5 USDT（≤ 小额线 30），翻遍凭证查无可查 → 定性查不出 → ⚡拨钟 → 金库「认损」
-  // → CFO 批 → 重对账愈 → 「发起补款」→ CFO 批 → ⚡ 提交腿（在途不红）→ ⚡ 确认 → 余额复位。同 ⑩ 手法。
+  // 二期（戊波二改版）：托管里真少了 7.5 USDT（≤ 小额线 30），翻遍凭证查无可查 → 定性查不出 → ⚡拨钟 → 金库「认损补缺」
+  // 一张单 → CFO 批一次（批的那一刻记短缺、自动建公司转钱的腿）→ 按锚配对重对账愈 → ⚡ 提交腿（在途不红）→ ⚡ 确认 → 余额复位。同 ⑩ 手法。
   {
     const line = (await (prisma as any).externalStatementLine.findFirst({
       where: { subAccount: slotClientLoss.walletRef, amount: { gt: 7_500_000 } }, orderBy: { datetime: 'asc' },

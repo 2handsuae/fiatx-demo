@@ -21,6 +21,7 @@ import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/core/prisma/prisma.service';
 import { DispositionService } from '../src/modules/clearing-settle/reconciliation/disposition/disposition.service';
 import { WalletReconRunService } from '../src/modules/clearing-settle/reconciliation/workflow/wallet-recon-run.service';
+import { FlowComparisonBuilder } from '../src/modules/clearing-settle/reconciliation/domain/flow-comparison.builder';
 import { AccountingService } from '../src/modules/accounting/tigerbeetle/accounting.service';
 import { TbEvidenceService } from '../src/modules/accounting/tigerbeetle/tb-evidence.service';
 import { bigintToHex } from '../src/modules/accounting/tigerbeetle/utils/tb-id.util';
@@ -73,7 +74,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
   jest.setTimeout(120000);
   let app: INestApplication; let prisma: PrismaService;
   let dispositions: DispositionService;
-  let walletRecon: WalletReconRunService; let approvalsService: ApprovalsService;
+  let walletRecon: WalletReconRunService; let flowBuilder: FlowComparisonBuilder; let approvalsService: ApprovalsService;
   let transferWf: InternalTransferWorkflowService; let fundsOrders: FundsOrderService;
   let tbEvidence: TbEvidenceService; let accounting: AccountingService;
   let signals: InboundTransferSignalsService; let depositWf: DepositWorkflowService; let deposits: DepositTransactionsService;
@@ -118,7 +119,7 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     await app.init();
     prisma = app.get(PrismaService);
     dispositions = app.get(DispositionService);
-    walletRecon = app.get(WalletReconRunService); approvalsService = app.get(ApprovalsService);
+    walletRecon = app.get(WalletReconRunService); flowBuilder = app.get(FlowComparisonBuilder); approvalsService = app.get(ApprovalsService);
     transferWf = app.get(InternalTransferWorkflowService); fundsOrders = app.get(FundsOrderService);
     tbEvidence = app.get(TbEvidenceService); accounting = app.get(AccountingService);
     signals = app.get(InboundTransferSignalsService); depositWf = app.get(DepositWorkflowService); deposits = app.get(DepositTransactionsService);
@@ -583,6 +584,23 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     expect(await shortfallPosted()).toBe(LOSS_MINOR);
     expect(await cashPosted()).toBe(FUND_AMOUNT_MINOR - LOSS_MINOR); // 钱包现金户 = 铺底 − 定损额 = 外部真值
 
+    // 匹配器第 0 轮（戊波二 T9b）：按案件业务日重对账。事故路的锚 = 幽灵转出那条外部行（OUT 25）：记短缺（91，OUT 25，生效日 = 案件业务日）
+    // 与它配成一条 MATCHED，resolution = 本单号；现金户 = 外部收盘、对内差额 0 → 钱包 MATCHED、案子自愈。
+    const healCutoff = new Date();
+    const healRun = await walletRecon.run({ cutoff: healCutoff });
+    const healSnap = await (prisma as any).reconciliationRunWallet.findFirst({ where: { runId: healRun.runId, walletRef: mainWallet.id } });
+    expect(healSnap).toMatchObject({ bucket: 'MATCHED', orphanInternal: 0, orphanExternal: 0, mismatchCount: 0 });
+    expect(healSnap.matchedCount).toBe(2); // 铺底入账 ↔ 铺底回单（Pass 1）+ 91 ↔ 幽灵转出行（第 0 轮）
+    expect(String(healSnap.deltaAmount)).toBe('0');
+    expect(String(healSnap.internalDeltaAmount)).toBe('0');
+    expect(await caseRow(mainCaseId)).toMatchObject({ status: 'RESOLVED', resolutionReason: 'AUTO_HEALED', closedByRunId: healRun.runId });
+    const healedRows = (await flowBuilder.build({ walletRef: mainWallet.id, cutoff: healCutoff, businessDate: kase.businessDate, assetCode: kase.assetCode })).rows;
+    const ghostRow = healedRows.find((r: any) => r.externalLine?.id === disposition.explainedExternalLineId)!;
+    expect(ghostRow.matchType).toBe('MATCHED');
+    expect(ghostRow.explainedByAdjustmentNo).toBe(mainTopupTransferNo);
+    expect(ghostRow.internalFlow!.eventCode).toBe('INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED');
+    expect(healedRows.filter((r: any) => r.matchType !== 'MATCHED')).toEqual([]);
+
     // ③ ⚡ 推腿：运营户 → 客户钱包；确认后 82 + 83（83 贷码 2）→ SUCCESS，短缺归零、现金户复位
     const [leg1] = await fundsOrders.findByParent({ internalTransferId: itr.id }, { legSeq: 1 });
     expect([leg1.fromWalletId, leg1.toWalletId]).toEqual([opsW.id, mainWallet.id]);
@@ -599,7 +617,12 @@ describe('Incident register e2e (平账三期 · 事故登记, Task 13)', () => 
     expect(await shortfallPosted()).toBe(0n);
     expect(await cashPosted()).toBe(FUND_AMOUNT_MINOR);
     expect((await accounting.getCustomerAvailableBalance(mainCustomer.id, 'USDT')).available).toBe(FUND_AMOUNT_MINOR);
-    // T9：此处加「按案件业务日重对账 → 案愈（原差异行 MATCHED、resolution = 本单号）」——匹配器改动归 T9，T7b 不断言案子愈合。
+    // 腿到账后再对一轮：83（IN 25，参考号 = 腿 txHash）按参考号（Pass 1）配上模拟托管方回单那一行；第 0 轮那一组照旧；钱包整体平、没有案子
+    const finalRun = await runNow();
+    const finalSnap = await (prisma as any).reconciliationRunWallet.findFirst({ where: { runId: finalRun.runId, walletRef: mainWallet.id } });
+    expect(finalSnap).toMatchObject({ bucket: 'MATCHED', matchedCount: 3, orphanInternal: 0, orphanExternal: 0, mismatchCount: 0 });
+    expect(String(finalSnap.deltaAmount)).toBe('0');
+    expect(await openCaseFor(mainWallet.id)).toBeNull();
 
     // ④ 挂载划转单到事故：一张 TRANSFER 就够善后，ASSESSED → RESOLVING 随首次挂载自动迁移（不再有「先挂调账单」）
     expect((await incidents.findByNo(mainIncidentNo)).status).toBe('ASSESSED');

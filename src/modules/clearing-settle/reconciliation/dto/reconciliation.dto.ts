@@ -163,10 +163,12 @@ export interface FlowComparisonRow {
   // resolveAdjustmentPrefill（出账翻符号见其头注释）。只在三类异常行下发；MATCHED/
   // IN_TRANSIT 行开不了调账弹窗（按钮唯一入口挂在 dispositions 上），不挂即不造死字段。
   adjustmentPrefill?: AdjustmentPrefill;
-  // ④ 这条差异已被哪张已落账的调账单解释（三类异常行才有；MATCHED/IN_TRANSIT 恒 null）。
-  // 有值 = 引擎算桶时已把它从异常数里摘掉，案子可以平下去。
+  // ④ 这条差异已被哪张已落账的调账单 / 认损补缺单（ADJ… / ITR…）解释。
+  // 戊波二 T9b（spec §4.5 第 0 轮）：解释 = 匹配器按锚把那张单的落账流水与这条差异配成了 MATCHED，
+  // 所以只有**第 0 轮配出来的 MATCHED 行**才有值（= 该行的 resolution）；三类异常行恒 null（配不上就不算解释）；
+  // 第 1 / 2 轮配出的 MATCHED 行与 IN_TRANSIT 行不带这个字段。
   explainedByAdjustmentNo?: string | null;
-  // 平账一期半（spec §3/§8）案件读面——以下三个注解同样只在三类异常行上出现，
+  // 平账一期半（spec §3/§8）案件读面——以下三个注解只在三类异常行上出现，
   // MATCHED/IN_TRANSIT 恒 undefined（它们不是差异、没有可处置的东西）。
   // 定性结论：这条差异如果已经被查过定过性，把结论贴回来（成因/出口/谁/何时）。
   // Task 5（读面翻转）：outletLabel 由存储的 outlet 反查处置种类再取

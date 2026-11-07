@@ -727,9 +727,12 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     // 正主方：内部余额从 0 长到 X，与银行给的收盘（X）一致。
     expect(String(toSnap.internalTotal)).toBe(String(X));
     expect(String(toSnap.deltaAmount)).toBe('0');
-    // 两条差异行都还在（是证据，要给人看），但都已被这张单解释 → 不算异常 → 桶回 MATCHED。
-    expect(fromSnap.orphanInternal).toBe(1);
-    expect(toSnap.orphanExternal).toBe(1);
+    // 两条差异都已被这张单在匹配器第 0 轮配平（戊波二 T9b）：错记方的幽灵流水与改记现金对的 OUT 在钱包内对冲（MATCHED，内部对内部），
+    // 正主方的银行单行与改记现金对的 IN 配成 MATCHED——不再是异常行，计数 0 → 桶回 MATCHED。
+    expect(fromSnap.orphanInternal).toBe(0);
+    expect(toSnap.orphanExternal).toBe(0);
+    expect(fromSnap.matchedCount).toBe(1);
+    expect(toSnap.matchedCount).toBe(1);
     expect(fromSnap.bucket).toBe('MATCHED');
     expect(toSnap.bucket).toBe('MATCHED');
 
@@ -743,24 +746,29 @@ describe('Recon reattribution + disposition behaviour (e2e, Task 12)', () => {
     expect(fromHealed.closedByRunId).toBe(run2.runId);
     expect(toHealed.closedByRunId).toBe(run2.runId);
 
-    // 案件页上两边各自的那一行都写着「已被 ADJxxx 解释」——操作员唯一看得到的地方。
+    // 案件页上两边各自的那一行都是 MATCHED、写着「已被 ADJxxx 解释」——操作员唯一看得到的地方。
     // 正主方能看到这张挂在错记方名下的单，靠的是 indexForWallet 的
     // `OR: [{walletRef},{toWalletRef}]`；少了 toWalletRef 这一半，双案同愈就断掉一半。
     const fromView: any = await reconQuery.getCase(fromCase.caseNo);
-    const fromRow = fromView.flowComparison.find((r: any) => r.matchType === 'ORPHAN_INTERNAL');
+    const fromRow = fromView.flowComparison.find((r: any) => r.internalFlow?.id === fromOrphan.internalSourceId);
     expect(fromRow).toBeTruthy();
+    expect(fromRow.matchType).toBe('MATCHED');
+    expect(fromRow.externalLine).toBeNull(); // 钱包内对冲：这条差异本来就没有外部行
     expect(fromRow.explainedByAdjustmentNo).toBe(adjustmentNo);
-    // 行上也回贴着当初的定性结论（成因 + 出口 + 已挂的单号）。
-    expect(fromRow.disposition).toBeTruthy();
-    expect(fromRow.disposition.causeCode).toBe('MISATTRIBUTED_FROM');
-    expect(fromRow.disposition.outlet).toBe('ADJUST_REATTRIBUTE');
-    expect(fromRow.disposition.adjustmentNo).toBe(adjustmentNo);
+    expect(fromView.flowComparison.filter((r: any) => r.matchType !== 'MATCHED')).toEqual([]);
+    // 原来贴在 ORPHAN_INTERNAL 行上的定性结论（成因 + 出口 + 已挂的单号）：第 0 轮之后这一行是 MATCHED，读面不再给 MATCHED 行贴处置注解，
+    // 所以直接查处置记录本身——定性没丢、仍挂着这张单（与上面行上的 explainedByAdjustmentNo 合起来，等价于原来三行 disposition.* 断言）。
+    const dispAfterHeal = await (prisma as any).reconciliationDisposition.findUnique({ where: { dispositionNo: disposition.dispositionNo } });
+    expect(dispAfterHeal.causeCode).toBe('MISATTRIBUTED_FROM');
+    expect(dispAfterHeal.outlet).toBe('ADJUST_REATTRIBUTE');
+    expect(dispAfterHeal.adjustmentNo).toBe(adjustmentNo);
 
     const toView: any = await reconQuery.getCase(toCase.caseNo);
-    const toRow = toView.flowComparison.find((r: any) => r.matchType === 'ORPHAN_EXTERNAL');
+    const toRow = toView.flowComparison.find((r: any) => r.externalLine?.id === toLine.id);
     expect(toRow).toBeTruthy();
-    expect(toRow.externalLine.id).toBe(toLine.id);
+    expect(toRow.matchType).toBe('MATCHED');
     expect(toRow.explainedByAdjustmentNo).toBe(adjustmentNo);
+    expect(toView.flowComparison.filter((r: any) => r.matchType !== 'MATCHED')).toEqual([]);
   });
 
   // ── 场景 B · 挂起不许让案子变绿 ──────────────────────────────────────────

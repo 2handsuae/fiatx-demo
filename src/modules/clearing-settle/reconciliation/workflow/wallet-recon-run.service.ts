@@ -36,12 +36,7 @@ import {
 } from '../../../accounting/tigerbeetle/constants/tb-account-codes.constant';
 import { TigerBeetleService } from '../../../accounting/tigerbeetle/tigerbeetle.service';
 import { computeBucket, ReconBucket } from '../engine/v2/bucket-classifier';
-import {
-  EMPTY_EXPLAINED_INDEX,
-  ExplainedDifferenceService,
-  ExplainedIndex,
-  explainedBy,
-} from '../disposition/explained-difference.service';
+import { ExplainedDifferenceService } from '../disposition/explained-difference.service';
 import { computeAgingDeadline, severityLinesFor } from '../disposition/recon-thresholds.constant';
 import { toBusinessDate } from '../../../accounting/tigerbeetle/utils/business-date.util';
 import { AuditLogsService } from '../../../audit-logging/audit-logs.service';
@@ -364,12 +359,15 @@ export class WalletReconRunService {
     // 案子与快照的 book / coaCode / ownerNo 一律取检查器给的现金户信息（钱包一户，没有"认不出"的档）。
     const book: 'CUSTOMER' | 'FIRM' = balanceCheck.walletKind === 'FIRM' ? 'FIRM' : 'CUSTOMER';
 
-    // 2b. Flow match —— 读的是检查器算余额的同一个现金户（只差一条：匹配不含调账行）
+    // 2b. Flow match —— 读的是检查器算余额的同一个现金户（只差一条：两锚皆空的调账行只进余额、不进匹配）
     const externalLines = await this.fetchExternalLinesForWallet(walletRef, bal.accountRef, cutoff);
+    // 戊波二 T9b：已落账的调账单 / 认损补缺单在本钱包现金户上的解释流水 + 它们记着的锚，交匹配器第 0 轮配对。
+    const explainedAnchors = await this.explainedDifferences.indexForWallet(walletRef, balanceCheck.cashTbAccountId);
     const matcherResult = await this.flowMatcher.matchFlows({
       walletRef,
       cashTbAccountId: balanceCheck.cashTbAccountId,
       externalLines,
+      explainedAnchors,
       cutoff,
       decimals,
     });
@@ -384,19 +382,13 @@ export class WalletReconRunService {
       (s, it) => s + (it.direction === 'IN' ? BigInt(it.amount) : -BigInt(it.amount)),
       0n,
     );
-    // ④ 已被落账调账单解释的差异，不计入异常数。
-    // 业主 2026-08-29 裁定「甲」：调账单只改余额，造成差额的那条流水本身还在，
-    // 而桶规则是「残差=0 且 无在途 且 流水异常>0 → COMPENSATING」——COMPENSATING 不是
-    // MATCHED，钱包仍在破口集合里，于是平了账的案子永远关不掉。把已解释的差异
-    // 摘掉，案子才走得完最后一步。（差异行本身照写，只是标成 EXPLAINED，仍在
-    // 案件页上看得见——「这条已被 ADJxxx 解释」是演示可见物。）
-    const explained = await this.explainedDifferences.indexForWallet(walletRef);
-    const isUnexplained = (a: { internalFlowId?: string; externalLineId?: string }) =>
-      explainedBy(explained, a) === null;
+    // 已落账的调账单 / 认损补缺单解释掉的差异，匹配器第 0 轮已把它们配成 MATCHED（或组内消化），不会出现在
+    // 三类异常里——异常数直接数三个桶，不再另有「按解释索引摘掉」的第二套口径（戊波二 T9b，spec 裁定 8）。
+    // 没配平的（单金额与差异对不上）留在 AMOUNT_MISMATCH 里，案子照开，操作员看得见还差多少。
     const anomalyCount =
-      matcherResult.orphanInternal.filter(isUnexplained).length +
-      matcherResult.orphanExternal.filter(isUnexplained).length +
-      matcherResult.mismatch.filter(isUnexplained).length;
+      matcherResult.orphanInternal.length +
+      matcherResult.orphanExternal.length +
+      matcherResult.mismatch.length;
     const bucket = computeBucket({
       delta: balanceCheck.delta,
       inTransitSigned,
@@ -439,7 +431,6 @@ export class WalletReconRunService {
         inTransitSigned,
         bucket,
         matcherResult,
-        explained,
         caseReason,
         slaDeadline,
         traceId,
@@ -521,8 +512,6 @@ export class WalletReconRunService {
       inTransitSigned: 0n,
       bucket: 'BREAK',
       matcherResult: { matched: [], orphanInternal: [], orphanExternal: [], mismatch: [], inTransit: [] },
-      // 未归属外部账户没有内部钱包、也就没有调账单挂得上去，空索引。
-      explained: EMPTY_EXPLAINED_INDEX,
       caseReason: 'unattributed_external_account',
       slaDeadline,
       traceId,
@@ -801,7 +790,6 @@ export class WalletReconRunService {
     inTransitSigned: bigint;
     bucket: ReconBucket;
     matcherResult: Awaited<ReturnType<WalletFlowMatcherService['matchFlows']>>;
-    explained: ExplainedIndex;
     caseReason: string;
     slaDeadline: Date;
     traceId: string | null;
@@ -884,7 +872,7 @@ export class WalletReconRunService {
       created = true;
     }
 
-    await this.writeLineItems(caseId, input.runId, input.walletRef, input.matcherResult, input.explained, input.internalDelta);
+    await this.writeLineItems(caseId, input.runId, input.walletRef, input.matcherResult, input.internalDelta);
     return { caseId, caseNo, created };
   }
 
@@ -893,18 +881,9 @@ export class WalletReconRunService {
     runId: string,
     walletRef: string,
     matcherResult: Awaited<ReturnType<WalletFlowMatcherService['matchFlows']>>,
-    explained: ExplainedIndex,
     internalDelta: bigint | null,
   ): Promise<void> {
     let lineNo = 0;
-    // ④ 已被落账调账单解释的差异行照写不误——它是案子上的证据，要给人看
-    // 「这条差异已经由 ADJxxx 解释了」；只是不再算进 anomalyCount（见 run()）。
-    const disposition = (a: { internalFlowId?: string; externalLineId?: string }) => {
-      const adjustmentNo = explainedBy(explained, a);
-      return adjustmentNo
-        ? { status: 'EXPLAINED', resolution: adjustmentNo }
-        : { status: 'OPEN', resolution: null };
-    };
     for (const oi of matcherResult.orphanInternal) {
       lineNo += 1;
       await this.prisma.reconciliationLineItem.create({
@@ -918,7 +897,6 @@ export class WalletReconRunService {
           internalDirection: oi.direction,
           walletRef,
           externalRef: oi.externalRef,
-          ...disposition(oi),
         },
       });
     }
@@ -935,7 +913,6 @@ export class WalletReconRunService {
           externalDirection: oe.direction,
           walletRef,
           externalRef: oe.externalRef,
-          ...disposition(oe),
         },
       });
     }
@@ -953,7 +930,6 @@ export class WalletReconRunService {
           externalAmount: new Prisma.Decimal(m.externalAmount),
           walletRef,
           externalRef: m.ref,
-          ...disposition(m),
         },
       });
     }
@@ -974,6 +950,26 @@ export class WalletReconRunService {
           externalTimestamp: it.externalTimestamp,
           walletRef,
           externalRef: it.externalRef,
+        },
+      });
+    }
+    // 戊波二 T9b：第 0 轮按锚配成的 MATCHED 行（调账单 / 认损补缺单解释掉的差异）照写，`resolution` = 解释它的单号——
+    // 它是案子上的证据，要给人看「这条差异已经由 ADJxxx / ITRxxx 解释了」；只是不再是异常、不算进 anomalyCount（见 processAttributedWallet）。
+    // 第 1 / 2 轮配出的 MATCHED 对没有 resolution，照旧不落行。
+    for (const m of matcherResult.matched) {
+      if (!m.resolution) continue;
+      lineNo += 1;
+      await this.prisma.reconciliationLineItem.create({
+        data: {
+          caseId,
+          foundByRunId: runId,
+          lineNo,
+          matchStatus: 'MATCHED',
+          internalSourceId: m.internalFlowId,
+          externalTxId: m.externalLineId,
+          walletRef,
+          status: 'MATCHED',
+          resolution: m.resolution,
         },
       });
     }

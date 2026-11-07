@@ -739,7 +739,7 @@ export class AdjustmentService {
         actorId: deciderDisplay,
         memo: row.reasonInternal,
         // 钱包归属不再靠证据参数传：现金腿的户本身就是案子钱包的现金户，delta 归零靠账户余额。
-        // 调账行不出现在任何外部账单上，对账引擎按 sourceType 排除（匹配器 / 案件流水对照），不再靠跨外部标记。
+        // 调账行不出现在任何外部账单上：对账引擎按它记着的两个锚（explainedFlowId / explainedExternalLineId）在匹配器第 0 轮配对，两锚皆空的调账行只进余额、不进匹配，不再靠跨外部标记。
         effectiveDate: row.effectiveDate,
       },
     });

@@ -23,7 +23,7 @@ function mkSvc(
   };
   // ④ 解释索引：默认空——这些用例里没有调账单，差异行都不带解释标记。
   const explainedDifferences = opts.explainedDifferences ?? {
-    indexForWallet: jest.fn().mockResolvedValue({ byFlowId: new Map(), byExternalLineId: new Map() }),
+    indexForWallet: jest.fn().mockResolvedValue([]),
   };
   // 平账二期 Task 8：getCase/listCases 的补款 / 垫款回挂只在极少数用例里真正触发
   // availableMinor()（都在下面单独 override）——默认给 0，够挡住其余所有用例。
@@ -177,7 +177,7 @@ describe('getCase — flowComparison (T3)', () => {
   });
 
   // 戊波一 T11：案件页逐行对照与引擎读同一个户——builder 取案子钱包的现金户交给匹配器，
-  // 自己取行时同样排除调账行（调账行只进余额、不进对照）。
+  // 自己取行时同一份纳入条件（戊波二 T9b：两锚皆空的调账行不进对照，有锚的进来由第 0 轮配对）。
   function mkFlowPrisma() {
     return {
       reconciliationCase: { findUnique: jest.fn().mockResolvedValue(kase) },
@@ -195,7 +195,7 @@ describe('getCase — flowComparison (T3)', () => {
   }
   const emptyMatch = { matched: [], orphanInternal: [], orphanExternal: [], mismatch: [] };
 
-  it('hands the case wallet cash account to the matcher and reads its own rows by that same account, without RECON_ADJUSTMENT', async () => {
+  it('hands the case wallet cash account to the matcher and reads its own rows by that same account (anchorless adjustment rows stay out)', async () => {
     const prisma = mkFlowPrisma();
     const flowMatcher = { matchFlows: jest.fn().mockResolvedValue(emptyMatch) };
     const balanceChecker = {
@@ -210,13 +210,69 @@ describe('getCase — flowComparison (T3)', () => {
     expect(flowMatcher.matchFlows).toHaveBeenCalledWith(
       expect.objectContaining({ walletRef: 'walletX', cashTbAccountId: 'c0de0000000000000000000000000001' }),
     );
-    // 内部侧取行与匹配器 / 检查器同一纳入条件：按现金户 tbAccountId（不是 walletRef 标签）、只取 POSTED，排除调账行
+    // 内部侧取行与匹配器 / 检查器同一纳入条件：按现金户 tbAccountId（不是 walletRef 标签）、只取 POSTED，
+    // 调账流水「非（调账流水 ∧ 两锚皆空）」——没有锚清单时就是「sourceType 不是调账」
     expect(prisma.accountFlow.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ tbAccountId: 'c0de0000000000000000000000000001', transferType: 'POSTED', sourceType: { not: 'RECON_ADJUSTMENT' } }),
+        where: expect.objectContaining({
+          tbAccountId: 'c0de0000000000000000000000000001',
+          transferType: 'POSTED',
+          AND: expect.arrayContaining([{ OR: [{ sourceType: { not: 'RECON_ADJUSTMENT' } }, { id: { in: [] } }] }]),
+        }),
       }),
     );
     expect((prisma.accountFlow.findMany as jest.Mock).mock.calls[0][0].where).not.toHaveProperty('walletRef');
+  });
+
+  it('戊波二 T9b：锚清单与匹配器是同一份——builder 把它交给匹配器、自己取行时让有锚的调账流水进来；第 0 轮配出的 MATCHED 行带 explainedByAdjustmentNo，异常行恒 null', async () => {
+    const prisma = mkFlowPrisma();
+    const anchors = [{ flowId: 'int-adj', anchorFlowId: 'int-1', anchorExternalLineId: 'ext-1', byNo: 'ITR2026001' }];
+    const explainedDifferences = { indexForWallet: jest.fn().mockResolvedValue(anchors) };
+    const flowMatcher = {
+      matchFlows: jest.fn().mockResolvedValue({
+        ...emptyMatch,
+        matched: [{ internalFlowId: 'int-1', externalLineId: 'ext-1', via: 'anchor', resolution: 'ITR2026001', groupFlowIds: ['int-1', 'int-adj'] }],
+        orphanExternal: [{ externalLineId: 'ext-3', amount: '75', direction: 'IN', externalRef: 'REF-3' }],
+      }),
+    };
+    const balanceChecker = {
+      resolveCashAccount: jest.fn().mockResolvedValue({
+        walletKind: 'CUSTOMER', coaCode: 'A.CLIENT_CASH', ownerNo: 'CU-X', tbAccountId: 'c0de0000000000000000000000000001',
+      }),
+    };
+    const svc = mkSvc(prisma, { flowMatcher, balanceChecker, explainedDifferences });
+    const result: any = await svc.getCase(kase.caseNo);
+
+    expect(explainedDifferences.indexForWallet).toHaveBeenCalledWith('walletX', 'c0de0000000000000000000000000001');
+    expect(flowMatcher.matchFlows).toHaveBeenCalledWith(expect.objectContaining({ explainedAnchors: anchors }));
+    expect((prisma.accountFlow.findMany as jest.Mock).mock.calls[0][0].where.AND)
+      .toEqual(expect.arrayContaining([{ OR: [{ sourceType: { not: 'RECON_ADJUSTMENT' } }, { id: { in: ['int-adj'] } }] }]));
+
+    const matched = result.flowComparison.find((r: any) => r.matchType === 'MATCHED');
+    expect(matched.explainedByAdjustmentNo).toBe('ITR2026001');
+    const orphanExt = result.flowComparison.find((r: any) => r.matchType === 'ORPHAN_EXTERNAL');
+    expect(orphanExt.explainedByAdjustmentNo).toBeNull();
+  });
+
+  it('戊波二 T9b：组内消化的 MATCHED 行（内部对内部）没有外部侧，仍带 explainedByAdjustmentNo', async () => {
+    const prisma = mkFlowPrisma();
+    const flowMatcher = {
+      matchFlows: jest.fn().mockResolvedValue({
+        ...emptyMatch,
+        matched: [{ internalFlowId: 'int-4', externalLineId: null, via: 'anchor', resolution: 'ADJ2026009', groupFlowIds: ['int-4', 'int-adj'] }],
+      }),
+    };
+    const balanceChecker = {
+      resolveCashAccount: jest.fn().mockResolvedValue({
+        walletKind: 'CUSTOMER', coaCode: 'A.CLIENT_CASH', ownerNo: 'CU-X', tbAccountId: 'c0de0000000000000000000000000001',
+      }),
+    };
+    const svc = mkSvc(prisma, { flowMatcher, balanceChecker });
+    const result: any = await svc.getCase(kase.caseNo);
+    const row = result.flowComparison.find((r: any) => r.matchType === 'MATCHED');
+    expect(row.externalLine).toBeNull();
+    expect(row.internalFlow.id).toBe('int-4');
+    expect(row.explainedByAdjustmentNo).toBe('ADJ2026009');
   });
 
   it('case walletRef is not a wallet (unattributed external account) → matcher gets no cash account, page still builds', async () => {

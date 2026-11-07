@@ -3,8 +3,9 @@
 // Matches the per-wallet internal source-of-truth (account_flows rows on the
 // wallet's own cash account) against external statement lines for the same
 // wallet, using ref-equality first and amount/time-window fuzzy fallback.
-// 戊波一 T11：纳入 = 钱包现金户上 POSTED 的行，**排除 sourceType = RECON_ADJUSTMENT**
-// （调账行只进余额不进匹配）；不再按 walletRef 标签 / 注册表码集过滤。
+// 戊波一 T11：纳入 = 钱包现金户上 POSTED 的行；不再按 walletRef 标签 / 注册表码集过滤。
+// 戊波二 T9b：调账流水不再按 sourceType 整体排除——两锚皆空的调账流水不进池（只进余额），
+// 有锚的进池由第 0 轮按锚配对（spec §4.5）；认损补缺单的记短缺流水（sourceType INTERNAL_TRANSFER）同走第 0 轮。
 
 import { Prisma } from '@prisma/client';
 import { WalletFlowMatcherService } from './wallet-flow-matcher.service';
@@ -17,28 +18,29 @@ const CASH = 'cafe0000000000000000000000000001';
 const OTHER = 'beef0000000000000000000000000002';
 
 function makePrismaMock(flows: any[]) {
+  const eff = (x: any) => x.effectiveDate ?? x.createdAt.toISOString().slice(0, 10);
+  // 忠实复刻 effectiveCutoffFilter 的三支（同 wallet-balance-checker 那份）。
+  const cutoffBranch = (f: any, cond: any): boolean => {
+    if (cond.effectiveDate?.lt !== undefined) return eff(f) < cond.effectiveDate.lt;
+    if (eff(f) !== cond.effectiveDate) return false;
+    if (cond.createdAt?.lte) return f.createdAt <= cond.createdAt.lte;
+    if (cond.createdAt?.gt) return f.createdAt > cond.createdAt.gt;
+    return true;
+  };
+  // 递归复刻 where：按户取 / POSTED / sourceType not / id in / AND / OR（OR 的分支要么是截止点三支，要么是普通条件）。
+  const matches = (f: any, w: any): boolean => {
+    if (w.tbAccountId !== undefined && (f.tbAccountId ?? CASH) !== w.tbAccountId) return false;
+    if (w.transferType && (f.transferType ?? 'POSTED') !== w.transferType) return false;
+    if (w.sourceType?.not !== undefined && (f.sourceType ?? 'DEPOSIT') === w.sourceType.not) return false;
+    if (w.id?.in && !w.id.in.includes(f.id)) return false;
+    if (w.AND && !w.AND.every((x: any) => matches(f, x))) return false;
+    if (w.OR && !w.OR.some((c: any) => (c.effectiveDate !== undefined ? cutoffBranch(f, c) : matches(f, c)))) return false;
+    return true;
+  };
   return {
     accountFlow: {
       findMany: jest.fn(async ({ where }: any) => {
-        return flows.filter((f) => {
-          // 按户取：必须按现金户号查，不是按 walletRef 标签。
-          if ((f.tbAccountId ?? CASH) !== where.tbAccountId) return false;
-          if (where.transferType && (f.transferType ?? 'POSTED') !== where.transferType) return false;
-          if (where.sourceType?.not !== undefined && (f.sourceType ?? 'DEPOSIT') === where.sourceType.not) return false;
-          const eff = (x: any) => x.effectiveDate ?? x.createdAt.toISOString().slice(0, 10);
-          if (where.OR) {
-            // 忠实复刻 effectiveCutoffFilter 的三支（同 wallet-balance-checker 那份）。
-            const pass = where.OR.some((cond: any) => {
-              if (cond.effectiveDate?.lt !== undefined) return eff(f) < cond.effectiveDate.lt;
-              if (eff(f) !== cond.effectiveDate) return false;
-              if (cond.createdAt?.lte) return f.createdAt <= cond.createdAt.lte;
-              if (cond.createdAt?.gt) return f.createdAt > cond.createdAt.gt;
-              return true;
-            });
-            if (!pass) return false;
-          }
-          return true;
-        }).map((f) => ({
+        return flows.filter((f) => matches(f, where)).map((f) => ({
           ...f,
           amount: new Prisma.Decimal(f.amount),
         }));
@@ -76,7 +78,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
-      cashTbAccountId: CASH,
+      cashTbAccountId: CASH, explainedAnchors: [],
       externalLines: [
         { id: 'ext-1', direction: 'IN', amount: D(1000), externalRef: '0xabc', datetime: new Date('2026-06-26T10:00:30Z') },
       ],
@@ -104,7 +106,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
-      cashTbAccountId: CASH,
+      cashTbAccountId: CASH, explainedAnchors: [],
       externalLines: [],
       cutoff,
       decimals: 0,
@@ -125,7 +127,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
-      cashTbAccountId: CASH,
+      cashTbAccountId: CASH, explainedAnchors: [],
       externalLines: [
         { id: 'ext-2', direction: 'IN', amount: D(2000), externalRef: '0xzzz', datetime: new Date('2026-06-26T12:00:00Z') },
       ],
@@ -155,7 +157,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
-      cashTbAccountId: CASH,
+      cashTbAccountId: CASH, explainedAnchors: [],
       externalLines: [
         { id: 'ext-3', direction: 'IN', amount: D(101), externalRef: '0xsame', datetime: new Date('2026-06-26T10:00:30Z') },
       ],
@@ -187,7 +189,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
-      cashTbAccountId: CASH,
+      cashTbAccountId: CASH, explainedAnchors: [],
       externalLines: [
         { id: 'ext-4', direction: 'IN', amount: D(750), externalRef: null, datetime: new Date('2026-06-26T10:30:00Z') },
       ],
@@ -213,7 +215,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
-      cashTbAccountId: CASH,
+      cashTbAccountId: CASH, explainedAnchors: [],
       externalLines: [
         // 2 hours later → outside default 60-min window
         { id: 'ext-5', direction: 'IN', amount: D(750), externalRef: null, datetime: new Date('2026-06-26T12:00:00Z') },
@@ -244,7 +246,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
-      cashTbAccountId: CASH,
+      cashTbAccountId: CASH, explainedAnchors: [],
       externalLines: [
         { id: 'ext-dep', direction: 'IN', amount: D(2500), externalRef: '0xdeposit', datetime: new Date('2026-06-26T10:00:20Z') },
       ],
@@ -267,7 +269,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
-      cashTbAccountId: CASH,
+      cashTbAccountId: CASH, explainedAnchors: [],
       externalLines: [],
       cutoff,
       decimals: 0,
@@ -275,7 +277,7 @@ describe('WalletFlowMatcherService', () => {
     expect(result.orphanInternal.map((o) => o.internalFlowId)).toEqual(['flow-cash']);
   });
 
-  it('rows with sourceType RECON_ADJUSTMENT are excluded from candidates (they count in the balance, not in matching)', async () => {
+  it('anchorless RECON_ADJUSTMENT rows are excluded from candidates (they count in the balance, not in matching)', async () => {
     const prisma = makePrismaMock([
       { id: 'flow-adj', direction: 'OUT', amount: 300, externalRef: null, eventCode: 'RECON_ADJUSTMENT_POSTED',
         sourceType: 'RECON_ADJUSTMENT', createdAt: new Date('2026-06-26T11:00:00Z') },
@@ -286,7 +288,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
-      cashTbAccountId: CASH,
+      cashTbAccountId: CASH, explainedAnchors: [],
       externalLines: [],
       cutoff,
       decimals: 0,
@@ -304,7 +306,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'w-cust',
-      cashTbAccountId: CASH,
+      cashTbAccountId: CASH, explainedAnchors: [],
       externalLines: [
         { id: 'ext-300', direction: 'OUT', amount: D(300), externalRef: null, datetime: new Date('2026-06-26T10:00:10Z') },
       ],
@@ -315,6 +317,172 @@ describe('WalletFlowMatcherService', () => {
     expect(result.orphanExternal).toHaveLength(1);
   });
 
+  // ── Pass 0：锚配对（戊波二 T9b，spec §4.5）──────────────────────────────────
+  describe('pass 0: anchor pairing of posted adjustments / recognized shortfalls', () => {
+    const at = (h: number) => new Date(`2026-06-26T${String(h).padStart(2, '0')}:00:00Z`);
+    const run = (flows: any[], externalLines: any[], explainedAnchors: any[]) => {
+      const prisma = makePrismaMock(flows);
+      const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
+      return svc.matchFlows({ walletRef: 'w-cust', cashTbAccountId: CASH, externalLines, explainedAnchors, cutoff, decimals: 0 });
+    };
+    const ext = (id: string, direction: 'IN' | 'OUT', amount: number, externalRef: string | null = null) =>
+      ({ id, direction, amount: D(amount), externalRef, datetime: at(10) });
+    const deposit = (id: string, direction: 'IN' | 'OUT', amount: number, externalRef: string | null) =>
+      ({ id, direction, amount, externalRef, eventCode: 'DEPOSIT_CONFIRMED', sourceType: 'DEPOSIT', createdAt: at(10) });
+    const adj = (id: string, direction: 'IN' | 'OUT', amount: number) =>
+      ({ id, direction, amount, externalRef: null, eventCode: 'RECON_ADJUSTMENT_POSTED', sourceType: 'RECON_ADJUSTMENT', createdAt: at(12) });
+
+    it('external-line anchor + flow anchor, signed sum equals the external line → ONE matched pair, resolution = the adjustment no (scene 16 shape)', async () => {
+      // 内部记 IN 3000，对账单只有 IN 2925（少 75）；调账 OUT 75，两个锚都记着。
+      const r = await run(
+        [deposit('f-orig', 'IN', 3000, '0xr'), adj('f-adj', 'OUT', 75)],
+        [ext('e-1', 'IN', 2925, '0xr')],
+        [{ flowId: 'f-adj', anchorFlowId: 'f-orig', anchorExternalLineId: 'e-1', byNo: 'ADJ1' }],
+      );
+      expect(r.matched).toEqual([{
+        internalFlowId: 'f-orig', externalLineId: 'e-1', via: 'anchor', resolution: 'ADJ1', groupFlowIds: ['f-orig', 'f-adj'],
+      }]);
+      expect(r.mismatch).toHaveLength(0);
+      expect(r.orphanInternal).toHaveLength(0);
+      expect(r.orphanExternal).toHaveLength(0);
+    });
+
+    it('external-line anchor only (no flow anchor): the adjustment flow alone is compared with the external line', async () => {
+      // 外部多出一笔 IN 500 的银行利息，内部没有；补记 IN 500，只锚外部行。
+      const r = await run([adj('f-adj', 'IN', 500)], [ext('e-int', 'IN', 500)],
+        [{ flowId: 'f-adj', anchorExternalLineId: 'e-int', byNo: 'ADJ2' }]);
+      expect(r.matched).toEqual([{
+        internalFlowId: 'f-adj', externalLineId: 'e-int', via: 'anchor', resolution: 'ADJ2', groupFlowIds: ['f-adj'],
+      }]);
+      expect(r.orphanInternal).toHaveLength(0);
+      expect(r.orphanExternal).toHaveLength(0);
+    });
+
+    it('a shortfall-recognition flow (sourceType INTERNAL_TRANSFER, an OUT) pairs with its anchored external line just the same (ITR no)', async () => {
+      // 事故路：托管里幽灵转出一笔 OUT 750；认损补缺单记短缺（码 91）OUT 750，锚 = 那条外部行。
+      const r = await run(
+        [{ id: 'f-91', direction: 'OUT', amount: 750, externalRef: null, eventCode: 'INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED', sourceType: 'INTERNAL_TRANSFER', createdAt: at(12) }],
+        [ext('e-ghost', 'OUT', 750, 'GHOST')],
+        [{ flowId: 'f-91', anchorExternalLineId: 'e-ghost', byNo: 'ITR1' }],
+      );
+      expect(r.matched).toEqual([{
+        internalFlowId: 'f-91', externalLineId: 'e-ghost', via: 'anchor', resolution: 'ITR1', groupFlowIds: ['f-91'],
+      }]);
+      expect(r.orphanExternal).toHaveLength(0);
+    });
+
+    it('external-line anchor, signed sum differs from the external line → AMOUNT_MISMATCH carrying the group net (an under-corrected adjustment does not explain the row)', async () => {
+      // 差 75，但调账只做了 OUT 50：组内净额 2950 ≠ 对账单 2925。
+      const r = await run(
+        [deposit('f-orig', 'IN', 3000, '0xr'), adj('f-adj', 'OUT', 50)],
+        [ext('e-1', 'IN', 2925, '0xr')],
+        [{ flowId: 'f-adj', anchorFlowId: 'f-orig', anchorExternalLineId: 'e-1', byNo: 'ADJ3' }],
+      );
+      expect(r.matched).toHaveLength(0);
+      expect(r.mismatch).toEqual([{
+        internalFlowId: 'f-orig', externalLineId: 'e-1', internalAmount: '2950', externalAmount: '2925', ref: '0xr',
+      }]);
+      expect(r.orphanInternal).toHaveLength(0);
+      expect(r.orphanExternal).toHaveLength(0);
+    });
+
+    it('flow anchor only, net 0 → the pair cancels inside the wallet: MATCHED internal-to-internal (no external line), resolution = the adjustment no', async () => {
+      // 重复入账 IN 800，冲正 OUT 800：净 0，对账单上本来就没有它。
+      const r = await run(
+        [deposit('f-dup', 'IN', 800, '0xdup'), adj('f-rev', 'OUT', 800)],
+        [],
+        [{ flowId: 'f-rev', anchorFlowId: 'f-dup', byNo: 'ADJ4' }],
+      );
+      expect(r.matched).toEqual([{
+        internalFlowId: 'f-dup', externalLineId: null, via: 'anchor', resolution: 'ADJ4', groupFlowIds: ['f-dup', 'f-rev'],
+      }]);
+      expect(r.orphanInternal).toHaveLength(0);
+    });
+
+    it('flow anchor only, net ≠ 0 → ONE synthetic internal row (net amount, net direction, the anchor flow\'s externalRef) enters Pass 1', async () => {
+      // 内部 IN 1000（ref R），冲正了 OUT 100，对账单 IN 900（ref R）：合成行 IN 900 / R 与对账单按单号配上。
+      const r = await run(
+        [deposit('f-orig', 'IN', 1000, 'R'), adj('f-adj', 'OUT', 100)],
+        [ext('e-r', 'IN', 900, 'R')],
+        [{ flowId: 'f-adj', anchorFlowId: 'f-orig', byNo: 'ADJ5' }],
+      );
+      expect(r.matched).toEqual([{ internalFlowId: 'f-orig', externalLineId: 'e-r', via: 'ref' }]);
+      expect(r.mismatch).toHaveLength(0);
+      expect(r.orphanInternal).toHaveLength(0);
+      expect(r.orphanExternal).toHaveLength(0);
+    });
+
+    it('flow anchor only, net ≠ 0 and nothing on the statement agrees → the synthetic row is the orphan (net amount, not the original row amount)', async () => {
+      const r = await run(
+        [deposit('f-orig', 'IN', 1000, 'R'), adj('f-adj', 'OUT', 100)],
+        [],
+        [{ flowId: 'f-adj', anchorFlowId: 'f-orig', byNo: 'ADJ5' }],
+      );
+      expect(r.orphanInternal).toEqual([{
+        internalFlowId: 'f-orig', eventCode: 'DEPOSIT_CONFIRMED', amount: '900', direction: 'IN', externalRef: 'R',
+      }]);
+      expect(r.matched).toHaveLength(0);
+    });
+
+    it('an anchored adjustment flow is in the candidate pool, an anchorless one is not (it only counts in the balance)', async () => {
+      const r = await run(
+        [adj('f-anchored', 'OUT', 800), adj('f-bare', 'OUT', 300)],
+        [],
+        [
+          { flowId: 'f-anchored', anchorFlowId: 'not-in-this-wallet', byNo: 'ADJ6' },
+          { flowId: 'f-bare', byNo: 'ADJ7' },
+        ],
+      );
+      // 锚在本钱包都落空 → 留在池里照常走后面的轮次（这里没有对手，成了孤儿，看得见）；无锚的那条压根不在池里。
+      expect(r.orphanInternal.map((o) => o.internalFlowId)).toEqual(['f-anchored']);
+    });
+
+    it('reattribution: the wronged-from wallet cancels its ghost against the OUT leg; the rightful wallet pairs its IN leg with the anchored external line (one adjustment, two wallets)', async () => {
+      const anchors = [{ flowId: '', anchorFlowId: 'f-ghost', anchorExternalLineId: 'e-to', byNo: 'ADJ8' }];
+      // 错记方钱包：幽灵 IN 875 + 改记现金对的 OUT 875；外部行 e-to 不是它的。
+      const fromSide = await run(
+        [deposit('f-ghost', 'IN', 875, 'X'), adj('f-cash-out', 'OUT', 875)],
+        [],
+        anchors.map((a) => ({ ...a, flowId: 'f-cash-out' })),
+      );
+      expect(fromSide.matched).toEqual([{
+        internalFlowId: 'f-ghost', externalLineId: null, via: 'anchor', resolution: 'ADJ8', groupFlowIds: ['f-ghost', 'f-cash-out'],
+      }]);
+      expect(fromSide.orphanInternal).toHaveLength(0);
+      // 正主方钱包：改记现金对的 IN 875 对上银行单上那条 IN 875；幽灵流水不是它的。
+      const toSide = await run(
+        [adj('f-cash-in', 'IN', 875)],
+        [ext('e-to', 'IN', 875, 'ZANDREF')],
+        anchors.map((a) => ({ ...a, flowId: 'f-cash-in' })),
+      );
+      expect(toSide.matched).toEqual([{
+        internalFlowId: 'f-cash-in', externalLineId: 'e-to', via: 'anchor', resolution: 'ADJ8', groupFlowIds: ['f-cash-in'],
+      }]);
+      expect(toSide.orphanExternal).toHaveLength(0);
+    });
+  });
+
+  it('截止点过滤在「非（调账流水 ∧ 两锚皆空）」组合之后仍然生效：截止点之后写入的同日流水（含有锚的调账流水）不进池', async () => {
+    // cutoff = 2026-06-26T23:59:59Z = 迪拜 06-27 03:59:59；同日（06-27）、写入时刻晚于截止点又没越过当日日终 → 三支都不中
+    const late = new Date('2026-06-27T01:00:00Z');
+    const prisma = makePrismaMock([
+      { id: 'flow-in-window', direction: 'IN', amount: 100, externalRef: '0xin', eventCode: 'DEPOSIT_CONFIRMED',
+        sourceType: 'DEPOSIT', createdAt: new Date('2026-06-26T10:00:00Z') },
+      { id: 'flow-late', direction: 'IN', amount: 200, externalRef: '0xlate', eventCode: 'DEPOSIT_CONFIRMED',
+        sourceType: 'DEPOSIT', createdAt: late, effectiveDate: '2026-06-27' },
+      { id: 'flow-late-adj', direction: 'OUT', amount: 50, externalRef: null, eventCode: 'RECON_ADJUSTMENT_POSTED',
+        sourceType: 'RECON_ADJUSTMENT', createdAt: late, effectiveDate: '2026-06-27' },
+    ]);
+    const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
+    const result = await svc.matchFlows({
+      walletRef: 'w-cust', cashTbAccountId: CASH,
+      explainedAnchors: [{ flowId: 'flow-late-adj', anchorFlowId: 'flow-late', byNo: 'ADJ9' }],
+      externalLines: [], cutoff, decimals: 0,
+    });
+    expect(result.orphanInternal.map((o) => o.internalFlowId)).toEqual(['flow-in-window']);
+    expect(result.matched).toHaveLength(0);
+  });
+
   it('PENDING transfers are not on any statement yet → not candidates', async () => {
     const prisma = makePrismaMock([
       { id: 'flow-pending', direction: 'OUT', amount: 100, externalRef: null, eventCode: 'WITHDRAW_LOCK',
@@ -322,7 +490,7 @@ describe('WalletFlowMatcherService', () => {
     ]);
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
-      walletRef: 'w-cust', cashTbAccountId: CASH, externalLines: [], cutoff, decimals: 0,
+      walletRef: 'w-cust', cashTbAccountId: CASH, explainedAnchors: [], externalLines: [], cutoff, decimals: 0,
     });
     expect(result.orphanInternal).toHaveLength(0);
   });
@@ -335,7 +503,7 @@ describe('WalletFlowMatcherService', () => {
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
     const result = await svc.matchFlows({
       walletRef: 'EXT-ACCT-1',
-      cashTbAccountId: null,
+      cashTbAccountId: null, explainedAnchors: [],
       externalLines: [
         { id: 'ext-x', direction: 'IN', amount: D(100), externalRef: '0xx', datetime: new Date('2026-06-26T10:00:10Z') },
       ],
@@ -360,7 +528,7 @@ describe('WalletFlowMatcherService', () => {
       },
     ]);
     const svc = new WalletFlowMatcherService(prisma as any, noOrdersFundsOrderService);
-    const result = await svc.matchFlows({ walletRef: 'w-cust', cashTbAccountId: CASH, externalLines: [], cutoff, decimals: 0 });
+    const result = await svc.matchFlows({ walletRef: 'w-cust', cashTbAccountId: CASH, explainedAnchors: [], externalLines: [], cutoff, decimals: 0 });
     expect(result.orphanInternal).toHaveLength(1);
   });
 
@@ -384,7 +552,7 @@ describe('WalletFlowMatcherService', () => {
         ]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, externalLines: [extLine('IN', 100, '0xabc')], cutoff: now, decimals: 0 });
+      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, explainedAnchors: [], externalLines: [extLine('IN', 100, '0xabc')], cutoff: now, decimals: 0 });
       expect(res.inTransit).toHaveLength(1);
       expect(res.inTransit[0].fundsOrderNo).toBe('FO-9');
       expect(res.orphanExternal).toHaveLength(0);
@@ -395,7 +563,7 @@ describe('WalletFlowMatcherService', () => {
         findNonTerminalByWallet: jest.fn().mockResolvedValue([]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, externalLines: [extLine('IN', 100, '0xabc')], cutoff: now, decimals: 0 });
+      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, explainedAnchors: [], externalLines: [extLine('IN', 100, '0xabc')], cutoff: now, decimals: 0 });
       expect(res.orphanExternal).toHaveLength(1);
       expect(res.inTransit).toHaveLength(0);
     });
@@ -415,7 +583,7 @@ describe('WalletFlowMatcherService', () => {
         ]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, externalLines: [extLine('IN', 100, '0xabc', now)], cutoff: now, decimals: 0 });
+      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, explainedAnchors: [], externalLines: [extLine('IN', 100, '0xabc', now)], cutoff: now, decimals: 0 });
       expect(res.inTransit).toHaveLength(0);
       expect(res.orphanExternal).toHaveLength(1);
     });
@@ -442,7 +610,7 @@ describe('WalletFlowMatcherService', () => {
         ]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, externalLines: [extLine('IN', 300, '0xhit', now)], cutoff: now, decimals: 0 });
+      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, explainedAnchors: [], externalLines: [extLine('IN', 300, '0xhit', now)], cutoff: now, decimals: 0 });
       expect(res.inTransit).toHaveLength(1);
       expect(res.inTransit[0].fundsOrderNo).toBe('FO-REFHIT');
     });
@@ -467,7 +635,7 @@ describe('WalletFlowMatcherService', () => {
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
       const res = await matcher.matchFlows({
         walletRef: 'W1',
-        cashTbAccountId: CASH,
+        cashTbAccountId: CASH, explainedAnchors: [],
         externalLines: [extLine('IN', 200, null, now)],
         cutoff: now,
         decimals: 0,
@@ -496,7 +664,7 @@ describe('WalletFlowMatcherService', () => {
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
       const result = await matcher.matchFlows({
         walletRef: 'w',
-        cashTbAccountId: CASH,
+        cashTbAccountId: CASH, explainedAnchors: [],
         externalLines: [extLine('OUT', 49800, '0xr')], // 分
         cutoff, decimals: 2,
       } as any);
@@ -520,7 +688,7 @@ describe('WalletFlowMatcherService', () => {
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
       const result = await matcher.matchFlows({
         walletRef: 'w',
-        cashTbAccountId: CASH,
+        cashTbAccountId: CASH, explainedAnchors: [],
         externalLines: [extLine('IN', 3000000, '0xu')], // 分
         cutoff, decimals: 6,
       } as any);
@@ -544,7 +712,7 @@ describe('WalletFlowMatcherService', () => {
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
       const result = await matcher.matchFlows({
         walletRef: 'w',
-        cashTbAccountId: CASH,
+        cashTbAccountId: CASH, explainedAnchors: [],
         externalLines: [extLine('OUT', 438056, '0xr')], // 分
         cutoff, decimals: 2,
       } as any);
@@ -564,7 +732,7 @@ describe('WalletFlowMatcherService', () => {
         ]),
       };
       const matcher = makeMatcherWithFundsOrders(fundsOrderService);
-      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, externalLines: [extLine('IN', 100, '0xts', at)], cutoff: now, decimals: 0 });
+      const res = await matcher.matchFlows({ walletRef: 'W1', cashTbAccountId: CASH, explainedAnchors: [], externalLines: [extLine('IN', 100, '0xts', at)], cutoff: now, decimals: 0 });
       expect(res.inTransit).toHaveLength(1);
       expect(res.inTransit[0].externalTimestamp).toEqual(at);
     });

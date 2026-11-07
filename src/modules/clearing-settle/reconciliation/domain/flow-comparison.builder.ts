@@ -4,14 +4,10 @@ import { PrismaService } from '../../../../core/prisma/prisma.service';
 import {
   WalletFlowMatcherService,
   ExternalStatementLineInput,
+  internalFlowWhere,
 } from '../engine/v2/wallet-flow-matcher.service';
-import { effectiveCutoffFilter } from '../engine/v2/effective-cutoff';
 import { WalletBalanceCheckerService } from '../engine/v2/wallet-balance-checker.service';
-import { RECON_ADJUSTMENT_SOURCE_TYPE } from '../disposition/adjustment-rules';
-import {
-  ExplainedDifferenceService,
-  explainedBy,
-} from '../disposition/explained-difference.service';
+import { ExplainedDifferenceService } from '../disposition/explained-difference.service';
 import {
   FlowComparisonRow,
   FlowComparisonSummary,
@@ -86,19 +82,17 @@ export class FlowComparisonBuilder {
     }));
     const extById = new Map(externalRowsRaw.map((r) => [r.id, r]));
 
-    // 内部侧 = 案子钱包现金户上已落账（POSTED）的行，排除调账行——与匹配器、余额检查器同一纳入条件
-    // （都按现金户 tbAccountId 取、只取 POSTED）：挂起未落账的转账还没穿越，调账行只进余额、不进逐行对照
-    // （这里是配对结果的取行来源，几处口径不许各管各的）。
+    // 内部侧 = 案子钱包现金户上已落账（POSTED）的行——取数条件与匹配器、余额检查器同一份（internalFlowWhere / 都按现金户
+    // tbAccountId 取、只取 POSTED）：挂起未落账的转账还没穿越；两锚皆空的调账行只进余额、不进逐行对照；有锚的调账 / 记短缺行
+    // 进来，由第 0 轮按锚配对（这里是配对结果的取行来源，几处口径不许各管各的）。
     // 案子的 walletRef 不是钱包行（未归属的外部账户）→ 没有现金户 → 内部侧为空，与匹配器的 null 路径一致。
     const cashAccount = await this.balanceChecker.resolveCashAccount(kase.walletRef);
+    // ④ 案件页要看得见「这条差异已被 ADJxxx / ITRxxx 解释」——与对账引擎用的是同一份锚点清单
+    // （explained-difference.service.ts），不各写一套判断。
+    const explainedAnchors = await this.explainedDifferences.indexForWallet(kase.walletRef, cashAccount?.tbAccountId ?? null);
     const internalRows = (cashAccount
       ? await this.prisma.accountFlow.findMany({
-        where: {
-          tbAccountId: cashAccount.tbAccountId,
-          transferType: 'POSTED',
-          sourceType: { not: RECON_ADJUSTMENT_SOURCE_TYPE },
-          ...effectiveCutoffFilter(cutoff),
-        },
+        where: internalFlowWhere(cashAccount.tbAccountId, cutoff, explainedAnchors),
         select: {
           id: true,
           direction: true,
@@ -137,28 +131,27 @@ export class FlowComparisonBuilder {
       walletRef: kase.walletRef,
       cashTbAccountId: cashAccount?.tbAccountId ?? null,
       externalLines,
+      explainedAnchors,
       cutoff,
       decimals: assetForDecimals?.decimals ?? 0,
     });
 
-    // ④ 案件页要看得见「这条差异已被 ADJxxx 解释」——与对账引擎算桶时用的是
-    // 同一份索引（explained-difference.service.ts），不各写一套判断。
-    const explained = await this.explainedDifferences.indexForWallet(kase.walletRef);
-
     const rows: FlowComparisonRow[] = [];
     for (const m of matcher.matched) {
-      const ext = extById.get(m.externalLineId);
+      const ext = m.externalLineId ? extById.get(m.externalLineId) : null;
       const intl = intById.get(m.internalFlowId);
-      if (!ext || !intl) continue;
+      if (!intl || (m.externalLineId && !ext)) continue;
       rows.push({
-        externalLine: {
-          id: ext.id,
-          externalRef: ext.externalRef,
-          amount: ext.amount.toString(),
-          direction: ext.direction as 'IN' | 'OUT',
-          timestamp: ext.datetime.toISOString(),
-          description: ext.description,
-        },
+        externalLine: ext
+          ? {
+            id: ext.id,
+            externalRef: ext.externalRef,
+            amount: ext.amount.toString(),
+            direction: ext.direction as 'IN' | 'OUT',
+            timestamp: ext.datetime.toISOString(),
+            description: ext.description,
+          }
+          : null,
         internalFlow: {
           id: intl.id,
           externalRef: intl.externalRef,
@@ -170,6 +163,8 @@ export class FlowComparisonBuilder {
           sourceNo: intl.sourceNo,
         },
         matchType: 'MATCHED',
+        // 第 0 轮锚配对配出来的行：解释它的调账单 / 认损补缺单号（Pass 1 / 2 配出来的行不挂注解）。
+        ...(m.resolution ? { explainedByAdjustmentNo: m.resolution } : {}),
       });
     }
     for (const oi of matcher.orphanInternal) {
@@ -188,7 +183,7 @@ export class FlowComparisonBuilder {
           sourceNo: intl.sourceNo,
         },
         matchType: 'ORPHAN_INTERNAL',
-        explainedByAdjustmentNo: explainedBy(explained, oi),
+        explainedByAdjustmentNo: null,
       });
     }
     for (const oe of matcher.orphanExternal) {
@@ -205,7 +200,7 @@ export class FlowComparisonBuilder {
         },
         internalFlow: null,
         matchType: 'ORPHAN_EXTERNAL',
-        explainedByAdjustmentNo: explainedBy(explained, oe),
+        explainedByAdjustmentNo: null,
       });
     }
     for (const m of matcher.mismatch) {
@@ -234,7 +229,7 @@ export class FlowComparisonBuilder {
         },
         matchType: 'AMOUNT_MISMATCH',
         deltaAmount: delta.toString(),
-        explainedByAdjustmentNo: explainedBy(explained, m),
+        explainedByAdjustmentNo: null,
       });
     }
 
