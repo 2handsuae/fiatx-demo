@@ -27,6 +27,16 @@ export const explainedSumMinor = (rows: Array<RowFacts & Pick<FlowComparisonRow,
     .reduce((sum, r) => sum + BigInt(r.explainedAmount ?? '0'), 0n)
     .toString();
 
+/**
+ * 戊波二 T11 修复（R41）：Hero「awaiting re-reconcile」的判据——有没有「附着的单据已落账、但这一行还没被上一轮对账轧掉」的行。
+ * 已落账 = 挂着的调账单 POSTED，或挂着的认损补缺单已记短缺（recognized，码 91 已落）；没被轧掉 = 行还是异常行（非 MATCHED）。
+ * 第 0 轮已配成 MATCHED 的行早已重对账过，不算；在途 / 对内差额行没有可附着的单，不算。
+ */
+export const awaitsReconcile = (rows: Array<Pick<FlowComparisonRow, 'matchType' | 'disposition' | 'transfer'>>): boolean =>
+  rows.some((r) =>
+    (r.matchType === 'ORPHAN_EXTERNAL' || r.matchType === 'ORPHAN_INTERNAL' || r.matchType === 'AMOUNT_MISMATCH')
+    && (r.disposition?.adjustmentStatus === 'POSTED' || r.transfer?.recognized === true));
+
 /** explainedByAdjustmentNo 可能是调账单号（ADJ…）也可能是认损补缺划转单号（ITR…）——各去各的详情页。 */
 export const explainedByKind = (no: string): 'TRANSFER' | 'ADJUSTMENT' =>
   no.startsWith('ITR') ? 'TRANSFER' : 'ADJUSTMENT';

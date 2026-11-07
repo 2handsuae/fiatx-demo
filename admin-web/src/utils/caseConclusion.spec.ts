@@ -85,12 +85,19 @@ describe('buildCaseConclusion', () => {
   });
 
   it('BREAK + 存在已解释行 → 已解释模板（不出现"全额未解释"字样）', () => {
-    const c = buildCaseConclusion({ ...base, explainedSum: '22800' }, fmt);
+    const c = buildCaseConclusion({ ...base, explainedSum: '22800', awaitingReconcile: true }, fmt);
     expect(c).toEqual({
       text: 'External balance is 735.50 AED short of our books — no in-transit cover; 228.00 explained, awaiting re-reconcile.',
       tone: 'red',
     });
     expect(c?.text).not.toContain('full amount unexplained');
+  });
+
+  it('戊波二 T11 修复（R41）：开着的案子 + 已解释行都已被上一轮配成 MATCHED（没有待轧的已落账单据）→ 只说 explained，不再 awaiting re-reconcile', () => {
+    const c = buildCaseConclusion({ ...base, explainedSum: '22800', awaitingReconcile: false }, fmt);
+    expect(c?.text).toBe('External balance is 735.50 AED short of our books — no in-transit cover; 228.00 explained.');
+    // 未传（undefined）同样不说——旗标是显式事实，缺省不等于「在等」
+    expect(buildCaseConclusion({ ...base, explainedSum: '22800' }, fmt)?.text).not.toContain('awaiting re-reconcile');
   });
 
   it('BREAK + deltaAmount 正值（盈余案，外部多于账上）→ in excess of，不说反话', () => {
@@ -112,7 +119,7 @@ describe('buildCaseConclusion', () => {
   });
 
   it('BREAK + 在途非零 + 存在已解释行 → 部分覆盖措辞落已解释模板分支', () => {
-    const c = buildCaseConclusion({ ...base, explain: { inTransitSigned: '5000', residual: '0' }, explainedSum: '22800' }, fmt);
+    const c = buildCaseConclusion({ ...base, explain: { inTransitSigned: '5000', residual: '0' }, explainedSum: '22800', awaitingReconcile: true }, fmt);
     expect(c).toEqual({
       text: 'External balance is 735.50 AED short of our books — partly covered by in-transit orders; 228.00 explained, awaiting re-reconcile.',
       tone: 'red',

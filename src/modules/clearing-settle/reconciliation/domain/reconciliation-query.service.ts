@@ -715,6 +715,7 @@ export class ReconciliationQueryService {
         direction: linkedAdjustment.direction as 'REDUCE' | 'INCREASE',
       } : {}),
       findingNote: d.findingNote, adjustmentNo: d.adjustmentNo ?? null,
+      adjustmentStatus: linkedAdjustment?.status ?? null,
       transferNo: d.transferNo ?? null,
       deferredTarget: d.deferredTarget ?? null,
       supplementNo: d.supplementNo ?? null,

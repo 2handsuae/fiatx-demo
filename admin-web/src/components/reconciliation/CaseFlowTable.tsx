@@ -46,6 +46,7 @@ import type { FlowComparisonRow, ReconCaseDetail } from '../../utils/reconTypes'
 import { formatAmount, minorToMajorPlain } from '../../utils/reconAmount';
 import { INTERNAL_TRANSFER_STATUS_LABEL as TRANSFER_STATUS_WORD } from '../../utils/internalTransferStatusMap';
 import { shortfallTopupChip } from '../../utils/shortfallTopup';
+import { adjustmentChip } from '../../utils/adjustmentChip';
 import { explainedByKind } from '../../utils/caseFlowRows';
 import { reasonDisplayLabel } from '../ReconciliationAdjustmentCreateModal';
 import { OUTLET_TONE, PAUSED_CAUSES } from '../../utils/causeRegistry';
@@ -155,8 +156,9 @@ export const CaseFlowTable = ({
       return { tone: 'green', label: `Explained · ${no}`, to: explainedByKind(no) === 'TRANSFER' ? transferHref(no) : adjustmentHref(no), check: true };
     }
     // 行上已挂着一张走不掉的单（调账单 / 补单）——那条单号本身就是唯一出口。
+    // 戊波二 T11 修复（R41）：调账单的标签随那张单的状态走（POSTED → Explained，重对账前后一致），与认损补缺单同路数。
     if (d?.adjustmentNo) {
-      return { tone: 'blue', label: `Pending CFO · ${d.adjustmentNo}`, to: adjustmentHref(d.adjustmentNo) };
+      return { ...adjustmentChip({ adjustmentNo: d.adjustmentNo, status: d.adjustmentStatus }), to: adjustmentHref(d.adjustmentNo) };
     }
     // 戊波二 T8：行上挂着认损补缺单——状态由那张单的 status × recognized 决定（待批 → 已记短缺补款中 → 已解释；
     // 补款腿失败时短缺已记在账上，入口不回来，裁定 15）。单号链到划转单详情。

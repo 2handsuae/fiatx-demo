@@ -25,6 +25,9 @@ export interface CaseConclusionInput {
   // explainedSumMinor——与 flowComparison 里 explainedByAdjustmentNo 非空行同一份
   // 数据源，避免结论句这里另算一套出现分歧）。最小单位整数字符串，未传按 '0' 处理。
   explainedSum?: string | null;
+  // 戊波二 T11 修复（R41）：「awaiting re-reconcile」只在还有没被上一轮对账轧掉的已落账单据时才说——
+  // 第 0 轮已配成 MATCHED 的行早已轧平（重对账过了），不触发；判定规则见 utils/caseFlowRows.ts 的 awaitsReconcile。
+  awaitingReconcile?: boolean;
 }
 
 export interface CaseConclusion { text: string; tone: ConclusionTone; }
@@ -73,7 +76,9 @@ export function buildCaseConclusion(
     if (!isZeroStr(k.explainedSum)) {
       base = {
         // 戊波二 T10：已结案的案子（页面按结案轮重建，被解释的行已是 MATCHED）不再「等重对账」——它已经重对过了。
-        text: `External balance is ${fmt(absStr(k.deltaAmount))} ${k.assetCode} ${dir} our books — ${coverPhrase}; ${fmt(k.explainedSum as string)} explained${k.status === 'RESOLVED' ? '' : ', awaiting re-reconcile'}.`,
+        // 戊波二 T11 修复（R41）：开着的案子也一样——已解释的行若已被上一轮配成 MATCHED 就不再等；只有页面判出
+        // 还有「已落账但没被轧掉」的行（awaitingReconcile）才带这句。
+        text: `External balance is ${fmt(absStr(k.deltaAmount))} ${k.assetCode} ${dir} our books — ${coverPhrase}; ${fmt(k.explainedSum as string)} explained${k.status !== 'RESOLVED' && k.awaitingReconcile ? ', awaiting re-reconcile' : ''}.`,
         tone: 'red',
       };
     } else {

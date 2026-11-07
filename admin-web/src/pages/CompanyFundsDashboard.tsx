@@ -566,10 +566,10 @@ const CompanyFundsDashboard = () => {
               )}
             </DetailCard>
 
-            {/* ── ②′ Due from LP — 戊波二 T10：LP 兑换批准后挂着的应收（码 51），LP 交货验收后冲平 ── */}
+            {/* ── ②′ Due from LP — 戊波二 T10：LP 兑换卖出腿确认后挂着的应收（码 51），LP 到货（码 85）一步冲平——早于验收 ── */}
             <DetailCard
               title="Due from LP — Pending Delivery"
-              description="What liquidity providers still owe us after an approved exchange. Clears when the LP delivers and the delivery is accepted."
+              description="What liquidity providers still owe us once the sell leg has cleared. Clears as soon as the LP delivers — the delivery then waits in transit for acceptance."
               columns={3}
             >
               {dueFromLp.length === 0 ? (

@@ -1767,6 +1767,7 @@ describe('getCase 行注解（spec §3/§8）', () => {
       outletLabel: DISPOSITION_LABEL.REVERSE, // 存储 outlet 反查处置种类（KIND_OF_OUTLET）→ DISPOSITION_LABEL
       findingNote: '银行/链上查无此笔，客户确认未收到通知',
       adjustmentNo: null,
+      adjustmentStatus: null, // 戊波二 T11 修复（R41）：没挂单恒 null
       transferNo: null, // 戊波二 T7a：认损补缺单号，与 adjustmentNo 平行（有值 = 行被认损补缺单锁住）
       deferredTarget: null,
       supplementNo: null,
@@ -1835,6 +1836,8 @@ describe('getCase 行注解（spec §3/§8）', () => {
     expect(row.disposition.reasonCode).toBe('AMT_MISBOOKED');
     expect(row.disposition.direction).toBe('INCREASE');
     expect(row.disposition.adjustmentNo).toBe('ADJ-2026-000001');
+    // 戊波二 T11 修复（R41）：行上带挂着那张调账单当下的状态（POSTED），前端据它打 Explained——不等重对账
+    expect(row.disposition.adjustmentStatus).toBe('POSTED');
   });
 
   // 对账处置原因字段统一（2026-11-04）：成因 = OTHER 的定性，行 Status 副行用的 causeLabel 打成

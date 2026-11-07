@@ -66,6 +66,8 @@ export interface FlowComparisonRow {
     reasonCode?: string; direction?: 'REDUCE' | 'INCREASE';
     findingNote: string;
     adjustmentNo: string | null;
+    // 戊波二 T11 修复（R41）：挂着的调账单当下的状态（POSTED = 已落账）；Status 标签随它走（utils/adjustmentChip.ts）。
+    adjustmentStatus?: string | null;
     // 戊波二 T8：认损补缺单号——与 adjustmentNo 平行，有值 = 这一行被一张认损补缺单锁住。
     transferNo?: string | null;
     createdBy: string; createdAt: string;

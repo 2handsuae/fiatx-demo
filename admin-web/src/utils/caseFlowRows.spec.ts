@@ -1,6 +1,6 @@
 // 戊波二 T10：被解释的 MATCHED 行默认可见 + 计入 Hero 已解释合计 + ITR 号去划转单页。
 import {
-  explainedByKind, explainedSumMinor, hiddenMatchedCount, isExplainedRow, visibleFlowRows,
+  awaitsReconcile, explainedByKind, explainedSumMinor, hiddenMatchedCount, isExplainedRow, visibleFlowRows,
 } from './caseFlowRows';
 
 import type { FlowMatchType } from './reconTypes';
@@ -60,5 +60,31 @@ describe('explainedByKind', () => {
   it('ITR… → 划转单页；ADJ… → 调账单页', () => {
     expect(explainedByKind('ITR261107362652')).toBe('TRANSFER');
     expect(explainedByKind('ADJ261107000001')).toBe('ADJUSTMENT');
+  });
+});
+
+// 戊波二 T11 修复（R41）：Hero「awaiting re-reconcile」只对「已落账但还没被上一轮轧掉」的行成立。
+describe('awaitsReconcile', () => {
+  type A = Parameters<typeof awaitsReconcile>[0][number];
+  const mm = (extra: Partial<A> = {}): A => ({ matchType: 'AMOUNT_MISMATCH', ...extra });
+  const withAdj = (status: string): A => mm({ disposition: { adjustmentStatus: status } as A['disposition'] });
+
+  it('异常行上挂的调账单已 POSTED（还没重对账）→ 在等', () => {
+    expect(awaitsReconcile([withAdj('POSTED')])).toBe(true);
+  });
+  it('调账单还没落账（待批 / 草稿）→ 不是在等重对账，是在等 CFO', () => {
+    expect(awaitsReconcile([withAdj('PENDING_APPROVAL'), withAdj('DRAFT')])).toBe(false);
+  });
+  it('认损补缺单已记短缺（recognized）而行还是异常行 → 在等；没记成 → 不等', () => {
+    const t = (recognized: boolean): A => mm({ transfer: { transferNo: 'ITR1', purpose: 'SHORTFALL_TOPUP', status: 'EXECUTING', recognized } });
+    expect(awaitsReconcile([t(true)])).toBe(true);
+    expect(awaitsReconcile([t(false)])).toBe(false);
+  });
+  it('已被第 0 轮配成 MATCHED 的行（带 explainedBy）早已轧掉，不触发；在途 / 对内差额行也不触发', () => {
+    const matched: A = { matchType: 'MATCHED', disposition: { adjustmentStatus: 'POSTED' } as A['disposition'], transfer: { transferNo: 'ITR1', purpose: 'SHORTFALL_TOPUP', status: 'SUCCESS', recognized: true } };
+    expect(awaitsReconcile([matched, { matchType: 'IN_TRANSIT' }, { matchType: 'INVARIANT' }])).toBe(false);
+  });
+  it('一条已轧掉、另一条异常行挂着已落账单据 → 仍在等（只要有一条没轧掉）', () => {
+    expect(awaitsReconcile([{ matchType: 'MATCHED' }, withAdj('POSTED')])).toBe(true);
   });
 });

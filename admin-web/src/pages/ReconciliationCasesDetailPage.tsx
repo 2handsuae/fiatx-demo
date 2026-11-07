@@ -41,7 +41,7 @@ import { BUCKET_LABELS, formatBucket, TONE_CLASSES } from '../utils/reconBucketM
 import type { FlowMatchType, FlowComparisonRow, ReconCaseDetail } from '../utils/reconTypes';
 import { formatAmount, minorToMajorPlain, isZeroAmount } from '../utils/reconAmount';
 import { buildCaseConclusion } from '../utils/caseConclusion';
-import { explainedSumMinor, hiddenMatchedCount, visibleFlowRows } from '../utils/caseFlowRows';
+import { awaitsReconcile, explainedSumMinor, hiddenMatchedCount, visibleFlowRows } from '../utils/caseFlowRows';
 import {
   AdminSessionError,
   adminFetch,
@@ -461,6 +461,8 @@ const ReconciliationCasesDetailPage = () => {
   // 戊波二 T10：第 0 轮锚配对之后，被解释的差异是带 explainedByAdjustmentNo 的 MATCHED 行（不再有 adjustmentPrefill），
   // 金额读后端下发的 explainedAmount（= 那张单自己落账的流水金额，认损补缺时就是记短缺那一笔）；求和规则见 utils/caseFlowRows.ts。
   const explainedSum = explainedSumMinor(kase.flowComparison ?? []);
+  // 戊波二 T11 修复（R41）：Hero「awaiting re-reconcile」只在还有已落账但没被上一轮轧掉的行时才说（规则见 caseFlowRows.ts）。
+  const awaitingReconcile = awaitsReconcile(kase.flowComparison ?? []);
 
   // 平账三期（Task 12）：「升级事故」/「登记欠款」按钮的防重复入口——案子已经登记过
   // 同类型事故（任何非撤回状态）就不再给按钮，改显示徽标（后端 §2 不查重，前端
@@ -525,7 +527,7 @@ const ReconciliationCasesDetailPage = () => {
             </div>
             {(() => {
               const c = buildCaseConclusion(
-                { ...kase, bucket: kase.bucket ?? null, explainedSum },
+                { ...kase, bucket: kase.bucket ?? null, explainedSum, awaitingReconcile },
                 (v) => formatAmount(v, kase.decimals),
               );
               if (!c) return null;

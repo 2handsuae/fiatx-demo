@@ -198,6 +198,9 @@ export interface FlowComparisonRow {
     family?: 'CORRECT' | 'REVERSE' | 'RECORD' | 'REATTRIBUTE' | 'WRITE_OFF';
     reasonCode?: string; direction?: 'REDUCE' | 'INCREASE';
     findingNote: string; adjustmentNo: string | null;
+    // 戊波二 T11 修复（R41）：挂着的那张调账单当下的状态（DRAFT / PENDING_APPROVAL / POSTED / REJECTED）——与 adjustmentNo 平行，
+    // 前端据它打 Pending CFO / Explained 标签（同认损补缺单的 transfer.status）；没挂单恒 null。
+    adjustmentStatus: string | null;
     // 戊波二 T7a：认损补缺单号——与 adjustmentNo 平行，有值 = 这一行被一张认损补缺单锁住（「已锁定」判定认两者之一）。
     transferNo: string | null;
     // 平账 B 批（spec §2.5）：出口去向 + 补单回挂单号 + 该单号的详情页引用（SIG… 无页面，id 为 null）。
