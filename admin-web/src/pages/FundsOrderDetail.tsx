@@ -82,6 +82,7 @@ interface FundsOrderDetail {
   toWallet: FoWallet | null;
   swapTransactionId?: string | null;
   internalTransferId?: string | null;
+  houseTransferId?: string | null;
   deposit?: FoParent | null;
   withdrawTransaction?: FoParent | null;
   swapTransaction?: FoParent | null;
@@ -95,6 +96,8 @@ interface FundsOrderDetail {
   // vendorPayment {id,payNo,status}）。
   capitalInjection?: { cinNo: string; status: string } | null;
   vendorPayment?: { payNo: string; status: string } | null;
+  // 戊波二 T6：第八种父键——公司调拨单。回链走业务号 transferNo（findOneByNoForAdmin 已下发 houseTransfer {id,transferNo,status}）。
+  houseTransfer?: { transferNo: string; status: string } | null;
   depositNo?: string | null;
   withdrawNo?: string | null;
   swapNo?: string | null;
@@ -200,6 +203,14 @@ const resolveParent = (
       no: data.vendorPayment.payNo,
       status: data.vendorPayment.status ?? '',
       route: '/admin/vendor-payments/' + data.vendorPayment.payNo,
+    };
+  }
+  if (data.houseTransfer?.transferNo) {
+    return {
+      kind: 'House transfer',
+      no: data.houseTransfer.transferNo,
+      status: data.houseTransfer.status ?? '',
+      route: '/admin/house-transfers/' + data.houseTransfer.transferNo,
     };
   }
   return null;
@@ -395,7 +406,8 @@ const FundsOrderDetail = () => {
     ((parent.kind !== 'Internal transfer' || hasPermission(PERMISSIONS.INTERNAL_TRANSFERS_READ)) &&
       (parent.kind !== 'LP exchange' || hasPermission(PERMISSIONS.LP_EXCHANGES_READ)) &&
       (parent.kind !== 'Capital injection' || hasPermission(PERMISSIONS.CAPITAL_INJECTIONS_READ)) &&
-      (parent.kind !== 'Vendor payment' || hasPermission(PERMISSIONS.VENDOR_PAYMENTS_READ)));
+      (parent.kind !== 'Vendor payment' || hasPermission(PERMISSIONS.VENDOR_PAYMENTS_READ)) &&
+      (parent.kind !== 'House transfer' || hasPermission(PERMISSIONS.HOUSE_TRANSFERS_READ)));
 
   // 平账·推单处置门控（Task 4；Task 7 补划转腿）：swap 腿走 Swap 详情页逐腿推进
   // （顺序守卫，本页 ⚡ 模拟面板的 isSwap 分支也走同一个 swap advance 端点——本页
@@ -404,10 +416,12 @@ const FundsOrderDetail = () => {
   // 说明（见下方 isTransferLeg 分支）。三条件与后端 loadPushable 拒绝语义一致。
   const isSwapLeg = !!data.swapTransactionId || !!data.swapNo;
   const isTransferLeg = !!data.internalTransferId;
+  // 戊波二 T6：调拨腿同样不进推单（后端 loadPushable 显式拒）——腿靠本页 ⚡ 模拟推进，落账由调拨工作流在腿确认时自动收口。
+  const isHouseTransferLeg = !!data.houseTransferId;
   const isTerminalStatus = ['CLEARED', 'FAILED', 'TIMEOUT'].includes(
     String(data.status || '').toUpperCase(),
   );
-  const canPush = canAct && !isSwapLeg && !isTransferLeg && !isTerminalStatus;
+  const canPush = canAct && !isSwapLeg && !isTransferLeg && !isHouseTransferLeg && !isTerminalStatus;
 
   const decimals = data.asset?.decimals;
   const assetCode = data.asset?.code || data.asset?.currency || '—';
@@ -659,6 +673,15 @@ const FundsOrderDetail = () => {
             <SidebarGroup title="Actions">
               <p className="text-[10px] leading-relaxed text-adm-t3">
                 Internal-transfer leg — advanced by the transfer workflow; see the linked transfer.
+              </p>
+            </SidebarGroup>
+          )}
+
+          {/* 戊波二 T6：调拨腿——推单动作块隐藏（同划转腿），原位说明改走 ⚡ 模拟 + 调拨单详情；与 Sync/Manual 区互斥。 */}
+          {isHouseTransferLeg && (
+            <SidebarGroup title="Actions">
+              <p className="text-[10px] leading-relaxed text-adm-t3">
+                House-transfer leg — advance it with the ⚡ simulation actions; the ledger entries post when it is confirmed. See the linked house transfer.
               </p>
             </SidebarGroup>
           )}

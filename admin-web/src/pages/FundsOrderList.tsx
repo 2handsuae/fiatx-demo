@@ -26,7 +26,7 @@ import {
 
 /* ── Types ──────────────────────────────────────────────────── */
 
-type ParentType = 'all' | 'deposit' | 'withdraw' | 'swap' | 'internal-transfer' | 'lp-exchange' | 'capital-injection' | 'vendor-payment';
+type ParentType = 'all' | 'deposit' | 'withdraw' | 'swap' | 'internal-transfer' | 'lp-exchange' | 'capital-injection' | 'vendor-payment' | 'house-transfer';
 
 interface FundsOrderItem {
   fundsOrderNo: string;
@@ -45,6 +45,8 @@ interface FundsOrderItem {
   // 战役乙波二 Task 6（T1 评审收口）：第六/第七种父键——注资单/付款单。
   cinNo?: string | null;
   payNo?: string | null;
+  // 戊波二 T6：第八种父键——公司调拨单。
+  houseTransferNo?: string | null;
   txHash?: string | null;
   referenceNo?: string | null;
 }
@@ -73,6 +75,7 @@ const PARENT_TYPES: Array<{ key: ParentType; label: string }> = [
   { key: 'lp-exchange', label: 'LP exchange' },
   { key: 'capital-injection', label: 'Capital injection' },
   { key: 'vendor-payment', label: 'Vendor payment' },
+  { key: 'house-transfer', label: 'House transfer' },
 ];
 
 /* ── Helpers ────────────────────────────────────────────────── */
@@ -88,6 +91,7 @@ const parentOf = (
   if (item.exchangeNo) return { kind: 'LP exchange', no: item.exchangeNo };
   if (item.cinNo) return { kind: 'Capital injection', no: item.cinNo };
   if (item.payNo) return { kind: 'Vendor payment', no: item.payNo };
+  if (item.houseTransferNo) return { kind: 'House transfer', no: item.houseTransferNo };
   return { kind: '—', no: null };
 };
 

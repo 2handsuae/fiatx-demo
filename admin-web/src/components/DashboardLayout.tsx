@@ -9,6 +9,7 @@ import {
   History,
   UserCog,
   ArrowLeftRight,
+  ArrowRightLeft,
   Download,
   Upload,
   Repeat,
@@ -314,6 +315,13 @@ const DashboardLayout = () => {
           label: 'Vendor Payments',
           icon: <Send size={13} />,
           requiredPermissions: [PERMISSIONS.VENDOR_PAYMENTS_READ],
+        },
+        // 戊波二 Task 6：公司调拨单——运营户与手续费户之间挪钱（扫费），金库开单，CFO 单步批。
+        {
+          path: '/admin/house-transfers',
+          label: 'House Transfers',
+          icon: <ArrowRightLeft size={13} />,
+          requiredPermissions: [PERMISSIONS.HOUSE_TRANSFERS_READ],
         },
         // 平账二期：公司 → 客户的补款 / 垫款划转单。2026-10-06 导航重组从原 Custody 组
         // 迁入——与 LP 迁移（乙波三裁定 9）同理，V7 财资动线归队。路由保留 custody/ 前缀

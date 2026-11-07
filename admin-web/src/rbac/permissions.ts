@@ -141,6 +141,14 @@ export const PERMISSIONS = {
   VENDOR_PAYMENT_CREATE: 'api.post.admin_vendor_payments',
   VENDOR_PAYMENT_CANCEL: 'api.post.admin_vendor_payments_payno_cancel',
 
+  // 戊波二（Task 6）：公司调拨单——四个码精确镜像 rbac.catalog.ts 里 T5 已登记的
+  // buildPermissionCode(method, path) 派生值（同上方 VENDOR_PAYMENT_* 先例）。
+  // 调拨单同付款单：腿推进走资金单页 ⚡，落账在腿事件里自动收口，故无 simulate / confirm 码。
+  HOUSE_TRANSFERS_READ: 'api.get.admin_house_transfers',
+  HOUSE_TRANSFER_DETAIL_READ: 'api.get.admin_house_transfers_transferno',
+  HOUSE_TRANSFER_WRITE: 'api.post.admin_house_transfers',
+  HOUSE_TRANSFER_CANCEL: 'api.post.admin_house_transfers_transferno_cancel',
+
   // 战役乙波二（Task 8）：公司资金全景看板——页面本身不消费任何专属后端端点（复用既有
   // TB_ACCOUNTS_READ/TB_FLOWS_READ 数据端点），但那两条数据路由同时被技术官/运营的
   // LEDGER_ACCOUNT_READ 覆盖，不能借来门控导航/路由。这个值不是 buildPermissionCode()
