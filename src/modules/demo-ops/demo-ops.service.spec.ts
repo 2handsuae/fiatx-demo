@@ -1,17 +1,8 @@
-import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const spawnMock = jest.fn();
-jest.mock('node:child_process', () => ({ spawn: (...args: unknown[]) => spawnMock(...args) }));
-
 import { DemoOpsService } from './demo-ops.service';
-
-class FakeChild extends EventEmitter {
-  stdout = new EventEmitter();
-  stderr = new EventEmitter();
-}
 
 describe('DemoOpsService', () => {
   // ⚠️ 环境变量恢复用「显式赋空串」而非 delete：@prisma/client 的 runtime 自带
@@ -22,7 +13,6 @@ describe('DemoOpsService', () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    spawnMock.mockReset();
     tmpDir = mkdtempSync(join(tmpdir(), 'demo-ops-'));
   });
 
@@ -40,10 +30,7 @@ describe('DemoOpsService', () => {
     it('DEMO_STATUS_PATH 未设 → boot=UNKNOWN（本地验收形态）', () => {
       process.env.DEMO_STATUS_PATH = '';
       const svc = new DemoOpsService();
-      expect(svc.readStatus()).toEqual({
-        boot: 'UNKNOWN',
-        reconBreak: { state: 'idle', tail: [], finishedAt: null },
-      });
+      expect(svc.readStatus()).toEqual({ boot: 'UNKNOWN' });
     });
 
     it('文件不存在 → boot=UNKNOWN 不抛错', () => {
@@ -87,49 +74,6 @@ describe('DemoOpsService', () => {
       jest.advanceTimersByTime(600);
       expect(exitSpy).toHaveBeenCalledWith(1);
       exitSpy.mockRestore();
-    });
-  });
-
-  describe('startReconBreak', () => {
-    it('spawn npm run recon:demo:break（继承 cwd/env），状态 running → done', () => {
-      const child = new FakeChild();
-      spawnMock.mockReturnValue(child);
-      const svc = new DemoOpsService();
-
-      expect(svc.startReconBreak()).toEqual({ accepted: true });
-      expect(spawnMock).toHaveBeenCalledWith('npm', ['run', 'recon:demo:break'], {
-        cwd: process.cwd(),
-        env: process.env,
-      });
-      expect(svc.readStatus().reconBreak.state).toBe('running');
-
-      child.stdout.emit('data', Buffer.from('mirror ok\ninjected 18 scenarios\n'));
-      child.emit('close', 0);
-      const after = svc.readStatus().reconBreak;
-      expect(after.state).toBe('done');
-      expect(after.tail).toContain('injected 18 scenarios');
-      expect(after.finishedAt).not.toBeNull();
-    });
-
-    it('退出码非 0 → fail，stderr 进 tail', () => {
-      const child = new FakeChild();
-      spawnMock.mockReturnValue(child);
-      const svc = new DemoOpsService();
-      svc.startReconBreak();
-      child.stderr.emit('data', Buffer.from('FATAL boom\n'));
-      child.emit('close', 1);
-      const after = svc.readStatus().reconBreak;
-      expect(after.state).toBe('fail');
-      expect(after.tail).toContain('FATAL boom');
-    });
-
-    it('spawn 自身报错（error 事件）→ fail', () => {
-      const child = new FakeChild();
-      spawnMock.mockReturnValue(child);
-      const svc = new DemoOpsService();
-      svc.startReconBreak();
-      child.emit('error', new Error('npm not found'));
-      expect(svc.readStatus().reconBreak.state).toBe('fail');
     });
   });
 });

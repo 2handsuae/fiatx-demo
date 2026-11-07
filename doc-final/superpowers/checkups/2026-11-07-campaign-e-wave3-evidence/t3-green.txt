@@ -1,0 +1,11 @@
+PASS src/modules/demo-ops/demo-ops.service.spec.ts
+[33m[Nest] 22280  - [39m11/08/2026, 12:05:49 AM [33m   WARN[39m [38;5;3m[DemoOpsService] [39m[33mdemo-ops: reset requested — exiting so systemd re-seeds from scratch[39m
+[33m[Nest] 22280  - [39m11/08/2026, 12:05:49 AM [33m   WARN[39m [38;5;3m[DemoOpsService] [39m[33mdemo-ops: reset requested — exiting so systemd re-seeds from scratch[39m
+PASS src/modules/demo-ops/demo-ops.controller.spec.ts
+PASS src/modules/demo-ops/demo-ops.module.spec.ts
+
+Test Suites: 3 passed, 3 total
+Tests:       10 passed, 10 total
+Snapshots:   0 total
+Time:        2.698 s, estimated 3 s
+Ran all test suites matching src/modules/demo-ops.

@@ -1,0 +1,2 @@
+$ grep -rn "recon-break\|reconBreak" src admin-web/src scripts deploy
+exit 1

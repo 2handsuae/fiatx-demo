@@ -17,7 +17,7 @@ export class DemoOpsController {
   constructor(private readonly demoOps: DemoOpsService) {}
 
   @Get('status')
-  @ApiOperation({ summary: 'Boot/reseed status + recon-break child state (unauthenticated by design)' })
+  @ApiOperation({ summary: 'Boot/reseed status (unauthenticated by design)' })
   status() {
     return this.demoOps.readStatus();
   }
@@ -28,13 +28,5 @@ export class DemoOpsController {
   @ApiOperation({ summary: 'Full re-seed: exit the process, systemd restarts and lays fresh demo data' })
   reset() {
     return this.demoOps.requestReset();
-  }
-
-  @Post('recon-break')
-  @UseGuards(AuthGuard('jwt'))
-  @ApiBearerAuth()
-  @ApiOperation({ summary: 'Restore the 18 reconciliation break scenarios (recon:demo:break)' })
-  reconBreak() {
-    return this.demoOps.startReconBreak();
   }
 }

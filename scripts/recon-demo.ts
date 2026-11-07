@@ -113,9 +113,6 @@ import { resolveDemoCustomers } from './demo-lib';
 // CAUSE_REGISTRY 同源——种子改错码、加错码、漏改码都会在这里炸编译。
 import type { CauseCode } from '../src/modules/clearing-settle/reconciliation/disposition/cause-registry';
 
-/** 认损补缺单记短缺（码 91）那条流水的 eventCode——internal-transfer-workflow.service.ts recognizeShortfall 写入。 */
-const SHORTFALL_RECOGNIZED_EVENT_CODE = 'INTERNAL_TRANSFER_SHORTFALL_RECOGNIZED';
-
 type Mode = 'pass' | 'break' | 'reset' | 'crisis';
 
 // Minimal ctx for the shared stuck-withdraw fixture (scenario 1). The fixture
@@ -492,9 +489,6 @@ async function planWallets(
           tbAccountId: cash.tbAccountId,
           transferType: 'POSTED',
           sourceType: { not: RECON_ADJUSTMENT_SOURCE_TYPE },
-          // 排除码 91（认损记短缺）。注意：assertNoAnchoredExplanations（R37 前置闸）在四种模式入口先跑，库里有已记短缺的认损补缺单时整个铺场已被拒，
-          // 这一行当前执行不到；是否保留留给波三定（见 wave3 skeleton 承接波二→悬挂项）。
-          eventCode: { not: SHORTFALL_RECOGNIZED_EVENT_CODE },
           createdAt: { lte: cutoff },
         },
         select: {

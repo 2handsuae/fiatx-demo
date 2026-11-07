@@ -1,7 +1,7 @@
 // admin-web/src/components/DemoOpsPanel.tsx
 // 云端演示自助还原面板（spec 2026-09-13-cloud-demo-ops-buttons-design.md §4）。
 // status 轮询用裸 fetch（免登录端点）：重铺期间后端整个不在、旧 token 已失效，
-// adminFetch 的 401 重定向会把轮询打断。只有两个 POST 走 adminFetch。
+// adminFetch 的 401 重定向会把轮询打断。只有 POST 走 adminFetch。
 import { useEffect, useRef, useState } from 'react';
 import { adminFetch, AdminSessionError, getApiErrorMessage } from '../utils/adminFetch';
 import { adminButtonClass } from './common/adminButtonStyles';
@@ -10,7 +10,6 @@ interface Props { open: boolean; onClose: () => void }
 
 interface DemoOpsStatus {
   boot: string;
-  reconBreak: { state: 'idle' | 'running' | 'done' | 'fail'; tail: string[]; finishedAt: string | null };
 }
 
 type ResetPhase = 'idle' | 'confirm' | 'resetting' | 'done';
@@ -20,8 +19,6 @@ const POLL_MS = 2000;
 const DemoOpsPanel = ({ open, onClose }: Props) => {
   const [status, setStatus] = useState<DemoOpsStatus | null>(null);
   const [resetPhase, setResetPhase] = useState<ResetPhase>('idle');
-  const [reconRequested, setReconRequested] = useState(false);
-  const [reconPending, setReconPending] = useState(false);
   const [error, setError] = useState('');
   // 重铺完成判定要「先见断线、再见 READY」：点击瞬间文件可能还是 READY。
   const sawDownRef = useRef(false);
@@ -36,7 +33,6 @@ const DemoOpsPanel = ({ open, onClose }: Props) => {
         const next = (await res.json()) as DemoOpsStatus;
         if (cancelled) return;
         setStatus(next);
-        if (next.reconBreak.state !== 'idle') setReconPending(false);
         setResetPhase((phase) =>
           phase === 'resetting' && sawDownRef.current && next.boot === 'READY' ? 'done' : phase,
         );
@@ -51,8 +47,7 @@ const DemoOpsPanel = ({ open, onClose }: Props) => {
 
   if (!open) return null;
 
-  const reconState = status?.reconBreak.state ?? 'idle';
-  const busy = resetPhase === 'resetting' || reconState === 'running' || reconPending;
+  const busy = resetPhase === 'resetting';
 
   const requestReset = async () => {
     setError('');
@@ -64,19 +59,6 @@ const DemoOpsPanel = ({ open, onClose }: Props) => {
     } catch (e) {
       if (e instanceof AdminSessionError) throw e;
       setError(e instanceof Error ? e.message : 'Failed to start the reset');
-    }
-  };
-
-  const requestReconBreak = async () => {
-    setError(''); setReconPending(true);
-    try {
-      const res = await adminFetch(`${import.meta.env.VITE_API_URL}/demo-ops/recon-break`, { method: 'POST' });
-      if (!res.ok) { setError(await getApiErrorMessage(res, 'Failed to start the restore')); setReconPending(false); return; }
-      setReconRequested(true);
-    } catch (e) {
-      if (e instanceof AdminSessionError) throw e;
-      setError(e instanceof Error ? e.message : 'Failed to start the restore');
-      setReconPending(false);
     }
   };
 
@@ -130,30 +112,6 @@ const DemoOpsPanel = ({ open, onClose }: Props) => {
               ) : (
                 <div className="flex justify-end">
                   <button type="button" disabled={busy} onClick={() => setResetPhase('confirm')} className={adminButtonClass('modalConfirm')}>Reset all demo data…</button>
-                </div>
-              )}
-            </div>
-
-            {/* ── Recon scenarios ── */}
-            <div className="rounded border border-adm-border p-3">
-              <div className="mb-1 text-xs font-medium text-adm-t1">Restore reconciliation scenarios</div>
-              <p className="mb-2 text-xs text-adm-t3">
-                Re-stages only the 18 reconciliation break scenarios (previous runs, cases and dispositions
-                are cleared). Customers, transactions and everything else stay untouched. Takes a few seconds.
-              </p>
-              {reconState === 'running' || reconPending ? (
-                <p className="text-xs text-adm-amber">Restoring… this takes a few seconds.</p>
-              ) : reconRequested && reconState === 'done' ? (
-                <p className="text-xs text-adm-t2">Done — 18 reconciliation scenarios restored. Open the reconciliation cases page to start over.</p>
-              ) : reconRequested && reconState === 'fail' ? (
-                <>
-                  <p className="mb-1 text-xs text-adm-red">Restore failed — last output:</p>
-                  <pre className="max-h-32 overflow-auto rounded bg-adm-hover/40 p-2 font-mono text-[10px] text-adm-t2">{(status?.reconBreak.tail ?? []).slice(-8).join('\n')}</pre>
-                </>
-              ) : null}
-              {reconState !== 'running' && !reconPending && (
-                <div className="mt-2 flex justify-end">
-                  <button type="button" disabled={busy} onClick={() => void requestReconBreak()} className={adminButtonClass('modalConfirm')}>Restore recon scenarios</button>
                 </div>
               )}
             </div>
