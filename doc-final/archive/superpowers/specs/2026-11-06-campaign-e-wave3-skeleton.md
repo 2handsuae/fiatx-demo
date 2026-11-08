@@ -71,6 +71,8 @@
 
 ## 收尾记录（2026-11-08 执行会话填写）
 
+- 合并基线（主会话 2026-11-08 填）：**已合 main，ff `fda02779`（21 个提交；基点 `365da391`）**，归档提交紧随其后（本骨架连同总纲、波二骨架、波三 spec / plan 一起移入 archive 的那一个）。合并后主目录已做：`prisma generate` → `npm run build` → `stack.sh reset main` → `up main` → `db:base:sync` → `demo:all`（花名册 35/35、asserts 5/5）→ `verify:coa`（四恒等式过、105 户全 ≥ 0），全部 exit 0。
+
 ### 实际交付（`git log --oneline 365da391..HEAD`）
 
 - T0 对照组与基线复用：`0effbdd0`（NLA 状态、计数、四张改前截图）；spec + plan：`dc94f70c`
@@ -109,6 +111,8 @@
 - 自动安全评审提出「已结案案件的 Books Δ 显示破口那一轮的值」：按 spec 保留（§0.1 第 18 行、Review Focus 4），报业主知悉。
 
 ### 归档待办
+
+> 2026-11-08 主会话：下列前五项已办（归档、`coa-v3.md:4` 链接、业主 BACKLOG 两行补回、重启 + sync + reset main）；仍待业主的只剩 `cloud:deploy` 与 `reference/roadmap.md` 两项。
 
 - 合并后由主会话归档：总纲 + 本骨架 + 波三 spec / plan → `archive/superpowers/{specs,plans}/`；归档后跑 `grep -rn "campaign-e" doc-final --exclude-dir=archive`，应只剩 CHANGELOG / decisions / 证据目录，以及 TOOLING-DEBT / BACKLOG / `demo/script.md` / `demo/baseline.md` / `reference/coa-v3.md` 对证据目录或战役名的引用（合法命中）。
 - 同时归档 `specs/2026-11-06-campaign-e-wave2-skeleton.md`；总纲归档后，`doc-final/reference/coa-v3.md:4` 指向总纲的路径改到 `archive/superpowers/specs/…`。

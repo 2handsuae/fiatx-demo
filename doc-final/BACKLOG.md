@@ -157,6 +157,8 @@ Last Updated: 2026-10-08（报送台整备波文档收口：销 6 行（整行�
 
 - [ ] **法币补缺 / 垫款腿 2 失败后款项停在结算户**（2026-09-05）：腿 1 已落账、账与钱一致，订单 FAILED，人工处理，不做自动退回 ｜来源: 平账二期 spec §3
 
+- [ ] **认领退汇余额不够时，一发起垫款，「登记欠款」入口就消失——按剧本先垫后扣的顺序，欠款登记不上**（2026-10-29）：差异行上的「Register shortfall」和「Initiate advance」挂在同一个条件下（行上有「待垫款」）；垫款单只要进入审批 / 执行 / 已成功，后端就不再给「待垫款」（`disposition/funding-next-step.ts:19`；规则函数按垫款单状态实跑：无单 / FAILED → 待垫款，PENDING_APPROVAL / EXECUTING / SUCCESS → 无），登记欠款按钮连同已登记徽标一起消失（`CaseFlowTable.tsx:116`）。结果是案件页上只能**先登记、再垫付**：剧本场景 17 先垫后扣、全程没有登记这一步，照预填说明的顺序（公司先垫、再登记欠款备追索）走就登记不上——decisions 2026-09-06「欠条只活在事故单上，不登记就隐形」。预填里的垫款单号（`sourceAdvanceTransferNo`）也只有垫款失败时才带得上 ｜ 落点：垫款发起后仍保留登记欠款入口（与已登记徽标）；剧本场景 17 补上登记一步 ｜来源: 2026-10-29 案件页差异行处置按钮简化讨论（读代码 + 规则函数实跑，未在页面上实走）
+
 - [x] ~~🔴 划转工作流一处绕过 FundsOrderService 直写 `fundsOrder` 表（铁律③）~~ —— **已修**（2026-09-15 复检当日）：`FundsOrderService` 新增 `stampExternalRef(id)`（铸法/幂等委托既有 `buildExternalRefPatch`，SUBMITTED 期预铸语义不变），workflow `onLegSubmitted` 改调、`as any` 直写与本地重复铸号逻辑删除（连 `fakeChainTxHash/fakeBankRef` 孤儿 import 一并摘）。全仓 `fundsOrder` 写点复归 funds-layer 独占。闸：jest 77/77（SUBMITTED 铸号用例改断言服务方法）+ 重铺闸 demo:all 29/29 + verify:coa 全绿 ｜来源: 2026-09-15 战役收官后复检，当日销账
 
 **场景 18 · 事故登记**

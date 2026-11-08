@@ -8,7 +8,7 @@
 
 **Tech Stack:** NestJS + Prisma + SQLite + TigerBeetle 0.17.3；React admin-web；jest（根目录跑，roots 含 `admin-web/src`）；e2e 经 `bash scripts/on-stack.sh self test:e2e`；preview 截图经 `demo-shot.js` 或内置浏览器。
 
-**Spec:** `doc-final/superpowers/specs/2026-11-07-campaign-e-wave3-closeout-spec.md`（§0 裁定 1–13 与 §0.1 施工检查订正 1–22 是权威；§1 已核事实的行号凡与 §0.1 冲突以 §0.1 为准；总纲 `2026-11-06-campaign-e-ledger-by-location-charter.md` §6 终闸；骨架 `2026-11-06-campaign-e-wave3-skeleton.md` 的承接与数字基线）
+**Spec:** `doc-final/archive/superpowers/specs/2026-11-07-campaign-e-wave3-closeout-spec.md`（已随合并归档）（§0 裁定 1–13 与 §0.1 施工检查订正 1–22 是权威；§1 已核事实的行号凡与 §0.1 冲突以 §0.1 为准；总纲 `2026-11-06-campaign-e-ledger-by-location-charter.md` §6 终闸；骨架 `2026-11-06-campaign-e-wave3-skeleton.md` 的承接与数字基线）
 
 ## Global Constraints
 

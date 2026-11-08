@@ -1,7 +1,7 @@
 # 科目表 · COA v3（战役戊定稿导出）
 
 > 状态：**现状（2026-11-07 戊波三定稿）**——科目表与 §2 记账总表都已按代码核对（`tb-account-codes.constant.ts`、`tb-transfer-codes.constant.ts` 与各工作流的记账调用）；规则叙述在 `modules/accounting-coa.md`，本文是它引用的全表与总表。
-> 来源：战役戊总纲（`superpowers/specs/2026-11-06-campaign-e-ledger-by-location-charter.md` 附录 A / B，战役收官后随总纲归档）。**总纲已不是依据**：科目表与总表以本文和代码为准，两者不一致以代码为准。
+> 来源：战役戊总纲（`archive/superpowers/specs/2026-11-06-campaign-e-ledger-by-location-charter.md` 附录 A / B，已于 2026-11-08 随战役收官归档）。**总纲已不是依据**：科目表与总表以本文和代码为准，两者不一致以代码为准。
 > 一句话：资产按「钱在哪儿」开户（每个真实账户 / 钱包一个现金户），负债、权益、收入、开支只记「是谁的、为什么」。
 
 ## 1. 科目表（COA v3）
